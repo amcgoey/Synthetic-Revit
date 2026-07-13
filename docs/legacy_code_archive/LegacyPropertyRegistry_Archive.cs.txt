@@ -1,0 +1,1140 @@
+            ForType<Element>()
+                .RegisterReadOnly("AssemblyInstanceId", x => x.AssemblyInstanceId)
+                .RegisterReadOnly("Category", x => x.Category != null ? GetIdVal(x.Category.Id) : -1)
+                .Register("CreatedPhaseId", x => x.CreatedPhaseId, (x, v) =>
+                {
+                    try { x.CreatedPhaseId = v; }
+                    catch (Autodesk.Revit.Exceptions.InvalidOperationException) { }
+                })
+                .Register("DemolishedPhaseId", x => x.DemolishedPhaseId, (x, v) =>
+                {
+                    try { x.DemolishedPhaseId = v; }
+                    catch (Autodesk.Revit.Exceptions.InvalidOperationException) { }
+                })
+                .RegisterReadOnly("DesignOption", x => x.DesignOption != null ? GetIdVal(x.DesignOption.Id) : -1)
+                // Omitted: Document (Un-serializable Context)
+                .RegisterReadOnly("GroupId", x => x.GroupId)
+                .RegisterReadOnly("Id", x => x.Id)
+#if !REVIT2022
+                .RegisterReadOnly("IsModifiable", x => x.IsModifiable)
+#endif
+                .RegisterReadOnly("IsTransient", x => x.IsTransient)
+                .RegisterReadOnly("IsValidObject", x => x.IsValidObject)
+                .RegisterReadOnly("LevelId", x => x.LevelId)
+                // Omitted: [Phase 4: Nested Sub-Object] Location
+                .Register("Name", x => x.Name, (x, v) => x.Name = v)
+                .RegisterReadOnly("OwnerViewId", x => x.OwnerViewId)
+                // Omitted: Parameters, ParametersMap (Dedicated Pipeline)
+                .Register("Pinned", x => x.Pinned, (x, v) => x.Pinned = v)
+                .RegisterReadOnly("UniqueId", x => x.UniqueId)
+                .RegisterReadOnly("VersionGuid", x => x.VersionGuid)
+                .RegisterReadOnly("ViewSpecific", x => x.ViewSpecific)
+                .RegisterReadOnly("WorksetId", x => x.WorksetId);
+
+            ForType<ElementType>()
+                .RegisterReadOnly("CanBeCopied", x => x.CanBeCopied)
+                .RegisterReadOnly("CanBeDeleted", x => x.CanBeDeleted)
+                .RegisterReadOnly("CanBeRenamed", x => x.CanBeRenamed)
+                .RegisterReadOnly("FamilyName", x => x.FamilyName);
+
+            ForType<Material>()
+                .Register("AppearanceAssetId", x => x.AppearanceAssetId, (x, v) => x.AppearanceAssetId = v)
+                .Register("Color", x => x.Color, (x, v) => x.Color = v)
+                .Register("CutBackgroundPatternColor", x => x.CutBackgroundPatternColor, (x, v) => x.CutBackgroundPatternColor = v)
+                .Register("CutBackgroundPatternId", x => x.CutBackgroundPatternId, (x, v) => x.CutBackgroundPatternId = v)
+                .Register("CutForegroundPatternColor", x => x.CutForegroundPatternColor, (x, v) => x.CutForegroundPatternColor = v)
+                .Register("CutForegroundPatternId", x => x.CutForegroundPatternId, (x, v) => x.CutForegroundPatternId = v)
+                .Register("MaterialCategory", x => x.MaterialCategory, (x, v) => x.MaterialCategory = v)
+                .Register("MaterialClass", x => x.MaterialClass, (x, v) => x.MaterialClass = v)
+                .Register("Shininess", x => x.Shininess, (x, v) => x.Shininess = v)
+                .Register("Smoothness", x => x.Smoothness, (x, v) => x.Smoothness = v)
+                .Register("StructuralAssetId", x => x.StructuralAssetId, (x, v) => x.StructuralAssetId = v)
+                .Register("SurfaceBackgroundPatternColor", x => x.SurfaceBackgroundPatternColor, (x, v) => x.SurfaceBackgroundPatternColor = v)
+                .Register("SurfaceBackgroundPatternId", x => x.SurfaceBackgroundPatternId, (x, v) => x.SurfaceBackgroundPatternId = v)
+                .Register("SurfaceForegroundPatternColor", x => x.SurfaceForegroundPatternColor, (x, v) => x.SurfaceForegroundPatternColor = v)
+                .Register("SurfaceForegroundPatternId", x => x.SurfaceForegroundPatternId, (x, v) => x.SurfaceForegroundPatternId = v)
+                .Register("ThermalAssetId", x => x.ThermalAssetId, (x, v) => x.ThermalAssetId = v)
+                .Register("Transparency", x => x.Transparency, (x, v) => x.Transparency = v)
+                .Register("UseRenderAppearanceForShading", x => x.UseRenderAppearanceForShading, (x, v) => x.UseRenderAppearanceForShading = v);
+
+            ForType<Autodesk.Revit.DB.View>()
+                .Register("AnalysisDisplayStyleId", x => x.AnalysisDisplayStyleId, (x, v) => x.AnalysisDisplayStyleId = v)
+                .Register("AreAnalyticalModelCategoriesHidden", x => x.AreAnalyticalModelCategoriesHidden, (x, v) => x.AreAnalyticalModelCategoriesHidden = v)
+                .Register("AreAnnotationCategoriesHidden", x => x.AreAnnotationCategoriesHidden, (x, v) => x.AreAnnotationCategoriesHidden = v)
+                .Register("AreCoordinationModelHandlesHidden", x => x.AreCoordinationModelHandlesHidden, (x, v) => x.AreCoordinationModelHandlesHidden = v)
+                .Register("AreImportCategoriesHidden", x => x.AreImportCategoriesHidden, (x, v) => x.AreImportCategoriesHidden = v)
+                .Register("AreModelCategoriesHidden", x => x.AreModelCategoriesHidden, (x, v) => x.AreModelCategoriesHidden = v)
+                .Register("ArePointCloudsHidden", x => x.ArePointCloudsHidden, (x, v) => x.ArePointCloudsHidden = v)
+                .RegisterReadOnly("AssociatedAssemblyInstanceId", x => x.AssociatedAssemblyInstanceId)
+                .RegisterReadOnly("CanBePrinted", x => x.CanBePrinted)
+                .Register("CropBox", x => x.CropBox, (x, v) => x.CropBox = v)
+                .Register("CropBoxActive", x => x.CropBoxActive, (x, v) => x.CropBoxActive = v)
+                .Register("CropBoxVisible", x => x.CropBoxVisible, (x, v) => x.CropBoxVisible = v)
+                .Register("DetailLevel", x => x.DetailLevel, (x, v) => x.DetailLevel = v)
+                .Register("Discipline", x => x.Discipline, (x, v) => x.Discipline = v)
+                .Register("DisplayStyle", x => x.DisplayStyle, (x, v) => x.DisplayStyle = v)
+                // Omitted: [Phase 4: Nested Sub-Object] GenLevel
+                .RegisterReadOnly("IsAssemblyView", x => x.IsAssemblyView)
+                .RegisterReadOnly("IsCallout", x => x.IsCallout)
+                .RegisterReadOnly("IsTemplate", x => x.IsTemplate)
+                .RegisterReadOnly("Origin", x => x.Origin)
+                .RegisterReadOnly("Outline", x => x.Outline)
+                .Register("PartsVisibility", x => x.PartsVisibility, (x, v) => x.PartsVisibility = v)
+                .Register("RevealConstraintsMode", x => x.RevealConstraintsMode, (x, v) => x.RevealConstraintsMode = v)
+                .RegisterReadOnly("RightDirection", x => x.RightDirection)
+                .Register("Scale", x => x.Scale, (x, v) => x.Scale = v)
+                .Register("ShadowIntensity", x => x.ShadowIntensity, (x, v) => x.ShadowIntensity = v)
+                // Omitted: [Phase 4: Nested Sub-Object] SketchPlane
+                // Omitted: [Phase 4: Nested Sub-Object] SunAndShadowSettings
+                .Register("SunlightIntensity", x => x.SunlightIntensity, (x, v) => x.SunlightIntensity = v)
+                // Omitted: [Phase 4: Nested Sub-Object] TemporaryViewModes
+                .RegisterReadOnly("Title", x => x.Title)
+                .RegisterReadOnly("UpDirection", x => x.UpDirection)
+                .RegisterReadOnly("ViewDirection", x => x.ViewDirection)
+#if REVIT2026
+                .Register("ViewPositionId", x => x.ViewPositionId, (x, v) => x.ViewPositionId = v)
+#endif
+                .Register("ViewTemplateId", x => x.ViewTemplateId, (x, v) => x.ViewTemplateId = v)
+                .RegisterReadOnly("ViewType", x => x.ViewType);
+
+            ForType<ViewPlan>()
+                // Omitted: [Phase 4: Nested Sub-Object] AreaScheme
+                ;
+
+            ForType<WallType>()
+                .Register("Function", x => x.Function, (x, v) => x.Function = v)
+                .RegisterReadOnly("Kind", x => x.Kind)
+                // Omitted: [Phase 4: Nested Sub-Object] ThermalProperties
+                .RegisterReadOnly("Width", x => x.Width);
+
+            ForType<APIObject>()
+                .RegisterReadOnly("IsReadOnly", x => x.IsReadOnly);
+
+            ForType<Category>()
+                .RegisterReadOnly("AllowsBoundParameters", x => x.AllowsBoundParameters)
+#if !REVIT2022
+                .RegisterReadOnly("BuiltInCategory", x => x.BuiltInCategory)
+#endif
+                .RegisterReadOnly("CanAddSubcategory", x => x.CanAddSubcategory)
+                .RegisterReadOnly("CategoryType", x => x.CategoryType)
+                .RegisterReadOnly("HasMaterialQuantities", x => x.HasMaterialQuantities)
+                .RegisterReadOnly("Id", x => x.Id)
+                .RegisterReadOnly("IsCuttable", x => x.IsCuttable)
+                .RegisterReadOnly("IsTagCategory", x => x.IsTagCategory)
+#if !REVIT2022 && !REVIT2023
+                .RegisterReadOnly("IsValid", x => x.IsValid)
+#endif
+                .RegisterReadOnly("IsVisibleInUI", x => x.IsVisibleInUI)
+                .Register("LineColor", x => x.LineColor, (x, v) => x.LineColor = v)
+                .RegisterReadOnly("Material", x => x.Material != null ? GetIdVal(x.Material.Id) : -1)
+                .RegisterReadOnly("Name", x => x.Name)
+                .RegisterReadOnly("Parent", x => x.Parent != null ? GetIdVal(x.Parent.Id) : -1)
+                .RegisterReadOnly("SubCategories", x => {
+                    var ids = new List<long>();
+                    if (x.SubCategories != null)
+                    {
+                        foreach (Category sub in x.SubCategories)
+                        {
+                            ids.Add(GetIdVal(sub.Id));
+                        }
+                    }
+                    return ids;
+                });
+
+            ForType<DimensionType>()
+                .Register("AlternateUnits", x => x.AlternateUnits, (x, v) => x.AlternateUnits = v)
+                .Register("AlternateUnitsPrefix", x => x.AlternateUnitsPrefix, (x, v) => x.AlternateUnitsPrefix = v)
+                .Register("AlternateUnitsSuffix", x => x.AlternateUnitsSuffix, (x, v) => x.AlternateUnitsSuffix = v)
+                .Register("Prefix", x => x.Prefix, (x, v) => x.Prefix = v)
+                .RegisterReadOnly("StyleType", x => x.StyleType)
+                .Register("Suffix", x => x.Suffix, (x, v) => x.Suffix = v);
+
+// Declaring Type: Autodesk.Revit.DB.FamilySymbol
+ForType<FamilySymbol>()
+    .RegisterReadOnly("Family", x => x.Family != null ? GetIdVal(x.Family.Id) : -1)
+    .RegisterReadOnly("IsActive", x => x.IsActive)
+    .RegisterReadOnly("StructuralMaterialType", x => x.StructuralMaterialType);
+
+// Declaring Type: Autodesk.Revit.DB.FilledRegionType
+ForType<FilledRegionType>()
+    .Register("BackgroundPatternColor", x => x.BackgroundPatternColor, (x, v) => x.BackgroundPatternColor = v)
+    .Register("BackgroundPatternId", x => x.BackgroundPatternId, (x, v) => x.BackgroundPatternId = v)
+    .Register("ForegroundPatternColor", x => x.ForegroundPatternColor, (x, v) => x.ForegroundPatternColor = v)
+    .Register("ForegroundPatternId", x => x.ForegroundPatternId, (x, v) => x.ForegroundPatternId = v)
+    .Register("IsMasking", x => x.IsMasking, (x, v) => x.IsMasking = v)
+    .Register("LineWeight", x => x.LineWeight, (x, v) => x.LineWeight = v);
+
+// Declaring Type: Autodesk.Revit.DB.FloorType
+ForType<FloorType>()
+    .RegisterReadOnly("IsFoundationSlab", x => x.IsFoundationSlab)
+    .Register("StructuralMaterialId", x => x.StructuralMaterialId, (x, v) => x.StructuralMaterialId = v);
+
+// Declaring Type: Autodesk.Revit.DB.SiteLocation
+ForType<SiteLocation>()
+    .RegisterReadOnly("Elevation", x => x.Elevation)
+    .RegisterReadOnly("GeoCoordinateSystemDefinition", x => x.GeoCoordinateSystemDefinition)
+    .RegisterReadOnly("GeoCoordinateSystemId", x => x.GeoCoordinateSystemId)
+    .Register("Latitude", x => x.Latitude, (x, v) => x.Latitude = v)
+    .Register("Longitude", x => x.Longitude, (x, v) => x.Longitude = v)
+    .Register("PlaceName", x => x.PlaceName, (x, v) => x.PlaceName = v)
+    .Register("TimeZone", x => x.TimeZone, (x, v) => x.TimeZone = v)
+    .RegisterReadOnly("WeatherStationName", x => x.WeatherStationName);
+
+// Declaring Type: Autodesk.Revit.DB.BrowserOrganization
+ForType<BrowserOrganization>()
+    .RegisterReadOnly("SortingOrder", x => x.SortingOrder)
+    .RegisterReadOnly("SortingParameterId", x => x.SortingParameterId)
+#if !REVIT2022
+    .RegisterReadOnly("Type", x => x.Type)
+#endif
+    ;
+
+// Declaring Type: Autodesk.Revit.DB.Architecture.RailingType
+ForType<RailingType>()
+    .Register("PrimaryHandRailPosition", x => x.PrimaryHandRailPosition, (x, v) => x.PrimaryHandRailPosition = v)
+    .Register("PrimaryHandrailType", x => x.PrimaryHandrailType, (x, v) => x.PrimaryHandrailType = v)
+    .RegisterReadOnly("PrimaryHandrailHeight", x => x.PrimaryHandrailType != ElementId.InvalidElementId ? x.PrimaryHandrailHeight : 0.0)
+    .RegisterReadOnly("PrimaryHandrailLateralOffset", x => x.PrimaryHandrailType != ElementId.InvalidElementId ? x.PrimaryHandrailLateralOffset : 0.0)
+    .Register("SecondaryHandRailPosition", x => x.SecondaryHandRailPosition, (x, v) => x.SecondaryHandRailPosition = v)
+    .Register("SecondaryHandrailType", x => x.SecondaryHandrailType, (x, v) => x.SecondaryHandrailType = v)
+    .RegisterReadOnly("SecondaryHandrailHeight", x => x.SecondaryHandrailType != ElementId.InvalidElementId ? x.SecondaryHandrailHeight : 0.0)
+    .RegisterReadOnly("SecondaryHandrailLateralOffset", x => x.SecondaryHandrailType != ElementId.InvalidElementId ? x.SecondaryHandrailLateralOffset : 0.0)
+    .Register("TopRailHeight", x => x.TopRailHeight, (x, v) => x.TopRailHeight = v)
+    .Register("TopRailType", x => x.TopRailType, (x, v) => x.TopRailType = v)
+    // OMITTED: BalusterPlacement, RailStructure (Reason: Deep railing sub-patterns are out of scope for foundational styling serialization)
+    ;
+
+// Declaring Type: Autodesk.Revit.DB.ViewFamilyType
+ForType<ViewFamilyType>()
+    .Register("DefaultTemplateId", x => x.DefaultTemplateId, (x, v) => x.DefaultTemplateId = v)
+    .Register("PlanViewDirection", x => x.PlanViewDirection, (x, v) => x.PlanViewDirection = v)
+    .RegisterReadOnly("ViewFamily", x => x.ViewFamily);
+
+// Declaring Type: Autodesk.Revit.DB.Structure.RebarCoverType
+ForType<RebarCoverType>()
+    .Register("CoverDistance", x => x.CoverDistance, (x, v) => x.CoverDistance = v);
+
+// Declaring Type: Autodesk.Revit.DB.TilePattern
+ForType<TilePattern>()
+    .RegisterReadOnly("TilePatternType", x => { try { return x.TilePatternType; } catch { return TilePatternsBuiltIn.Rectangle; } })
+    .RegisterReadOnly("TilesPerSeedNode", x => x.TilesPerSeedNode);
+
+// Declaring Type: Autodesk.Revit.DB.Structure.StructuralConnectionType
+ForType<StructuralConnectionType>()
+    .RegisterReadOnly("ApplyTo", x => x.ApplyTo);
+
+// Declaring Type: Autodesk.Revit.DB.Analysis.ConceptualConstructionType
+ForType<ConceptualConstructionType>()
+    .RegisterReadOnly("MassSurfaceSubCategoryId", x => x.MassSurfaceSubCategoryId)
+    .Register("MaterialId", x => x.MaterialId, (x, v) => x.MaterialId = v);
+
+// Declaring Type: Autodesk.Revit.DB.MEPSystemType
+ForType<MEPSystemType>()
+    .Register("Abbreviation", x => x.Abbreviation, (x, v) => x.Abbreviation = v)
+    .Register("CalculationLevel", x => x.CalculationLevel, (x, v) => x.CalculationLevel = v)
+    .Register("FillColor", x => x.FillColor, (x, v) => x.FillColor = v)
+    .Register("FillPatternId", x => x.FillPatternId, (x, v) => x.FillPatternId = v)
+    .Register("FillVisible", x => x.FillVisible, (x, v) => x.FillVisible = v)
+    .Register("LineColor", x => x.LineColor, (x, v) => x.LineColor = v)
+    .Register("LinePatternId", x => x.LinePatternId, (x, v) => x.LinePatternId = v)
+    .Register("LineWeight", x => x.LineWeight, (x, v) => x.LineWeight = v)
+    .Register("MaterialId", x => x.MaterialId, (x, v) => x.MaterialId = v)
+    .RegisterReadOnly("SystemClassification", x => x.SystemClassification);
+
+
+
+// Declaring Type: Autodesk.Revit.DB.Plumbing.PipingSystemType
+ForType<PipingSystemType>()
+    .Register("FlowConversionMethod", x => x.FlowConversionMethod, (x, v) => x.FlowConversionMethod = v)
+    .Register("FluidTemperature", x => x.FluidTemperature, (x, v) => x.FluidTemperature = v)
+    .Register("FluidType", x => x.FluidType, (x, v) => x.FluidType = v)
+    .Register("SingleLineBendDropType", x => x.SingleLineBendDropType, (x, v) => x.SingleLineBendDropType = v)
+    .Register("SingleLineBendRiseType", x => x.SingleLineBendRiseType, (x, v) => x.SingleLineBendRiseType = v)
+    .Register("SingleLineJunctionDropType", x => x.SingleLineJunctionDropType, (x, v) => x.SingleLineJunctionDropType = v)
+    .Register("SingleLineJunctionRiseType", x => x.SingleLineJunctionRiseType, (x, v) => x.SingleLineJunctionRiseType = v)
+    .Register("TwoLineDropType", x => x.TwoLineDropType, (x, v) => x.TwoLineDropType = v)
+    .Register("TwoLineRiseType", x => x.TwoLineRiseType, (x, v) => x.TwoLineRiseType = v);
+
+// Declaring Type: Autodesk.Revit.DB.Architecture.CutMarkType
+ForType<CutMarkType>()
+    .Register("CutLineAngle", x => x.CutLineAngle, (x, v) => x.CutLineAngle = v)
+    .Register("CutLineDistance", x => x.CutLineDistance, (x, v) => x.CutLineDistance = v)
+    .Register("CutLineExtension", x => x.CutLineExtension, (x, v) => x.CutLineExtension = v)
+    .Register("CutLineType", x => x.CutLineType, (x, v) => x.CutLineType = v)
+    .Register("CutMarkSymbol", x => x.CutMarkSymbol, (x, v) => x.CutMarkSymbol = v)
+    .Register("CutMarkSymbolSize", x => x.CutMarkSymbolSize, (x, v) => x.CutMarkSymbolSize = v);
+
+// Declaring Type: Autodesk.Revit.DB.Architecture.StairsPathType
+ForType<StairsPathType>()
+    .Register("ArrowheadTypeId", x => x.ArrowheadTypeId, (x, v) => x.ArrowheadTypeId = v)
+    .Register("DistanceToCutMark", x => x.DistanceToCutMark, (x, v) => x.DistanceToCutMark = v)
+    .Register("DrawForEachRun", x => x.DrawForEachRun, (x, v) => x.DrawForEachRun = v)
+    .Register("EndAtRiser", x => x.EndAtRiser, (x, v) => x.EndAtRiser = v)
+    .Register("FullStepArrow", x => x.FullStepArrow, (x, v) => x.FullStepArrow = v)
+    .Register("LineShapeAtCorner", x => x.LineShapeAtCorner, (x, v) => x.LineShapeAtCorner = v)
+    .Register("ShowArrowheadToCutMark", x => x.ShowArrowheadToCutMark, (x, v) => x.ShowArrowheadToCutMark = v)
+    .RegisterReadOnly("StairsPathDirection", x => x.StairsPathDirection)
+    .Register("StartExtension", x => x.StartExtension, (x, v) => x.StartExtension = v)
+    .Register("StartFromRiser", x => x.StartFromRiser, (x, v) => x.StartFromRiser = v)
+    .Register("StartSymbolTypeId", x => x.StartSymbolTypeId, (x, v) => x.StartSymbolTypeId = v);
+
+// Declaring Type: Autodesk.Revit.DB.Architecture.StairsRunType
+ForType<StairsRunType>()
+    .Register("HasRisers", x => x.HasRisers, (x, v) => x.HasRisers = v)
+    .Register("HasTreads", x => x.HasTreads, (x, v) => x.HasTreads = v)
+    .RegisterReadOnly("IsMonolithic", x => x.IsMonolithic)
+    .Register("IsSlanted", x => x.IsSlanted, (x, v) => x.IsSlanted = v)
+    .Register("MaterialId", x => x.MaterialId, (x, v) => x.MaterialId = v)
+    .Register("NosingLength", x => x.NosingLength, (x, v) => x.NosingLength = v)
+    .Register("NosingProfile", x => x.NosingProfile, (x, v) => x.NosingProfile = v)
+    .Register("RiserProfile", x => x.RiserProfile, (x, v) => x.RiserProfile = v)
+    .Register("RiserThickness", x => x.RiserThickness, (x, v) => x.RiserThickness = v)
+    .Register("RiserToTreadConnect", x => x.RiserToTreadConnect, (x, v) => x.RiserToTreadConnect = v)
+    .Register("StructuralDepth", x => x.StructuralDepth, (x, v) => x.StructuralDepth = v)
+    .RegisterReadOnly("TotalDepth", x => x.TotalDepth)
+    .Register("TreadNosingPosition", x => x.TreadNosingPosition, (x, v) => x.TreadNosingPosition = v)
+    .Register("TreadProfile", x => x.TreadProfile, (x, v) => x.TreadProfile = v)
+    .Register("TreadThickness", x => x.TreadThickness, (x, v) => x.TreadThickness = v)
+    .Register("UndersideSurfaceStyle", x => x.UndersideSurfaceStyle, (x, v) => x.UndersideSurfaceStyle = v);
+
+// Declaring Type: Autodesk.Revit.DB.Architecture.StairsLandingType
+ForType<StairsLandingType>()
+    .RegisterReadOnly("IsMonolithic", x => x.IsMonolithic)
+    .Register("Thickness", x => x.Thickness, (x, v) => x.Thickness = v);
+
+// Declaring Type: Autodesk.Revit.DB.Architecture.StairsType
+ForType<StairsType>()
+    .RegisterReadOnly("ConstructionMethod", x => x.ConstructionMethod)
+    .Register("EndConnectionType", x => x.EndConnectionType, (x, v) => x.EndConnectionType = v)
+    .Register("HasMiddleSupports", x => x.HasMiddleSupports, (x, v) => x.HasMiddleSupports = v)
+    .Register("LandingType", x => x.LandingType, (x, v) => x.LandingType = v)
+    .Register("LeftLateralOffset", x => x.LeftLateralOffset, (x, v) => x.LeftLateralOffset = v)
+    .Register("LeftSideSupportType", x => x.LeftSideSupportType, (x, v) => x.LeftSideSupportType = v)
+    .Register("MaxRiserHeight", x => x.MaxRiserHeight, (x, v) => x.MaxRiserHeight = v)
+    .Register("MiddleSupportsNumber", x => x.MiddleSupportsNumber, (x, v) => x.MiddleSupportsNumber = v)
+    .Register("MiddleSupportType", x => x.MiddleSupportType, (x, v) => x.MiddleSupportType = v)
+    .Register("MinRunWidth", x => x.MinRunWidth, (x, v) => x.MinRunWidth = v)
+    .Register("MinTreadDepth", x => x.MinTreadDepth, (x, v) => x.MinTreadDepth = v)
+    .Register("NotchExtension", x => x.NotchExtension, (x, v) => x.NotchExtension = v)
+    .Register("NotchHorizontalGap", x => x.NotchHorizontalGap, (x, v) => x.NotchHorizontalGap = v)
+    .Register("NotchThickness", x => x.NotchThickness, (x, v) => x.NotchThickness = v)
+    .Register("NotchVerticalGap", x => x.NotchVerticalGap, (x, v) => x.NotchVerticalGap = v)
+    .Register("RightLateralOffset", x => x.RightLateralOffset, (x, v) => x.RightLateralOffset = v)
+    .Register("RightSideSupportType", x => x.RightSideSupportType, (x, v) => x.RightSideSupportType = v)
+    .Register("RunType", x => x.RunType, (x, v) => x.RunType = v);
+
+// Declaring Type: Autodesk.Revit.DB.Structure.AnalyticalLinkType
+ForType<AnalyticalLinkType>()
+    .Register("RotationX", x => x.RotationX, (x, v) => x.RotationX = v)
+    .Register("RotationY", x => x.RotationY, (x, v) => x.RotationY = v)
+    .Register("RotationZ", x => x.RotationZ, (x, v) => x.RotationZ = v)
+    .Register("TranslationX", x => x.TranslationX, (x, v) => x.TranslationX = v)
+    .Register("TranslationY", x => x.TranslationY, (x, v) => x.TranslationY = v)
+    .Register("TranslationZ", x => x.TranslationZ, (x, v) => x.TranslationZ = v);
+
+// Declaring Type: Autodesk.Revit.DB.Architecture.ContinuousRailType
+ForType<ContinuousRailType>()
+    .Register("DefaultJoinOption", x => x.DefaultJoinOption, (x, v) => x.DefaultJoinOption = v)
+    .Register("EndOrTopExtensionLength", x => x.EndOrTopExtensionLength, (x, v) => x.EndOrTopExtensionLength = v)
+    .Register("EndOrTopExtensionStyle", x => x.EndOrTopExtensionStyle, (x, v) => x.EndOrTopExtensionStyle = v)
+    .Register("EndOrTopTermination", x => x.EndOrTopTermination, (x, v) => x.EndOrTopTermination = v)
+    .Register("FilletRadius", x => x.FilletRadius, (x, v) => x.FilletRadius = v)
+    .Register("HandClearance", x => x.HandClearance, (x, v) => x.HandClearance = v)
+    .Register("ProfileId", x => x.ProfileId, (x, v) => x.ProfileId = v)
+    .RegisterReadOnly("Projection", x => x.Projection)
+    .Register("StartOrBottomExtensionLength", x => x.StartOrBottomExtensionLength, (x, v) => x.StartOrBottomExtensionLength = v)
+    .Register("StartOrBottomExtensionStyle", x => x.StartOrBottomExtensionStyle, (x, v) => x.StartOrBottomExtensionStyle = v)
+    .Register("StartOrBottomTermination", x => x.StartOrBottomTermination, (x, v) => x.StartOrBottomTermination = v)
+    .Register("Transition", x => x.Transition, (x, v) => x.Transition = v);
+
+// Declaring Type: Autodesk.Revit.DB.Architecture.HandRailType
+ForType<HandRailType>()
+    .Register("Height", x => x.Height, (x, v) => x.Height = v)
+    .Register("SupportJustification", x => x.SupportJustification, (x, v) => x.SupportJustification = v)
+    .Register("SupportLayout", x => x.SupportLayout, (x, v) => x.SupportLayout = v)
+    .Register("SupportNumber", x => x.SupportNumber, (x, v) => x.SupportNumber = v)
+    .Register("SupportSpacing", x => x.SupportSpacing, (x, v) => x.SupportSpacing = v)
+    .Register("SupportTypeId", x => x.SupportTypeId, (x, v) => x.SupportTypeId = v);
+
+
+
+// Declaring Type: Autodesk.Revit.DB.ImageType
+ForType<ImageType>()
+    .RegisterReadOnly("Height", x => x.Height)
+    .RegisterReadOnly("HeightInPixels", x => x.HeightInPixels)
+    .RegisterReadOnly("PageNumber", x => x.PageNumber)
+    .RegisterReadOnly("Path", x => x.Path)
+    .RegisterReadOnly("PathType", x => x.PathType)
+    .RegisterReadOnly("Resolution", x => x.Resolution)
+    .RegisterReadOnly("Source", x => x.Source)
+    .RegisterReadOnly("Status", x => x.Status)
+    .RegisterReadOnly("Width", x => x.Width)
+    .RegisterReadOnly("WidthInPixels", x => x.WidthInPixels);
+
+#if !REVIT2022 && !REVIT2023
+// Declaring Type: Autodesk.Revit.DB.Structure.RebarBendingDetailType
+ForType<RebarBendingDetailType>()
+    .Register("AngularDimensionsDisplayOption", x => x.AngularDimensionsDisplayOption, (x, v) => x.AngularDimensionsDisplayOption = v)
+    .Register("AngularDimensionsEnabled", x => x.AngularDimensionsEnabled, (x, v) => x.AngularDimensionsEnabled = v)
+#if REVIT2026
+    .Register("AngularDimensionsForCranksEnabled", x => x.AngularDimensionsForCranksEnabled, (x, v) => x.AngularDimensionsForCranksEnabled = v)
+#endif
+    .Register("AngularDimensionsForHooksEnabled", x => x.AngularDimensionsForHooksEnabled, (x, v) => x.AngularDimensionsForHooksEnabled = v)
+    .Register("AngularDimensionsMeasurementOptions", x => x.AngularDimensionsMeasurementOptions, (x, v) => x.AngularDimensionsMeasurementOptions = v)
+    .Register("AngularDimensionsOffset", x => x.AngularDimensionsOffset, (x, v) => x.AngularDimensionsOffset = v)
+    .Register("AngularDimensionTextPosition", x => x.AngularDimensionTextPosition, (x, v) => x.AngularDimensionTextPosition = v)
+    .Register("AngularDimensionTypeId", x => x.AngularDimensionTypeId, (x, v) => x.AngularDimensionTypeId = v)
+    .Register("BendDiameterDimensionsEnabled", x => x.BendDiameterDimensionsEnabled, (x, v) => x.BendDiameterDimensionsEnabled = v)
+    .Register("BendDiameterDimensionsForHooksEnabled", x => x.BendDiameterDimensionsForHooksEnabled, (x, v) => x.BendDiameterDimensionsForHooksEnabled = v)
+    .Register("BendDiameterDimensionsForSegmentsEnabled", x => x.BendDiameterDimensionsForSegmentsEnabled, (x, v) => x.BendDiameterDimensionsForSegmentsEnabled = v)
+    .Register("BendDiameterDimensionType", x => x.BendDiameterDimensionType, (x, v) => x.BendDiameterDimensionType = v)
+    .Register("DetailLevel", x => x.DetailLevel, (x, v) => x.DetailLevel = v)
+    .Register("DiameterDimensionTypeId", x => x.DiameterDimensionTypeId, (x, v) => x.DiameterDimensionTypeId = v)
+#if REVIT2025 || REVIT2026
+    .RegisterReadOnly("DisplayMode", x => x.DisplayMode)
+#endif
+    .Register("MultipleValuesIndicatorOption", x => x.MultipleValuesIndicatorOption, (x, v) => x.MultipleValuesIndicatorOption = v)
+    .Register("OrthogonalAndOverallDimesionsEnabled", x => x.OrthogonalAndOverallDimesionsEnabled, (x, v) => x.OrthogonalAndOverallDimesionsEnabled = v)
+    .Register("RadialDimensionTypeId", x => x.RadialDimensionTypeId, (x, v) => x.RadialDimensionTypeId = v)
+    .Register("RepresentaionOf3DShapes", x => x.RepresentaionOf3DShapes, (x, v) => x.RepresentaionOf3DShapes = v)
+#if REVIT2025 || REVIT2026
+    .Register("SchematicHeight", x => x.SchematicHeight, (x, v) => x.SchematicHeight = v)
+    .Register("SchematicWidth", x => x.SchematicWidth, (x, v) => x.SchematicWidth = v)
+#endif
+    .Register("SegmentLengthDimensionsEnabled", x => x.SegmentLengthDimensionsEnabled, (x, v) => x.SegmentLengthDimensionsEnabled = v)
+    .Register("SegmentLengthDimensionsForHooksEnabled", x => x.SegmentLengthDimensionsForHooksEnabled, (x, v) => x.SegmentLengthDimensionsForHooksEnabled = v)
+    .Register("SegmentLengthDimensionsOffset", x => x.SegmentLengthDimensionsOffset, (x, v) => x.SegmentLengthDimensionsOffset = v)
+    .Register("SegmentLengthDimensionTextPosition", x => x.SegmentLengthDimensionTextPosition, (x, v) => x.SegmentLengthDimensionTextPosition = v)
+    .Register("SegmentLengthDimensionTypeId", x => x.SegmentLengthDimensionTypeId, (x, v) => x.SegmentLengthDimensionTypeId = v)
+    .Register("SegmentLengthsDisplayOption", x => x.SegmentLengthsDisplayOption, (x, v) => x.SegmentLengthsDisplayOption = v)
+    .Register("SegmentLengthsForArcsDisplayOption", x => x.SegmentLengthsForArcsDisplayOption, (x, v) => x.SegmentLengthsForArcsDisplayOption = v)
+    .Register("SegmentsRepresentation", x => x.SegmentsRepresentation, (x, v) => x.SegmentsRepresentation = v)
+#if REVIT2025 || REVIT2026
+    .Register("TagTypeId", x => x.TagTypeId, (x, v) => x.TagTypeId = v)
+#endif
+    ;
+#endif
+
+
+
+// Declaring Type: Autodesk.Revit.DB.Level
+ForType<Level>()
+    .Register("Elevation", x => x.Elevation, (x, v) => x.Elevation = v)
+    .RegisterReadOnly("ProjectElevation", x => x.ProjectElevation);
+
+// Declaring Type: Autodesk.Revit.DB.SketchPlane
+ForType<SketchPlane>()
+    .RegisterReadOnly("IsSuitableForModelElements", x => x.IsSuitableForModelElements);
+
+// Declaring Type: Autodesk.Revit.DB.GraphicsStyle
+ForType<GraphicsStyle>()
+    .RegisterReadOnly("GraphicsStyleCategory", x => x.GraphicsStyleCategory != null ? GetIdVal(x.GraphicsStyleCategory.Id) : -1)
+    .RegisterReadOnly("GraphicsStyleType", x => x.GraphicsStyleType);
+
+// Declaring Type: Autodesk.Revit.DB.Family
+ForType<Family>()
+    .RegisterReadOnly("FamilyCategory", x => x.FamilyCategory != null ? GetIdVal(x.FamilyCategory.Id) : -1)
+    .Register("FamilyCategoryId", x => x.FamilyCategoryId, (x, v) => x.FamilyCategoryId = v)
+    .RegisterReadOnly("FamilyPlacementType", x => { try { return x.FamilyPlacementType; } catch { return default(FamilyPlacementType); } })
+    .RegisterReadOnly("IsConceptualMassFamily", x => { try { return x.IsConceptualMassFamily; } catch { return false; } })
+    .RegisterReadOnly("IsCurtainPanelFamily", x => { try { return x.IsCurtainPanelFamily; } catch { return false; } })
+    .RegisterReadOnly("IsEditable", x => { try { return x.IsEditable; } catch { return false; } })
+    .RegisterReadOnly("IsInPlace", x => { try { return x.IsInPlace; } catch { return false; } })
+    .RegisterReadOnly("IsOwnerFamily", x => { try { return x.IsOwnerFamily; } catch { return false; } })
+    .RegisterReadOnly("IsParametric", x => { try { return x.IsParametric; } catch { return false; } })
+    .RegisterReadOnly("IsUserCreated", x => { try { return x.IsUserCreated; } catch { return false; } })
+    .Register("ShowSpatialElementCalculationPoint", x => x.ShowSpatialElementCalculationPoint, (x, v) => x.ShowSpatialElementCalculationPoint = v)
+    .Register("StructuralCodeName", x => x.StructuralCodeName, (x, v) => x.StructuralCodeName = v)
+    .Register("StructuralFamilyNameKey", x => x.StructuralFamilyNameKey, (x, v) => x.StructuralFamilyNameKey = v)
+    .RegisterReadOnly("StructuralMaterialType", x => { try { return x.StructuralMaterialType; } catch { return default(StructuralMaterialType); } })
+    .Register("StructuralSectionShape", x => x.StructuralSectionShape, (x, v) => x.StructuralSectionShape = v);
+
+// Declaring Type: Autodesk.Revit.DB.PhaseFilter
+ForType<PhaseFilter>()
+    .RegisterReadOnly("IsDefault", x => x.IsDefault);
+
+// Declaring Type: Autodesk.Revit.DB.ElevationMarker
+ForType<ElevationMarker>()
+    .RegisterReadOnly("CurrentViewCount", x => x.CurrentViewCount)
+    .RegisterReadOnly("IsReference", x => x.IsReference)
+    .RegisterReadOnly("MaximumViewCount", x => x.MaximumViewCount);
+
+// Declaring Type: Autodesk.Revit.DB.AreaScheme
+ForType<AreaScheme>()
+    .RegisterReadOnly("IsGrossBuildingArea", x => x.IsGrossBuildingArea);
+
+// Declaring Type: Autodesk.Revit.DB.PrintSetting
+ForType<PrintSetting>()
+    .Register("Name", x => x.Name, (x, v) => x.Name = v)
+    .Embed<PrintParameters, PrintParametersModel>(
+        "PrintParameters",
+        PrintParametersTranslator.Extract,
+        (x, model) => {
+            if (model != null)
+                PrintParametersTranslator.Inject(model, x.PrintParameters);
+        },
+        x => x.PrintParameters)
+    ;
+
+// Declaring Type: Autodesk.Revit.DB.Revision
+ForType<Revision>()
+    .Register("Description", x => x.Description, (x, v) => x.Description = v)
+    .Register("Issued", x => x.Issued, (x, v) => x.Issued = v)
+    .Register("IssuedBy", x => x.IssuedBy, (x, v) => x.IssuedBy = v)
+    .Register("IssuedTo", x => x.IssuedTo, (x, v) => x.IssuedTo = v)
+    .Register("RevisionDate", x => x.RevisionDate, (x, v) => x.RevisionDate = v)
+    .RegisterReadOnly("RevisionNumber", x => x.RevisionNumber)
+    .Register("RevisionNumberingSequenceId", x => x.RevisionNumberingSequenceId, (x, v) => x.RevisionNumberingSequenceId = v)
+    .RegisterReadOnly("SequenceNumber", x => x.SequenceNumber)
+    .Register("Visibility", x => x.Visibility, (x, v) => x.Visibility = v);
+
+// Declaring Type: Autodesk.Revit.DB.RevisionSettings
+ForType<RevisionSettings>()
+    .Register("RevisionCloudSpacing", x => x.RevisionCloudSpacing, (x, v) => x.RevisionCloudSpacing = v)
+    .Register("RevisionNumbering", x => x.RevisionNumbering, (x, v) => x.RevisionNumbering = v);
+
+// Declaring Type: Autodesk.Revit.DB.ProjectInfo
+ForType<ProjectInfo>()
+    .Register("Address", x => x.Address, (x, v) => x.Address = v)
+    .Register("Author", x => x.Author, (x, v) => x.Author = v)
+    .Register("BuildingName", x => x.BuildingName, (x, v) => x.BuildingName = v)
+    .Register("ClientName", x => x.ClientName, (x, v) => x.ClientName = v)
+    .Register("IssueDate", x => x.IssueDate, (x, v) => x.IssueDate = v)
+    .Register("Name", x => x.Name, (x, v) => x.Name = v)
+    .Register("Number", x => x.Number, (x, v) => x.Number = v)
+    .Register("OrganizationDescription", x => x.OrganizationDescription, (x, v) => x.OrganizationDescription = v)
+    .Register("OrganizationName", x => x.OrganizationName, (x, v) => x.OrganizationName = v)
+    .Register("Status", x => x.Status, (x, v) => x.Status = v);
+
+// Declaring Type: Autodesk.Revit.DB.Structure.LoadCase
+ForType<LoadCase>()
+    .Register("NatureId", x => x.NatureId, (x, v) => x.NatureId = v)
+    .Register("Number", x => x.Number, (x, v) => x.Number = v)
+    .Register("SubcategoryId", x => x.SubcategoryId, (x, v) => x.SubcategoryId = v);
+
+// Declaring Type: Autodesk.Revit.DB.SunAndShadowSettings
+ForType<SunAndShadowSettings>()
+    .Register("ActiveFrame", x => x.ActiveFrame, (x, v) => x.ActiveFrame = v)
+    .RegisterReadOnly("ActiveFrameTime", x => x.ActiveFrameTime)
+    .Register("Altitude", x => x.Altitude, (x, v) => x.Altitude = v)
+    .Register("Azimuth", x => x.Azimuth, (x, v) => x.Azimuth = v)
+    .Register("EndDateAndTime", x => x.EndDateAndTime, (x, v) => x.EndDateAndTime = v)
+    .RegisterReadOnly("GroundPlaneHeight", x => x.GroundPlaneHeight)
+    .Register("GroundPlaneLevelId", x => x.GroundPlaneLevelId, (x, v) => x.GroundPlaneLevelId = v)
+    .RegisterReadOnly("Latitude", x => x.Latitude)
+    .RegisterReadOnly("Longitude", x => x.Longitude)
+    .RegisterReadOnly("NumberOfFrames", x => x.NumberOfFrames)
+    .RegisterReadOnly("ProjectLocationId", x => x.ProjectLocationId)
+    .RegisterReadOnly("ProjectLocationName", x => x.ProjectLocationName)
+    .Register("RelativeToView", x => x.RelativeToView, (x, v) => x.RelativeToView = v)
+    .Register("SharesSettings", x => x.SharesSettings, (x, v) => x.SharesSettings = v)
+    .Register("StartDateAndTime", x => x.StartDateAndTime, (x, v) => x.StartDateAndTime = v)
+    .Register("SunAndShadowType", x => x.SunAndShadowType, (x, v) => x.SunAndShadowType = v)
+    .Register("SunriseToSunset", x => x.SunriseToSunset, (x, v) => x.SunriseToSunset = v)
+    .Register("TimeInterval", x => x.TimeInterval, (x, v) => x.TimeInterval = v)
+    .RegisterReadOnly("TimeZone", x => x.TimeZone)
+    .RegisterReadOnly("UsesDST", x => x.UsesDST)
+    .Register("UsesGroundPlane", x => x.UsesGroundPlane, (x, v) => x.UsesGroundPlane = v);
+
+// Declaring Type: Autodesk.Revit.DB.Structure.StructuralSettings
+ForType<StructuralSettings>()
+    .Register("BoundaryConditionAreaAndLineSymbolSpacing", x => x.BoundaryConditionAreaAndLineSymbolSpacing, (x, v) => x.BoundaryConditionAreaAndLineSymbolSpacing = v)
+    .Register("BoundaryConditionFamilySymbolFixed", x => x.BoundaryConditionFamilySymbolFixed, (x, v) => x.BoundaryConditionFamilySymbolFixed = v)
+    .Register("BoundaryConditionFamilySymbolPinned", x => x.BoundaryConditionFamilySymbolPinned, (x, v) => x.BoundaryConditionFamilySymbolPinned = v)
+    .Register("BoundaryConditionFamilySymbolRoller", x => x.BoundaryConditionFamilySymbolRoller, (x, v) => x.BoundaryConditionFamilySymbolRoller = v)
+    .Register("BoundaryConditionFamilySymbolUserDefined", x => x.BoundaryConditionFamilySymbolUserDefined, (x, v) => x.BoundaryConditionFamilySymbolUserDefined = v)
+    #if REVIT2026
+    .Register("BoundarySetbackDisabledForSteelElements", x => x.BoundarySetbackDisabledForSteelElements, (x, v) => x.BoundarySetbackDisabledForSteelElements = v)
+#endif
+    .Register("BraceAboveSymbol", x => x.BraceAboveSymbol, (x, v) => x.BraceAboveSymbol = v)
+    .Register("BraceBelowSymbol", x => x.BraceBelowSymbol, (x, v) => x.BraceBelowSymbol = v)
+    .Register("BraceParallelLineOffset", x => x.BraceParallelLineOffset, (x, v) => x.BraceParallelLineOffset = v)
+    .Register("KickerBraceSymbol", x => x.KickerBraceSymbol, (x, v) => x.KickerBraceSymbol = v)
+    .Register("ShowBraceAbove", x => x.ShowBraceAbove, (x, v) => x.ShowBraceAbove = v)
+    .Register("ShowBraceBelow", x => x.ShowBraceBelow, (x, v) => x.ShowBraceBelow = v)
+    .Register("SymbolicCutbackForBeamAndTruss", x => x.SymbolicCutbackForBeamAndTruss, (x, v) => x.SymbolicCutbackForBeamAndTruss = v)
+    .Register("SymbolicCutbackForBrace", x => x.SymbolicCutbackForBrace, (x, v) => x.SymbolicCutbackForBrace = v)
+    .Register("SymbolicCutbackForColumn", x => x.SymbolicCutbackForColumn, (x, v) => x.SymbolicCutbackForColumn = v)
+#if !REVIT2022 && !REVIT2023
+    .Register("UseLoadsDisplayScaling", x => x.UseLoadsDisplayScaling, (x, v) => x.UseLoadsDisplayScaling = v)
+#endif
+    ;
+
+// Declaring Type: Autodesk.Revit.DB.AreaVolumeSettings
+ForType<AreaVolumeSettings>()
+    .Register("ComputeVolumes", x => x.ComputeVolumes, (x, v) => x.ComputeVolumes = v);
+
+// Declaring Type: Autodesk.Revit.DB.InternalOrigin
+ForType<InternalOrigin>()
+    .RegisterReadOnly("Position", x => x.Position)
+    .RegisterReadOnly("SharedPosition", x => x.SharedPosition);
+
+// Declaring Type: Autodesk.Revit.DB.ColorFillScheme
+ForType<ColorFillScheme>()
+    .RegisterReadOnly("AreaSchemeId", x => x.AreaSchemeId)
+    .RegisterReadOnly("CategoryId", x => x.CategoryId)
+    .Register("IsByRange", x => x.IsByRange, (x, v) => x.IsByRange = v)
+    .Register("IsLinkedFilesIncluded", x => x.IsLinkedFilesIncluded, (x, v) => x.IsLinkedFilesIncluded = v)
+    .Register("ParameterDefinition", x => x.ParameterDefinition, (x, v) => x.ParameterDefinition = v)
+    .RegisterReadOnly("StorageType", x => x.StorageType)
+    .Register("Title", x => x.Title, (x, v) => x.Title = v);
+
+// Declaring Type: Autodesk.Revit.DB.Plumbing.PipeSettings
+ForType<PipeSettings>()
+    .Register("AnalysisForClosedLoopHydronicPipingNetworks", x => x.AnalysisForClosedLoopHydronicPipingNetworks, (x, v) => x.AnalysisForClosedLoopHydronicPipingNetworks = v)
+    .Register("Centerline", x => x.Centerline, (x, v) => x.Centerline = v)
+    .Register("ConnectorSeparator", x => x.ConnectorSeparator, (x, v) => x.ConnectorSeparator = v)
+    .Register("ConnectorTolerance", x => x.ConnectorTolerance, (x, v) => x.ConnectorTolerance = v)
+    .Register("FittingAngleUsage", x => x.FittingAngleUsage, (x, v) => x.FittingAngleUsage = v)
+    .Register("FittingAnnotationSize", x => x.FittingAnnotationSize, (x, v) => x.FittingAnnotationSize = v)
+    .Register("FlatOnBottom", x => x.FlatOnBottom, (x, v) => x.FlatOnBottom = v)
+    .Register("FlatOnTop", x => x.FlatOnTop, (x, v) => x.FlatOnTop = v)
+    .Register("SetDown", x => x.SetDown, (x, v) => x.SetDown = v)
+    .Register("SetDownFromBottom", x => x.SetDownFromBottom, (x, v) => x.SetDownFromBottom = v)
+    .Register("SetUp", x => x.SetUp, (x, v) => x.SetUp = v)
+    .Register("SetUpFromBottom", x => x.SetUpFromBottom, (x, v) => x.SetUpFromBottom = v)
+    .Register("SizePrefix", x => x.SizePrefix, (x, v) => x.SizePrefix = v)
+    .Register("SizeSuffix", x => x.SizeSuffix, (x, v) => x.SizeSuffix = v)
+    .Register("UseAnnotationScaleForSingleLineFittings", x => x.UseAnnotationScaleForSingleLineFittings, (x, v) => x.UseAnnotationScaleForSingleLineFittings = v);
+
+#if REVIT2025 || REVIT2026
+// Declaring Type: Autodesk.Revit.DB.Analysis.BuildingOperatingDaySchedule
+ForType<BuildingOperatingDaySchedule>()
+    .Register("ScheduleName", x => x.ScheduleName, (x, v) => x.ScheduleName = v);
+#endif
+
+// Declaring Type: Autodesk.Revit.DB.Analysis.HVACLoadType
+ForType<HVACLoadType>()
+    .Register("AirChangesPerHour", x => x.AirChangesPerHour, (x, v) => x.AirChangesPerHour = v)
+    .Register("AreaPerPerson", x => x.AreaPerPerson, (x, v) => x.AreaPerPerson = v)
+    .Register("CoolingSetPoint", x => x.CoolingSetPoint, (x, v) => x.CoolingSetPoint = v)
+    .Register("DehumidificationSetPoint", x => x.DehumidificationSetPoint, (x, v) => x.DehumidificationSetPoint = v)
+    .Register("HeatingSetPoint", x => x.HeatingSetPoint, (x, v) => x.HeatingSetPoint = v)
+    .Register("HumidificationSetPoint", x => x.HumidificationSetPoint, (x, v) => x.HumidificationSetPoint = v)
+    .Register("LatentHeatGainPerPerson", x => x.LatentHeatGainPerPerson, (x, v) => x.LatentHeatGainPerPerson = v)
+    .Register("LightingLoadDensity", x => x.LightingLoadDensity, (x, v) => x.LightingLoadDensity = v)
+    .Register("OutdoorAirFlowStandard", x => x.OutdoorAirFlowStandard, (x, v) => x.OutdoorAirFlowStandard = v)
+    .Register("OutdoorAirPerArea", x => x.OutdoorAirPerArea, (x, v) => x.OutdoorAirPerArea = v)
+    .Register("OutdoorAirPerPerson", x => x.OutdoorAirPerPerson, (x, v) => x.OutdoorAirPerPerson = v)
+    .Register("PlenumLighting", x => x.PlenumLighting, (x, v) => x.PlenumLighting = v)
+    .Register("PowerLoadDensity", x => x.PowerLoadDensity, (x, v) => x.PowerLoadDensity = v)
+    .Register("SensibleHeatGainPerPerson", x => x.SensibleHeatGainPerPerson, (x, v) => x.SensibleHeatGainPerPerson = v);
+
+// Declaring Type: Autodesk.Revit.DB.Analysis.HVACLoadBuildingType
+ForType<HVACLoadBuildingType>()
+    .Register("BuildingTypeName", x => x.BuildingTypeName, (x, v) => x.BuildingTypeName = v)
+    .Register("ClosingTime", x => x.ClosingTime, (x, v) => x.ClosingTime = v)
+    .Register("OpeningTime", x => x.OpeningTime, (x, v) => x.OpeningTime = v)
+    .Register("UnoccupiedCoolingSetPoint", x => x.UnoccupiedCoolingSetPoint, (x, v) => x.UnoccupiedCoolingSetPoint = v);
+
+// Declaring Type: Autodesk.Revit.DB.Analysis.HVACLoadSpaceType
+ForType<HVACLoadSpaceType>()
+    .RegisterReadOnly("IsPlenum", x => x.IsPlenum)
+    .Register("SpaceTypeName", x => x.SpaceTypeName, (x, v) => x.SpaceTypeName = v);
+
+// Declaring Type: Autodesk.Revit.DB.BasePoint
+ForType<BasePoint>()
+    .Register("Clipped", x => x.Clipped, (x, v) => x.Clipped = v)
+    .RegisterReadOnly("IsShared", x => x.IsShared)
+    .RegisterReadOnly("Position", x => x.Position)
+    .RegisterReadOnly("SharedPosition", x => x.SharedPosition);
+
+
+
+// Declaring Type: Autodesk.Revit.DB.Analysis.EnergyDataSettings
+ForType<EnergyDataSettings>()
+    .Register("AnalysisType", x => x.AnalysisType, (x, v) => x.AnalysisType = v)
+    .Register("AnalyticalGridCellSize", x => x.AnalyticalGridCellSize, (x, v) => x.AnalyticalGridCellSize = v)
+    .Register("BuildingConstructionClass", x => x.BuildingConstructionClass, (x, v) => x.BuildingConstructionClass = v)
+    .Register("BuildingEnvelopeDeterminationMethod", x => x.BuildingEnvelopeDeterminationMethod, (x, v) => x.BuildingEnvelopeDeterminationMethod = v)
+    .Register("BuildingHVACSystem", x => x.BuildingHVACSystem, (x, v) => x.BuildingHVACSystem = v)
+    .Register("BuildingOperatingSchedule", x => x.BuildingOperatingSchedule, (x, v) => x.BuildingOperatingSchedule = v)
+    .Register("BuildingType", x => x.BuildingType, (x, v) => x.BuildingType = v)
+    .Register("BuildingTypeId", x => x.BuildingTypeId, (x, v) => x.BuildingTypeId = v)
+    .Register("CoreOffset", x => x.CoreOffset, (x, v) => x.CoreOffset = v)
+    .RegisterReadOnly("CreateAnalyticalModel", x => x.CreateAnalyticalModel)
+    .Register("DividePerimeter", x => x.DividePerimeter, (x, v) => x.DividePerimeter = v)
+    .Register("EnergyModel", x => x.EnergyModel, (x, v) => x.EnergyModel = v)
+    .Register("ExportCategory", x => x.ExportCategory, (x, v) => x.ExportCategory = v)
+    .Register("ExportComplexity", x => x.ExportComplexity, (x, v) => x.ExportComplexity = v)
+    .Register("ExportDefaults", x => x.ExportDefaults, (x, v) => x.ExportDefaults = v)
+    .Register("GroundPlane", x => x.GroundPlane, (x, v) => x.GroundPlane = v)
+    .Register("IncludeThermalProperties", x => x.IncludeThermalProperties, (x, v) => x.IncludeThermalProperties = v)
+    .RegisterReadOnly("IsExportMullionsEnabled", x => x.IsExportMullionsEnabled)
+    .RegisterReadOnly("IsExportShadingSurfacesEnabled", x => x.IsExportShadingSurfacesEnabled)
+    .RegisterReadOnly("IsExportSimplifiedCurtainSystemsEnabled", x => x.IsExportSimplifiedCurtainSystemsEnabled)
+    .Register("IsGlazingShaded", x => x.IsGlazingShaded, (x, v) => x.IsGlazingShaded = v)
+    .Register("OutsideAirChangesRatePerHour", x => x.OutsideAirChangesRatePerHour, (x, v) => x.OutsideAirChangesRatePerHour = v)
+    .Register("OutsideAirPerArea", x => x.OutsideAirPerArea, (x, v) => x.OutsideAirPerArea = v)
+    .Register("OutsideAirPerPerson", x => x.OutsideAirPerPerson, (x, v) => x.OutsideAirPerPerson = v)
+    .Register("PercentageGlazing", x => x.PercentageGlazing, (x, v) => x.PercentageGlazing = v)
+    .Register("PercentageSkylights", x => x.PercentageSkylights, (x, v) => x.PercentageSkylights = v)
+    .Register("ProjectPhase", x => x.ProjectPhase, (x, v) => x.ProjectPhase = v)
+    .Register("ProjectReportType", x => x.ProjectReportType, (x, v) => x.ProjectReportType = v)
+    .RegisterReadOnly("ReportsFolder", x => x.ReportsFolder)
+    .Register("ServiceType", x => x.ServiceType, (x, v) => x.ServiceType = v)
+    .Register("ShadeDepth", x => x.ShadeDepth, (x, v) => x.ShadeDepth = v)
+    .Register("SillHeight", x => x.SillHeight, (x, v) => x.SillHeight = v)
+    .Register("SkylightWidth", x => x.SkylightWidth, (x, v) => x.SkylightWidth = v)
+    .Register("SliverSpaceTolerance", x => x.SliverSpaceTolerance, (x, v) => x.SliverSpaceTolerance = v)
+    .Register("UseAirChangesPerHour", x => x.UseAirChangesPerHour, (x, v) => x.UseAirChangesPerHour = v)
+    #if !REVIT2022 && !REVIT2023
+    .Register("UseCurrentViewOnly", x => x.UseCurrentViewOnly, (x, v) => x.UseCurrentViewOnly = v)
+#endif
+    .Register("UseHeatingCredits", x => x.UseHeatingCredits, (x, v) => x.UseHeatingCredits = v)
+    .Register("UseOutsideAirPerArea", x => x.UseOutsideAirPerArea, (x, v) => x.UseOutsideAirPerArea = v)
+    .Register("UseOutsideAirPerPerson", x => x.UseOutsideAirPerPerson, (x, v) => x.UseOutsideAirPerPerson = v);
+
+// Declaring Type: Autodesk.Revit.DB.SharedParameterElement
+ForType<SharedParameterElement>()
+    .RegisterReadOnly("GuidValue", x => x.GuidValue);
+
+
+
+// Declaring Type: Autodesk.Revit.DB.Analysis.ConceptualSurfaceType
+ForType<ConceptualSurfaceType>()
+    .Register("DefaultConstructionTypeId", x => x.DefaultConstructionTypeId, (x, v) => x.DefaultConstructionTypeId = v)
+    .RegisterReadOnly("MassSubCategoryId", x => x.MassSubCategoryId);
+
+// Declaring Type: Autodesk.Revit.DB.StartingViewSettings
+ForType<StartingViewSettings>()
+    .Register("ViewId", x => x.ViewId, (x, v) => x.ViewId = v);
+
+// Declaring Type: Autodesk.Revit.DB.View3D
+ForType<View3D>()
+    .RegisterReadOnly("IsLocked", x => x.IsLocked)
+    .RegisterReadOnly("IsPerspective", x => x.IsPerspective)
+    .Register("IsSectionBoxActive", x => x.IsSectionBoxActive, (x, v) => x.IsSectionBoxActive = v)
+    .Register("ProjectGridsOnSectionBox", x => x.ProjectGridsOnSectionBox, (x, v) => x.ProjectGridsOnSectionBox = v);
+
+// Declaring Type: Autodesk.Revit.DB.ViewSheet
+ForType<ViewSheet>()
+    .RegisterReadOnly("IsPlaceholder", x => x.IsPlaceholder)
+#if REVIT2025 || REVIT2026
+    .Register("SheetCollectionId", x => x.SheetCollectionId, (x, v) => x.SheetCollectionId = v)
+#endif
+    .Register("SheetNumber", x => x.SheetNumber, (x, v) => x.SheetNumber = v)
+#if REVIT2026
+    .Register("SheetTitleBlockId", x => x.SheetTitleBlockId, (x, v) => x.SheetTitleBlockId = v)
+#endif
+    ;
+
+// Declaring Type: Autodesk.Revit.DB.FamilyInstance
+ForType<FamilyInstance>()
+    .RegisterReadOnly("Room", x => { try { return x.Room != null ? GetIdVal(x.Room.Id) : -1; } catch { return -1; } })
+    .RegisterReadOnly("FromRoom", x => { try { return x.FromRoom != null ? GetIdVal(x.FromRoom.Id) : -1; } catch { return -1; } })
+    .RegisterReadOnly("ToRoom", x => { try { return x.ToRoom != null ? GetIdVal(x.ToRoom.Id) : -1; } catch { return -1; } })
+    .RegisterReadOnly("Space", x => { try { return x.Space != null ? GetIdVal(x.Space.Id) : -1; } catch { return -1; } })
+    .RegisterReadOnly("Host", x => { try { return x.Host != null ? GetIdVal(x.Host.Id) : -1; } catch { return -1; } })
+    .RegisterReadOnly("SuperComponent", x => { try { return x.SuperComponent != null ? GetIdVal(x.SuperComponent.Id) : -1; } catch { return -1; } })
+    .Register("Symbol", x => x.Symbol != null ? GetIdVal(x.Symbol.Id) : -1, (x, v) => x.Symbol = x.Document.GetElement(MakeElementId(v)) as FamilySymbol)
+    .RegisterReadOnly("CanFlipFacing", x => x.CanFlipFacing)
+    .RegisterReadOnly("CanFlipHand", x => x.CanFlipHand)
+    .RegisterReadOnly("CanFlipWorkPlane", x => x.CanFlipWorkPlane)
+    .RegisterReadOnly("CanRotate", x => x.CanRotate)
+    .RegisterReadOnly("CanSplit", x => x.CanSplit)
+    .RegisterReadOnly("ExtensionUtility", x => x.ExtensionUtility)
+    .RegisterReadOnly("FacingFlipped", x => x.FacingFlipped)
+    .RegisterReadOnly("FacingOrientation", x => x.FacingOrientation)
+    .RegisterReadOnly("HandFlipped", x => x.HandFlipped)
+    .RegisterReadOnly("HandOrientation", x => x.HandOrientation)
+    .RegisterReadOnly("HasSpatialElementCalculationPoint", x => x.HasSpatialElementCalculationPoint)
+    .RegisterReadOnly("HasSpatialElementFromToCalculationPoints", x => x.HasSpatialElementFromToCalculationPoints)
+    .RegisterReadOnly("Invisible", x => x.Invisible)
+    .RegisterReadOnly("IsSlantedColumn", x => x.IsSlantedColumn)
+    .RegisterReadOnly("Mirrored", x => x.Mirrored)
+    .Register("StructuralMaterialId", x => x.StructuralMaterialId, (x, v) => x.StructuralMaterialId = v)
+    .RegisterReadOnly("StructuralMaterialType", x => x.StructuralMaterialType)
+    .RegisterReadOnly("StructuralType", x => x.StructuralType)
+    .Register("StructuralUsage", x => x.StructuralUsage, (x, v) => x.StructuralUsage = v);
+
+// Declaring Type: Autodesk.Revit.DB.CurveElement
+ForType<CurveElement>()
+    .Register("LineStyle", x => x.LineStyle != null ? GetIdVal(x.LineStyle.Id) : -1, (x, v) => x.LineStyle = x.Document.GetElement(MakeElementId(v)))
+    .RegisterReadOnly("SketchPlane", x => x.SketchPlane != null ? GetIdVal(x.SketchPlane.Id) : -1)
+    .RegisterReadOnly("CurveElementType", x => x.CurveElementType)
+    .RegisterReadOnly("SupportsTangentLocks", x => x.SupportsTangentLocks);
+
+// Declaring Type: Autodesk.Revit.DB.ModelCurve
+ForType<ModelCurve>()
+    .Register("Subcategory", x => x.Subcategory != null ? GetIdVal(x.Subcategory.Id) : -1, (x, v) => x.Subcategory = x.Document.GetElement(MakeElementId(v)) as GraphicsStyle)
+    .RegisterReadOnly("IsReferenceLine", x => x.IsReferenceLine)
+    .Register("TrussCurveType", x => x.TrussCurveType, (x, v) => x.TrussCurveType = v);
+
+// Declaring Type: Autodesk.Revit.DB.SpatialElement
+ForType<SpatialElement>()
+    .RegisterReadOnly("Level", x => x.Level != null ? GetIdVal(x.Level.Id) : -1)
+    .RegisterReadOnly("Area", x => x.Area)
+    .Register("Number", x => x.Number, (x, v) => x.Number = v)
+    .RegisterReadOnly("Perimeter", x => x.Perimeter)
+#if !REVIT2022
+    .RegisterReadOnly("SpatialElementType", x => x.SpatialElementType)
+#endif
+    ;
+
+// Declaring Type: Autodesk.Revit.DB.Area
+ForType<Area>()
+    .RegisterReadOnly("AreaScheme", x => x.AreaScheme != null ? GetIdVal(x.AreaScheme.Id) : -1)
+    .RegisterReadOnly("IsGrossInterior", x => x.IsGrossInterior);
+
+// Declaring Type: Autodesk.Revit.DB.TableView
+ForType<TableView>()
+    .RegisterReadOnly("MaximumColumnWidth", x => x.MaximumColumnWidth)
+    .RegisterReadOnly("MaximumGridWidth", x => x.MaximumGridWidth)
+    .RegisterReadOnly("MaximumRowHeight", x => x.MaximumRowHeight)
+    .RegisterReadOnly("MinimumColumnWidth", x => x.MinimumColumnWidth)
+    .RegisterReadOnly("MinimumRowHeight", x => x.MinimumRowHeight)
+    .Register("TargetId", x => x.TargetId, (x, v) => x.TargetId = v);
+
+// Declaring Type: Autodesk.Revit.DB.ViewSchedule
+ForType<ViewSchedule>()
+#if !REVIT2022 && !REVIT2023
+    .Register("KeyScheduleParameterName", x => x.Definition.IsKeySchedule ? x.KeyScheduleParameterName : "", (x, v) => { if (x.Definition.IsKeySchedule) x.KeyScheduleParameterName = v; })
+#endif
+    .Register("BodyTextTypeId", x => x.BodyTextTypeId, (x, v) => x.BodyTextTypeId = v)
+    .Register("HasStripedRows", x => x.HasStripedRows, (x, v) => x.HasStripedRows = v)
+    .Register("HeaderTextTypeId", x => x.HeaderTextTypeId, (x, v) => x.HeaderTextTypeId = v)
+    .RegisterReadOnly("IsInternalKeynoteSchedule", x => x.IsInternalKeynoteSchedule)
+    .RegisterReadOnly("IsTitleblockRevisionSchedule", x => x.IsTitleblockRevisionSchedule)
+#if !REVIT2022 && !REVIT2023
+    .Register<RowHeightOverrideOptions>("RowHeightOverride", x => { try { return x.RowHeightOverride; } catch { return default(RowHeightOverrideOptions); } }, (x, v) => { try { x.RowHeightOverride = v; } catch {} })
+#endif
+    .Register("TitleTextTypeId", x => x.TitleTextTypeId, (x, v) => x.TitleTextTypeId = v)
+    .Register("UseStripedRowsOnSheets", x => x.UseStripedRowsOnSheets, (x, v) => x.UseStripedRowsOnSheets = v)
+    // OMITTED: EmbeddedDefinition (Reason: Prevents infinite recursion)
+    // OMITTED: Definition (Reason: ScheduleDefinition is not registered in this slice)
+    ;
+
+// Declaring Type: Autodesk.Revit.DB.Segment
+ForType<Segment>()
+    .Register("Description", x => x.Description, (x, v) => x.Description = v)
+    .RegisterReadOnly("MaterialId", x => x.MaterialId)
+    .Register("Roughness", x => x.Roughness, (x, v) => x.Roughness = v)
+    .RegisterReadOnly("SizeCount", x => x.SizeCount);
+
+// Declaring Type: Autodesk.Revit.DB.Plumbing.PipeSegment
+ForType<PipeSegment>()
+    .RegisterReadOnly("ScheduleTypeId", x => x.ScheduleTypeId);
+
+// Declaring Type: Autodesk.Revit.DB.Structure.ReinforcementSettings
+ForType<ReinforcementSettings>()
+    .Register("HostStructuralRebar", x => x.HostStructuralRebar, (x, v) => x.HostStructuralRebar = v)
+#if REVIT2026
+    .Register("NumberingMethod", x => x.NumberingMethod, (x, v) => x.NumberingMethod = v)
+#endif
+    .Register("NumberVaryingLengthRebarsIndividually", x => x.NumberVaryingLengthRebarsIndividually, (x, v) => x.NumberVaryingLengthRebarsIndividually = v)
+    .Register("RebarPresentationInSection", x => x.RebarPresentationInSection, (x, v) => x.RebarPresentationInSection = v)
+    .Register("RebarPresentationInView", x => x.RebarPresentationInView, (x, v) => x.RebarPresentationInView = v)
+    .Register("RebarShapeDefinesEndTreatments", x => x.RebarShapeDefinesEndTreatments, (x, v) => x.RebarShapeDefinesEndTreatments = v)
+    .Register("RebarShapeDefinesHooks", x => x.RebarShapeDefinesHooks, (x, v) => x.RebarShapeDefinesHooks = v)
+    .Register("RebarVaryingLengthNumberSuffix", x => x.RebarVaryingLengthNumberSuffix, (x, v) => x.RebarVaryingLengthNumberSuffix = v);
+
+// Declaring Type: Autodesk.Revit.DB.DefaultDivideSettings
+ForType<DefaultDivideSettings>()
+    .Register("PathDistance", x => x.PathDistance, (x, v) => x.PathDistance = v)
+    .Register("PathLayout", x => x.PathLayout, (x, v) => x.PathLayout = v)
+    .Register("PathMeasurementType", x => x.PathMeasurementType, (x, v) => x.PathMeasurementType = v)
+    .Register("PathNumber", x => x.PathNumber, (x, v) => x.PathNumber = v);
+
+// Declaring Type: Autodesk.Revit.DB.NumberingSchema
+ForType<NumberingSchema>()
+    .RegisterReadOnly("NumberingParameterId", x => x.NumberingParameterId);
+
+// Declaring Type: Autodesk.Revit.DB.ScheduleSheetInstance
+ForType<ScheduleSheetInstance>()
+    .RegisterReadOnly("IsTitleblockRevisionSchedule", x => x.IsTitleblockRevisionSchedule)
+    .Register("Point", x => x.Point, (x, v) => x.Point = v)
+    .Register("Rotation", x => x.Rotation, (x, v) => x.Rotation = v)
+    .RegisterReadOnly("ScheduleId", x => x.ScheduleId)
+    .Register("SegmentIndex", x => x.SegmentIndex, (x, v) => x.SegmentIndex = v);
+
+// Declaring Type: Autodesk.Revit.DB.Structure.StructuralConnectionSettings
+ForType<StructuralConnectionSettings>()
+    .Register("IncludeWarningControls", x => x.IncludeWarningControls, (x, v) => x.IncludeWarningControls = v);
+
+// Declaring Type: Autodesk.Revit.DB.TextElement
+ForType<TextElement>()
+    .RegisterReadOnly("Symbol", x => x.Symbol != null ? GetIdVal(x.Symbol.Id) : -1)
+    .RegisterReadOnly("BaseDirection", x => x.BaseDirection)
+    .Register("Coord", x => x.Coord, (x, v) => x.Coord = v)
+    .RegisterReadOnly("Height", x => x.Height)
+    .Register("HorizontalAlignment", x => x.HorizontalAlignment, (x, v) => x.HorizontalAlignment = v)
+    .RegisterReadOnly("IsTextWrappingActive", x => x.IsTextWrappingActive)
+    .Register("KeepRotatedTextReadable", x => x.KeepRotatedTextReadable, (x, v) => x.KeepRotatedTextReadable = v)
+    .Register("Text", x => x.Text, (x, v) => x.Text = v)
+    .RegisterReadOnly("UpDirection", x => x.UpDirection)
+    .Register("VerticalAlignment", x => x.VerticalAlignment, (x, v) => x.VerticalAlignment = v)
+    .Register("Width", x => x.Width, (x, v) => x.Width = v);
+
+// Declaring Type: Autodesk.Revit.DB.TextNote
+ForType<TextNote>()
+    .Register("TextNoteType", x => x.TextNoteType != null ? GetIdVal(x.TextNoteType.Id) : -1, (x, v) => x.TextNoteType = x.Document.GetElement(MakeElementId(v)) as TextNoteType)
+    .RegisterReadOnly("LeaderCount", x => x.LeaderCount)
+    .Register("LeaderLeftAttachment", x => x.LeaderLeftAttachment, (x, v) => x.LeaderLeftAttachment = v)
+    .Register("LeaderRightAttachment", x => x.LeaderRightAttachment, (x, v) => x.LeaderRightAttachment = v);
+
+// Declaring Type: Autodesk.Revit.DB.ReferencePlane
+ForType<ReferencePlane>()
+    .Register("BubbleEnd", x => x.BubbleEnd, (x, v) => x.BubbleEnd = v)
+    .Register("Direction", x => x.Direction, (x, v) => x.Direction = v)
+    .Register("FreeEnd", x => x.FreeEnd, (x, v) => x.FreeEnd = v)
+    .Register("Name", x => x.Name, (x, v) => x.Name = v)
+    .RegisterReadOnly("Normal", x => x.Normal);
+
+// Declaring Type: Autodesk.Revit.DB.Viewport
+ForType<Viewport>()
+    .Register("LabelLineLength", x => x.LabelLineLength, (x, v) => x.LabelLineLength = v)
+    .Register("LabelOffset", x => x.LabelOffset, (x, v) => x.LabelOffset = v)
+    .Register("Rotation", x => x.Rotation, (x, v) => x.Rotation = v)
+    .RegisterReadOnly("SheetId", x => x.SheetId)
+#if REVIT2026
+    .RegisterReadOnly("ViewAnchor", x => x.ViewAnchor)
+#endif
+#if REVIT2022
+    .RegisterReadOnly("ViewId", x => x.ViewId)
+#else
+    .Register("ViewId", x => x.ViewId, (x, v) => x.ViewId = v)
+#endif
+#if !REVIT2022
+    .Register("ViewportPositioning", x => x.ViewportPositioning, (x, v) => x.ViewportPositioning = v)
+#endif
+#if REVIT2026
+    .RegisterReadOnly("ViewPosition", x => x.ViewPosition)
+#endif
+    ;
+
+// Declaring Type: Autodesk.Revit.DB.Sketch
+ForType<Sketch>()
+    .RegisterReadOnly("OwnerId", x => x.OwnerId);
+
+// Declaring Type: Autodesk.Revit.DB.FilledRegion
+ForType<FilledRegion>()
+    .RegisterReadOnly("IsMasking", x => x.IsMasking);
+
+// Declaring Type: Autodesk.Revit.DB.Dimension
+ForType<Dimension>()
+    .Register("DimensionType", x => x.DimensionType != null ? GetIdVal(x.DimensionType.Id) : -1, (x, v) => x.DimensionType = x.Document.GetElement(MakeElementId(v)) as DimensionType)
+    .Register("FamilyLabel", x => x.FamilyLabel != null ? GetIdVal(x.FamilyLabel.Id) : -1, (x, v) => {
+        var doc = x.Document;
+        if (doc.IsFamilyDocument) {
+            var paramId = MakeElementId(v);
+            foreach (FamilyParameter fp in doc.FamilyManager.Parameters) {
+                if (fp.Id == paramId) {
+                    x.FamilyLabel = fp;
+                    break;
+                }
+            }
+        }
+    })
+    .RegisterReadOnly("View", x => x.View != null ? GetIdVal(x.View.Id) : -1)
+    .Register("Above", x => x.Above, (x, v) => x.Above = v)
+    .RegisterReadOnly("AreReferencesAvailable", x => x.AreReferencesAvailable)
+    .Register("AreSegmentsEqual", x => x.AreSegmentsEqual, (x, v) => x.AreSegmentsEqual = v)
+    .Register("Below", x => x.Below, (x, v) => x.Below = v)
+    .RegisterReadOnly("DimensionShape", x => x.DimensionShape)
+    .Register("HasLeader", x => x.HasLeader, (x, v) => x.HasLeader = v)
+    .Register("IsLocked", x => x.IsLocked, (x, v) => x.IsLocked = v)
+    .RegisterReadOnly("IsValid", x => x.IsValid)
+    .Register("LeaderEndPosition", x => x.LeaderEndPosition, (x, v) => x.LeaderEndPosition = v)
+    .Register("Name", x => x.Name, (x, v) => x.Name = v)
+    .RegisterReadOnly("NumberOfSegments", x => x.NumberOfSegments)
+    .RegisterReadOnly("Origin", x => x.Origin)
+    .Register("Prefix", x => x.Prefix, (x, v) => x.Prefix = v)
+    .Register("Suffix", x => x.Suffix, (x, v) => x.Suffix = v)
+    .Register("TextPosition", x => x.TextPosition, (x, v) => x.TextPosition = v)
+    .RegisterReadOnly("Value", x => x.Value)
+    .Register("ValueOverride", x => x.ValueOverride, (x, v) => x.ValueOverride = v)
+    .RegisterReadOnly("ValueString", x => x.ValueString)
+    // TODO: [Phase 4] Segments
+    ;
+
+// Declaring Type: Autodesk.Revit.DB.Group
+ForType<Group>()
+    .Register("GroupType", x => x.GroupType != null ? GetIdVal(x.GroupType.Id) : -1, (x, v) => x.GroupType = x.Document.GetElement(MakeElementId(v)) as GroupType)
+    .RegisterReadOnly("AttachedParentId", x => x.AttachedParentId)
+    .RegisterReadOnly("IsAttached", x => x.IsAttached);
+
+// Declaring Type: Autodesk.Revit.DB.GlobalParameter
+ForType<GlobalParameter>()
+    .RegisterReadOnly("IsDrivenByDimension", x => x.IsDrivenByDimension)
+    .RegisterReadOnly("IsDrivenByFormula", x => x.IsDrivenByFormula)
+    .Register("IsReporting", x => x.IsReporting, (x, v) => x.IsReporting = v);
+
+// Declaring Type: Autodesk.Revit.DB.Wall
+ForType<Wall>()
+    .Register("WallType", x => x.WallType != null ? GetIdVal(x.WallType.Id) : -1, (x, v) => x.WallType = x.Document.GetElement(MakeElementId(v)) as WallType)
+    .Register("CrossSection", x => x.CrossSection, (x, v) => x.CrossSection = v)
+    .RegisterReadOnly("Flipped", x => x.Flipped)
+    .RegisterReadOnly("IsStackedWall", x => x.IsStackedWall)
+    .RegisterReadOnly("IsStackedWallMember", x => x.IsStackedWallMember)
+    .RegisterReadOnly("Orientation", x => x.Orientation)
+    .RegisterReadOnly("SketchId", x => x.SketchId)
+    .RegisterReadOnly("StackedWallOwnerId", x => x.StackedWallOwnerId)
+    .Register("StructuralUsage", x => x.StructuralUsage, (x, v) => x.StructuralUsage = v)
+    .RegisterReadOnly("Width", x => x.Width)
+    // TODO: [Phase 4] CurtainGrid
+    ;
+
+// Declaring Type: Autodesk.Revit.DB.Panel
+ForType<Autodesk.Revit.DB.Panel>()
+    .Register("PanelType", x => x.PanelType != null ? GetIdVal(x.PanelType.Id) : -1, (x, v) => x.PanelType = x.Document.GetElement(MakeElementId(v)) as PanelType)
+    .RegisterReadOnly("Lockable", x => x.Lockable);
+
+// Declaring Type: Autodesk.Revit.DB.CurtainGridLine
+ForType<CurtainGridLine>()
+    .RegisterReadOnly("IsUGridLine", x => x.IsUGridLine)
+    .Register("Lock", x => x.Lock, (x, v) => x.Lock = v);
+
+// Declaring Type: Autodesk.Revit.DB.Mullion
+ForType<Mullion>()
+    .Register("MullionType", x => x.MullionType != null ? GetIdVal(x.MullionType.Id) : -1, (x, v) => x.MullionType = x.Document.GetElement(MakeElementId(v)) as MullionType)
+    .Register("Lock", x => x.Lock, (x, v) => x.Lock = v)
+    .RegisterReadOnly("Lockable", x => x.Lockable);
+
+// Declaring Type: Autodesk.Revit.DB.Floor
+ForType<Floor>()
+    .Register("FloorType", x => x.FloorType != null ? GetIdVal(x.FloorType.Id) : -1, (x, v) => x.FloorType = x.Document.GetElement(MakeElementId(v)) as FloorType)
+    .RegisterReadOnly("SketchId", x => x.SketchId)
+    .Register("SpanDirectionAngle", x => x.SpanDirectionAngle, (x, v) => x.SpanDirectionAngle = v)
+    // OMITTED: SlabShapeEditor (Reason: Instance-specific geometry overrides, not standard styling)
+    ;
+
+// Declaring Type: Autodesk.Revit.DB.Ceiling
+ForType<Ceiling>()
+    .RegisterReadOnly("SketchId", x => x.SketchId);
+
+// Declaring Type: Autodesk.Revit.DB.Analysis.RouteAnalysisSettings
+ForType<RouteAnalysisSettings>()
+    .Register("AnalysisZoneBottomOffset", x => x.AnalysisZoneBottomOffset, (x, v) => x.AnalysisZoneBottomOffset = v)
+    .Register("AnalysisZoneTopOffset", x => x.AnalysisZoneTopOffset, (x, v) => x.AnalysisZoneTopOffset = v)
+    .Register("EnableIgnoredCategoryIds", x => x.EnableIgnoredCategoryIds, (x, v) => x.EnableIgnoredCategoryIds = v)
+    .Register("IgnoreImports", x => x.IgnoreImports, (x, v) => x.IgnoreImports = v)
+    .RegisterReadOnly("MinimumLength", x => x.MinimumLength);
+
+// Declaring Type: Autodesk.Revit.DB.Architecture.Railing
+ForType<Railing>()
+    .RegisterReadOnly("CanReset", x => x.CanReset)
+    .RegisterReadOnly("Flipped", x => x.Flipped)
+    .RegisterReadOnly("HasHost", x => x.HasHost)
+    .Register("HostId", x => x.HostId, (x, v) => x.HostId = v)
+    .RegisterReadOnly("IsDefault", x => x.IsDefault)
+    .RegisterReadOnly("TopRail", x => x.TopRail);
+
+// Declaring Type: Autodesk.Revit.DB.SpatialElementTag
+ForType<SpatialElementTag>()
+    .RegisterReadOnly("View", x => x.View != null ? GetIdVal(x.View.Id) : -1)
+    .Register("HasLeader", x => x.HasLeader, (x, v) => x.HasLeader = v)
+    .RegisterReadOnly("HasElbow", x => x.HasLeader ? x.HasElbow : false)
+    .Register("LeaderElbow", x => x.HasLeader ? x.LeaderElbow : default(XYZ), (x, v) => { if (x.HasLeader) x.LeaderElbow = v; })
+    .Register("LeaderEnd", x => x.HasLeader ? x.LeaderEnd : default(XYZ), (x, v) => { if (x.HasLeader) x.LeaderEnd = v; })
+    .RegisterReadOnly("IsOrphaned", x => x.IsOrphaned)
+    .RegisterReadOnly("IsTaggingLink", x => x.IsTaggingLink)
+    .Register("RotationAngle", x => x.RotationAngle, (x, v) => x.RotationAngle = v)
+    .Register("TagHeadPosition", x => x.TagHeadPosition, (x, v) => x.TagHeadPosition = v)
+    .Register("TagOrientation", x => x.TagOrientation, (x, v) => x.TagOrientation = v)
+    .RegisterReadOnly("TagText", x => x.TagText);
+
+// Declaring Type: Autodesk.Revit.DB.IndependentTag
+ForType<IndependentTag>()
+    .Register("HasLeader", x => x.HasLeader, (x, v) => x.HasLeader = v)
+    .RegisterReadOnly("IsMaterialTag", x => x.IsMaterialTag)
+    .RegisterReadOnly("IsMulticategoryTag", x => x.IsMulticategoryTag)
+    .RegisterReadOnly("IsOrphaned", x => x.IsOrphaned)
+    .Register("LeaderEndCondition", x => x.LeaderEndCondition, (x, v) => x.LeaderEndCondition = v)
+#if !REVIT2022
+    .Register("LeadersPresentationMode", x => x.LeadersPresentationMode, (x, v) => x.LeadersPresentationMode = v)
+    .Register("MergeElbows", x => x.MergeElbows, (x, v) => x.MergeElbows = v)
+#endif
+    .RegisterReadOnly("MultiLeader", x => x.MultiLeader)
+    .RegisterReadOnly("MultiReferenceAnnotationId", x => x.MultiReferenceAnnotationId)
+    .Register("RotationAngle", x => x.RotationAngle, (x, v) => x.RotationAngle = v)
+    .Register("TagHeadPosition", x => x.TagHeadPosition, (x, v) => x.TagHeadPosition = v)
+    .Register("TagOrientation", x => x.TagOrientation, (x, v) => x.TagOrientation = v)
+    .RegisterReadOnly("TagText", x => x.TagText);
+
+// Declaring Type: Autodesk.Revit.DB.Architecture.Stairs
+ForType<Stairs>()
+    .RegisterReadOnly("ActualRiserHeight", x => x.ActualRiserHeight)
+    .RegisterReadOnly("ActualRisersNumber", x => x.ActualRisersNumber)
+    .Register("ActualTreadDepth", x => x.ActualTreadDepth, (x, v) => x.ActualTreadDepth = v)
+    .RegisterReadOnly("ActualTreadsNumber", x => x.ActualTreadsNumber)
+    .RegisterReadOnly("BaseElevation", x => x.BaseElevation)
+    .Register("DesiredRisersNumber", x => x.DesiredRisersNumber, (x, v) => x.DesiredRisersNumber = v)
+    .Register("Height", x => x.Height, (x, v) => x.Height = v)
+    .RegisterReadOnly("MultistoryStairsId", x => x.MultistoryStairsId)
+    .RegisterReadOnly("NumberOfStories", x => x.NumberOfStories)
+    .RegisterReadOnly("TopElevation", x => x.TopElevation);
+
+// Declaring Type: Autodesk.Revit.DB.Architecture.StairsRun
+ForType<StairsRun>()
+    .RegisterReadOnly("ActualRisersNumber", x => x.ActualRisersNumber)
+    .Register("ActualRunWidth", x => x.ActualRunWidth, (x, v) => x.ActualRunWidth = v)
+    .RegisterReadOnly("ActualTreadsNumber", x => x.ActualTreadsNumber)
+    .Register("BaseElevation", x => x.BaseElevation, (x, v) => x.BaseElevation = v)
+    .Register("BeginsWithRiser", x => x.BeginsWithRiser, (x, v) => x.BeginsWithRiser = v)
+    .Register("EndsWithRiser", x => x.EndsWithRiser, (x, v) => x.EndsWithRiser = v)
+    .Register("ExtensionBelowRiserBase", x => x.ExtensionBelowRiserBase, (x, v) => x.ExtensionBelowRiserBase = v)
+    .Register("ExtensionBelowTreadBase", x => x.ExtensionBelowTreadBase, (x, v) => x.ExtensionBelowTreadBase = v)
+    .RegisterReadOnly("Height", x => x.Height)
+    .Register("LocationLineJustification", x => x.LocationLineJustification, (x, v) => x.LocationLineJustification = v)
+    .RegisterReadOnly("StairsRunStyle", x => x.StairsRunStyle)
+    .Register("TopElevation", x => x.TopElevation, (x, v) => x.TopElevation = v);
+
+// Declaring Type: Autodesk.Revit.DB.RoofBase
+ForType<RoofBase>()
+    .Register("RoofType", x => { try { return x.RoofType != null ? GetIdVal(x.RoofType.Id) : -1; } catch { return -1; } }, (x, v) => { try { x.RoofType = x.Document.GetElement(MakeElementId(v)) as RoofType; } catch {} })
+    .Register("EaveCuts", x => x.EaveCuts, (x, v) => x.EaveCuts = v)
+    // OMITTED: SlabShapeEditor (Reason: Instance-specific geometry overrides, not standard styling)
+    ;
+
+
+
+// Declaring Type: Autodesk.Revit.DB.MultipleValuesIndicationSettings
+ForType<MultipleValuesIndicationSettings>()
+    .Register("Custom", x => x.Custom, (x, v) => x.Custom = v)
+    .Register("CustomValue", x => x.CustomValue, (x, v) => x.CustomValue = v)
+    .RegisterReadOnly("Value", x => x.Value);
+
+// Declaring Type: Autodesk.Revit.DB.RevisionNumberingSequence
+ForType<RevisionNumberingSequence>()
+    .RegisterReadOnly("NumberType", x => x.NumberType)
+    .Register("SequenceName", x => x.SequenceName, (x, v) => x.SequenceName = v);
+
+// Declaring Type: Autodesk.Revit.DB.ImportInstance
+ForType<ImportInstance>()
+    .RegisterReadOnly("IsLinked", x => x.IsLinked);
+
+// Declaring Type: Autodesk.Revit.DB.ImageInstance
+ForType<ImageInstance>()
+    .RegisterReadOnly("CanHaveSnaps", x => x.CanHaveSnaps)
+    .Register("DrawLayer", x => x.DrawLayer, (x, v) => x.DrawLayer = v)
+    .Register("EnableSnaps", x => x.EnableSnaps, (x, v) => x.EnableSnaps = v)
+    .Register("Height", x => x.Height, (x, v) => x.Height = v)
+    .Register("HeightScale", x => x.HeightScale, (x, v) => x.HeightScale = v)
+    .Register("LockProportions", x => x.LockProportions, (x, v) => x.LockProportions = v)
+    .Register("Width", x => x.Width, (x, v) => x.Width = v)
+    .Register("WidthScale", x => x.WidthScale, (x, v) => x.WidthScale = v);
+
+#if REVIT2025 || REVIT2026
+// Declaring Type: Autodesk.Revit.DB.Analysis.BuildingOperatingYearSchedule
+ForType<BuildingOperatingYearSchedule>()
+    .Register("ScheduleName", x => x.ScheduleName, (x, v) => x.ScheduleName = v);
+#endif
+
+#if REVIT2026
+// Declaring Type: Autodesk.Revit.DB.IFCCategoryTemplate
+ForType<IFCCategoryTemplate>()
+    .Register("IsValidCategoryMappingFile", x => x.IsValidCategoryMappingFile, (x, v) => x.IsValidCategoryMappingFile = v)
+    ;
+#endif
+
+// Declaring Type: Autodesk.Revit.DB.AreaTag
+ForType<AreaTag>()
+    .RegisterReadOnly("Area", x => x.Area != null ? GetIdVal(x.Area.Id) : -1)
+    .Register("AreaTagType", x => x.AreaTagType != null ? GetIdVal(x.AreaTagType.Id) : -1, (x, v) => x.AreaTagType = x.Document.GetElement(MakeElementId(v)) as AreaTagType);
+
+// Declaring Type: Autodesk.Revit.DB.AnnotationSymbol
+ForType<AnnotationSymbol>()
+    .Register("AnnotationSymbolType", x => x.AnnotationSymbolType != null ? GetIdVal(x.AnnotationSymbolType.Id) : -1, (x, v) => x.AnnotationSymbolType = x.Document.GetElement(MakeElementId(v)) as AnnotationSymbolType);
+
+

@@ -1,0 +1,132 @@
+<Window x:Class="Synthetic.Modules.SettingsDashboard.Views.WorksetWizardWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Synthetic.Shared.UI"
+        Title="Configure Worksets Settings" 
+        Height="250" Width="550" 
+        WindowStartupLocation="CenterOwner" 
+        ResizeMode="NoResize" 
+        ShowInTaskbar="False"
+        Style="{DynamicResource SyntheticWindowStyle}"
+        local:WindowChromeBehavior.EnableWindowCommands="True">
+
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="../../../Shared/UI/SyntheticTheme.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Window.Resources>
+
+    <Grid Margin="15">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/> <!-- Title / Desc -->
+            <RowDefinition Height="Auto"/> <!-- Excel Path Selection -->
+            <RowDefinition Height="Auto"/> <!-- Workset Group Selection -->
+            <RowDefinition Height="*"/>    <!-- Spacer -->
+            <RowDefinition Height="Auto"/> <!-- Footer Buttons -->
+        </Grid.RowDefinitions>
+
+        <!-- Title -->
+        <TextBlock Grid.Row="0" 
+                   Text="Excel Mapping &amp; Configuration" 
+                   FontSize="14" 
+                   FontWeight="Bold" 
+                   Foreground="{DynamicResource Synthetic.Brushes.TextPrimary}" 
+                   Margin="0,0,0,15"/>
+
+        <!-- Excel File Row -->
+        <Grid Grid.Row="1" Margin="0,0,0,15">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="100"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="80"/>
+            </Grid.ColumnDefinitions>
+
+            <TextBlock Grid.Column="0" 
+                       Text="Excel File:" 
+                       VerticalAlignment="Center" 
+                       Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}" 
+                       FontSize="12"/>
+
+            <TextBox Grid.Column="1" 
+                     Text="{Binding FullPath, Mode=OneWay}" 
+                     IsReadOnly="True" 
+                     Margin="0,0,10,0"/>
+
+            <Button Grid.Column="2" 
+                    Content="Browse..." 
+                    Command="{Binding BrowseCommand}"
+                    CommandParameter="{Binding RelativeSource={RelativeSource AncestorType=Window}}"/>
+        </Grid>
+
+        <!-- Workset Group Row -->
+        <Grid Grid.Row="2">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="100"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <TextBlock Grid.Column="0" 
+                       Text="Workset Group:" 
+                       VerticalAlignment="Center" 
+                       Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}" 
+                       FontSize="12"/>
+
+            <Grid Grid.Column="1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <ComboBox Grid.Column="0" 
+                          ItemsSource="{Binding AvailableGroups}" 
+                          SelectedItem="{Binding SelectedGroup, Mode=TwoWay}">
+                    <ComboBox.Style>
+                        <Style TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsLoading}" Value="True">
+                                    <Setter Property="IsEnabled" Value="False"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </ComboBox.Style>
+                </ComboBox>
+
+                <!-- Spinner / Status text -->
+                <TextBlock Grid.Column="1" 
+                           Text="Loading sheets..." 
+                           Foreground="{DynamicResource Synthetic.Brushes.Accent}" 
+                           FontStyle="Italic" 
+                           VerticalAlignment="Center" 
+                           Margin="10,0,0,0">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock" BasedOn="{StaticResource {x:Type TextBlock}}">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsLoading}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+            </Grid>
+        </Grid>
+
+        <!-- Footer -->
+        <StackPanel Grid.Row="4" 
+                     Orientation="Horizontal" 
+                     HorizontalAlignment="Right">
+            <Button Content="OK" 
+                    Command="{Binding OkCommand}" 
+                    CommandParameter="{Binding RelativeSource={RelativeSource AncestorType=Window}}"
+                    Style="{DynamicResource Synthetic.Styles.PrimaryButton}"
+                    Margin="0,0,10,0"/>
+            <Button Content="Cancel" 
+                    Command="{Binding CancelCommand}" 
+                    CommandParameter="{Binding RelativeSource={RelativeSource AncestorType=Window}}"
+                    Style="{DynamicResource Synthetic.Styles.SecondaryButton.Right}"/>
+        </StackPanel>
+    </Grid>
+</Window>

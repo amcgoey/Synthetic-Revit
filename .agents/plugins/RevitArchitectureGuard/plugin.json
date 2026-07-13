@@ -1,0 +1,14 @@
+{
+  "plugin_id": "revit_architecture_guard",
+  "name": "RevitArchitectureGuard",
+  "version": "2.0.0",
+  "description": "Enforces high-performance database filtering, explicit JSON-in-Schema extensible storage structures, and pattern-based transaction batching.",
+
+  "lifecycle_hooks": [
+    {
+      "stage": "before_file_write",
+      "action": "verify_database_safety",
+      "description": "Audits proposed C# modifications against the CollectorOptimizer hierarchy and transaction performance constraints."
+    }
+  ]
+}

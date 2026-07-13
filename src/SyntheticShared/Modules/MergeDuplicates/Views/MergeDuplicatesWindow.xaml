@@ -1,0 +1,322 @@
+<Window x:Class="Synthetic.Modules.MergeDuplicates.Views.MergeDuplicatesWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="clr-namespace:Synthetic.Modules.MergeDuplicates.ViewModels"
+        xmlns:models="clr-namespace:Synthetic.Modules.MergeDuplicates.Models"
+        xmlns:local="clr-namespace:Synthetic.Shared.UI"
+        Title="Merge Duplicates - Triage &amp; Queue"
+        Height="600" Width="850" MinHeight="500" MinWidth="700"
+        WindowStartupLocation="CenterOwner" ResizeMode="CanResizeWithGrip" ShowInTaskbar="False"
+        Style="{DynamicResource SyntheticWindowStyle}"
+        local:WindowChromeBehavior.EnableWindowCommands="True">
+
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="../../../Shared/UI/SyntheticTheme.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+
+            <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
+        </ResourceDictionary>
+    </Window.Resources>
+
+    <Grid Margin="15">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/> <!-- Top Bar / Initiation Area -->
+            <RowDefinition Height="*"/>    <!-- Triage (Top) -->
+            <RowDefinition Height="Auto"/> <!-- Splitter / Spacer -->
+            <RowDefinition Height="*"/>    <!-- Queue (Bottom) -->
+            <RowDefinition Height="Auto"/> <!-- Footer -->
+        </Grid.RowDefinitions>
+
+        <!-- 0. TOP BAR / INITIATION AREA -->
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,15">
+            <Button Content="Scan Entire Model"
+                    Command="{Binding CmdScanModel}"
+                    Style="{DynamicResource Synthetic.Styles.PrimaryButton}"
+                    Margin="0,0,10,0"/>
+            <Button Content="Load Current Selection"
+                    Command="{Binding CmdLoadSelection}"
+                    Style="{DynamicResource Synthetic.Styles.PrimaryButton}"/>
+        </StackPanel>
+
+        <!-- 1. TRIAGE GRID AREA -->
+        <Grid Grid.Row="1" Margin="0,0,0,10">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <TextBlock Grid.Row="0" Text="Duplicate Clusters (Triage Grid)"
+                       FontSize="14" FontWeight="Bold"
+                       Foreground="{DynamicResource Synthetic.Brushes.TextPrimary}"
+                       Margin="0,0,0,8"/>
+
+            <!-- Implicit styling applies to DataGrid -->
+            <DataGrid Grid.Row="1" ItemsSource="{Binding ScannedClusters}" RowDetailsVisibilityMode="VisibleWhenSelected">
+                <DataGrid.RowDetailsTemplate>
+                    <DataTemplate DataType="{x:Type models:DuplicateClusterModel}">
+                        <Border Background="{DynamicResource Synthetic.Brushes.BackgroundBase}"
+                                BorderBrush="{DynamicResource Synthetic.Brushes.BorderNormal}"
+                                BorderThickness="1,0,1,1" Padding="15,10">
+                            <StackPanel>
+                                <TextBlock Text="Include Items for Merge:" FontSize="11"
+                                           Foreground="{DynamicResource Synthetic.Brushes.AccentActive}"
+                                           FontWeight="Bold" Margin="0,0,0,6"/>
+                                <ItemsControl ItemsSource="{Binding Items}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <WrapPanel Orientation="Horizontal"/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="{x:Type models:DuplicateItemModel}">
+                                            <!-- CheckBox inherits implicit style -->
+                                            <CheckBox Content="{Binding ItemName}"
+                                                      IsChecked="{Binding IsIncludedForMerge, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                      Margin="0,0,20,5" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </DataGrid.RowDetailsTemplate>
+
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Duplicate Group Name" Binding="{Binding ClusterName}" Width="2*" IsReadOnly="True">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                                <Setter Property="Margin" Value="5,0"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+
+                    <!-- Mismatches / Status: migrated emojis to XAML vector paths -->
+                    <DataGridTemplateColumn Header="Status Warnings" Width="1.5*">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate DataType="{x:Type models:DuplicateClusterModel}">
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="5,0">
+                                    <!-- Blocked icon & label -->
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,8,0"
+                                                Visibility="{Binding IsBlocked, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                        <Path Data="{StaticResource Synthetic.Geometries.Blocked}"
+                                              Fill="{DynamicResource Synthetic.Brushes.Error}"
+                                              Width="14" Height="14" Stretch="Uniform" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                        <TextBlock Text="Blocked: Conflicts" Foreground="{DynamicResource Synthetic.Brushes.Error}" FontWeight="Bold" VerticalAlignment="Center"/>
+                                    </StackPanel>
+
+                                    <!-- Parameter Mismatch icon & label -->
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,8,0"
+                                                Visibility="{Binding HasSchemaMismatch, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                        <Path Data="{StaticResource Synthetic.Geometries.Warning}"
+                                              Fill="{DynamicResource Synthetic.Brushes.Warning}"
+                                              Width="14" Height="14" Stretch="Uniform" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                        <TextBlock Text="Parameter Mismatch" Foreground="{DynamicResource Synthetic.Brushes.Warning}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                    </StackPanel>
+
+                                    <!-- Origin Mismatch icon & label -->
+                                    <StackPanel Orientation="Horizontal" Margin="0,0,8,0"
+                                                Visibility="{Binding HasOriginMismatch, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                        <Path Data="{StaticResource Synthetic.Geometries.Warning}"
+                                              Fill="{DynamicResource Synthetic.Brushes.Warning}"
+                                              Width="14" Height="14" Stretch="Uniform" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                        <TextBlock Text="Origin Mismatch" Foreground="{DynamicResource Synthetic.Brushes.Warning}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                    </StackPanel>
+
+                                    <!-- Success/Harmonious icon & label -->
+                                    <StackPanel Orientation="Horizontal">
+                                        <StackPanel.Style>
+                                            <Style TargetType="StackPanel">
+                                                <Setter Property="Visibility" Value="Collapsed"/>
+                                                <Style.Triggers>
+                                                    <MultiDataTrigger>
+                                                        <MultiDataTrigger.Conditions>
+                                                            <Condition Binding="{Binding HasSchemaMismatch}" Value="False"/>
+                                                            <Condition Binding="{Binding HasOriginMismatch}" Value="False"/>
+                                                            <Condition Binding="{Binding IsBlocked}" Value="False"/>
+                                                        </MultiDataTrigger.Conditions>
+                                                        <Setter Property="Visibility" Value="Visible"/>
+                                                    </MultiDataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </StackPanel.Style>
+                                        <Path Data="{StaticResource Synthetic.Geometries.Success}"
+                                              Fill="{DynamicResource Synthetic.Brushes.Success}"
+                                              Width="14" Height="14" Stretch="Uniform" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                        <TextBlock Text="Harmonious" Foreground="{DynamicResource Synthetic.Brushes.Success}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+
+                    <!-- ComboBox to choose Primary Survivor -->
+                    <DataGridTemplateColumn Header="Primary Survivor (Bold is Default)" Width="2.5*">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate DataType="{x:Type models:DuplicateClusterModel}">
+                                <!-- ComboBox inherits implicit style -->
+                                <ComboBox ItemsSource="{Binding Items}"
+                                          SelectedItem="{Binding SelectedPrimary, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                          Margin="5,0">
+                                    <ComboBox.ItemTemplate>
+                                        <DataTemplate DataType="{x:Type models:DuplicateItemModel}">
+                                            <TextBlock Text="{Binding ItemName}">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsPrimary}" Value="True">
+                                                                <Setter Property="FontWeight" Value="Bold"/>
+                                                                <Setter Property="Foreground" Value="{DynamicResource Synthetic.Brushes.AccentActive}"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                        </DataTemplate>
+                                    </ComboBox.ItemTemplate>
+                                </ComboBox>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+
+                    <!-- Add Straggler Button (+) -->
+                    <DataGridTemplateColumn Header="Stragglers" Width="Auto">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate DataType="{x:Type models:DuplicateClusterModel}">
+                                <Button Content="+"
+                                        Command="{Binding DataContext.CmdAddStragglers, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                        CommandParameter="{Binding}"
+                                        Width="28" Margin="5,0"
+                                        FontWeight="Bold" FontSize="14"
+                                        ToolTip="Force missing straggler elements of the same category into this cluster."/>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+
+                    <!-- Actions (Queue, Detailed Analysis, Move) -->
+                    <DataGridTemplateColumn Header="Actions" Width="Auto">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate DataType="{x:Type models:DuplicateClusterModel}">
+                                <StackPanel Orientation="Horizontal">
+                                    <Button Content="Queue"
+                                            Command="{Binding DataContext.CmdAddToQueue, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                            CommandParameter="{Binding}"
+                                            Style="{DynamicResource Synthetic.Styles.PrimaryButton}"
+                                            Margin="3,0"
+                                            ToolTip="Add this cluster to the execution merge queue."/>
+
+                                    <Button Content="Detailed Analysis"
+                                            Command="{Binding DataContext.CmdDetailedReview, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                            CommandParameter="{Binding}"
+                                            Margin="3,0"
+                                            ToolTip="Launch granular side-by-side comparison and override individual parameters."/>
+
+                                    <Button Command="{Binding DataContext.CmdMoveItem, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                            CommandParameter="{Binding}"
+                                            Width="24" Margin="3,0"
+                                            ToolTip="Move Clusters: Moves a selected duplicate element/type from this cluster to another cluster to manually adjust groupings.">
+                                        <Path Data="M3,7 H17 M17,7 L13,3 M17,7 L13,11 M21,15 H7 M7,15 L11,11 M7,15 L11,19"
+                                              Stroke="{DynamicResource Synthetic.Brushes.TextPrimary}"
+                                              StrokeThickness="1.5" Width="14" Height="14" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Button>
+                                </StackPanel>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                </DataGrid.Columns>
+            </DataGrid>
+        </Grid>
+
+        <!-- Grid Splitter -->
+        <GridSplitter Grid.Row="2" Height="4" HorizontalAlignment="Stretch" VerticalAlignment="Center"
+                      Background="{DynamicResource Synthetic.Brushes.BorderNormal}" Margin="0,5"/>
+
+        <!-- 2. QUEUE GRID AREA -->
+        <Grid Grid.Row="3" Margin="0,10,0,15">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <TextBlock Grid.Row="0" Text="Queued Merges (Active Queue)"
+                       FontSize="14" FontWeight="Bold"
+                       Foreground="{DynamicResource Synthetic.Brushes.TextPrimary}"
+                       Margin="0,0,0,8"/>
+
+            <!-- Implicit style applies to Queue DataGrid -->
+            <DataGrid Grid.Row="1" ItemsSource="{Binding QueuedClusters}">
+                <DataGrid.Columns>
+                    <DataGridTextColumn Header="Duplicate Group Name" Binding="{Binding ClusterName}" Width="2*" IsReadOnly="True">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                                <Setter Property="Margin" Value="5,0"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+
+                    <DataGridTextColumn Header="Survivor Name" Binding="{Binding SelectedPrimary.ItemName}" Width="2.5*" IsReadOnly="True">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                                <Setter Property="Margin" Value="5,0"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+
+                    <DataGridTextColumn Header="Items Count" Binding="{Binding IncludedItemsCount}" Width="1*" IsReadOnly="True">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                                <Setter Property="Margin" Value="5,0"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+
+                    <!-- Remove Action -->
+                    <DataGridTemplateColumn Header="Action" Width="Auto">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate DataType="{x:Type models:DuplicateClusterModel}">
+                                <Button Content="Remove"
+                                        Command="{Binding DataContext.CmdRemoveFromQueue, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                        CommandParameter="{Binding}"
+                                        Margin="5,0"
+                                        ToolTip="Remove this cluster from the execution queue."/>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                </DataGrid.Columns>
+            </DataGrid>
+        </Grid>
+
+        <!-- 3. FOOTER AREA -->
+        <Grid Grid.Row="4" VerticalAlignment="Bottom">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>    <!-- Progress Bar -->
+                <ColumnDefinition Width="Auto"/> <!-- Buttons -->
+            </Grid.ColumnDefinitions>
+
+            <!-- Progress Indicator -->
+            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,20,0">
+                <TextBlock Text="Progress: " VerticalAlignment="Center"
+                           Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}" Margin="0,0,8,0"/>
+                <ProgressBar Value="{Binding ProgressValue}" Maximum="{Binding ProgressMax}" Width="200" Height="14"
+                             Foreground="{DynamicResource Synthetic.Brushes.AccentActive}"
+                             Background="{DynamicResource Synthetic.Brushes.BackgroundBase}"
+                             BorderBrush="{DynamicResource Synthetic.Brushes.BorderNormal}"/>
+            </StackPanel>
+
+            <!-- Operations / Actions -->
+            <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="Cancel Scan" Command="{Binding CmdCancelScan}" Margin="0,0,10,0"/>
+
+                <Button Content="Process Merge"
+                        Command="{Binding CmdProcessMerge}"
+                        CommandParameter="{Binding RelativeSource={RelativeSource AncestorType=Window}}"
+                        Style="{DynamicResource Synthetic.Styles.PrimaryButton.Right}"/>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

@@ -1,0 +1,55 @@
+<Window x:Class="Synthetic.Shared.UI.SharedProgressWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Synthetic.Shared.UI"
+        Title="{Binding WindowTitle}" SizeToContent="WidthAndHeight" MinHeight="180" MinWidth="400" 
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        Style="{DynamicResource SyntheticWindowStyle}"
+        local:WindowChromeBehavior.EnableWindowCommands="True">
+
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="SyntheticTheme.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+            
+            <Style TargetType="ProgressBar">
+                <Setter Property="Background" Value="{DynamicResource Synthetic.Brushes.ControlSurface}"/>
+                <Setter Property="Foreground" Value="{DynamicResource Synthetic.Brushes.AccentActive}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource Synthetic.Brushes.BorderNormal}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ProgressBar">
+                            <Grid x:Name="TemplateRoot">
+                                <Border x:Name="ProgressBarTrack" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="2"/>
+                                <Border x:Name="PART_Indicator" Background="{TemplateBinding Foreground}" HorizontalAlignment="Left" CornerRadius="1"/>
+                            </Grid>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+        </ResourceDictionary>
+    </Window.Resources>
+    
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/> <!-- Main Task Description -->
+            <RowDefinition Height="Auto"/> <!-- Current Item Name -->
+            <RowDefinition Height="Auto"/> <!-- ProgressBar -->
+            <RowDefinition Height="*"/>    <!-- Cancel Button -->
+        </Grid.RowDefinitions>
+        
+        <TextBlock Text="{Binding MainTaskDescription}" Grid.Row="0" 
+                   TextWrapping="Wrap" Margin="0,0,0,5" Foreground="{DynamicResource Synthetic.Brushes.TextPrimary}" FontSize="12" FontWeight="Bold"/>
+
+        <TextBlock Text="{Binding CurrentItemName}" Grid.Row="1" 
+                   TextWrapping="Wrap" Margin="0,0,0,15" Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}" FontSize="11"/>
+                   
+        <ProgressBar Grid.Row="2" Height="16" Minimum="0" Maximum="{Binding MaximumValue}" Value="{Binding CurrentValue}" 
+                      IsIndeterminate="False" Margin="0,0,0,20"/>
+                      
+        <Button Content="Cancel" Command="{Binding CancelCommand}" Grid.Row="3" 
+                HorizontalAlignment="Right" VerticalAlignment="Bottom"/>
+    </Grid>
+</Window>

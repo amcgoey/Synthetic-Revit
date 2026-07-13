@@ -1,0 +1,61 @@
+<Window x:Class="Synthetic.Shared.UI.DropdownSelectionView"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Synthetic.Shared.UI"
+        Title="{Binding Title}" SizeToContent="WidthAndHeight" MinHeight="220" MinWidth="400"
+        WindowStartupLocation="CenterOwner" ResizeMode="CanResizeWithGrip" ShowInTaskbar="False"
+        Style="{DynamicResource SyntheticWindowStyle}"
+        local:WindowChromeBehavior.EnableWindowCommands="True">
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="SyntheticTheme.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Window.Resources>
+
+    <Grid Margin="15">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/> <!-- Title / Instruction -->
+            <RowDefinition Height="*"/>    <!-- ComboBox Selection -->
+            <RowDefinition Height="Auto"/> <!-- Buttons -->
+        </Grid.RowDefinitions>
+
+        <!-- Header Title and Description -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,15">
+            <TextBlock Text="{Binding Title}"
+                       FontSize="16" FontWeight="SemiBold"
+                       Foreground="{DynamicResource Synthetic.Brushes.TextPrimary}"
+                       Margin="0,0,0,5" TextWrapping="Wrap"/>
+            <TextBlock Text="{Binding Instruction}"
+                       FontSize="12"
+                       Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
+                       TextWrapping="Wrap"/>
+        </StackPanel>
+
+        <!-- Selection Area -->
+        <Grid Grid.Row="1" VerticalAlignment="Center" Margin="0,0,0,15">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0"
+                       Text="{Binding ItemLabel}"
+                       FontWeight="SemiBold"
+                       Foreground="{DynamicResource Synthetic.Brushes.TextPrimary}"
+                       VerticalAlignment="Center" Margin="0,0,12,0"/>
+            <ComboBox Grid.Column="1"
+                      ItemsSource="{Binding Items}"
+                      SelectedItem="{Binding SelectedItem}"
+                      VerticalContentAlignment="Center"/>
+        </Grid>
+
+        <!-- Actions -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button Content="OK" Command="{Binding OkCommand}"
+                    IsDefault="True" Margin="0,0,10,0"/>
+            <Button Content="Cancel" Command="{Binding CancelCommand}"
+                    IsCancel="True"/>
+        </StackPanel>
+    </Grid>
+</Window>

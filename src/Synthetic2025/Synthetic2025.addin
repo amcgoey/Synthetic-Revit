@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>Synthetic</Name>
+    <Assembly>C:\ProgramData\Autodesk\Revit\Addins\Synthetic\Synthetic2025.dll</Assembly>
+    <FullClassName>Synthetic.Core.App</FullClassName>
+    <ClientId>4fd5b26e-1325-460f-97b1-878804070868</ClientId>
+    <VendorId>net.amcgoey</VendorId>
+    <VendorDescription>Synthetic by Arthur McGoey</VendorDescription>
+  </AddIn>
+</RevitAddIns>

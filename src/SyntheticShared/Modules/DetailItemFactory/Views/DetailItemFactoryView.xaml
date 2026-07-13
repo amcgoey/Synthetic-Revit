@@ -1,0 +1,99 @@
+<Window x:Class="Synthetic.Modules.DetailItemFactory.Views.DetailItemFactoryView"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Synthetic.Shared.UI"
+        Title="Detail Item Factory"
+        Height="600" Width="650" MinHeight="500" MinWidth="550"
+        WindowStartupLocation="CenterOwner"
+        Style="{DynamicResource SyntheticWindowStyle}"
+        local:WindowChromeBehavior.EnableWindowCommands="True">
+
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="../../../Shared/UI/SyntheticTheme.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Window.Resources>
+
+    <Grid Margin="15">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/> <!-- Folder Path GroupBox -->
+            <RowDefinition Height="*"/>    <!-- Elements DataGrid GroupBox -->
+            <RowDefinition Height="Auto"/> <!-- Subcategory GroupBox -->
+            <RowDefinition Height="Auto"/> <!-- Options CheckBox -->
+            <RowDefinition Height="Auto"/> <!-- Action Buttons -->
+        </Grid.RowDefinitions>
+
+        <!-- Output Folder Path Selection -->
+        <GroupBox Grid.Row="0" Header="Output Folder Path" Margin="0,0,0,10" Padding="8">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBox Grid.Column="0" Text="{Binding OutputPath, UpdateSourceTrigger=PropertyChanged}" 
+                         VerticalContentAlignment="Center" Margin="0,0,8,0"/>
+                <Button Grid.Column="1" Content="Browse..." Command="{Binding BrowseCommand}"/>
+            </Grid>
+        </GroupBox>
+
+        <!-- Selected Elements Per-Element Configuration -->
+        <GroupBox Grid.Row="1" Header="Configure View Orientations" Margin="0,0,0,10" Padding="8">
+            <!-- DataGrid inherits implicit style -->
+            <DataGrid ItemsSource="{Binding Elements}" RowHeight="32">
+                <DataGrid.Columns>
+                    <!-- Display Name -->
+                    <DataGridTextColumn Header="Selected Element" Binding="{Binding DisplayName}" Width="3*" IsReadOnly="True">
+                        <DataGridTextColumn.ElementStyle>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="VerticalAlignment" Value="Center"/>
+                                <Setter Property="Margin" Value="8,0"/>
+                                <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
+                            </Style>
+                        </DataGridTextColumn.ElementStyle>
+                    </DataGridTextColumn>
+
+                    <!-- View Orientation Dropdown -->
+                    <DataGridTemplateColumn Header="Orientation" Width="1.5*">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <ComboBox ItemsSource="{Binding AvailableOrientations}" SelectedItem="{Binding SelectedOrientation, UpdateSourceTrigger=PropertyChanged}"
+                                          VerticalAlignment="Center" Margin="5,0"/>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+
+                    <!-- Remove Action -->
+                    <DataGridTemplateColumn Header="Action" Width="Auto">
+                        <DataGridTemplateColumn.CellTemplate>
+                            <DataTemplate>
+                                <Button Content="Remove" Command="{Binding DataContext.RemoveElementCommand, RelativeSource={RelativeSource AncestorType=DataGrid}}"
+                                        CommandParameter="{Binding}" VerticalAlignment="Center" Margin="5,0"/>
+                            </DataTemplate>
+                        </DataGridTemplateColumn.CellTemplate>
+                    </DataGridTemplateColumn>
+                </DataGrid.Columns>
+            </DataGrid>
+        </GroupBox>
+
+        <!-- Target Subcategory Selection -->
+        <GroupBox Grid.Row="2" Header="Target Subcategory" Margin="0,0,0,10" Padding="8">
+            <ComboBox ItemsSource="{Binding Subcategories}" SelectedItem="{Binding SelectedSubcategory}" 
+                      VerticalContentAlignment="Center"/>
+        </GroupBox>
+
+        <!-- Additional Options -->
+        <StackPanel Grid.Row="3" Margin="5,5,0,10">
+            <CheckBox Content="Overwrite Existing Family Files" IsChecked="{Binding OverwriteExisting}"/>
+        </StackPanel>
+
+        <!-- Action Buttons -->
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+            <Button Content="Run" Command="{Binding RunCommand}" IsDefault="True"
+                    Style="{DynamicResource Synthetic.Styles.PrimaryButton}"
+                    Margin="0,0,10,0"/>
+            <Button Content="Cancel" Command="{Binding CancelCommand}" IsCancel="True"/>
+        </StackPanel>
+    </Grid>
+</Window>

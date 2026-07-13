@@ -1,0 +1,36 @@
+{
+  "Settings": {
+    "Worksets": {
+      "WorksetFile": "INC Worksets.xlsx",
+      "WorksetPath": "[ENTER_PATH_HERE]",
+      "WorksetGroup": "Worksets Standard INTR"
+    },
+    "ViewAutoNumber": {
+      "viewAutoNumFamily": "Titleblock Grid Location Marker",
+      "viewAutoNumFamilyType": "Location Marker INC Titleblock - CD",
+      "viewAutoNumXGridName": "Grid Size X Direction",
+      "viewAutoNumYGridName": "Grid Size Y Direction"
+    },
+    "MaterialLibrary": {
+      "LibraryFolderPath": "[ENTER_PATH_HERE]"
+    },
+    "ProjectMaterials": {
+      "DefaultRelativePath": ".\\Materials\\",
+      "OverrideFolderPath": ""
+    },
+    "FileUtility": {
+      "ArchiveDirectories": [
+        "[ENTER_PATH_HERE]"
+      ],
+      "AlternatePaths": {
+        "[ENTER_PATH_HERE]": [
+          "[ENTER_PATH_HERE]"
+        ]
+      }
+    },
+    "DetailItemFactorySettings": {
+      "OutputPath": "",
+      "TargetSubcategory": "Detail Items"
+    }
+  }
+}

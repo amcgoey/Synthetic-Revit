@@ -1,0 +1,136 @@
+============================================================
+DISPATCHER FULL ROSTER SWEEP REPORT
+============================================================
+Successful Types (Count: 24):
+- Autodesk.Revit.DB.Architecture.FasciaType
+- Autodesk.Revit.DB.Architecture.GutterType
+- Autodesk.Revit.DB.BrowserOrganization
+- Autodesk.Revit.DB.BuildingPadType
+- Autodesk.Revit.DB.CeilingType
+- Autodesk.Revit.DB.CurtainSystemType
+- Autodesk.Revit.DB.DimensionType
+- Autodesk.Revit.DB.FilledRegionType
+- Autodesk.Revit.DB.FillPatternElement
+- Autodesk.Revit.DB.FloorType
+- Autodesk.Revit.DB.GridType
+- Autodesk.Revit.DB.LevelType
+- Autodesk.Revit.DB.LinePatternElement
+- Autodesk.Revit.DB.Material
+- Autodesk.Revit.DB.ModelTextType
+- Autodesk.Revit.DB.MullionType
+- Autodesk.Revit.DB.ParameterElement
+- Autodesk.Revit.DB.RoofType
+- Autodesk.Revit.DB.SpotDimensionType
+- Autodesk.Revit.DB.TextElementType
+- Autodesk.Revit.DB.TextNoteType
+- Autodesk.Revit.DB.ToposolidType
+- Autodesk.Revit.DB.ViewPlan
+- Autodesk.Revit.DB.WallType
+
+Pending Types (Count: 13):
+- Autodesk.Revit.DB.Architecture.RailingType
+- Autodesk.Revit.DB.Architecture.StairsLandingType
+- Autodesk.Revit.DB.Architecture.StairsRunType
+- Autodesk.Revit.DB.Architecture.StairsType
+- Autodesk.Revit.DB.AreaScheme
+- Autodesk.Revit.DB.ColorFillScheme
+- Autodesk.Revit.DB.Phase
+- Autodesk.Revit.DB.PhaseFilter
+- Autodesk.Revit.DB.Revision
+- Autodesk.Revit.DB.RevisionNumberingSequence
+- Autodesk.Revit.DB.RevisionSettings
+- Autodesk.Revit.DB.SunAndShadowSettings
+- Autodesk.Revit.DB.WorksetDefaultVisibilitySettings
+
+Supported by ElementType (Count: 36):
+- Autodesk.Revit.DB.Analysis.ConceptualConstructionType
+- Autodesk.Revit.DB.Architecture.CutMarkType
+- Autodesk.Revit.DB.Architecture.StairsPathType
+- Autodesk.Revit.DB.BeamSystemType
+- Autodesk.Revit.DB.Electrical.CableTrayType
+- Autodesk.Revit.DB.Electrical.CableType
+- Autodesk.Revit.DB.Electrical.ConduitType
+- Autodesk.Revit.DB.Electrical.DistributionSysType
+- Autodesk.Revit.DB.Electrical.InsulationType
+- Autodesk.Revit.DB.Electrical.TemperatureRatingType
+- Autodesk.Revit.DB.Electrical.VoltageType
+- Autodesk.Revit.DB.Electrical.WireMaterialType
+- Autodesk.Revit.DB.Electrical.WireType
+- Autodesk.Revit.DB.ElementType
+- Autodesk.Revit.DB.LineAndTextAttrSymbol
+- Autodesk.Revit.DB.Mechanical.DuctType
+- Autodesk.Revit.DB.Mechanical.FlexDuctType
+- Autodesk.Revit.DB.Mechanical.MechanicalEquipmentSetType
+- Autodesk.Revit.DB.Mechanical.MechanicalSystemType
+- Autodesk.Revit.DB.Mechanical.MEPBuildingConstruction
+- Autodesk.Revit.DB.Mechanical.SystemZoneElementType
+- Autodesk.Revit.DB.MEPAnalyticalConnectionType
+- Autodesk.Revit.DB.MultiReferenceAnnotationType
+- Autodesk.Revit.DB.PanelType
+- Autodesk.Revit.DB.Plumbing.FlexPipeType
+- Autodesk.Revit.DB.Plumbing.FluidType
+- Autodesk.Revit.DB.Plumbing.PipeScheduleType
+- Autodesk.Revit.DB.Plumbing.PipeType
+- Autodesk.Revit.DB.Plumbing.PipingSystemType
+- Autodesk.Revit.DB.SiteLocation
+- Autodesk.Revit.DB.SlabEdgeType
+- Autodesk.Revit.DB.Structure.AnalyticalLinkType
+- Autodesk.Revit.DB.Structure.RebarBendingDetailType
+- Autodesk.Revit.DB.Structure.RebarCoverType
+- Autodesk.Revit.DB.Structure.StructuralConnectionType
+- Autodesk.Revit.DB.ViewFamilyType
+
+Supported by Element (Count: 47):
+- Autodesk.Revit.DB.Analysis.BuildingOperatingDaySchedule
+- Autodesk.Revit.DB.Analysis.BuildingOperatingYearSchedule
+- Autodesk.Revit.DB.Analysis.ConceptualSurfaceType
+- Autodesk.Revit.DB.Analysis.EnergyDataSettings
+- Autodesk.Revit.DB.Analysis.HVACLoadBuildingType
+- Autodesk.Revit.DB.Analysis.HVACLoadSpaceType
+- Autodesk.Revit.DB.Analysis.RouteAnalysisSettings
+- Autodesk.Revit.DB.AreaVolumeSettings
+- Autodesk.Revit.DB.AssemblyCodeTable
+- Autodesk.Revit.DB.DefaultDivideSettings
+- Autodesk.Revit.DB.Electrical.CableTraySettings
+- Autodesk.Revit.DB.Electrical.CableTraySizes
+- Autodesk.Revit.DB.Electrical.CircuitNamingSchemeSettings
+- Autodesk.Revit.DB.Electrical.ConductorSizesSetting
+- Autodesk.Revit.DB.Electrical.ConduitSettings
+- Autodesk.Revit.DB.Electrical.ConduitSizeSettings
+- Autodesk.Revit.DB.Electrical.ElectricalDemandFactorDefinition
+- Autodesk.Revit.DB.Electrical.ElectricalLoadClassification
+- Autodesk.Revit.DB.Electrical.ElectricalSetting
+- Autodesk.Revit.DB.Electrical.PanelScheduleTemplate
+- Autodesk.Revit.DB.Element
+- Autodesk.Revit.DB.FabricationConfiguration
+- Autodesk.Revit.DB.FabricationServiceSettings
+- Autodesk.Revit.DB.Family
+- Autodesk.Revit.DB.GraphicsStyle
+- Autodesk.Revit.DB.IFCCategoryTemplate
+- Autodesk.Revit.DB.KeynoteTable
+- Autodesk.Revit.DB.Level
+- Autodesk.Revit.DB.Mechanical.DuctSettings
+- Autodesk.Revit.DB.Mechanical.DuctSizeSettings
+- Autodesk.Revit.DB.Mechanical.MEPHiddenLineSettings
+- Autodesk.Revit.DB.Mechanical.Zone
+- Autodesk.Revit.DB.MultipleValuesIndicationSettings
+- Autodesk.Revit.DB.Plumbing.PipeSegment
+- Autodesk.Revit.DB.Plumbing.PipeSettings
+- Autodesk.Revit.DB.ProjectInfo
+- Autodesk.Revit.DB.SSEPointVisibilitySettings
+- Autodesk.Revit.DB.StartingViewSettings
+- Autodesk.Revit.DB.Structure.AnalyticalToPhysicalAssociationManager
+- Autodesk.Revit.DB.Structure.LoadCase
+- Autodesk.Revit.DB.Structure.LoadNature
+- Autodesk.Revit.DB.Structure.ReinforcementSettings
+- Autodesk.Revit.DB.Structure.StructuralConnectionSettings
+- Autodesk.Revit.DB.Structure.StructuralSettings
+- Autodesk.Revit.DB.SunAndShadowSettings
+- Autodesk.Revit.DB.View
+- Autodesk.Revit.DB.ViewNavigationToolSettings
+- Autodesk.Revit.DB.WorksharingDisplaySettings
+
+Unsupported Types (Count: 0):
+
+Crashed Types (Count: 0):
+============================================================

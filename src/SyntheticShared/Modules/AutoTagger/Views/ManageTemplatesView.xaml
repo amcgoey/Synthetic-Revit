@@ -1,0 +1,48 @@
+<Window x:Class="Synthetic.Modules.AutoTagger.Views.ManageTemplatesView"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Synthetic.Shared.UI"
+        Title="Manage AutoTag Templates"
+        Height="450" Width="700" MinHeight="300" MinWidth="500"
+        WindowStartupLocation="CenterOwner"
+        Style="{DynamicResource SyntheticWindowStyle}"
+        local:WindowChromeBehavior.EnableWindowCommands="True">
+
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="../../../Shared/UI/SyntheticTheme.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Window.Resources>
+
+    <Grid Margin="15">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- DataGrid inherits implicit style -->
+        <DataGrid Grid.Row="0" ItemsSource="{Binding Templates}" SelectedItem="{Binding SelectedTemplate}">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Template Name" Binding="{Binding TemplateName}" Width="3*" />
+                <DataGridTextColumn Header="Category" Binding="{Binding TargetCategory}" Width="2*" />
+                <DataGridTextColumn Header="Family" Binding="{Binding TargetFamily}" Width="2*" />
+                <DataGridTextColumn Header="Type" Binding="{Binding TargetType}" Width="2*" />
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,15,0,0">
+            <Button Content="New Template" Command="{Binding NewTemplateCommand}"
+                    Style="{DynamicResource Synthetic.Styles.PrimaryButton}"
+                    Margin="0,0,10,0"/>
+            <Button Content="Edit" Command="{Binding EditCommand}"
+                    Margin="0,0,10,0"/>
+            <Button Content="Import JSON" Command="{Binding ImportJsonCommand}"
+                    Margin="0,0,10,0"/>
+            <Button Content="Export JSON" Command="{Binding ExportJsonCommand}"
+                    Margin="0,0,10,0"/>
+            <Button Content="Delete" Command="{Binding DeleteCommand}"/>
+        </StackPanel>
+    </Grid>
+</Window>

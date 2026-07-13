@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <MSBuildAllProjects Condition="'$(MSBuildVersion)' == '' Or '$(MSBuildVersion)' &lt; '16.0'">$(MSBuildAllProjects);$(MSBuildThisFileFullPath)</MSBuildAllProjects>
+    <HasSharedItems>true</HasSharedItems>
+    <SharedGUID>{8d22ef1f-d224-4f91-baae-5a2a688b14e3}</SharedGUID>
+  </PropertyGroup>
+  <PropertyGroup Label="Configuration">
+    <Import_RootNamespace>SyntheticTests</Import_RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)Tier2_RevitSmokeTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\CategoryModelTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\FakeIdentityService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ParameterEngineTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\RevitIdentityServiceIntegrationTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\Tier2_StandardsExtractionOrchestratorTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\RevitIdentityServiceTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\RevitDomExtensionsTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\StandardSerializationEngineTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\Tier2_DispatcherSweepTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\LinePatternTranslatorTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\FillPatternTranslatorTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\MaterialAssetEngineTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\MaterialTranslatorTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\DatumAndAnnotationTranslatorTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\DimensionTypeTranslatorTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\CategoryTranslatorTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ColorTranslatorTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\AliasSwapEngineTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\Tier2_AliasAssimilationTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ParameterModelTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ViewModelTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ParameterFilterElementTranslatorTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\FilledRegionTypeTranslatorTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\HostObjTypeTranslatorTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\SpatialModelTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ViewTranslatorTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ParameterElementTranslatorTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\BrowserOrganizationTranslatorTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Tier2_DashboardIntegrationTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Tier2_StandardsDiffEngineTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\AssemblyAnalyzer\Tier2_AssemblyAnalyzerTests.cs" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,58 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <AssemblyName>SyntheticTests2024</AssemblyName>
+    <RootNamespace>SyntheticTests</RootNamespace>
+    <IsTestProject>true</IsTestProject>
+    <DefineConstants>$(DefineConstants);REVIT2024</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <PackageReference Include="NUnit" Version="3.13.3" />
+    <PackageReference Include="ricaun.RevitTest.TestAdapter" Version="1.11.1" />
+    <PackageReference Include="Revit_All_Main_Versions_API_x64" Version="2024.2.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Synthetic2024\Synthetic2024.csproj" Properties="Platform=AnyCPU" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyMetadata Include="NUnit.Version" Value="2024" />
+    <AssemblyMetadata Include="ricaun.RevitTest.Timeout" Value="600000" />
+  </ItemGroup>
+
+  <Import Project="..\SyntheticTests.Shared\SyntheticTests.Shared.projitems" Label="Shared" />
+
+  <Target Name="SignDebugBuild" AfterTargets="Build" Condition="'$(Configuration)' == 'Debug'">
+    <PropertyGroup>
+      <WindowsKitsRoot>$(registry:HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows Kits\Installed Roots@KitsRoot10)</WindowsKitsRoot>
+      <WindowsKitsRoot Condition="'$(WindowsKitsRoot)' == ''">$([MSBuild]::GetRegistryValueFromView('HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows Kits\Installed Roots', 'KitsRoot10', '', 'Registry64', 'Registry32'))</WindowsKitsRoot>
+      <WindowsKitsRoot Condition="'$(WindowsKitsRoot)' == ''">C:\Program Files (x86)\Windows Kits\10\</WindowsKitsRoot>
+      
+      <!-- Trim trailing backslash to prevent double-backslash issues in wildcard matching -->
+      <WindowsKitsRootTrimmed>$(WindowsKitsRoot.TrimEnd('\'))</WindowsKitsRootTrimmed>
+    </PropertyGroup>
+    
+    <ItemGroup>
+      <SignToolPaths Include="$(WindowsKitsRootTrimmed)\bin\10.*\x64\signtool.exe" />
+      <SignToolPaths Include="$(WindowsKitsRootTrimmed)\bin\x64\signtool.exe" Condition="Exists('$(WindowsKitsRootTrimmed)\bin\x64\signtool.exe')" />
+    </ItemGroup>
+    
+    <PropertyGroup>
+      <SignToolExe>%(SignToolPaths.Identity)</SignToolExe>
+    </PropertyGroup>
+
+    <Message Importance="High" Text="Dynamically discovered signtool at: $(SignToolExe)" />
+    <Message Importance="High" Text="Signing local Debug build with self-signed certificate..." />
+    
+    <Exec Command="&quot;$(SignToolExe)&quot; sign /n &quot;Synthetic&quot; /fd SHA256 /a &quot;$(TargetPath)&quot;" IgnoreExitCode="true" />
+  </Target>
+</Project>

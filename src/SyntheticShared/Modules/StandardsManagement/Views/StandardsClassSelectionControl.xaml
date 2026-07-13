@@ -1,0 +1,166 @@
+<UserControl x:Class="Synthetic.Modules.StandardsManagement.Views.StandardsClassSelectionControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="Transparent" Foreground="#F1F1F1">
+    <Grid>
+        <!-- Class-Level Selection TabControl — inherits implicit theme style -->
+        <TabControl Padding="10">
+            <!-- Tab 1: Annotations & Detailing -->
+            <TabItem>
+                <TabItem.Header>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Annotations &amp; Detailing" VerticalAlignment="Center"/>
+                        <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" FontSize="10">
+                            <Hyperlink Command="{Binding SelectAllAnnotationsCommand}" Foreground="#569CD6" TextDecorations="None">All</Hyperlink>
+                            <Run Text="|" Foreground="#555555"/>
+                            <Hyperlink Command="{Binding SelectNoneAnnotationsCommand}" Foreground="#569CD6" TextDecorations="None">None</Hyperlink>
+                        </TextBlock>
+                    </StackPanel>
+                </TabItem.Header>
+                <StackPanel Margin="5">
+                    <CheckBox Content="Text &amp; Label Types (TextNoteType &amp; TextElementType)" IsChecked="{Binding ExportTextNoteTypes}" Foreground="#FFF" Margin="0,4"/>
+                    <CheckBox Content="Dimension Types (DimensionType)" IsChecked="{Binding ExportDimensionTypes}" Foreground="#FFF" Margin="0,4"/>
+                    <CheckBox Content="Filled Region Types (FilledRegionType)" IsChecked="{Binding ExportFilledRegionTypes}" Foreground="#FFF" Margin="0,4"/>
+                    <CheckBox Content="Grid Types (GridType)" IsChecked="{Binding ExportGridTypes}" IsEnabled="{Binding IsSystemFamiliesEnabled}" Foreground="#FFF" Margin="0,4"/>
+                    <CheckBox Content="Level Types (LevelType)" IsChecked="{Binding ExportLevelTypes}" IsEnabled="{Binding IsSystemFamiliesEnabled}" Foreground="#FFF" Margin="0,4"/>
+                    <CheckBox Content="Label Types (LabelType)" IsChecked="{Binding ExportLabelTypes}" Foreground="#FFF" Margin="0,4"/>
+                </StackPanel>
+            </TabItem>
+            
+            <!-- Tab 2: Materials & Patterns -->
+            <TabItem>
+                <TabItem.Header>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Materials &amp; Patterns" VerticalAlignment="Center"/>
+                        <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" FontSize="10">
+                            <Hyperlink Command="{Binding SelectAllMaterialsCommand}" Foreground="#569CD6" TextDecorations="None">All</Hyperlink>
+                            <Run Text="|" Foreground="#555555"/>
+                            <Hyperlink Command="{Binding SelectNoneMaterialsCommand}" Foreground="#569CD6" TextDecorations="None">None</Hyperlink>
+                        </TextBlock>
+                    </StackPanel>
+                </TabItem.Header>
+                <StackPanel Margin="5">
+                    <CheckBox Content="Materials (Material)" IsChecked="{Binding ExportMaterials}" Foreground="#FFF" Margin="0,4"/>
+                    <CheckBox Content="Fill Patterns (FillPatternElement)" IsChecked="{Binding ExportFillPatterns}" Foreground="#FFF" Margin="0,4"/>
+                    <CheckBox Content="Line Patterns (LinePatternElement)" IsChecked="{Binding ExportLinePatterns}" Foreground="#FFF" Margin="0,4"/>
+                    <CheckBox Content="Appearance Assets (PropertySetElement)" IsChecked="{Binding ExportAppearanceAssets}" Foreground="#FFF" Margin="0,4"/>
+                </StackPanel>
+            </TabItem>
+            
+            <!-- Tab 3: System Family Types -->
+            <TabItem IsEnabled="{Binding IsSystemFamiliesEnabled}">
+                <TabItem.Header>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="System Family Types" VerticalAlignment="Center"/>
+                        <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" FontSize="10">
+                            <Hyperlink Command="{Binding SelectAllSystemTypesCommand}" Foreground="#569CD6" TextDecorations="None">All</Hyperlink>
+                            <Run Text="|" Foreground="#555555"/>
+                            <Hyperlink Command="{Binding SelectNoneSystemTypesCommand}" Foreground="#569CD6" TextDecorations="None">None</Hyperlink>
+                        </TextBlock>
+                    </StackPanel>
+                </TabItem.Header>
+                <WrapPanel Margin="5">
+                    <CheckBox Content="Wall Types" IsChecked="{Binding ExportWallTypes}" Foreground="#FFF" Margin="0,4,15,4" Width="120"/>
+                    <CheckBox Content="Floor Types" IsChecked="{Binding ExportFloorTypes}" Foreground="#FFF" Margin="0,4,15,4" Width="120"/>
+                    <CheckBox Content="Roof Types" IsChecked="{Binding ExportRoofTypes}" Foreground="#FFF" Margin="0,4,15,4" Width="120"/>
+                    <CheckBox Content="Ceiling Types" IsChecked="{Binding ExportCeilingTypes}" Foreground="#FFF" Margin="0,4,15,4" Width="120"/>
+                    <CheckBox Content="Railing Types" IsChecked="{Binding ExportRailingTypes}" Foreground="#FFF" Margin="0,4,15,4" Width="120"/>
+                    <CheckBox Content="Stair Types" IsChecked="{Binding ExportStairsTypes}" Foreground="#FFF" Margin="0,4,15,4" Width="120"/>
+                    <CheckBox Content="Curtain System" IsChecked="{Binding ExportCurtainSystemTypes}" Foreground="#FFF" Margin="0,4,15,4" Width="120"/>
+                    <CheckBox Content="Mullion Types" IsChecked="{Binding ExportMullionTypes}" Foreground="#FFF" Margin="0,4,15,4" Width="120"/>
+                    <CheckBox Content="Fascia Types" IsChecked="{Binding ExportFasciaTypes}" Foreground="#FFF" Margin="0,4,15,4" Width="120"/>
+                    <CheckBox Content="Gutter Types" IsChecked="{Binding ExportGutterTypes}" Foreground="#FFF" Margin="0,4,15,4" Width="120"/>
+                </WrapPanel>
+            </TabItem>
+
+            <!-- Tab 4: Loadable Family Categories -->
+            <TabItem>
+                <TabItem.Header>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Loadable Family Categories" VerticalAlignment="Center"/>
+                        <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" FontSize="10">
+                            <Hyperlink Command="{Binding SelectAllCategoriesCommand}" Foreground="#569CD6" TextDecorations="None">All</Hyperlink>
+                            <Run Text="|" Foreground="#555555"/>
+                            <Hyperlink Command="{Binding SelectNoneCategoriesCommand}" Foreground="#569CD6" TextDecorations="None">None</Hyperlink>
+                        </TextBlock>
+                    </StackPanel>
+                </TabItem.Header>
+                <Grid Margin="5">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,6">
+                        <Button Content="Select All" Command="{Binding SelectAllCategoriesCommand}" Margin="0,0,8,0"/>
+                        <Button Content="Select None" Command="{Binding SelectNoneCategoriesCommand}"/>
+                    </StackPanel>
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" BorderBrush="#3F3F46" BorderThickness="1" Background="#1E1E1E" Padding="5">
+                        <ItemsControl ItemsSource="{Binding LoadableFamilyCategories}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel Orientation="Horizontal"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <CheckBox Content="{Binding Name}" IsChecked="{Binding IsChecked}" Foreground="#FFF" Margin="0,3,15,3" Width="130"/>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Grid>
+            </TabItem>
+            
+            <!-- Tab 5: Views & Organization -->
+            <TabItem IsEnabled="{Binding IsViewsEnabled}">
+                <TabItem.Header>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Views &amp; Organization" VerticalAlignment="Center"/>
+                        <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" FontSize="10">
+                            <Hyperlink Command="{Binding SelectAllViewsCommand}" Foreground="#569CD6" TextDecorations="None">All</Hyperlink>
+                            <Run Text="|" Foreground="#555555"/>
+                            <Hyperlink Command="{Binding SelectNoneViewsCommand}" Foreground="#569CD6" TextDecorations="None">None</Hyperlink>
+                        </TextBlock>
+                    </StackPanel>
+                </TabItem.Header>
+                <StackPanel Margin="5">
+                    <CheckBox Content="Standard Views (View)" IsChecked="{Binding ExportStandardViews}" Foreground="#FFF" Margin="0,4"/>
+                    <CheckBox Content="View Templates (View)" IsChecked="{Binding ExportViewTemplates}" Foreground="#FFF" Margin="0,4"/>
+                    <CheckBox Content="View Family Types (ViewFamilyType)" IsChecked="{Binding ExportViewFamilyTypes}" Foreground="#FFF" Margin="0,4"/>
+                    <CheckBox Content="Browser Organization (BrowserOrganization)" IsChecked="{Binding ExportBrowserOrganizations}" Foreground="#FFF" Margin="0,4"/>
+                </StackPanel>
+            </TabItem>
+            
+            <!-- Tab 6: Project Standards -->
+            <TabItem>
+                <TabItem.Header>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Project Standards" VerticalAlignment="Center"/>
+                        <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" FontSize="10">
+                            <Hyperlink Command="{Binding SelectAllStandardsCommand}" Foreground="#569CD6" TextDecorations="None">All</Hyperlink>
+                            <Run Text="|" Foreground="#555555"/>
+                            <Hyperlink Command="{Binding SelectNoneStandardsCommand}" Foreground="#569CD6" TextDecorations="None">None</Hyperlink>
+                        </TextBlock>
+                    </StackPanel>
+                </TabItem.Header>
+                <StackPanel Margin="5">
+                    <Border BorderBrush="#3F3F46" BorderThickness="1" CornerRadius="3" Padding="8" Margin="0,2,0,8" Background="#1E1E1E">
+                        <StackPanel>
+                            <TextBlock Text="Categories &amp; Object Styles By Type" Foreground="#808080" FontWeight="SemiBold" Margin="0,0,0,6" FontSize="11"/>
+                            <WrapPanel Orientation="Horizontal">
+                                <CheckBox Content="Line Styles" IsChecked="{Binding ExportLineStyles}" Foreground="#FFF" Margin="0,3,15,3" Width="180"/>
+                                <CheckBox Content="Model Categories" IsChecked="{Binding ExportModelCategories}" Foreground="#FFF" Margin="0,3,15,3" Width="180"/>
+                                <CheckBox Content="Annotation Categories" IsChecked="{Binding ExportAnnotationCategories}" Foreground="#FFF" Margin="0,3,15,3" Width="180"/>
+                                <CheckBox Content="Analytical Categories" IsChecked="{Binding ExportAnalyticalCategories}" Foreground="#FFF" Margin="0,3,15,3" Width="180"/>
+                                <CheckBox Content="Imported Categories" IsChecked="{Binding ExportImportCategories}" Foreground="#FFF" Margin="0,3,15,3" Width="180"/>
+                            </WrapPanel>
+                        </StackPanel>
+                    </Border>
+                    <CheckBox Content="Shared/Project Parameters (ParameterElement)" IsChecked="{Binding ExportParameterElements}" Foreground="#FFF" Margin="0,4"/>
+                    <CheckBox Content="View Filters (ParameterFilterElement)" IsChecked="{Binding ExportParameterFilters}" Foreground="#FFF" Margin="0,4"/>
+                    <CheckBox Content="Title Blocks (TitleBlockType / OST_TitleBlocks)" IsChecked="{Binding ExportTitleBlockTypes}" Foreground="#FFF" Margin="0,4"/>
+                </StackPanel>
+            </TabItem>
+        </TabControl>
+    </Grid>
+</UserControl>

@@ -1,0 +1,81 @@
+{
+  "workflows": [
+    {
+      "name": "finalize-feature",
+      "trigger": "/finalize",
+      "description": "Updates change_log.md and project_atlas.md, checks version matrix, regenerates API docs, orchestrates automated testing, and syncs all documentation to Google Drive via sync_all.py.",
+      "steps": [
+        {
+          "action": "agent.execute_task",
+          "instruction": "Invoke the RevitQualityAssurance plugin to run the final regression test suite on the active branch."
+        },
+        {
+          "action": "agent.change_state",
+          "instruction": "Transition out of Active Coding. You are now authorized to read/write system configuration assets and documentation."
+        },
+        {
+          "action": "agent.execute_task",
+          "instruction": "Open docs/change_log.md and append a new dated entry summarising the features, fixes, and refactors completed in this feature branch. Use the git log since the last merge into develop as your source of truth. Follow the existing format and heading style already present in the file."
+        },
+        {
+          "action": "agent.execute_task",
+          "instruction": "Scan the current C# source directory. Extract all active Revit API namespaces, key Command/Application classes, and the file-structure registry. Compile this data concisely into docs/project_atlas.md as mapped by our atlas_policy.md rule."
+        },
+        {
+          "action": "agent.execute_task",
+          "instruction": "Audit the .csproj files against the CURRENT_LATEST_VERSION environment variable managed by the RevitWorkspaceDevOps plugin. Prompt user if a newer target exists."
+        },
+        {
+          "action": "terminal.run_command",
+          "description": "Regenerate SyntheticShared_API_Documentation.md from all triple-slash XML doc comments across the src/ directory.",
+          "command": "python .agents/plugins/RevitWorkspaceDevOps/scripts/generate_docs.py"
+        },
+        {
+          "action": "terminal.run_command",
+          "command": "git add docs/project_atlas.md *.md && git commit -m 'docs: update project_atlas and sync compiled documentation for completed feature branch'"
+        },
+        {
+          "action": "terminal.run_command",
+          "description": "Rebuild all source bundle markdown files (Phase 1) then push all documentation to Google Drive (Phase 2). aggregate.py is invoked automatically by sync_all.py.",
+          "command": "python .agents/plugins/RevitWorkspaceDevOps/scripts/sync_all.py"
+        },
+        {
+          "action": "agent.output_message",
+          "message": "### Feature Branch Finalized Successfully!\n* `change_log.md` updated with feature branch summary.\n* `project_atlas.md` updated with latest architecture.\n* Multi-version compiler targets verified.\n* `SyntheticShared_API_Documentation.md` regenerated from source.\n* Watchdog regression testing returned a clean pass state.\n* All documentation bundles aggregated and pushed to Google Drive."
+        }
+      ]
+    },
+    {
+      "name": "sync-to-drive",
+      "trigger": "/sync",
+      "description": "Rebuilds all source bundle markdown files via aggregate.py then pushes all configured sync targets to Google Drive via sync_all.py.",
+      "steps": [
+        {
+          "action": "terminal.run_command",
+          "description": "Rebuild all source bundle markdown files (Phase 1) then push all documentation to Google Drive (Phase 2). aggregate.py is invoked automatically by sync_all.py.",
+          "command": "python .agents/plugins/RevitWorkspaceDevOps/scripts/sync_all.py"
+        },
+        {
+          "action": "agent.output_message",
+          "message": "### Drive Sync Complete!\n* Source bundles regenerated (aggregate.py ran as Phase 1 of sync_all.py).\n* All configured sync targets pushed to Google Drive."
+        }
+      ]
+    },
+    {
+      "name": "pull-docs",
+      "trigger": "/pull",
+      "description": "Pulls configured Google Docs down as local markdown files, optionally filtering for specific target folders (e.g. adrs, prds).",
+      "steps": [
+        {
+          "action": "terminal.run_command",
+          "description": "Pulls Google Docs from Drive and converts them to Markdown.",
+          "command": "python .agents/plugins/RevitWorkspaceDevOps/scripts/pull_docs.py"
+        },
+        {
+          "action": "agent.output_message",
+          "message": "### Google Docs Pull Complete!\n* Google Docs successfully pulled and converted to local markdown.\n* Cleaned out target folder(s) first to prevent stale assets."
+        }
+      ]
+    }
+  ]
+}

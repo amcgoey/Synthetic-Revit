@@ -1,0 +1,35 @@
+{
+  "plugin_id": "revit_workspace_dev_ops",
+  "name": "RevitWorkspaceDevOps",
+  "version": "2.1.0",
+  "description": "Manages inverted multi-version preprocessor conditioning, on-demand documentation compilation, codebase bundle aggregation, and Google Drive synchronization.",
+  "commands": [
+    {
+      "trigger": "/check-version",
+      "description": "Manually triggers a workspace sweep to audit .csproj version numbers against the active CURRENT_LATEST_VERSION constant."
+    },
+    {
+      "trigger": "/sync",
+      "description": "Rebuilds all source bundle markdown files via aggregate.py, then pushes all configured sync_targets to Google Drive via sync_all.py. Requires Google API credentials in the Support/auth directory. Install dependencies first: pip install -r .agents/plugins/RevitWorkspaceDevOps/requirements.txt"
+    },
+    {
+      "trigger": "/pull [targets...]",
+      "description": "Pulls configured Google Docs down as local markdown files using pull_config.json. If target names (e.g. adrs, prds) are specified, only pulls those target folders, leaving others untouched."
+    }
+  ],
+  "lifecycle_hooks": [
+    {
+      "stage": "on_chat_initialization",
+      "action": "audit_project_version_matrix",
+      "description": "Sweeps the solution file structure upon chat boot to ensure the environment constant aligns with the highest compiled Revit version."
+    }
+  ],
+  "environment_variables": {
+    "CURRENT_LATEST_VERSION": "2026",
+    "SYNC_CONFIG_PATH": "../../../Revit API Synthetic v2 Support/auth/sync_config.json"
+  },
+  "dependencies": {
+    "note": "Google Drive sync scripts require Python packages. Run: pip install -r .agents/plugins/RevitWorkspaceDevOps/requirements.txt",
+    "requirements_file": ".agents/plugins/RevitWorkspaceDevOps/requirements.txt"
+  }
+}

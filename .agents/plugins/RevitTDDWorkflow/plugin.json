@@ -1,0 +1,16 @@
+{
+  "plugin_id": "revit_tdd_workflow",
+  "name": "RevitTDDWorkflow",
+  "version": "2.0.0",
+  "description": "Unified authority for Test-Driven Development, behavior-based testing, and self-healing telemetry resolution in C# Revit Addins.",
+  "commands": [
+    {
+      "trigger": "/run-tests",
+      "description": "Orchestrates automated testing. Usage: /run-tests [version] (e.g., 2026) [class] (optional)"
+    },
+    {
+      "trigger": "/analyze-journal",
+      "description": "Analyze Revit journal for errors, warnings, crashes, and exceptions. Usage: /analyze-journal [version] (e.g. 2026)"
+    }
+  ]
+}
