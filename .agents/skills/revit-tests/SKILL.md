@@ -15,7 +15,7 @@ When writing code under the `/tdd` loop, execute tests in the following order to
    ```powershell
    python .agents/skills/revit-tests/scripts/test_executor.py --version Logic
    ```
-2. **Step 2 (Revit 2026 Loop):** Run Revit 2026 integration tests. Iterate until they are Green.
+2. **Step 2 (Latest Revit Loop):** Run integration tests for the version defined by `CURRENT_LATEST_VERSION` in `docs/agents/revit-config.md` (e.g. `2026`). Iterate until they are Green.
    ```powershell
    python .agents/skills/revit-tests/scripts/test_executor.py --version 2026
    ```
@@ -24,7 +24,7 @@ When writing code under the `/tdd` loop, execute tests in the following order to
    python .agents/skills/revit-tests/scripts/test_executor.py
    ```
 
-Refer to the `revit-multi-versions` skill to resolve compilation or API discrepancies detected during Phase 3.
+Refer to the `revit-multi-versions` skill to resolve compilation or API discrepancies detected during Step 3.
 
 ## 2. Test Execution Commands
 
@@ -34,8 +34,9 @@ Use the unified Python test executor to build the solution and run tests:
   ```powershell
   python .agents/skills/revit-tests/scripts/test_executor.py --version Logic
   ```
-* **Run specific Revit version tests (e.g. 2026):**
+* **Run specific Revit version tests (e.g. latest supported):**
   ```powershell
+  # Replace 2026 with the value of CURRENT_LATEST_VERSION from docs/agents/revit-config.md
   python .agents/skills/revit-tests/scripts/test_executor.py --version 2026
   ```
 * **Filter to specific test classes or methods:**
