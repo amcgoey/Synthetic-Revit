@@ -341,3 +341,8 @@ tests/test_models/INC Standards - Assemblies & Details.rvt
 # Documentation
 docs/issues/
 docs/development_briefs/
+
+# Temporary scratch folders
+scratch/
+.scratch/
+
