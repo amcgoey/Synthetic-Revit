@@ -11,7 +11,10 @@ from drive_sync import sync_to_drive
 
 
 def main():
-    _, default_config = get_default_paths()
+    projects_dir, default_agg_config = get_default_paths()
+    default_sync_config = os.path.join(
+        projects_dir, "Revit API Synthetic v2 Support", "auth", "sync_config.json"
+    )
 
     parser = argparse.ArgumentParser(
         description="Configuration-driven codebase aggregation and Google Drive sync runner."
@@ -19,8 +22,14 @@ def main():
     parser.add_argument(
         "--config",
         dest="config_path",
-        default=default_config,
-        help=f"Path to the configuration JSON file. Defaults to: {default_config}"
+        default=default_agg_config,
+        help=f"Path to the aggregation config JSON file. Defaults to: {default_agg_config}"
+    )
+    parser.add_argument(
+        "--sync-config",
+        dest="sync_config_path",
+        default=default_sync_config,
+        help=f"Path to the sync config JSON file. Defaults to: {default_sync_config}"
     )
     parser.add_argument(
         "--extensions",
@@ -31,9 +40,6 @@ def main():
     )
 
     args = parser.parse_args()
-
-    # Resolve projects_dir from the workspace root anchor
-    projects_dir, _ = get_default_paths()
 
     print("="*60)
     print("PHASE 1: Aggregating configured source directories...")
@@ -50,7 +56,7 @@ def main():
     print("="*60)
 
     try:
-        with open(args.config_path, 'r', encoding='utf-8') as f:
+        with open(args.sync_config_path, 'r', encoding='utf-8') as f:
             config = json.load(f)
     except Exception as e:
         print(f"Error loading configuration file: {e}", file=sys.stderr)
