@@ -3,7 +3,7 @@ param (
 )
 
 # 1. Resolve target version
-$workspaceRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..\..")
+$workspaceRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..\..\..")
 $configPath = Join-Path $workspaceRoot "docs\agents\revit-config.md"
 $targetVersion = $Version
 
