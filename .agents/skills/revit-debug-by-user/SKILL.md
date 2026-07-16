@@ -9,7 +9,10 @@ Use this playbook to automatically initiate a Revit debugging session in Visual 
 
 ## 1. Automated Debug Launch
 
-To open Visual Studio, select the correct project, and start debugging automatically:
+> [!IMPORTANT]
+> Because the background AI agent runs in a non-interactive Windows session (Session 0), running the launch script via agent tools will spawn Visual Studio and Revit headlessly in the background. To see the graphical user interface, **the user must run these commands directly in their own interactive terminal**.
+
+To open Visual Studio, select the correct project, and start debugging automatically, run one of the following commands in your local terminal:
 
 * **Debug the latest supported version (from `revit-config.md`):**
   ```powershell
