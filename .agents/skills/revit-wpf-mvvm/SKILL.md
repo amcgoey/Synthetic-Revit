@@ -12,7 +12,7 @@ Use this playbook to maintain clean architectural boundaries between the WPF pre
 WPF Views must never bind directly to live Revit API database elements (`Element`, `Parameter`, `Category`, etc.) to prevent `InvalidObjectException` crashes when elements become invalid or deleted in Revit:
 
 * **Map to POCOs:** Always map Revit database elements to presentation-safe C# DTOs or custom sub-ViewModels.
-* **Reuse RevitDOM:** To remain DRY, you are required to reuse the existing POCO/wrapper classes and translators under the `Synthetic.Modules.RevitDOM` namespace (such as `ElementModel`, `ParameterModel`, `CategoryModel`, and `XYZModel`) rather than writing redundant wrapper classes.
+* **Reuse RevitDOM:** To remain DRY, where appropriate reuse the existing POCO/wrapper classes and translators under the `Synthetic.Modules.RevitDOM` namespace (such as `ElementModel`, `ParameterModel`, `CategoryModel`, and `XYZModel`) rather than writing redundant wrapper classes.
 * **Reference by ID:** Store the element's `ElementId` or `UniqueId` string inside the ViewModel to reference it, rather than holding references to active `Element` object instances.
 
 ## 2. UI Thread Dispatching
