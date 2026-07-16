@@ -1,6 +1,6 @@
 ---
 name: revit-ui-ribbon
-description: Tactics for UI ribbon commands. Use when modifying or building the Revit ribbon interface.
+description: Use when modifying or building the Revit ribbon interface.
 ---
 
 # Revit UI Ribbon Playbook (`revit-ui-ribbon`)
