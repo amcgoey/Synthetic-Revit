@@ -2,3 +2,17 @@
 
 ## Documentation Links
 - **Relative Links:** Always use relative links (relative to the repository root or the document's parent directory) for all markdown files (`.md`) inside the repository. Never use absolute `file:///` URLs or local user paths (such as `C:\Users\...`).
+
+## Agent skills
+
+### Issue tracker
+
+GitHub Issues. See [issue-tracker.md](../docs/agents/issue-tracker.md).
+
+### Triage labels
+
+Default triage labels. See [triage-labels.md](../docs/agents/triage-labels.md).
+
+### Domain docs
+
+Single-context layout. See [domain.md](../docs/agents/domain.md).
