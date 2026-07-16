@@ -9,10 +9,7 @@
 
 GitHub Issues. See [issue-tracker.md](../docs/agents/issue-tracker.md).
 
-### Triage labels
-
-Default triage labels. See [triage-labels.md](../docs/agents/triage-labels.md).
-
 ### Domain docs
 
 Single-context layout. See [domain.md](../docs/agents/domain.md).
+
