@@ -24,14 +24,42 @@ Write-Host "Target Revit version: $targetVersion"
 
 # 2. Open or attach to Visual Studio DTE COM Object
 $dte = $null
+$slnPath = Join-Path $workspaceRoot "src\Synthetic.sln"
+
 try {
     # Check for running instance of Visual Studio DTE
     Write-Host "Checking for existing Visual Studio instance..."
     $dte = [Runtime.InteropServices.Marshal]::GetActiveObject("VisualStudio.DTE")
     Write-Host "Attached to running Visual Studio instance."
+    
+    if ($dte.Solution.IsOpen) {
+        if ($dte.Solution.FullName.ToLower() -ne $slnPath.ToLower()) {
+            Write-Host "Closing current solution..."
+            $dte.Solution.Close()
+            Write-Host "Opening solution: $slnPath"
+            $dte.Solution.Open($slnPath)
+        } else {
+            Write-Host "Solution is already open."
+        }
+    } else {
+        Write-Host "Opening solution: $slnPath"
+        $dte.Solution.Open($slnPath)
+    }
 } catch {
-    Write-Host "Starting new Visual Studio instance..."
-    $dte = New-Object -ComObject "VisualStudio.DTE"
+    Write-Host "Launching Visual Studio via Start-Process..."
+    Start-Process devenv.exe -ArgumentList "`"$slnPath`""
+    
+    Write-Host "Waiting for Visual Studio to initialize..."
+    $retryCount = 0
+    $maxRetries = 20
+    while ($dte -eq $null -and $retryCount -lt $maxRetries) {
+        Start-Sleep -Seconds 1
+        try {
+            $dte = [Runtime.InteropServices.Marshal]::GetActiveObject("VisualStudio.DTE")
+        } catch {
+            $retryCount++
+        }
+    }
 }
 
 if ($dte -eq $null) {
@@ -41,23 +69,6 @@ if ($dte -eq $null) {
 
 # Make VS window visible
 $dte.MainWindow.Visible = $true
-
-# 3. Load the Solution
-$slnPath = Join-Path $workspaceRoot "src\Synthetic.sln"
-
-if ($dte.Solution.IsOpen) {
-    if ($dte.Solution.FullName.ToLower() -ne $slnPath.ToLower()) {
-        Write-Host "Closing current solution..."
-        $dte.Solution.Close()
-        Write-Host "Opening solution: $slnPath"
-        $dte.Solution.Open($slnPath)
-    } else {
-        Write-Host "Solution is already open."
-    }
-} else {
-    Write-Host "Opening solution: $slnPath"
-    $dte.Solution.Open($slnPath)
-}
 
 # Wait for solution to load fully
 while ($dte.Solution.IsOpen -ne $true) {
