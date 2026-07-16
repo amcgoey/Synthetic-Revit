@@ -7,38 +7,25 @@ import re
 import winreg
 
 # Import helper scripts for isolating Revit environment configurations
-import addin_isolator
 import guid_whitelister
 
 class TempConfigureRevitAddins:
     def __init__(self, version):
         self.version = version
-        self.renamed_files = []
         self.added_guids = []
         
     def whitelist_existing_addins(self):
-        # To restore registry whitelisting, uncomment the lines below:
-        # new_guids = guid_whitelister.whitelist_existing_addins(self.version)
-        # self.added_guids.extend(new_guids)
-        pass
+        new_guids = guid_whitelister.whitelist_existing_addins(self.version)
+        self.added_guids.extend(new_guids)
         
     def __enter__(self):
-        # To restore temporary renaming of non-essential addins, uncomment the lines below:
-        # self.renamed_files = addin_isolator.rename_non_essential_addins(self.version)
-        
-        # To restore registry whitelisting on enter, uncomment the lines below:
-        # self.whitelist_existing_addins()
+        self.whitelist_existing_addins()
         return self
         
     def __exit__(self, exc_type, exc_val, exc_tb):
-        # To restore backup addins, uncomment the lines below:
-        # if self.renamed_files:
-        #     addin_isolator.restore_renamed_addins(self.renamed_files)
-        
-        # To restore registry whitelisting cleanup, uncomment the lines below:
-        # if self.added_guids:
-        #     guid_whitelister.cleanup_whitelisted_registry_entries(self.version, self.added_guids)
-        pass
+        if self.added_guids:
+            guid_whitelister.cleanup_whitelisted_registry_entries(self.version, self.added_guids)
+
 
 def find_msbuild():
     paths = [
