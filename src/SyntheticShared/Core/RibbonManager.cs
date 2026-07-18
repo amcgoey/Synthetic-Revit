@@ -41,6 +41,15 @@ namespace Synthetic.Core
             bool isDebug = false;
 #endif
 
+            int activeVersion = 2026;
+            if (appControlled?.ControlledApplication != null)
+            {
+                if (int.TryParse(appControlled.ControlledApplication.VersionNumber, out int parsedVersion))
+                {
+                    activeVersion = parsedVersion;
+                }
+            }
+
             if (config.Panels != null)
             {
                 foreach (var panelConfig in config.Panels)
@@ -50,7 +59,7 @@ namespace Synthetic.Core
                     // Add items
                     if (panelConfig.Items != null)
                     {
-                        AddItemsToPanel(panel, panelConfig.Items, assemblyPath, assetsDir, isDebug);
+                        AddItemsToPanel(panel, panelConfig.Items, assemblyPath, assetsDir, isDebug, activeVersion);
                     }
 
                     // Add slideout items if present
@@ -64,24 +73,45 @@ namespace Synthetic.Core
                             {
                                 continue;
                             }
+                            if (!IsVersionMatch(item, activeVersion))
+                            {
+                                continue;
+                            }
                             filteredSlideout.Add(item);
                         }
 
                         if (filteredSlideout.Count > 0)
                         {
                             panel.AddSlideOut();
-                            AddItemsToPanel(panel, filteredSlideout, assemblyPath, assetsDir, isDebug);
+                            AddItemsToPanel(panel, filteredSlideout, assemblyPath, assetsDir, isDebug, activeVersion);
                         }
                     }
                 }
             }
         }
 
-        private static void AddItemsToPanel(RibbonPanel panel, List<RibbonItemConfig> items, string assemblyPath, string assetsDir, bool isDebug)
+        public static bool IsVersionMatch(RibbonItemConfig item, int currentVersion)
+        {
+            if (item.MinVersion.HasValue && currentVersion < item.MinVersion.Value)
+            {
+                return false;
+            }
+            if (item.MaxVersion.HasValue && currentVersion > item.MaxVersion.Value)
+            {
+                return false;
+            }
+            return true;
+        }
+
+        private static void AddItemsToPanel(RibbonPanel panel, List<RibbonItemConfig> items, string assemblyPath, string assetsDir, bool isDebug, int activeVersion)
         {
             foreach (var item in items)
             {
                 if (item.DebugOnly && !isDebug)
+                {
+                    continue;
+                }
+                if (!IsVersionMatch(item, activeVersion))
                 {
                     continue;
                 }
@@ -103,6 +133,10 @@ namespace Synthetic.Core
                     foreach (var subItem in item.SubItems)
                     {
                         if (subItem.DebugOnly && !isDebug)
+                        {
+                            continue;
+                        }
+                        if (!IsVersionMatch(subItem, activeVersion))
                         {
                             continue;
                         }
@@ -149,6 +183,10 @@ namespace Synthetic.Core
                         foreach (var subItem in item.SubItems)
                         {
                             if (subItem.DebugOnly && !isDebug)
+                            {
+                                continue;
+                            }
+                            if (!IsVersionMatch(subItem, activeVersion))
                             {
                                 continue;
                             }
@@ -264,6 +302,12 @@ namespace Synthetic.Core
 
         [JsonProperty("debugOnly")]
         public bool DebugOnly { get; set; }
+
+        [JsonProperty("minVersion")]
+        public int? MinVersion { get; set; }
+
+        [JsonProperty("maxVersion")]
+        public int? MaxVersion { get; set; }
 
         [JsonProperty("sub_items")]
         public List<RibbonItemConfig> SubItems { get; set; }
