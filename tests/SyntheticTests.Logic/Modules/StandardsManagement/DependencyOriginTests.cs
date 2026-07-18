@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -8,6 +8,8 @@ using Synthetic.Modules.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Modules.StandardsManagement.Models;
 using Synthetic.Shared.UI;
+using Synthetic.Modules.DiffEngine;
+using SyntheticTests.Modules.RevitDOM;
 
 namespace SyntheticTests.Modules.StandardsManagement
 {
@@ -52,7 +54,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             var cs = CompoundStructure.CreateSimpleCompoundStructure(new List<CompoundStructureLayer> { layer });
             wallType.SetCompoundStructure(cs);
 
-            var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService);
             var source = new ProjectStandardsSourceViewModel { DisplayName = "Test Source" };
             
             var group = new StandardGroupModel { Name = "System / Host Object Types" };
@@ -85,7 +87,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             // Explicitly check ONLY the WallType
             wallNode.IsChecked = true;
 
-            var queueVM = new StagingQueueViewModel(parent, new PocoIdentityService());
+            var queueVM = new StagingQueueViewModel(parent, new PocoIdentityService(), new PocoToRevitDiffEngine(new FakeIdentityService()));
 
             // Act
             queueVM.PushToQueueCommand.Execute("Save");

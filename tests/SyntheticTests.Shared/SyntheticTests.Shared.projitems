@@ -42,6 +42,10 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Tier2_DashboardIntegrationTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Tier2_StandardsDiffEngineTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\StandardsExecutionPipelineTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\DashboardTestFactory.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\FakeFileDialogService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\FakeGuardrailPromptService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\FakeUserPromptService.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\AssemblyAnalyzer\Tier2_AssemblyAnalyzerTests.cs" />
   </ItemGroup>
 </Project>

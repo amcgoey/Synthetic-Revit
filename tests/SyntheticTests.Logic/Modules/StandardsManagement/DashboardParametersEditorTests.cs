@@ -77,7 +77,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void StagedMultiSelectIntersection_ShouldAggregateParametersAndDisplayVaries()
         {
             // Arrange
-            var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
             var vm = parent.StagingQueueViewModel;
 
             var p1 = new ParameterModel("Comments", "ValueA", null, "String", 1, null, false, false);
@@ -129,7 +129,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void CascadingRenameSafety_ShouldUpdateReferencesAcrossStagingQueue()
         {
             // Arrange
-            var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
             var vm = parent.StagingQueueViewModel;
 
             var materialModel = new ElementModel
@@ -176,7 +176,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void NestedModalWiring_ShouldRetrievePoolFromAllWrappedElements()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
 
             var mat = new ElementModel { Class = "Autodesk.Revit.DB.Material", Name = "Brick" };
             var wall = new HostObjTypeModel { Class = "Autodesk.Revit.DB.WallType", Name = "Brick Wall" };

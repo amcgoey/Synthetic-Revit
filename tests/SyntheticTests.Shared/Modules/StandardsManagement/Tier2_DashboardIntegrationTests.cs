@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -9,6 +9,8 @@ using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Shared.UI;
 using Synthetic.Modules.RevitDOM;
 using Synthetic.Settings;
+using Synthetic.Modules.StandardsManagement.Utilities;
+using SyntheticTests.Modules.StandardsManagement;
 
 namespace SyntheticTests
 {
@@ -43,7 +45,7 @@ namespace SyntheticTests
                     txGroup.Start();
 
                     // Create a mock dashboard ViewModel using live Revit document
-                    var vm = new ProjectStandardsDashboardViewModel(doc, fakeFileDialog, fakeGuardrail, settings);
+                    var vm = DashboardTestFactory.Create(doc, dialogService: fakeFileDialog, exportService: new StandardsExportService(fakeGuardrail, fakeFileDialog), settings: settings);
                     vm.SaveFilePath = tempFile;
 
                     // Create standard POCO for a material to enforce in the live Revit DB
@@ -152,7 +154,7 @@ namespace SyntheticTests
                     t.Commit();
 
                     // Create the Dashboard View Model
-                    var vm = new ProjectStandardsDashboardViewModel(doc, fakeFileDialog, fakeGuardrail, settings);
+                    var vm = DashboardTestFactory.Create(doc, dialogService: fakeFileDialog, exportService: new StandardsExportService(fakeGuardrail, fakeFileDialog), settings: settings);
                     vm.MockOpenDocuments = new List<Document> { doc };
 
                     // Setup dialog handler to only select "Materials & Assets" grouping
@@ -248,7 +250,7 @@ namespace SyntheticTests
                     }
 
                     // Create the dashboard ViewModel
-                    var vm = new ProjectStandardsDashboardViewModel(doc, fakeFileDialog, fakeGuardrail, null);
+                    var vm = DashboardTestFactory.Create(doc, dialogService: fakeFileDialog, exportService: new StandardsExportService(fakeGuardrail, fakeFileDialog), settings: null);
                     vm.SummaryDisplayService = fakeSummaryService;
 
                     // Enqueue the primary material with the alias

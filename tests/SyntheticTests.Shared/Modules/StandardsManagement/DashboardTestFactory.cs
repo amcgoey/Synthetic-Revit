@@ -39,12 +39,11 @@ namespace SyntheticTests.Modules.StandardsManagement
             findReplaceService ??= new FindReplaceService();
             serializationEngine ??= new StandardSerializationEngine();
             pocoIdentityService ??= new PocoIdentityService();
-            diffEngine ??= new PocoToRevitDiffEngine(pocoIdentityService);
+            diffEngine ??= new PocoToRevitDiffEngine(new FakeIdentityService());
             orchestrator ??= new StandardsExtractionOrchestrator(new FakeIdentityService(), serializationEngine);
             pipeline ??= new StandardsExecutionPipeline(serializationEngine, exportService, new FakeFamilyEnforcer());
 
             var vm = new ProjectStandardsDashboardViewModel(
-                null,
                 doc,
                 dialogService,
                 exportService,
@@ -82,31 +81,6 @@ namespace SyntheticTests.Modules.StandardsManagement
             };
 
             return vm;
-        }
-    }
-
-    public class FakeUserPromptService : IUserPromptService
-    {
-        public void ShowMessage(string message, string title) { }
-        public bool ShowWarning(string message, string title) => true;
-        public bool ShowConfirmation(string message, string title) => true;
-    }
-
-    public class FakeFamilyEnforcer : IFamilyEnforcer
-    {
-        public bool Enforce(Family family, ElementModel familyModel, Document doc, out string message, out List<string> warnings)
-        {
-            message = "Success";
-            warnings = new List<string>();
-            return true;
-        }
-    }
-
-    public class FakeGuardrailPromptService : IGuardrailPromptService
-    {
-        public bool ShowGuardrailWarning(int fileCount, string directory)
-        {
-            return true; // Always proceed in tests
         }
     }
 }

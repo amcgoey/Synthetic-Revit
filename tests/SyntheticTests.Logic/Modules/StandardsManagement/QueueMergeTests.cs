@@ -26,7 +26,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void MergeQueueItems_ShouldAppendNonSurvivorNameToSurvivorAliasesAndPurgeConsumed()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
 
             var oak = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "Material - Oak" };
             var pine = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "Material - Pine" };
@@ -57,7 +57,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void MergeQueueItems_ShouldCascadingRedirectReferences()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
 
             var oak = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "Material - Oak" };
             var pine = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "Material - Pine" };
@@ -104,7 +104,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void ExtractRevitElements_ShouldScanAndExtractAllSupportedTypesAndFamilySymbols()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
 
             void AddToDoc(Element el, string name, int idVal)
             {
@@ -205,7 +205,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void IsSavePathActive_ShouldReflectQueueIntent()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
             Assert.IsFalse(vm.IsSavePathActive);
 
             // Act
@@ -226,7 +226,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void MergeQueueItems_ShouldTransitionWorkspaceToIdle_WhenMergeIsSuccessfulInEditMode()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
 
             var oak = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "Material - Oak" };
             var pine = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "Material - Pine" };
@@ -256,7 +256,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void MergeQueueItems_ShouldCombineExecutionFlagsAndMergeAliasesOntoSurvivor()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
 
             var oak = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "Material - Oak", Aliases = new List<string> { "OakAlias1" } };
             var pine = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "Material - Pine", Aliases = new List<string> { "PineAlias1" } };

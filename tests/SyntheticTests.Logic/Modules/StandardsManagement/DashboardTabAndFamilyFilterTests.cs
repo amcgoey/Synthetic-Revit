@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -74,7 +74,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void VerifyTabCreationAndLifecycle_AddsTabsForSelectedDocuments()
         {
             // Arrange
-            var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService);
             dynamic mockDoc1 = Activator.CreateInstance(typeof(Document), true)!;
             mockDoc1.Title = "Model A";
             mockDoc1.PathName = @"C:\Projects\ModelA.rvt";
@@ -102,7 +102,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void VerifyResourceCleanupOnClose_RemovesTabAndPurgesHierarchy()
         {
             // Arrange
-            var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService);
             dynamic mockDoc = Activator.CreateInstance(typeof(Document), true)!;
             mockDoc.Title = "Model A";
             mockDoc.PathName = @"C:\Projects\ModelA.rvt";
@@ -147,7 +147,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             var settings = new StandardsSettings { StandardsFilePath = tempJsonFile };
 
             // Act
-            var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, (IStandardsExportService?)null, settings);
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService, null, settings);
 
             try
             {
@@ -178,7 +178,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void VerifyMultiModelExtractionIsolation_ExtractsDistinctNonIntersectingHierarchies()
         {
             // Arrange
-            var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService);
 
             dynamic doc1 = Activator.CreateInstance(typeof(Document), true)!;
             doc1.Title = "Doc 1";
@@ -230,7 +230,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void VerifyStaticFilteringApplication_RestrictsExtractedClassesBasedOnSelection()
         {
             // Arrange
-            var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService);
 
             dynamic doc = Activator.CreateInstance(typeof(Document), true)!;
             doc.Title = "Filter Model";
@@ -320,7 +320,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void SearchText_ShouldFilterNodesAndSetVisibilityAndExpansion()
         {
             // Arrange
-            var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService);
             var treeVM = new StandardsSourceTreeViewModel(parent, null, _doc, _fakeDialogService, new FakeExtractionOrchestrator(), new StandardSerializationEngine());
             var source = new ProjectStandardsSourceViewModel { DisplayName = "Test Source" };
 

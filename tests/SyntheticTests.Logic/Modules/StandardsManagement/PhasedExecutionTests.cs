@@ -42,7 +42,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void RunQueue_FailureStripping_ShouldSaveOnlySuccessfulPhase1ItemsToDisk()
         {
             // Arrange
-            var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
             var vm = parent.StandardsExecutionPipelineViewModel;
 
             vm.SaveFilePath = _tempSavePath;
@@ -82,7 +82,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void RunQueue_UserCancellation_ShouldRollbackAllRevitWritesAndSkipPhase2()
         {
             // Arrange
-            var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
             var vm = parent.StandardsExecutionPipelineViewModel;
             vm.SaveFilePath = _tempSavePath;
 
@@ -111,7 +111,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void ProcessFamilyUpdates_WhenDisabled_ShouldNotScanForFamilies()
         {
             // Arrange
-            var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
             var vm = parent.StandardsExecutionPipelineViewModel;
             vm.UpdateFamilies = false;
 
@@ -132,7 +132,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void RunQueue_PostExecutionPurging_ShouldRemoveSuccessfulAndKeepFailedItems()
         {
             // Arrange
-            var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
             var vm = parent.StandardsExecutionPipelineViewModel;
 
             var validParam = new ParameterModel("Comments", "ValidVal", null, "String", 1, null, false, false);
@@ -159,7 +159,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void FailedItem_OnParameterEdit_ShouldClearErrorAndSetIntentToEdited()
         {
             // Arrange
-            var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
             var queueVM = parent.StagingQueueViewModel;
             var paramModel = new ParameterModel("Comments", "SomeVal", null, "String", 1, null, false, false);
             var el = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "Mat", Parameters = new List<ParameterModel> { paramModel } };

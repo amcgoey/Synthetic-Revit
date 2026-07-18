@@ -26,7 +26,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void FindReplace_HeterogeneousSelection_ShouldMutateSelectedNamesAndParameters()
         {
             // Arrange
-            var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
             var vm = parent.StagingQueueViewModel;
 
             var matParam = new ParameterModel("Comments", "FindMe_MaterialVal", null, "String", 1, null, false, false);
@@ -71,7 +71,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void FindReplace_ReadOnlyProtection_ShouldNotModifyReadOnlyParameters()
         {
             // Arrange
-            var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
             var vm = parent.StagingQueueViewModel;
 
             var writableParam = new ParameterModel("Comments", "FindMe_Writable", null, "String", 1, null, false, false);
@@ -100,7 +100,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void FindReplace_DirtyStateRecalculation_ShouldReportIsDirtyPostReplacement()
         {
             // Arrange
-            var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
             var vm = parent.StagingQueueViewModel;
 
             var param = new ParameterModel("Comments", "FindMe", null, "String", 1, null, false, false);
@@ -128,7 +128,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void FindReplace_ScopeControls_ShouldRespectConfiguredScope()
         {
             // Arrange
-            var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
             var vm = parent.StagingQueueViewModel;
 
             // ElementNames Only Scope

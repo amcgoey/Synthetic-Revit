@@ -99,7 +99,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             try
             {
                 // Act
-                var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, settings: settings);
+                var vm = DashboardTestFactory.Create(_doc, _fakeDialogService, settings: settings);
 
                 // Assert
                 Assert.AreEqual(1, vm.AvailableSources.Count, "Dashboard should load the default standards source on startup.");
@@ -130,7 +130,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             try
             {
                 // Act
-                var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, settings: settings);
+                var vm = DashboardTestFactory.Create(_doc, _fakeDialogService, settings: settings);
 
                 // Assert
                 // 1. Should load the default firm standards source tab
@@ -162,7 +162,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             try
             {
                 // Act - passing null for doc
-                var vm = new ProjectStandardsDashboardViewModel((Document)null!, _fakeDialogService, settings: settings);
+                var vm = DashboardTestFactory.Create((Document)null!, _fakeDialogService, settings: settings);
 
                 // Assert
                 string expectedFallbackDir = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
@@ -186,7 +186,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             File.WriteAllText(tempFile, "{}");
 
             _fakeDialogService.PresetPath = tempFile;
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService);
             int initialCount = vm.AvailableSources.Count;
 
             try
@@ -212,7 +212,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void PushToQueue_CorrectlyStagesCheckedItemsWithIntent()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService);
             
             // Create a fake source tab with some elements
             var source = new ProjectStandardsSourceViewModel { DisplayName = "Test Source" };
@@ -252,7 +252,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void PushToQueue_StagesOfflineDependenciesFromJSON()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService);
 
             // Create a fake JSON/offline source tab with a WallType and a Material
             var source = new ProjectStandardsSourceViewModel { DisplayName = "Test JSON Source", IsRevitSource = false };
@@ -329,7 +329,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void PushToQueue_StagesLiveDependenciesUsingPocoIdentityResolution()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService);
 
             // Create a fake live Revit model source tab with a WallType and a Material, both having UniqueIds
             var source = new ProjectStandardsSourceViewModel { DisplayName = "Test Revit Model", IsRevitSource = true };
@@ -422,7 +422,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void PushToQueue_EnforcesDeepCopyIsolation()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService);
             
             var source = new ProjectStandardsSourceViewModel { DisplayName = "Test Source" };
             var group = new StandardGroupModel { Name = "Materials & Assets" };
@@ -458,7 +458,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void RemoveFromQueue_PurgesTargetedStagedItems()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService);
             
             var source = new ProjectStandardsSourceViewModel { DisplayName = "Test Source" };
             var group = new StandardGroupModel { Name = "Materials & Assets" };
@@ -499,7 +499,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void EditCommand_SetsActiveWorkspaceToEdit()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService);
             var source = new ProjectStandardsSourceViewModel { DisplayName = "Test Source" };
             var group = new StandardGroupModel { Name = "Materials & Assets" };
             var classModel = new StandardClassModel { Name = "Materials" };
@@ -530,7 +530,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void BatchFindReplace_MutatesSelectedQueueElementNamesAndParameters()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService);
             var source = new ProjectStandardsSourceViewModel { DisplayName = "Test Source" };
             var group = new StandardGroupModel { Name = "Materials & Assets" };
             var classModel = new StandardClassModel { Name = "Materials" };
@@ -574,7 +574,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void ApplyEdits_SetsIntentToEditedAndResetsWorkspace()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService);
             var source = new ProjectStandardsSourceViewModel { DisplayName = "Test Source" };
             var group = new StandardGroupModel { Name = "Materials & Assets" };
             var classModel = new StandardClassModel { Name = "Materials" };
@@ -605,7 +605,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void DiffCommand_InvokesScanAndTransitionsToDiff()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService);
             var source = new ProjectStandardsSourceViewModel { DisplayName = "Test Source" };
             var group = new StandardGroupModel { Name = "Materials & Assets" };
             var classModel = new StandardClassModel { Name = "Materials" };
@@ -635,7 +635,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void ResolveConflict_MutatesStagedPOCOWithWinningValuesAndSetsDiffedIntent()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService);
             
             var elem = new ElementModel 
             { 
@@ -696,7 +696,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             string tempFile = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString() + ".json");
             fakeFileDialog.PresetPath = tempFile;
 
-            var vm = new ProjectStandardsDashboardViewModel(_doc, fakeFileDialog);
+            var vm = DashboardTestFactory.Create(_doc, fakeFileDialog);
             vm.SaveFilePath = tempFile;
             var elem = new ElementModel { Name = "Steel", Class = "Autodesk.Revit.DB.Material" };
             
@@ -735,7 +735,7 @@ namespace SyntheticTests.Modules.StandardsManagement
 
             var fakeGuardrail = new FakeGuardrailPromptService(GuardrailResult.Skip);
             var fakeFileDialog = new FakeFileDialogService();
-            var vm = new ProjectStandardsDashboardViewModel(_doc, fakeFileDialog, fakeGuardrail, settings);
+            var vm = DashboardTestFactory.Create(_doc, fakeFileDialog, new StandardsExportService(fakeGuardrail, fakeFileDialog), settings);
             vm.SaveFilePath = tempFile;
 
             var elem = new ElementModel { Name = "Steel", Class = "Autodesk.Revit.DB.Material" };
@@ -776,7 +776,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             var fakeFileDialog = new FakeFileDialogService();
             fakeFileDialog.PresetPath = redirectedFile;
 
-            var vm = new ProjectStandardsDashboardViewModel(_doc, fakeFileDialog, fakeGuardrail, settings);
+            var vm = DashboardTestFactory.Create(_doc, fakeFileDialog, new StandardsExportService(fakeGuardrail, fakeFileDialog), settings);
             vm.SaveFilePath = protectedFile;
             var elem = new ElementModel { Name = "Steel", Class = "Autodesk.Revit.DB.Material" };
             var item = new QueueItemModel(elem, false, true);
@@ -816,7 +816,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             var fakeGuardrail = new FakeGuardrailPromptService(GuardrailResult.Skip);
             var fakeFileDialog = new FakeFileDialogService();
 
-            var vm = new ProjectStandardsDashboardViewModel(_doc, fakeFileDialog, fakeGuardrail, settings);
+            var vm = DashboardTestFactory.Create(_doc, fakeFileDialog, new StandardsExportService(fakeGuardrail, fakeFileDialog), settings);
             vm.SaveFilePath = protectedFile;
             var elem = new ElementModel { Name = "Steel", Class = "Autodesk.Revit.DB.Material" };
             var item = new QueueItemModel(elem, false, true);
@@ -846,7 +846,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             fakeFileDialog.PresetPath = tempFile;
 
             var fakeSummaryService = new FakeSummaryDisplayService();
-            var vm = new ProjectStandardsDashboardViewModel(_doc, fakeFileDialog, (IStandardsExportService?)null, null);
+            var vm = DashboardTestFactory.Create(_doc, fakeFileDialog, null, null);
             vm.SummaryDisplayService = fakeSummaryService;
 
             var elem = new ElementModel { Name = "Steel", Class = "Autodesk.Revit.DB.Material" };
@@ -885,7 +885,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             fakeFileDialog.PresetPath = tempFile;
 
             var fakeSummaryService = new FakeSummaryDisplayService();
-            var vm = new ProjectStandardsDashboardViewModel(_doc, fakeFileDialog, (IStandardsExportService?)null, null);
+            var vm = DashboardTestFactory.Create(_doc, fakeFileDialog, null, null);
             vm.SaveFilePath = tempFile;
             vm.SummaryDisplayService = fakeSummaryService;
 
@@ -984,9 +984,9 @@ namespace SyntheticTests.Modules.StandardsManagement
             var fakeGuardrail = new FakeGuardrailPromptService(GuardrailResult.Overwrite);
             var settings = new StandardsSettings();
 
-            var vm = new ProjectStandardsDashboardViewModel(
+            var vm = DashboardTestFactory.Create(
                 mainDoc, 
-                fakeFileDialog, 
+                dialogService: fakeFileDialog, 
                 exportService: new StandardsExportService(fakeGuardrail, fakeFileDialog), 
                 settings: settings, 
                 orchestrator: orchestrator);
@@ -1051,7 +1051,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             var fakeGuardrail = new FakeGuardrailPromptService();
             var settings = new StandardsSettings();
             
-            var vm = new ProjectStandardsDashboardViewModel(mainDoc, fakeFileDialog, fakeGuardrail, settings);
+            var vm = DashboardTestFactory.Create(mainDoc, fakeFileDialog, new StandardsExportService(fakeGuardrail, fakeFileDialog), settings);
             
             // Add a test queue item
             var model = new ElementModel { Name = "OriginalName", Class = "Autodesk.Revit.DB.LinePatternElement" };
@@ -1088,7 +1088,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             var fakeGuardrail = new FakeGuardrailPromptService();
             var settings = new StandardsSettings();
             
-            var vm = new ProjectStandardsDashboardViewModel(mainDoc, fakeFileDialog, fakeGuardrail, settings);
+            var vm = DashboardTestFactory.Create(mainDoc, fakeFileDialog, new StandardsExportService(fakeGuardrail, fakeFileDialog), settings);
             
             var item1 = new QueueItemModel(new ElementModel { Name = "Elem1", Class = "Autodesk.Revit.DB.LinePatternElement" }, false, true);
             var item2 = new QueueItemModel(new ElementModel { Name = "Elem2", Class = "Autodesk.Revit.DB.LinePatternElement" }, false, true);
@@ -1116,7 +1116,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             var fakeGuardrail = new FakeGuardrailPromptService();
             var settings = new StandardsSettings();
             
-            var vm = new ProjectStandardsDashboardViewModel(mainDoc, fakeFileDialog, fakeGuardrail, settings);
+            var vm = DashboardTestFactory.Create(mainDoc, fakeFileDialog, new StandardsExportService(fakeGuardrail, fakeFileDialog), settings);
             
             var item1 = new QueueItemModel(new ElementModel { Name = "Elem1", Class = "Autodesk.Revit.DB.LinePatternElement" }, false, true);
             var item2 = new QueueItemModel(new ElementModel { Name = "Elem2", Class = "Autodesk.Revit.DB.TextNoteType" }, false, true);
@@ -1142,7 +1142,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             var fakeGuardrail = new FakeGuardrailPromptService();
             var settings = new StandardsSettings();
             
-            var vm = new ProjectStandardsDashboardViewModel(mainDoc, fakeFileDialog, fakeGuardrail, settings);
+            var vm = DashboardTestFactory.Create(mainDoc, fakeFileDialog, new StandardsExportService(fakeGuardrail, fakeFileDialog), settings);
             
             var item1 = new QueueItemModel(new ElementModel { Name = "Elem1", Class = "Autodesk.Revit.DB.LinePatternElement", Aliases = new List<string> { "Alias1A", "Alias1B" } }, false, true);
             var item2 = new QueueItemModel(new ElementModel { Name = "Elem2", Class = "Autodesk.Revit.DB.LinePatternElement", Aliases = new List<string> { "Alias2A" } }, false, true);
@@ -1270,7 +1270,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             var fakeGuardrail = new FakeGuardrailPromptService();
             var settings = new StandardsSettings();
             
-            var vm = new ProjectStandardsDashboardViewModel(mainDoc, fakeFileDialog, fakeGuardrail, settings);
+            var vm = DashboardTestFactory.Create(mainDoc, fakeFileDialog, new StandardsExportService(fakeGuardrail, fakeFileDialog), settings);
             
             var poco1 = new MockPocoModel { Name = "Poco1", Class = "Autodesk.Revit.DB.MockPocoModel", WritableString = "CommonVal", NullableDouble = 1.0 };
             var poco2 = new MockPocoModel { Name = "Poco2", Class = "Autodesk.Revit.DB.MockPocoModel", WritableString = "CommonVal", NullableDouble = 2.0 };
@@ -1326,7 +1326,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             var fakeOrchestrator = new FakeStandardsExtractionOrchestrator();
 
             // Act
-            var vm = new ProjectStandardsDashboardViewModel(
+            var vm = DashboardTestFactory.Create(
                 doc: doc, 
                 dialogService: fakeFileDialog, 
                 exportService: null, 

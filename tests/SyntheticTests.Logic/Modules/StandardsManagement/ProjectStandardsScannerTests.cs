@@ -28,7 +28,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             var fakeGuardrail = new FakeGuardrailPromptService(GuardrailResult.Overwrite);
             var settings = new StandardsSettings();
 
-            _vm = new ProjectStandardsDashboardViewModel(_doc, fakeFileDialog, fakeGuardrail, settings);
+            _vm = DashboardTestFactory.Create(_doc, fakeFileDialog, new StandardsExportService(fakeGuardrail, fakeFileDialog), settings);
 
             _extractMethod = typeof(StandardsSourceTreeViewModel)
                 .GetMethod("ExtractRevitElements", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
