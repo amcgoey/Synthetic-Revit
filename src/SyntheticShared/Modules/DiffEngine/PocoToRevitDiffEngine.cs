@@ -331,7 +331,7 @@ namespace Synthetic.Modules.DiffEngine
                         }
                     }
                 }
-                if (targetId != null)
+                if (targetId != null && targetId != ElementId.InvalidElementId)
                 {
 #if REVIT2022 || REVIT2023
                     return targetId.IntegerValue.ToString();
