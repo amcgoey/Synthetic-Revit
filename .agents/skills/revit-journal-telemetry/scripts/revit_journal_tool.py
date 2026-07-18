@@ -82,14 +82,14 @@ def extract_timestamp(line):
             pass
     return None
 
-def analyze_line_for_diagnostics(line, line_idx, state_dict):
+def analyze_line_for_diagnostics(line, line_idx, state_dict, limit_actions=10):
     """Utility to analyze a single journal line, updating the state tracking dictionary."""
     line_clean = line.strip()
     
     # 1. Action Sequence Tracing
     if any(x in line for x in ["Jrn.Command", "Jrn.RibbonEvent", "Jrn.ComboBox", "Jrn.ActiveView", "Jrn.UIEvent"]):
         state_dict["actions"].append((line_idx + 1, line_clean))
-        if len(state_dict["actions"]) > 10:
+        if len(state_dict["actions"]) > limit_actions:
             state_dict["actions"].pop(0)
 
     # 2. Managed Exceptions Tracking
@@ -139,7 +139,7 @@ def analyze_line_for_diagnostics(line, line_idx, state_dict):
                 state_dict["synthetic_first_ts"] = ts
             state_dict["synthetic_last_ts"] = ts
 
-def analyze_journal(lines, filepath):
+def analyze_journal(lines, filepath, limit_exceptions=10, limit_warnings=15, limit_actions=10, limit_memory=3, limit_shutdown_scan=200):
     """Performs full diagnostics on the journal lines."""
     state = {
         "exceptions": [],
@@ -155,7 +155,7 @@ def analyze_journal(lines, filepath):
     }
 
     for idx, line in enumerate(lines):
-        analyze_line_for_diagnostics(line, idx, state)
+        analyze_line_for_diagnostics(line, idx, state, limit_actions=limit_actions)
 
     # Flush final exception block if still open
     if state["in_stack_trace"] and state["current_exception"]:
@@ -176,29 +176,32 @@ def analyze_journal(lines, filepath):
 
     # 2. Managed Exceptions
     analysis.append(f"\n[EXCEPTIONS] Managed Exceptions Found: {len(state['exceptions'])}")
-    for exc in state["exceptions"][:10]:
+    for exc in state["exceptions"][:limit_exceptions]:
         analysis.append("-" * 40)
         analysis.append(exc)
-    if len(state["exceptions"]) > 10:
-        analysis.append(f"... and {len(state['exceptions']) - 10} more exceptions.")
+    if len(state["exceptions"]) > limit_exceptions:
+        analysis.append(f"... and {len(state['exceptions']) - limit_exceptions} more exceptions.")
 
     # 3. Warnings
     analysis.append(f"\n[WARNINGS] Potential Error/Warning Logs Found: {len(state['warnings'])}")
-    for line_num, warning in state["warnings"][:15]:
+    for line_num, warning in state["warnings"][:limit_warnings]:
         analysis.append(f"  Line {line_num}: {warning}")
-    if len(state["warnings"]) > 15:
-        analysis.append(f"... and {len(state['warnings']) - 15} more warnings.")
+    if len(state["warnings"]) > limit_warnings:
+        analysis.append(f"... and {len(state['warnings']) - limit_warnings} more warnings.")
 
     # 4. Memory Profiling
     analysis.append(f"\n[MEMORY] Memory Logs Found: {len(state['memory_logs'])}")
     if len(state["memory_logs"]) > 0:
         analysis.append("Initial Memory Logs:")
-        for line_num, stat in state["memory_logs"][:3]:
+        for line_num, stat in state["memory_logs"][:limit_memory]:
             analysis.append(f"  Line {line_num}: {stat}")
-        if len(state["memory_logs"]) > 6:
+        if len(state["memory_logs"]) > (limit_memory * 2):
             analysis.append("...")
             analysis.append("Latest Memory Logs:")
-            for line_num, stat in state["memory_logs"][-3:]:
+            for line_num, stat in state["memory_logs"][-limit_memory:]:
+                analysis.append(f"  Line {line_num}: {stat}")
+        elif len(state["memory_logs"]) > limit_memory:
+            for line_num, stat in state["memory_logs"][limit_memory:]:
                 analysis.append(f"  Line {line_num}: {stat}")
 
     # 5. Transactions Telemetry
@@ -211,8 +214,8 @@ def analyze_journal(lines, filepath):
             analysis.append(f"  Line {line_num}: Transaction '{name}' was Rolled Back")
 
     # 6. Shutdown Cleanliness & Process Check
-    last_200 = lines[-200:] if len(lines) >= 200 else lines
-    destroy_display_found = any("Destroy Display Manager" in ln for ln in last_200)
+    last_scan = lines[-limit_shutdown_scan:] if len(lines) >= limit_shutdown_scan else lines
+    destroy_display_found = any("Destroy Display Manager" in ln for ln in last_scan)
     
     # Check for crash dumps
     crash_detected = False
@@ -231,7 +234,7 @@ def analyze_journal(lines, filepath):
     
     analysis.append("\n[SHUTDOWN STATUS]")
     if destroy_display_found and not crash_detected:
-        analysis.append("  [OK] Shutdown appears CLEAN: 'Destroy Display Manager' registered.")
+        analysis.append(f"  [OK] Shutdown appears CLEAN: 'Destroy Display Manager' registered in last {limit_shutdown_scan} lines.")
     elif crash_detected:
         analysis.append("  [CRASH] Shutdown was ABNORMAL: Crash dump file (.dmp) detected.")
     elif revit_active:
@@ -241,7 +244,7 @@ def analyze_journal(lines, filepath):
 
     # 7. Action Sequence Context (if failure detected)
     if crash_detected or state["exceptions"] or (not destroy_display_found and not revit_active):
-        analysis.append("\n[REPRODUCTION TRAIL] Last 10 User UI Actions:")
+        analysis.append(f"\n[REPRODUCTION TRAIL] Last {limit_actions} User UI Actions:")
         if state["actions"]:
             for line_num, act in state["actions"]:
                 analysis.append(f"  Line {line_num}: {act}")
@@ -250,7 +253,7 @@ def analyze_journal(lines, filepath):
 
     return "\n".join(analysis)
 
-def watch_journal(filepath):
+def watch_journal(filepath, limit_actions=10):
     """Continuously monitors the active journal, printing new telemetry logs in real-time."""
     print("="*80)
     print(f"WATCHING ACTIVE JOURNAL: {filepath}")
@@ -288,7 +291,7 @@ def watch_journal(filepath):
                     continue
                 
                 # Analyze single line
-                analyze_line_for_diagnostics(line, line_idx, state)
+                analyze_line_for_diagnostics(line, line_idx, state, limit_actions=limit_actions)
                 line_clean = line.strip()
 
                 # Print matching events immediately
@@ -321,6 +324,13 @@ def main():
     parser.add_argument("--analyze", action="store_true", help="Perform telemetry diagnostics analysis")
     parser.add_argument("--watch", action="store_true", help="Watch the active journal real-time (polling)")
     parser.add_argument("--output", help="Write results to path")
+    
+    # Custom limits parameters
+    parser.add_argument("--limit-exceptions", type=int, default=10, help="Max exceptions to display in analysis (default: 10)")
+    parser.add_argument("--limit-warnings", type=int, default=15, help="Max warnings to display in analysis (default: 15)")
+    parser.add_argument("--limit-actions", type=int, default=10, help="Max action sequence history size (default: 10)")
+    parser.add_argument("--limit-memory", type=int, default=3, help="Max memory logs to display at start/end (default: 3)")
+    parser.add_argument("--limit-shutdown-scan", type=int, default=200, help="Trailing lines to scan for clean shutdown (default: 200)")
 
     args = parser.parse_args()
 
@@ -329,7 +339,7 @@ def main():
         sys.exit(1)
 
     if args.watch:
-        watch_journal(latest_journal)
+        watch_journal(latest_journal, limit_actions=args.limit_actions)
         sys.exit(0)
 
     lines, encoding = read_journal_lines(latest_journal)
@@ -341,7 +351,15 @@ def main():
     results.append("=" * 70)
 
     if args.analyze:
-        analysis_text = analyze_journal(lines, latest_journal)
+        analysis_text = analyze_journal(
+            lines, 
+            latest_journal,
+            limit_exceptions=args.limit_exceptions,
+            limit_warnings=args.limit_warnings,
+            limit_actions=args.limit_actions,
+            limit_memory=args.limit_memory,
+            limit_shutdown_scan=args.limit_shutdown_scan
+        )
         results.append(analysis_text)
     elif args.search:
         query_lower = args.search.lower()

@@ -35,6 +35,19 @@ Target a different Revit version folder for analysis:
 python .agents/skills/revit-journal-telemetry/scripts/revit_journal_tool.py --version 2024 --analyze
 ```
 
+### Adjusting Telemetry Output Limits
+You can adjust the limits of exceptions, warnings, actions, and memory stats printed by using optional arguments:
+* `--limit-exceptions <N>`: Adjust the max exceptions reported (default: 10).
+* `--limit-warnings <N>`: Adjust the max warnings reported (default: 15).
+* `--limit-actions <N>`: Adjust the sliding UI action sequence history size (default: 10).
+* `--limit-memory <N>`: Adjust the count of memory logs displayed at startup and session end (default: 3).
+* `--limit-shutdown-scan <N>`: Adjust the count of trailing lines scanned for clean exit signatures (default: 200).
+
+Example:
+```powershell
+python .agents/skills/revit-journal-telemetry/scripts/revit_journal_tool.py --analyze --limit-exceptions 5 --limit-actions 15
+```
+
 ---
 
 ## 2. Telemetry Output & Diagnostics Guide
