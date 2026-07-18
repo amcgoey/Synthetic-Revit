@@ -152,6 +152,8 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ObjectModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\Worksets\Models\WorksetModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Models\ImportLogItem.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Models\StandardsExecutionItem.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Models\StandardsExecutionOptions.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Models\DuplicateItemModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Models\DuplicateClusterModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Models\DuplicateTypeModel.cs" />
@@ -260,6 +262,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Utilities\IStandardsExportService.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Utilities\FindReplaceService.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Utilities\IFindReplaceService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Utilities\StandardsReportGenerator.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\ProjectStandardsDashboardViewModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Views\ProjectStandardsDashboardWindow.xaml.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\QueueItemModel.cs" />
