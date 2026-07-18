@@ -33,6 +33,8 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\CategoryIdModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\IStandardSerializationEngine.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\StandardSerializationEngine.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\DiffEngine\IDiffEngine.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\DiffEngine\PocoToRevitDiffEngine.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\RevitDomDependencyScanner.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\IPocoIdentityService.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\PocoIdentityService.cs" />
