@@ -56,7 +56,7 @@ namespace SyntheticTests
             var revitIdentityType = Type.GetType($"Synthetic.Modules.RevitDOM.RevitIdentityService{suffix}");
             var revitIdentity = Activator.CreateInstance(revitIdentityType);
 
-            var orchestratorType = Type.GetType($"Synthetic.Modules.RevitDOM.StandardsExtractionOrchestrator{suffix}");
+            var orchestratorType = Type.GetType($"Synthetic.Modules.StandardsManagement.Engine.StandardsExtractionOrchestrator{suffix}");
             var orchestrator = Activator.CreateInstance(orchestratorType, revitIdentity, serializationEngine);
 
             var pocoIdentityType = Type.GetType($"Synthetic.Modules.RevitDOM.PocoIdentityService{suffix}");
