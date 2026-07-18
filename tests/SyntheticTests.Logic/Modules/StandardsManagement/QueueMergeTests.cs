@@ -136,13 +136,12 @@ namespace SyntheticTests.Modules.StandardsManagement
 
             _doc.GetType().GetMethod("AddElement")?.Invoke(_doc, new object[] { fs, fs.Id });
 
-            // Act: Private method invoke via reflection
-            var extractMethod = typeof(ProjectStandardsDashboardViewModel)
+            var extractMethod = typeof(StandardsSourceTreeViewModel)
                 .GetMethod("ExtractRevitElements", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
             Assert.IsNotNull(extractMethod);
 
             var selectedGroupings = new List<string> { "Title Blocks", "Wall Types", "Line Patterns", "Materials" };
-            var result = (List<ElementModel>)extractMethod.Invoke(vm, new object[] { _doc, false, false, selectedGroupings })!;
+            var result = (List<ElementModel>)extractMethod.Invoke(vm.SourceTreeViewModel, new object[] { _doc, false, false, selectedGroupings })!;
 
             // Assert
             Assert.IsNotNull(result);

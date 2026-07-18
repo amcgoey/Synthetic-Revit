@@ -42,7 +42,9 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void RunQueue_FailureStripping_ShouldSaveOnlySuccessfulPhase1ItemsToDisk()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var vm = parent.StandardsExecutionViewModel;
+
             vm.SaveFilePath = _tempSavePath;
 
             // Item 1: Valid element (succeeds Phase 1)
@@ -54,16 +56,17 @@ namespace SyntheticTests.Modules.StandardsManagement
             var invalidEl = new ElementModel { Class = null!, Name = "InvalidMaterial" };
             var qInvalid = new QueueItemModel(invalidEl, true, true);
 
-            vm.ActionQueue.Add(qValid);
-            vm.ActionQueue.Add(qInvalid);
+            parent.ActionQueue.Add(qValid);
+            parent.ActionQueue.Add(qInvalid);
 
             // Act
             vm.RunQueueCommand.Execute(null!);
+
             // Assert: valid element was processed, invalid failed and was stripped
-            Assert.AreEqual(3, vm.LastExecutionResults.Count, "Should have 3 execution results logged (2 from Phase 1, 1 from Phase 2).");
+            Assert.AreEqual(3, parent.LastExecutionResults.Count, "Should have 3 execution results logged (2 from Phase 1, 1 from Phase 2).");
             
-            var validResult = vm.LastExecutionResults.First(r => r.Model == qValid.Model);
-            var invalidResult = vm.LastExecutionResults.First(r => r.Model == qInvalid.Model);
+            var validResult = parent.LastExecutionResults.First(r => r.Model == qValid.Model);
+            var invalidResult = parent.LastExecutionResults.First(r => r.Model == qInvalid.Model);
 
             Assert.IsTrue(validResult.Success, "Valid element should succeed Phase 1.");
             Assert.IsFalse(invalidResult.Success, "Invalid element should fail Phase 1.");
@@ -79,12 +82,14 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void RunQueue_UserCancellation_ShouldRollbackAllRevitWritesAndSkipPhase2()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var vm = parent.StandardsExecutionViewModel;
+            vm.SaveFilePath = _tempSavePath;
 
             var param = new ParameterModel("Comments", "SomeValue", null, "String", 1, null, false, false);
             var el = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "MatToCancel", Parameters = new List<ParameterModel> { param } };
             var qItem = new QueueItemModel(el, true, true);
-            vm.ActionQueue.Add(qItem);
+            parent.ActionQueue.Add(qItem);
 
             // Inject a mock cancellation state in the coordinator
             ProgressCoordinator.ForceCancel = true;
@@ -96,7 +101,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             Assert.IsFalse(File.Exists(_tempSavePath), "Phase 2 file writing must be skipped completely on user cancellation.");
             Assert.IsTrue(qItem.WillEnforce && qItem.WillSave, "QueueItem intent flags should remain unchanged on rollback.");
             
-            var cancelResult = vm.LastExecutionResults.FirstOrDefault(r => r.Model == qItem.Model);
+            var cancelResult = parent.LastExecutionResults.FirstOrDefault(r => r.Model == qItem.Model);
             Assert.IsNotNull(cancelResult, "Cancellation execution result should be registered.");
             Assert.IsFalse(cancelResult!.Success, "Cancelled results must show as failed.");
             Assert.AreEqual("Execution cancelled by user.", cancelResult.ErrorMessage);
@@ -106,29 +111,29 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void ProcessFamilyUpdates_WhenDisabled_ShouldNotScanForFamilies()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null)
-            {
-                UpdateFamilies = false
-            };
+            var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var vm = parent.StandardsExecutionViewModel;
+            vm.UpdateFamilies = false;
 
             var param = new ParameterModel("Comments", "Val", null, "String", 1, null, false, false);
             var el = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "Mat", Parameters = new List<ParameterModel> { param } };
             var qItem = new QueueItemModel(el, true, false);
-            vm.ActionQueue.Add(qItem);
+            parent.ActionQueue.Add(qItem);
 
             // Act
             vm.RunQueueCommand.Execute(null!);
 
             // Assert: Completed without trying to collect families (since mocked Revit doc throws on family queries in real run but passes here)
-            Assert.AreEqual(1, vm.LastExecutionResults.Count);
-            Assert.IsTrue(vm.LastExecutionResults[0].Success);
+            Assert.AreEqual(1, parent.LastExecutionResults.Count);
+            Assert.IsTrue(parent.LastExecutionResults[0].Success);
         }
 
         [Test]
         public void RunQueue_PostExecutionPurging_ShouldRemoveSuccessfulAndKeepFailedItems()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var vm = parent.StandardsExecutionViewModel;
 
             var validParam = new ParameterModel("Comments", "ValidVal", null, "String", 1, null, false, false);
             var validEl = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "ValidMaterial", Parameters = new List<ParameterModel> { validParam } };
@@ -137,15 +142,15 @@ namespace SyntheticTests.Modules.StandardsManagement
             var invalidEl = new ElementModel { Class = null!, Name = "InvalidMaterial" };
             var qInvalid = new QueueItemModel(invalidEl, true, true);
 
-            vm.ActionQueue.Add(qValid);
-            vm.ActionQueue.Add(qInvalid);
+            parent.ActionQueue.Add(qValid);
+            parent.ActionQueue.Add(qInvalid);
 
             // Act
             vm.RunQueueCommand.Execute(null!);
 
             // Assert
-            Assert.AreEqual(1, vm.ActionQueue.Count, "Successful items should be purged, failed should remain.");
-            Assert.AreSame(qInvalid, vm.ActionQueue[0], "The failed item should remain in the queue.");
+            Assert.AreEqual(1, parent.ActionQueue.Count, "Successful items should be purged, failed should remain.");
+            Assert.AreSame(qInvalid, parent.ActionQueue[0], "The failed item should remain in the queue.");
             Assert.IsTrue(qInvalid.HasError, "The failed item should have error registered.");
             Assert.IsFalse(string.IsNullOrEmpty(qInvalid.ErrorMessage), "The error message should be populated.");
         }
@@ -154,26 +159,27 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void FailedItem_OnParameterEdit_ShouldClearErrorAndSetIntentToEdited()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var queueVM = parent.ActionQueueViewModel;
             var paramModel = new ParameterModel("Comments", "SomeVal", null, "String", 1, null, false, false);
             var el = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "Mat", Parameters = new List<ParameterModel> { paramModel } };
             var qItem = new QueueItemModel(el, true, true);
             qItem.ErrorMessage = "Some error occurred";
 
-            vm.ActionQueue.Add(qItem);
+            parent.ActionQueue.Add(qItem);
 
             // Select item and enter edit mode
-            vm.EditCommand.Execute(new List<QueueItemModel> { qItem });
+            queueVM.EditCommand.Execute(new List<QueueItemModel> { qItem });
 
             // Act: Mutate parameter
-            var param = vm.DisplayParameters.First();
+            var param = queueVM.DisplayParameters.First();
             param.Value = "NewVal";
 
             // Assert
             Assert.IsFalse(qItem.HasError, "Error state should be cleared on edit.");
             Assert.IsNull(qItem.ErrorMessage, "ErrorMessage should be reset to null.");
             Assert.IsTrue(qItem.IsEdited, "IsEdited should be set to true on edit.");
-            Assert.IsNull(vm.SelectedItemErrorMessage, "Selected item error message on VM should be cleared.");
+            Assert.IsNull(queueVM.SelectedItemErrorMessage, "Selected item error message on VM should be cleared.");
         }
     }
 }

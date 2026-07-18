@@ -77,7 +77,8 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void StagedMultiSelectIntersection_ShouldAggregateParametersAndDisplayVaries()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var vm = parent.ActionQueueViewModel;
 
             var p1 = new ParameterModel("Comments", "ValueA", null, "String", 1, null, false, false);
             var el1 = new ElementModel { Class = "Autodesk.Revit.DB.LinePatternElement", Name = "Dash", Parameters = new List<ParameterModel> { p1 } };
@@ -93,8 +94,7 @@ namespace SyntheticTests.Modules.StandardsManagement
 
             // Act: Edit items to calculate intersection
             var itemsToEdit = new List<QueueItemModel> { q1, q2 };
-            var editMethod = typeof(ProjectStandardsDashboardViewModel).GetMethod("ExecuteEdit", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            editMethod?.Invoke(vm, new object[] { itemsToEdit });
+            vm.EditCommand.Execute(itemsToEdit);
 
             // Assert intersection has Comments with <Varies>
             var commentsParam = vm.DisplayParameters.FirstOrDefault(p => p.Name == "Comments");
@@ -114,8 +114,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             Assert.IsTrue(q2.IsEdited);
  
             // Act: Cancel edits
-            var cancelMethod = typeof(ProjectStandardsDashboardViewModel).GetMethod("ExecuteCancelEdits", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            cancelMethod?.Invoke(vm, new object[] { null! });
+            vm.CancelEditsCommand.Execute(null!);
  
             // Assert revert to original baseline values and original intents (Enforce)
             Assert.AreEqual("ValueA", ((ElementModel)q1.TargetModel).Parameters[0].Value);
@@ -130,7 +129,8 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void CascadingRenameSafety_ShouldUpdateReferencesAcrossActionQueue()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var vm = parent.ActionQueueViewModel;
 
             var materialModel = new ElementModel
             {
@@ -162,8 +162,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             vm.ActionQueue.Add(qWall);
 
             // Act: Edit Material item to start session
-            var editMethod = typeof(ProjectStandardsDashboardViewModel).GetMethod("ExecuteEdit", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            editMethod?.Invoke(vm, new object[] { new List<QueueItemModel> { qMaterial } });
+            vm.EditCommand.Execute(new List<QueueItemModel> { qMaterial });
 
             // Trigger Name property change via SelectedItemName property
             vm.SelectedItemName = "NewMaterialName";

@@ -10,6 +10,7 @@ using Synthetic.Settings;
 using Synthetic.Shared.UI;
 using Synthetic.Modules.RevitDOM;
 using Synthetic.Modules.StandardsManagement.Utilities;
+using Synthetic.Modules.StandardsManagement.Engine;
 
 namespace SyntheticTests.Modules.StandardsManagement
 {
@@ -29,35 +30,43 @@ namespace SyntheticTests.Modules.StandardsManagement
 
         private T CreateMockElement<T>(Document doc, string name, long idVal) where T : Element
         {
-            var elem = (T)Activator.CreateInstance(typeof(T), true)!;
-            
-            // Set Name
-            var nameProp = typeof(T).GetProperty("Name");
-            nameProp?.SetValue(elem, name);
+            dynamic elem = Activator.CreateInstance(typeof(T), true)!;
+            elem.Name = name;
+            elem.Id = new ElementId(idVal);
 
-            // Set Id
-            var idProp = typeof(T).GetProperty("Id");
-            if (idProp != null && idProp.CanWrite)
-            {
-                idProp.SetValue(elem, new ElementId(idVal));
-            }
+            dynamic dynamicDoc = doc;
+            dynamicDoc.AddElement(elem, elem.Id);
 
-            // Add to doc
-            var addElementMethod = doc.GetType().GetMethod("AddElement");
-            if (addElementMethod != null)
-            {
-                addElementMethod.Invoke(doc, new object[] { elem, elem.Id });
-            }
-
-            return elem;
+            return (T)elem;
         }
 
-        private void SetDocumentStringProperty(Document doc, string propertyName, string value)
+        private class FakeExtractionOrchestrator : IStandardsExtractionOrchestrator
         {
-            var prop = doc.GetType().GetProperty(propertyName);
-            if (prop != null && prop.CanWrite)
+            public List<ObjectModel> ExtractedModels { get; } = new List<ObjectModel>();
+
+            public List<ObjectModel> Extract(Document doc, IEnumerable<Element> rootElements, IProgress<string>? progress = null)
             {
-                prop.SetValue(doc, value);
+                return ExtractedModels;
+            }
+
+            public List<ObjectModel> Extract(Document doc, IEnumerable<Element> rootElements, IProgress<string>? progress = null, bool isTemplate = false)
+            {
+                return ExtractedModels;
+            }
+        }
+
+        private class FakeExtractionOrchestratorForMultipleDocuments : IStandardsExtractionOrchestrator
+        {
+            public Dictionary<Document, List<ObjectModel>> ExtractedModels { get; } = new Dictionary<Document, List<ObjectModel>>();
+
+            public List<ObjectModel> Extract(Document doc, IEnumerable<Element> rootElements, IProgress<string>? progress = null)
+            {
+                return ExtractedModels.TryGetValue(doc, out var list) ? list : new List<ObjectModel>();
+            }
+
+            public List<ObjectModel> Extract(Document doc, IEnumerable<Element> rootElements, IProgress<string>? progress = null, bool isTemplate = false)
+            {
+                return ExtractedModels.TryGetValue(doc, out var list) ? list : new List<ObjectModel>();
             }
         }
 
@@ -65,51 +74,56 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void VerifyTabCreationAndLifecycle_AddsTabsForSelectedDocuments()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
-            var mockDoc1 = (Document)Activator.CreateInstance(typeof(Document), true)!;
-            SetDocumentStringProperty(mockDoc1, "Title", "Model A");
-            SetDocumentStringProperty(mockDoc1, "PathName", "C:\\Projects\\ModelA.rvt");
+            var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            dynamic mockDoc1 = Activator.CreateInstance(typeof(Document), true)!;
+            mockDoc1.Title = "Model A";
+            mockDoc1.PathName = @"C:\Projects\ModelA.rvt";
 
-            var mockDoc2 = (Document)Activator.CreateInstance(typeof(Document), true)!;
-            SetDocumentStringProperty(mockDoc2, "Title", "Model B");
-            SetDocumentStringProperty(mockDoc2, "PathName", "C:\\Projects\\ModelB.rvt");
+            dynamic mockDoc2 = Activator.CreateInstance(typeof(Document), true)!;
+            mockDoc2.Title = "Model B";
+            mockDoc2.PathName = @"C:\Projects\ModelB.rvt";
 
-            vm.MockOpenDocuments = new List<Document> { mockDoc1, mockDoc2 };
+            parent.MockOpenDocuments = new List<Document> { (Document)mockDoc1, (Document)mockDoc2 };
+
+            var fakeOrchestrator = new FakeExtractionOrchestrator();
+            var treeVM = new StandardsSourceTreeViewModel(parent, null, _doc, _fakeDialogService, fakeOrchestrator, new StandardSerializationEngine());
 
             // Act
-            vm.AddRevitModelCommand.Execute(null);
+            treeVM.AddRevitModelCommand.Execute(null);
 
             // Assert
-            Assert.AreEqual(2, vm.AvailableSources.Count, "Should have 2 sources loaded.");
-            Assert.IsTrue(vm.AvailableSources.Any(s => s.DisplayName == "Model A"));
-            Assert.IsTrue(vm.AvailableSources.Any(s => s.DisplayName == "Model B"));
-            Assert.IsTrue(vm.AvailableSources.All(s => s.IsRevitSource));
+            Assert.AreEqual(2, treeVM.AvailableSources.Count, "Should have 2 sources loaded.");
+            Assert.IsTrue(treeVM.AvailableSources.Any(s => s.DisplayName == "Model A"));
+            Assert.IsTrue(treeVM.AvailableSources.Any(s => s.DisplayName == "Model B"));
+            Assert.IsTrue(treeVM.AvailableSources.All(s => s.IsRevitSource));
         }
 
         [Test]
         public void VerifyResourceCleanupOnClose_RemovesTabAndPurgesHierarchy()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
-            var mockDoc = (Document)Activator.CreateInstance(typeof(Document), true)!;
-            SetDocumentStringProperty(mockDoc, "Title", "Model A");
-            SetDocumentStringProperty(mockDoc, "PathName", "C:\\Projects\\ModelA.rvt");
-            
+            var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            dynamic mockDoc = Activator.CreateInstance(typeof(Document), true)!;
+            mockDoc.Title = "Model A";
+            mockDoc.PathName = @"C:\Projects\ModelA.rvt";
+
             // Add a mock element so the tab has hierarchical data
-            CreateMockElement<Material>(mockDoc, "Steel", 501);
+            CreateMockElement<Material>((Document)mockDoc, "Steel", 501);
 
-            vm.MockOpenDocuments = new List<Document> { mockDoc };
-            vm.AddRevitModelCommand.Execute(null);
+            parent.MockOpenDocuments = new List<Document> { (Document)mockDoc };
 
-            var addedSource = vm.AvailableSources.FirstOrDefault(s => s.DisplayName == "Model A");
+            var treeVM = new StandardsSourceTreeViewModel(parent, null, _doc, _fakeDialogService, new StandardsExtractionOrchestrator(new RevitIdentityService(), new StandardSerializationEngine()), new StandardSerializationEngine());
+            treeVM.AddRevitModelCommand.Execute(null);
+
+            var addedSource = treeVM.AvailableSources.FirstOrDefault(s => s.DisplayName == "Model A");
             Assert.IsNotNull(addedSource, "Tab should be added.");
             Assert.IsTrue(addedSource.SourceHierarchy.Count > 0, "Hierarchy should not be empty.");
 
             // Act
-            vm.CloseSourceCommand.Execute(addedSource);
+            treeVM.CloseSourceCommand.Execute(addedSource);
 
             // Assert
-            Assert.IsFalse(vm.AvailableSources.Contains(addedSource), "Tab should be removed from AvailableSources.");
+            Assert.IsFalse(treeVM.AvailableSources.Contains(addedSource), "Tab should be removed from AvailableSources.");
             Assert.AreEqual(0, addedSource.SourceHierarchy.Count, "Associated hierarchy collections should be cleared to disperse memory.");
         }
 
@@ -131,17 +145,19 @@ namespace SyntheticTests.Modules.StandardsManagement
             }");
 
             var settings = new StandardsSettings { StandardsFilePath = tempJsonFile };
-            
+
             // Act
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, (IStandardsExportService?)null, settings);
+            var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, (IStandardsExportService?)null, settings);
 
             try
             {
+                var treeVM = parent.SourceTreeViewModel;
+
                 // Assert
-                Assert.AreEqual(1, vm.AvailableSources.Count, "Should load default firm standard.");
-                var defaultSource = vm.AvailableSources[0];
+                Assert.AreEqual(1, treeVM.AvailableSources.Count, "Should load default firm standard.");
+                var defaultSource = treeVM.AvailableSources[0];
                 Assert.AreEqual("Default Firm Standard", defaultSource.DisplayName);
-                
+
                 // Assert that checkboxes are checked
                 Assert.IsTrue(defaultSource.SourceHierarchy.Count > 0);
                 foreach (var group in defaultSource.SourceHierarchy)
@@ -150,7 +166,7 @@ namespace SyntheticTests.Modules.StandardsManagement
                 }
 
                 // Assert that action queue remains empty
-                Assert.AreEqual(0, vm.ActionQueue.Count, "Action queue must remain empty on launch.");
+                Assert.AreEqual(0, parent.ActionQueue.Count, "Action queue must remain empty on launch.");
             }
             finally
             {
@@ -162,24 +178,30 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void VerifyMultiModelExtractionIsolation_ExtractsDistinctNonIntersectingHierarchies()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
 
-            var doc1 = (Document)Activator.CreateInstance(typeof(Document), true)!;
-            SetDocumentStringProperty(doc1, "Title", "Doc 1");
-            CreateMockElement<Material>(doc1, "Aluminum", 601);
+            dynamic doc1 = Activator.CreateInstance(typeof(Document), true)!;
+            doc1.Title = "Doc 1";
+            CreateMockElement<Material>((Document)doc1, "Aluminum", 601);
 
-            var doc2 = (Document)Activator.CreateInstance(typeof(Document), true)!;
-            SetDocumentStringProperty(doc2, "Title", "Doc 2");
-            CreateMockElement<Material>(doc2, "Copper", 602);
+            dynamic doc2 = Activator.CreateInstance(typeof(Document), true)!;
+            doc2.Title = "Doc 2";
+            CreateMockElement<Material>((Document)doc2, "Copper", 602);
 
-            vm.MockOpenDocuments = new List<Document> { doc1, doc2 };
+            parent.MockOpenDocuments = new List<Document> { (Document)doc1, (Document)doc2 };
+
+            var fakeOrchestrator = new FakeExtractionOrchestratorForMultipleDocuments();
+            fakeOrchestrator.ExtractedModels[(Document)doc1] = new List<ObjectModel> { new MaterialModel { Name = "Aluminum", UniqueId = "601" } };
+            fakeOrchestrator.ExtractedModels[(Document)doc2] = new List<ObjectModel> { new MaterialModel { Name = "Copper", UniqueId = "602" } };
+
+            var treeVM = new StandardsSourceTreeViewModel(parent, null, _doc, _fakeDialogService, fakeOrchestrator, new StandardSerializationEngine());
 
             // Act
-            vm.AddRevitModelCommand.Execute(null);
+            treeVM.AddRevitModelCommand.Execute(null);
 
             // Assert
-            var source1 = vm.AvailableSources.FirstOrDefault(s => s.DisplayName == "Doc 1");
-            var source2 = vm.AvailableSources.FirstOrDefault(s => s.DisplayName == "Doc 2");
+            var source1 = treeVM.AvailableSources.FirstOrDefault(s => s.DisplayName == "Doc 1");
+            var source2 = treeVM.AvailableSources.FirstOrDefault(s => s.DisplayName == "Doc 2");
 
             Assert.IsNotNull(source1);
             Assert.IsNotNull(source2);
@@ -208,18 +230,17 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void VerifyStaticFilteringApplication_RestrictsExtractedClassesBasedOnSelection()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
 
-            var doc = (Document)Activator.CreateInstance(typeof(Document), true)!;
-            SetDocumentStringProperty(doc, "Title", "Filter Model");
-            
-            CreateMockElement<TextNoteType>(doc, "Arial 3/32", 701);
-            CreateMockElement<Material>(doc, "Brass", 702);
+            dynamic doc = Activator.CreateInstance(typeof(Document), true)!;
+            doc.Title = "Filter Model";
+            CreateMockElement<TextNoteType>((Document)doc, "Arial 3/32", 701);
+            CreateMockElement<Material>((Document)doc, "Brass", 702);
 
-            vm.MockOpenDocuments = new List<Document> { doc };
+            parent.MockOpenDocuments = new List<Document> { (Document)doc };
 
             // Set up document selection dialog mock to NOT select Annotations
-            vm.ShowDocumentSelectionDialog = dialogVM =>
+            parent.ShowDocumentSelectionDialog = dialogVM =>
             {
                 dialogVM.OpenDocuments[0].IsSelected = true;
                 var annotationsGroup = dialogVM.FilterHierarchy.FirstOrDefault(g => g.Name == "Annotations");
@@ -230,11 +251,13 @@ namespace SyntheticTests.Modules.StandardsManagement
                 return true;
             };
 
+            var treeVM = new StandardsSourceTreeViewModel(parent, null, _doc, _fakeDialogService, new StandardsExtractionOrchestrator(new RevitIdentityService(), new StandardSerializationEngine()), new StandardSerializationEngine());
+
             // Act
-            vm.AddRevitModelCommand.Execute(null);
+            treeVM.AddRevitModelCommand.Execute(null);
 
             // Assert
-            var source = vm.AvailableSources.FirstOrDefault(s => s.DisplayName == "Filter Model");
+            var source = treeVM.AvailableSources.FirstOrDefault(s => s.DisplayName == "Filter Model");
             Assert.IsNotNull(source);
 
             var extractedNames = source.SourceHierarchy
@@ -297,7 +320,8 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void SearchText_ShouldFilterNodesAndSetVisibilityAndExpansion()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            var treeVM = new StandardsSourceTreeViewModel(parent, null, _doc, _fakeDialogService, new FakeExtractionOrchestrator(), new StandardSerializationEngine());
             var source = new ProjectStandardsSourceViewModel { DisplayName = "Test Source" };
 
             var group = new StandardGroupModel { Name = "Materials" };
@@ -310,10 +334,10 @@ namespace SyntheticTests.Modules.StandardsManagement
             group.Children.Add(childClass);
             source.SourceHierarchy.Add(group);
 
-            vm.AvailableSources.Add(source);
+            treeVM.AvailableSources.Add(source);
 
             // Act: Filter by "Steel"
-            vm.SearchText = "Steel";
+            treeVM.SearchText = "Steel";
 
             // Assert: "Steel" is visible, parent class and group are visible and expanded, "Concrete" is hidden.
             Assert.IsTrue(element1.IsVisible);
@@ -326,7 +350,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             Assert.IsTrue(group.IsExpanded);
 
             // Act: Clear search
-            vm.SearchText = "";
+            treeVM.SearchText = "";
 
             // Assert: Everything is visible and collapsed
             Assert.IsTrue(element1.IsVisible);

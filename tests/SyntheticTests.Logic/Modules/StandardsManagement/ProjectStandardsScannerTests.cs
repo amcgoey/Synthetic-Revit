@@ -30,14 +30,14 @@ namespace SyntheticTests.Modules.StandardsManagement
 
             _vm = new ProjectStandardsDashboardViewModel(_doc, fakeFileDialog, fakeGuardrail, settings);
 
-            _extractMethod = typeof(ProjectStandardsDashboardViewModel)
+            _extractMethod = typeof(StandardsSourceTreeViewModel)
                 .GetMethod("ExtractRevitElements", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
             Assert.IsNotNull(_extractMethod, "ExtractRevitElements method not found.");
         }
 
         private List<ElementModel> InvokeExtract(List<string>? selectedGroupings)
         {
-            return (List<ElementModel>)_extractMethod.Invoke(_vm, new object?[] { _doc, false, false, selectedGroupings })!;
+            return (List<ElementModel>)_extractMethod.Invoke(_vm.SourceTreeViewModel, new object?[] { _doc, false, false, selectedGroupings })!;
         }
 
         [Test]

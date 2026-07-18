@@ -6,6 +6,7 @@ using NUnit.Framework;
 using Autodesk.Revit.DB;
 using Synthetic.Modules.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
+using Synthetic.Modules.StandardsManagement.Models;
 using Synthetic.Shared.UI;
 
 namespace SyntheticTests.Modules.StandardsManagement
@@ -26,27 +27,14 @@ namespace SyntheticTests.Modules.StandardsManagement
 
         private T CreateMockElement<T>(Document doc, string name, int idVal) where T : Element
         {
-            T elem = (T)Activator.CreateInstance(typeof(T), true)!;
-            
-            // Set Name
-            var nameProp = typeof(T).GetProperty("Name");
-            nameProp?.SetValue(elem, name);
+            dynamic elem = Activator.CreateInstance(typeof(T), true)!;
+            elem.Name = name;
+            elem.Id = new ElementId(idVal);
 
-            // Set Id
-            var idProp = typeof(T).GetProperty("Id");
-            if (idProp != null && idProp.CanWrite)
-            {
-                idProp.SetValue(elem, new ElementId(idVal));
-            }
+            dynamic dynamicDoc = doc;
+            dynamicDoc.AddElement(elem, elem.Id);
 
-            // Add to doc
-            var addElementMethod = doc.GetType().GetMethod("AddElement");
-            if (addElementMethod != null)
-            {
-                addElementMethod.Invoke(doc, new object[] { elem, elem.Id });
-            }
-
-            return elem;
+            return (T)elem;
         }
 
         [Test]
@@ -64,7 +52,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             var cs = CompoundStructure.CreateSimpleCompoundStructure(new List<CompoundStructureLayer> { layer });
             wallType.SetCompoundStructure(cs);
 
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
             var source = new ProjectStandardsSourceViewModel { DisplayName = "Test Source" };
             
             var group = new StandardGroupModel { Name = "System / Host Object Types" };
@@ -91,21 +79,23 @@ namespace SyntheticTests.Modules.StandardsManagement
             matClass.Parent = matGroup;
             source.SourceHierarchy.Add(matGroup);
 
-            vm.AvailableSources.Add(source);
-            vm.SelectedSource = source;
+            parent.AvailableSources.Add(source);
+            parent.SelectedSource = source;
 
             // Explicitly check ONLY the WallType
             wallNode.IsChecked = true;
 
+            var queueVM = new ActionQueueViewModel(parent, new PocoIdentityService());
+
             // Act
-            vm.PushToQueueCommand.Execute("Save");
+            queueVM.PushToQueueCommand.Execute("Save");
 
             // Assert
             // The queue should have WallA (explicitly checked) and MaterialA (harvested)
-            Assert.AreEqual(2, vm.ActionQueue.Count, "Queue should contain both the WallType and its harvested Material dependency.");
+            Assert.AreEqual(2, queueVM.ActionQueue.Count, "Queue should contain both the WallType and its harvested Material dependency.");
 
-            var wallQueueItem = vm.ActionQueue.FirstOrDefault(q => q.Name == "WallA");
-            var matQueueItem = vm.ActionQueue.FirstOrDefault(q => q.Name == "MaterialA");
+            var wallQueueItem = queueVM.ActionQueue.FirstOrDefault(q => q.Name == "WallA");
+            var matQueueItem = queueVM.ActionQueue.FirstOrDefault(q => q.Name == "MaterialA");
 
             Assert.IsNotNull(wallQueueItem, "WallA queue item should exist.");
             Assert.IsNotNull(matQueueItem, "MaterialA queue item should exist.");

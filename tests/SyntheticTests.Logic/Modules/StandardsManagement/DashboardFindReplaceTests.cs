@@ -26,7 +26,8 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void FindReplace_HeterogeneousSelection_ShouldMutateSelectedNamesAndParameters()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var vm = parent.ActionQueueViewModel;
 
             var matParam = new ParameterModel("Comments", "FindMe_MaterialVal", null, "String", 1, null, false, false);
             var material = new ElementModel { Class = "Autodesk.Revit.DB.Material", Name = "FindMe_Material", Parameters = new List<ParameterModel> { matParam } };
@@ -42,16 +43,14 @@ namespace SyntheticTests.Modules.StandardsManagement
 
             // Edit both
             var itemsToEdit = new List<QueueItemModel> { qMaterial, qLinePattern };
-            var editMethod = typeof(ProjectStandardsDashboardViewModel).GetMethod("ExecuteEdit", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            editMethod?.Invoke(vm, new object[] { itemsToEdit });
+            vm.EditCommand.Execute(itemsToEdit);
 
             // Act
             vm.FindText = "FindMe";
             vm.ReplaceText = "Replaced";
             vm.FindReplaceScope = SearchScope.Both;
 
-            var findReplaceMethod = typeof(ProjectStandardsDashboardViewModel).GetMethod("ExecuteBatchFindReplace", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            findReplaceMethod?.Invoke(vm, new object[] { null! });
+            vm.BatchFindReplaceCommand.Execute(null!);
 
             // Assert names updated
             var targetMat = (ElementModel)qMaterial.TargetModel;
@@ -72,7 +71,8 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void FindReplace_ReadOnlyProtection_ShouldNotModifyReadOnlyParameters()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var vm = parent.ActionQueueViewModel;
 
             var writableParam = new ParameterModel("Comments", "FindMe_Writable", null, "String", 1, null, false, false);
             var readOnlyParam = new ParameterModel("Category", "FindMe_ReadOnly", null, "String", 2, null, false, true); // IsReadOnly = true
@@ -81,16 +81,14 @@ namespace SyntheticTests.Modules.StandardsManagement
             var qItem = new QueueItemModel(el, true, false);
             vm.ActionQueue.Add(qItem);
 
-            var editMethod = typeof(ProjectStandardsDashboardViewModel).GetMethod("ExecuteEdit", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            editMethod?.Invoke(vm, new object[] { new List<QueueItemModel> { qItem } });
+            vm.EditCommand.Execute(new List<QueueItemModel> { qItem });
 
             // Act
             vm.FindText = "FindMe";
             vm.ReplaceText = "Replaced";
             vm.FindReplaceScope = SearchScope.ParameterValues;
 
-            var findReplaceMethod = typeof(ProjectStandardsDashboardViewModel).GetMethod("ExecuteBatchFindReplace", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            findReplaceMethod?.Invoke(vm, new object[] { null! });
+            vm.BatchFindReplaceCommand.Execute(null!);
 
             // Assert
             var target = (ElementModel)qItem.TargetModel;
@@ -102,7 +100,8 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void FindReplace_DirtyStateRecalculation_ShouldReportIsDirtyPostReplacement()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var vm = parent.ActionQueueViewModel;
 
             var param = new ParameterModel("Comments", "FindMe", null, "String", 1, null, false, false);
             var el = new ElementModel { Class = "Autodesk.Revit.DB.Material", Name = "Mat", Parameters = new List<ParameterModel> { param } };
@@ -110,16 +109,14 @@ namespace SyntheticTests.Modules.StandardsManagement
             var qItem = new QueueItemModel(el, true, false);
             vm.ActionQueue.Add(qItem);
 
-            var editMethod = typeof(ProjectStandardsDashboardViewModel).GetMethod("ExecuteEdit", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            editMethod?.Invoke(vm, new object[] { new List<QueueItemModel> { qItem } });
+            vm.EditCommand.Execute(new List<QueueItemModel> { qItem });
 
             // Act
             vm.FindText = "FindMe";
             vm.ReplaceText = "Replaced";
             vm.FindReplaceScope = SearchScope.ParameterValues;
 
-            var findReplaceMethod = typeof(ProjectStandardsDashboardViewModel).GetMethod("ExecuteBatchFindReplace", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            findReplaceMethod?.Invoke(vm, new object[] { null! });
+            vm.BatchFindReplaceCommand.Execute(null!);
 
             // Assert
             var wrapper = qItem.GetWrapper();
@@ -131,7 +128,8 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void FindReplace_ScopeControls_ShouldRespectConfiguredScope()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var vm = parent.ActionQueueViewModel;
 
             // ElementNames Only Scope
             var param1 = new ParameterModel("Comments", "FindMe", null, "String", 1, null, false, false);
@@ -146,19 +144,17 @@ namespace SyntheticTests.Modules.StandardsManagement
             vm.ActionQueue.Add(q2);
 
             // Act: Run Find & Replace for q1 with ElementNames scope
-            var editMethod = typeof(ProjectStandardsDashboardViewModel).GetMethod("ExecuteEdit", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            editMethod?.Invoke(vm, new object[] { new List<QueueItemModel> { q1 } });
+            vm.EditCommand.Execute(new List<QueueItemModel> { q1 });
             vm.FindText = "FindMe";
             vm.ReplaceText = "Replaced";
             vm.FindReplaceScope = SearchScope.ElementNames;
 
-            var findReplaceMethod = typeof(ProjectStandardsDashboardViewModel).GetMethod("ExecuteBatchFindReplace", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            findReplaceMethod?.Invoke(vm, new object[] { null! });
+            vm.BatchFindReplaceCommand.Execute(null!);
 
             // Act: Run Find & Replace for q2 with ParameterValues scope
-            editMethod?.Invoke(vm, new object[] { new List<QueueItemModel> { q2 } });
+            vm.EditCommand.Execute(new List<QueueItemModel> { q2 });
             vm.FindReplaceScope = SearchScope.ParameterValues;
-            findReplaceMethod?.Invoke(vm, new object[] { null! });
+            vm.BatchFindReplaceCommand.Execute(null!);
 
             // Assert q1: name updated, parameter unchanged
             var target1 = (ElementModel)q1.TargetModel;
