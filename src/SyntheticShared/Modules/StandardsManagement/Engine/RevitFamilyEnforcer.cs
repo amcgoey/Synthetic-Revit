@@ -48,6 +48,8 @@ namespace Synthetic.Modules.StandardsManagement.Engine
                         continue;
 #if REVIT2022 || REVIT2023
                     if (options.CategoryFilter == "Title Blocks Only" && (family.FamilyCategory == null || family.FamilyCategory.Id.IntegerValue != (int)BuiltInCategory.OST_TitleBlocks))
+#elif REVIT2024 || REVIT2025
+                    if (options.CategoryFilter == "Title Blocks Only" && (family.FamilyCategory == null || family.FamilyCategory.Id.Value != (long)BuiltInCategory.OST_TitleBlocks))
 #else
                     if (options.CategoryFilter == "Title Blocks Only" && (family.FamilyCategory == null || family.FamilyCategory.Id.Value != (long)BuiltInCategory.OST_TitleBlocks))
 #endif
@@ -146,8 +148,6 @@ namespace Synthetic.Modules.StandardsManagement.Engine
 
             if (familyDoc == null) return;
 
-            parentDoc.Application.FailuresProcessing += ResolveWarnings;
-
             try
             {
                 IList<Family> nestedFamilies = new FilteredElementCollector(familyDoc)
@@ -207,37 +207,58 @@ namespace Synthetic.Modules.StandardsManagement.Engine
                     serialElement.Document = null;
                 }
 
-                _serializationEngine.ToRevit(familyStandards, familyDoc, null, cancellationToken);
-
-                if (options.PurgeUnusedStyleTypes)
+                using (TransactionGroup familyTg = new TransactionGroup(familyDoc, "Update Family Standards"))
                 {
-                    if (cancellationToken.IsCancellationRequested)
+                    familyTg.Start();
+
+                    _serializationEngine.ToRevit(familyStandards, familyDoc, null, cancellationToken);
+
+                    if (options.PurgeUnusedStyleTypes)
                     {
-                        throw new OperationCanceledException();
+                        if (cancellationToken.IsCancellationRequested)
+                        {
+                            familyTg.RollBack();
+                            throw new OperationCanceledException();
+                        }
+                        try
+                        {
+#if REVIT2022
+                            // Do nothing
+#elif REVIT2023 || REVIT2024 || REVIT2025
+                            DocumentUtil.Purge(parentDoc.Application, familyDoc);
+#else
+                            DocumentUtil.Purge(parentDoc.Application, familyDoc);
+#endif
+                        }
+                        catch (Exception)
+                        {
+                        }
                     }
+
+                    familyTg.Commit();
+                }
+
+                using (Transaction parentTx = new Transaction(parentDoc, "Load Family"))
+                {
+                    parentTx.Start();
+                    FailureHandlingOptions parentOptions = parentTx.GetFailureHandlingOptions();
+                    parentOptions.SetFailuresPreprocessor(new DeleteWarningsPreprocessor());
+                    parentTx.SetFailureHandlingOptions(parentOptions);
+
                     try
                     {
-#if !REVIT2022
-                        DocumentUtil.Purge(parentDoc.Application, familyDoc);
-#endif
+                        Synthetic.Shared.RevitAPI.FamilyUtil.SetIsChanged(parentDoc, familyDoc);
+                        familyDoc.LoadFamily(parentDoc, new ImportFamilyLoadOptions());
                     }
                     catch (Exception)
                     {
                     }
-                }
 
-                try
-                {
-                    Synthetic.Shared.RevitAPI.FamilyUtil.SetIsChanged(parentDoc, familyDoc);
-                    familyDoc.LoadFamily(parentDoc, new ImportFamilyLoadOptions());
-                }
-                catch (Exception)
-                {
+                    parentTx.Commit();
                 }
             }
             finally
             {
-                parentDoc.Application.FailuresProcessing -= ResolveWarnings;
                 try
                 {
                     familyDoc.Close(false);
@@ -248,22 +269,23 @@ namespace Synthetic.Modules.StandardsManagement.Engine
             }
         }
 
-        private static void ResolveWarnings(object? sender, Autodesk.Revit.DB.Events.FailuresProcessingEventArgs e)
+        private class DeleteWarningsPreprocessor : IFailuresPreprocessor
         {
-            FailuresAccessor fa = e.GetFailuresAccessor();
-            IList<FailureMessageAccessor> failList = fa.GetFailureMessages();
-
-            if (failList.Count == 0)
+            public FailureProcessingResult PreprocessFailures(FailuresAccessor failuresAccessor)
             {
-                e.SetProcessingResult(FailureProcessingResult.Continue);
-                return;
-            }
+                IList<FailureMessageAccessor> failList = failuresAccessor.GetFailureMessages();
 
-            foreach (FailureMessageAccessor failure in failList)
-            {
-                fa.DeleteWarning(failure);
+                if (failList.Count == 0)
+                {
+                    return FailureProcessingResult.Continue;
+                }
+
+                foreach (FailureMessageAccessor failure in failList)
+                {
+                    failuresAccessor.DeleteWarning(failure);
+                }
+                return FailureProcessingResult.ProceedWithCommit;
             }
-            e.SetProcessingResult(FailureProcessingResult.ProceedWithCommit);
         }
 
         private class ImportFamilyLoadOptions : IFamilyLoadOptions
