@@ -70,7 +70,7 @@ namespace SyntheticTests
                         targetParam.Value = mutatedValue;
 
                         // 5. Run the deep scan comparison
-                        var clusters = StandardsDiffEngine.RunDeepScan(doc, new List<ElementModel> { model });
+                        var clusters = StandardsDiffEngine.RunDeepScan(doc, new List<ElementModel> { model }, new StandardSerializationEngine());
 
                         // 6. Assert that conflicts were successfully identified
                         Assert.IsNotNull(clusters, "RunDeepScan should return a non-null collection.");

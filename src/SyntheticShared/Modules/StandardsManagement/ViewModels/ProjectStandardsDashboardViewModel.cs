@@ -611,9 +611,9 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             _exportService = exportService ?? new StandardsExportService(new WindowsGuardrailPromptService(), dialogService);
             _userPromptService = userPromptService ?? new WindowsUserPromptService();
             _findReplaceService = findReplaceService ?? new FindReplaceService();
-            _orchestrator = orchestrator ?? new StandardsExtractionOrchestrator(new RevitIdentityService());
-            _pocoIdentityService = pocoIdentityService ?? new PocoIdentityService();
             _serializationEngine = serializationEngine ?? new StandardSerializationEngine();
+            _orchestrator = orchestrator ?? new StandardsExtractionOrchestrator(new RevitIdentityService(), _serializationEngine);
+            _pocoIdentityService = pocoIdentityService ?? new PocoIdentityService();
             _pipeline = pipeline ?? new StandardsExecutionPipeline(_serializationEngine, _exportService);
             SummaryDisplayService = new WindowsSummaryDisplayService();
             Instance = this;
@@ -716,9 +716,9 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             _exportService = exportService ?? new StandardsExportService(new WindowsGuardrailPromptService(), dialogService);
             _userPromptService = userPromptService ?? new WindowsUserPromptService();
             _findReplaceService = findReplaceService ?? new FindReplaceService();
-            _orchestrator = orchestrator ?? new StandardsExtractionOrchestrator(new RevitIdentityService());
-            _pocoIdentityService = pocoIdentityService ?? new PocoIdentityService();
             _serializationEngine = serializationEngine ?? new StandardSerializationEngine();
+            _orchestrator = orchestrator ?? new StandardsExtractionOrchestrator(new RevitIdentityService(), _serializationEngine);
+            _pocoIdentityService = pocoIdentityService ?? new PocoIdentityService();
             _pipeline = pipeline ?? new StandardsExecutionPipeline(_serializationEngine, _exportService);
             SummaryDisplayService = new NoOpSummaryDisplayService();
             Instance = this;
@@ -1540,7 +1540,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                     try
                     {
                         var elementPocos = SelectedQueueItems.Select(q => q.Model).OfType<ElementModel>().ToList();
-                        var clusters = StandardsDiffEngine.RunDeepScan(_doc, elementPocos);
+                        var clusters = StandardsDiffEngine.RunDeepScan(_doc, elementPocos, _serializationEngine);
 
                         ActiveDiffClusters.Clear();
                         foreach (var cluster in clusters)

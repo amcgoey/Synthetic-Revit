@@ -28,10 +28,9 @@ namespace Synthetic.Modules.StandardsManagement.Engine
         /// <param name="doc">The active Revit document context (can be a project or family document).</param>
         /// <param name="incomingModels">The collection of deserialized JSON standard element models to analyze.</param>
         /// <returns>An ObservableCollection of DuplicateClusterModel objects summarizing the resolved parameter conflicts.</returns>
-        public static ObservableCollection<DuplicateClusterModel> RunDeepScan(Document doc, IEnumerable<ElementModel> incomingModels, IStandardSerializationEngine? engine = null)
+        public static ObservableCollection<DuplicateClusterModel> RunDeepScan(Document doc, IEnumerable<ElementModel> incomingModels, IStandardSerializationEngine engine)
         {
             if (incomingModels == null) return new ObservableCollection<DuplicateClusterModel>();
-            engine = engine ?? new StandardSerializationEngine();
             var clusters = engine.Analyze(incomingModels, doc);
             return new ObservableCollection<DuplicateClusterModel>(clusters);
         }
