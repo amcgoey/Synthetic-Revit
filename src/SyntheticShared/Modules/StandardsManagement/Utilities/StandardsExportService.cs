@@ -115,7 +115,7 @@ namespace Synthetic.Modules.StandardsManagement.Utilities
                             }
                         }
 
-                        var mergedElements = ProjectStandardsDashboardViewModel.MergeStandardsLists(existingElements, newElements, overwriteDuplicates);
+                        var mergedElements = StandardsMergeUtility.Merge(existingElements, newElements, overwriteDuplicates);
                         string serializedJson = ModelsToSerialize.SerializeToJson(mergedElements.Cast<ObjectModel>().ToList());
                         File.WriteAllText(fullTargetPath, serializedJson);
 

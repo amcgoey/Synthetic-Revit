@@ -15,7 +15,7 @@ namespace Synthetic.Modules.RevitDOM
     /// The public interface and entry point for the RevitDOM serialization and transaction engine.
     /// Exposes methods to extract Revit elements to pure models, analyze differences, and write models back to Revit.
     /// </summary>
-    public class StandardSerializationEngine
+    public class StandardSerializationEngine : IStandardSerializationEngine
     {
         private readonly IIdentityService _identityService;
         private readonly ModelDispatcher _dispatcher;
@@ -830,6 +830,13 @@ namespace Synthetic.Modules.RevitDOM
             }
 
             return primaryId;
+        }
+
+        public ObjectModel? ExtractCategory(Autodesk.Revit.DB.Category category, Document doc, bool isTemplate)
+        {
+            if (category == null) throw new ArgumentNullException(nameof(category));
+            if (doc == null) throw new ArgumentNullException(nameof(doc));
+            return _dispatcher.Extract(category, doc, isTemplate);
         }
     }
 }

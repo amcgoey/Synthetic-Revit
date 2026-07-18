@@ -18,6 +18,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\RevitIdentityServiceTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\RevitDomExtensionsTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\StandardSerializationEngineTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\FakeStandardSerializationEngine.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\Tier2_DispatcherSweepTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\LinePatternTranslatorTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\FillPatternTranslatorTests.cs" />

@@ -43,4 +43,8 @@ _Avoid_: Progress wrapper, UI indicator
 The deep orchestration engine responsible for executing BIM standards updates, coordinating Revit database writes, family editing cycles, file exports, and logging.
 _Avoid_: Execution VM, queue runner
 
+**Standards Merge**:
+The process of combining existing standard elements with newly extracted standard elements prior to export or update operations.
 
+**Duplicate Detection (Standards)**:
+The strict mechanism for identifying matching standard elements during a Standards Merge, utilizing a unique key composed of the element's Class and Name.
