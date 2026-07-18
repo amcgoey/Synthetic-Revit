@@ -19,13 +19,11 @@ namespace Synthetic.Modules.StandardsManagement.Engine
         private readonly IStandardsExportService _exportService;
 
         public StandardsExecutionPipeline(
-            IStandardSerializationEngine? serializationEngine = null,
-            IStandardsExportService? exportService = null)
+            IStandardSerializationEngine serializationEngine,
+            IStandardsExportService exportService)
         {
-            _serializationEngine = serializationEngine ?? new StandardSerializationEngine();
-            _exportService = exportService ?? new StandardsExportService(
-                new WindowsGuardrailPromptService(),
-                new WindowsFileDialogService());
+            _serializationEngine = serializationEngine ?? throw new ArgumentNullException(nameof(serializationEngine));
+            _exportService = exportService ?? throw new ArgumentNullException(nameof(exportService));
         }
 
         public StandardsExecutionResult Execute(
@@ -65,8 +63,8 @@ namespace Synthetic.Modules.StandardsManagement.Engine
                     {
                         var r = new SerializationResultModel(item.Model, "Execution cancelled by user.")
                         {
-                            OperationTarget = "Database",
-                            Action = "Canceled",
+                            OperationTarget = StandardsPipelineConstants.TargetDatabase,
+                            Action = StandardsPipelineConstants.ActionCanceled,
                             Message = "Execution cancelled by user."
                         };
                         dbResults.Add(r);
@@ -80,8 +78,8 @@ namespace Synthetic.Modules.StandardsManagement.Engine
                       {
                         var r = new SerializationResultModel(item.Model, $"Database Write Failed: {ex.Message}", ex)
                         {
-                            OperationTarget = "Database",
-                            Action = "Failed",
+                            OperationTarget = StandardsPipelineConstants.TargetDatabase,
+                            Action = StandardsPipelineConstants.ActionFailed,
                             Message = ex.Message
                         };
                         dbResults.Add(r);
@@ -152,7 +150,7 @@ namespace Synthetic.Modules.StandardsManagement.Engine
                                 var mappedResult = r.Success
                                     ? new SerializationResultModel(originalItem.Model, r.ElementIdentity)
                                     : new SerializationResultModel(originalItem.Model, r.ErrorMessage ?? "File Save Failed", r.Exception);
-                                mappedResult.OperationTarget = "File";
+                                mappedResult.OperationTarget = StandardsPipelineConstants.TargetFile;
                                 mappedResult.Action = r.Action;
                                 mappedResult.Message = r.Message;
                                 mappedFileResults.Add(mappedResult);
@@ -170,8 +168,8 @@ namespace Synthetic.Modules.StandardsManagement.Engine
                     {
                         var r = new SerializationResultModel(item.Model, "File Save Cancelled.")
                         {
-                            OperationTarget = "File",
-                            Action = "Canceled",
+                            OperationTarget = StandardsPipelineConstants.TargetFile,
+                            Action = StandardsPipelineConstants.ActionCanceled,
                             Message = "File Save Cancelled."
                         };
                         allResults.Add(r);
@@ -184,8 +182,8 @@ namespace Synthetic.Modules.StandardsManagement.Engine
                     {
                         var r = new SerializationResultModel(item.Model, $"File Save Failed: {ex.Message}", ex)
                         {
-                            OperationTarget = "File",
-                            Action = "Failed",
+                            OperationTarget = StandardsPipelineConstants.TargetFile,
+                            Action = StandardsPipelineConstants.ActionFailed,
                             Message = ex.Message
                         };
                         allResults.Add(r);
@@ -198,7 +196,7 @@ namespace Synthetic.Modules.StandardsManagement.Engine
             foreach (var res in allResults)
             {
                 var model = res.Model;
-                string action = "Updated";
+                string action = StandardsPipelineConstants.ActionUpdated;
                 if (!res.Success)
                 {
                     if (res.Action == "Alias Swap Failed")
@@ -207,7 +205,7 @@ namespace Synthetic.Modules.StandardsManagement.Engine
                     }
                     else
                     {
-                        action = res.OperationTarget == "File" ? "Save Failed" : "Failed";
+                        action = res.OperationTarget == StandardsPipelineConstants.TargetFile ? StandardsPipelineConstants.ActionSaveFailed : StandardsPipelineConstants.ActionFailed;
                     }
                 }
                 else
@@ -216,20 +214,20 @@ namespace Synthetic.Modules.StandardsManagement.Engine
                     {
                         action = res.Action;
                     }
-                    else if (res.OperationTarget == "File")
+                    else if (res.OperationTarget == StandardsPipelineConstants.TargetFile)
                     {
-                        action = "Saved";
+                        action = StandardsPipelineConstants.ActionSaved;
                     }
                     else
                     {
                         var matchingItem = result.Items.FirstOrDefault(qi => qi.Model == model);
                         if (matchingItem != null && matchingItem.WillEnforce)
                         {
-                            action = "Created";
+                            action = StandardsPipelineConstants.ActionCreated;
                         }
                         else
                         {
-                            action = "Updated";
+                            action = StandardsPipelineConstants.ActionUpdated;
                         }
                     }
                 }
@@ -288,25 +286,25 @@ namespace Synthetic.Modules.StandardsManagement.Engine
                     var failedResult = itemResults.FirstOrDefault(r => !r.Success);
                     if (failedResult != null)
                     {
-                        item.Action = failedResult.Action ?? (failedResult.OperationTarget == "File" ? "Save Failed" : "Failed");
+                        item.Action = failedResult.Action ?? (failedResult.OperationTarget == StandardsPipelineConstants.TargetFile ? StandardsPipelineConstants.ActionSaveFailed : StandardsPipelineConstants.ActionFailed);
                         item.Message = failedResult.ErrorMessage ?? "Error occurred.";
                     }
                     else
                     {
                         var lastResult = itemResults.Last();
-                        item.Action = lastResult.Action ?? (lastResult.OperationTarget == "File" ? "Saved" : (item.WillEnforce ? "Created" : "Updated"));
+                        item.Action = lastResult.Action ?? (lastResult.OperationTarget == StandardsPipelineConstants.TargetFile ? StandardsPipelineConstants.ActionSaved : (item.WillEnforce ? StandardsPipelineConstants.ActionCreated : StandardsPipelineConstants.ActionUpdated));
                         item.Message = lastResult.Message ?? "Operation completed successfully.";
                     }
                 }
                 else
                 {
-                    item.Action = "Unchanged";
+                    item.Action = StandardsPipelineConstants.ActionUnchanged;
                     item.Message = "Staged, but no database write or file save operations were performed.";
                 }
             }
 
             // Overall success requires that the database writes succeeded (if attempted) and all input items are successful
-            result.Success = dbPhaseSucceeded && result.Items.All(i => i.Action != "Failed" && i.Action != "Save Failed" && i.Action != "Canceled");
+            result.Success = dbPhaseSucceeded && result.Items.All(i => i.Action != StandardsPipelineConstants.ActionFailed && i.Action != StandardsPipelineConstants.ActionSaveFailed && i.Action != StandardsPipelineConstants.ActionCanceled);
 
             // Update progress as completed
             if (progress != null)
@@ -495,8 +493,8 @@ namespace Synthetic.Modules.StandardsManagement.Engine
                         };
                         var result = new SerializationResultModel(failedModel, $"Family update failed for {familyName}: {ex.Message}", ex)
                         {
-                            OperationTarget = "Database",
-                            Action = "Failed",
+                            OperationTarget = StandardsPipelineConstants.TargetDatabase,
+                            Action = StandardsPipelineConstants.ActionFailed,
                             Message = ex.Message
                         };
                         dbResults.Add(result);

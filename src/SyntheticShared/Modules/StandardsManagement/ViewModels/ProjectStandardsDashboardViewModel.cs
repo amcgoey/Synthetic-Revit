@@ -596,25 +596,25 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         public ProjectStandardsDashboardViewModel(
             UIApplication uiapp, 
             IFileDialogService dialogService, 
-            IStandardsExportService? exportService = null, 
-            StandardsSettings? settings = null,
-            IUserPromptService? userPromptService = null,
-            IFindReplaceService? findReplaceService = null,
-            IStandardsExtractionOrchestrator? orchestrator = null,
-            IPocoIdentityService? pocoIdentityService = null,
-            IStandardSerializationEngine? serializationEngine = null,
-            IStandardsExecutionPipeline? pipeline = null)
+            IStandardsExportService exportService, 
+            StandardsSettings? settings,
+            IUserPromptService userPromptService,
+            IFindReplaceService findReplaceService,
+            IStandardsExtractionOrchestrator orchestrator,
+            IPocoIdentityService pocoIdentityService,
+            IStandardSerializationEngine serializationEngine,
+            IStandardsExecutionPipeline pipeline)
         {
-            _uiapp = uiapp;
+            _uiapp = uiapp ?? throw new ArgumentNullException(nameof(uiapp));
             _doc = uiapp.ActiveUIDocument?.Document;
-            _dialogService = dialogService;
-            _exportService = exportService ?? new StandardsExportService(new WindowsGuardrailPromptService(), dialogService);
-            _userPromptService = userPromptService ?? new WindowsUserPromptService();
-            _findReplaceService = findReplaceService ?? new FindReplaceService();
-            _serializationEngine = serializationEngine ?? new StandardSerializationEngine();
-            _orchestrator = orchestrator ?? new StandardsExtractionOrchestrator(new RevitIdentityService(), _serializationEngine);
-            _pocoIdentityService = pocoIdentityService ?? new PocoIdentityService();
-            _pipeline = pipeline ?? new StandardsExecutionPipeline(_serializationEngine, _exportService);
+            _dialogService = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
+            _exportService = exportService ?? throw new ArgumentNullException(nameof(exportService));
+            _userPromptService = userPromptService ?? throw new ArgumentNullException(nameof(userPromptService));
+            _findReplaceService = findReplaceService ?? throw new ArgumentNullException(nameof(findReplaceService));
+            _serializationEngine = serializationEngine ?? throw new ArgumentNullException(nameof(serializationEngine));
+            _orchestrator = orchestrator ?? throw new ArgumentNullException(nameof(orchestrator));
+            _pocoIdentityService = pocoIdentityService ?? throw new ArgumentNullException(nameof(pocoIdentityService));
+            _pipeline = pipeline ?? throw new ArgumentNullException(nameof(pipeline));
             SummaryDisplayService = new WindowsSummaryDisplayService();
             Instance = this;
 
@@ -686,13 +686,36 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         }
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="ProjectStandardsDashboardViewModel"/> class with 3 parameters for reflection compatibility.
+        /// Initializes a new instance of the <see cref="ProjectStandardsDashboardViewModel"/> class for live Revit environment.
         /// </summary>
         public ProjectStandardsDashboardViewModel(
             UIApplication uiapp, 
             IFileDialogService dialogService, 
-            IStandardsExportService? exportService)
-            : this(uiapp, dialogService, exportService, null)
+            IStandardsExportService? exportService = null, 
+            StandardsSettings? settings = null)
+            : this(
+                uiapp,
+                dialogService,
+                exportService ?? new StandardsExportService(new WindowsGuardrailPromptService(), dialogService),
+                settings,
+                new WindowsUserPromptService(),
+                new FindReplaceService(),
+                new StandardsExtractionOrchestrator(new RevitIdentityService(), new StandardSerializationEngine()),
+                new PocoIdentityService(),
+                new StandardSerializationEngine(),
+                new StandardsExecutionPipeline(new StandardSerializationEngine(), exportService ?? new StandardsExportService(new WindowsGuardrailPromptService(), dialogService)))
+        {
+        }
+
+        /// <summary>
+        /// Compatibility constructor that adapts a legacy <see cref="IGuardrailPromptService"/> to the new export service.
+        /// </summary>
+        public ProjectStandardsDashboardViewModel(
+            UIApplication uiapp, 
+            IFileDialogService dialogService, 
+            IGuardrailPromptService? guardrailService, 
+            StandardsSettings? settings = null)
+            : this(uiapp, dialogService, new StandardsExportService(guardrailService ?? new WindowsGuardrailPromptService(), dialogService), settings)
         {
         }
 
@@ -702,24 +725,24 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         public ProjectStandardsDashboardViewModel(
             Document doc, 
             IFileDialogService dialogService, 
-            IStandardsExportService? exportService = null, 
-            StandardsSettings? settings = null,
-            IUserPromptService? userPromptService = null,
-            IFindReplaceService? findReplaceService = null,
-            IStandardsExtractionOrchestrator? orchestrator = null,
-            IPocoIdentityService? pocoIdentityService = null,
-            IStandardSerializationEngine? serializationEngine = null,
-            IStandardsExecutionPipeline? pipeline = null)
+            IStandardsExportService exportService, 
+            StandardsSettings? settings,
+            IUserPromptService userPromptService,
+            IFindReplaceService findReplaceService,
+            IStandardsExtractionOrchestrator orchestrator,
+            IPocoIdentityService pocoIdentityService,
+            IStandardSerializationEngine serializationEngine,
+            IStandardsExecutionPipeline pipeline)
         {
             _doc = doc;
-            _dialogService = dialogService;
-            _exportService = exportService ?? new StandardsExportService(new WindowsGuardrailPromptService(), dialogService);
-            _userPromptService = userPromptService ?? new WindowsUserPromptService();
-            _findReplaceService = findReplaceService ?? new FindReplaceService();
-            _serializationEngine = serializationEngine ?? new StandardSerializationEngine();
-            _orchestrator = orchestrator ?? new StandardsExtractionOrchestrator(new RevitIdentityService(), _serializationEngine);
-            _pocoIdentityService = pocoIdentityService ?? new PocoIdentityService();
-            _pipeline = pipeline ?? new StandardsExecutionPipeline(_serializationEngine, _exportService);
+            _dialogService = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
+            _exportService = exportService ?? throw new ArgumentNullException(nameof(exportService));
+            _userPromptService = userPromptService ?? throw new ArgumentNullException(nameof(userPromptService));
+            _findReplaceService = findReplaceService ?? throw new ArgumentNullException(nameof(findReplaceService));
+            _serializationEngine = serializationEngine ?? throw new ArgumentNullException(nameof(serializationEngine));
+            _orchestrator = orchestrator ?? throw new ArgumentNullException(nameof(orchestrator));
+            _pocoIdentityService = pocoIdentityService ?? throw new ArgumentNullException(nameof(pocoIdentityService));
+            _pipeline = pipeline ?? throw new ArgumentNullException(nameof(pipeline));
             SummaryDisplayService = new NoOpSummaryDisplayService();
             Instance = this;
 
@@ -764,25 +787,72 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         }
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="ProjectStandardsDashboardViewModel"/> class with 3 parameters for reflection compatibility.
+        /// Initializes a new instance of the <see cref="ProjectStandardsDashboardViewModel"/> class for headless testing with optional/fallback dependencies.
         /// </summary>
         public ProjectStandardsDashboardViewModel(
             Document doc, 
             IFileDialogService dialogService, 
-            IStandardsExportService? exportService)
-            : this(doc, dialogService, exportService, null)
+            IStandardsExportService? exportService = null, 
+            StandardsSettings? settings = null)
+            : this(
+                doc,
+                dialogService,
+                exportService ?? new StandardsExportService(new WindowsGuardrailPromptService(), dialogService),
+                settings,
+                new WindowsUserPromptService(),
+                new FindReplaceService(),
+                new StandardsExtractionOrchestrator(new RevitIdentityService(), new StandardSerializationEngine()),
+                new PocoIdentityService(),
+                new StandardSerializationEngine(),
+                new StandardsExecutionPipeline(new StandardSerializationEngine(), exportService ?? new StandardsExportService(new WindowsGuardrailPromptService(), dialogService)))
         {
         }
 
         /// <summary>
-        /// Compatibility constructor that adapts a legacy <see cref="IGuardrailPromptService"/> to the new export service.
+        /// Initializes a new instance of the <see cref="ProjectStandardsDashboardViewModel"/> class for headless testing with 5 parameters.
         /// </summary>
         public ProjectStandardsDashboardViewModel(
-            UIApplication uiapp, 
+            Document doc, 
             IFileDialogService dialogService, 
-            IGuardrailPromptService? guardrailService, 
-            StandardsSettings? settings = null)
-            : this(uiapp, dialogService, new StandardsExportService(guardrailService ?? new WindowsGuardrailPromptService(), dialogService), settings)
+            IStandardsExportService? exportService, 
+            StandardsSettings? settings,
+            IStandardsExtractionOrchestrator? orchestrator)
+            : this(
+                doc,
+                dialogService,
+                exportService ?? new StandardsExportService(new WindowsGuardrailPromptService(), dialogService),
+                settings,
+                new WindowsUserPromptService(),
+                new FindReplaceService(),
+                orchestrator ?? new StandardsExtractionOrchestrator(new RevitIdentityService(), new StandardSerializationEngine()),
+                new PocoIdentityService(),
+                new StandardSerializationEngine(),
+                new StandardsExecutionPipeline(new StandardSerializationEngine(), exportService ?? new StandardsExportService(new WindowsGuardrailPromptService(), dialogService)))
+        {
+        }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ProjectStandardsDashboardViewModel"/> class for headless testing with 7 parameters.
+        /// </summary>
+        public ProjectStandardsDashboardViewModel(
+            Document doc, 
+            IFileDialogService dialogService, 
+            IStandardsExportService? exportService, 
+            StandardsSettings? settings,
+            IUserPromptService? userPromptService,
+            IFindReplaceService? findReplaceService,
+            IStandardsExtractionOrchestrator? orchestrator)
+            : this(
+                doc,
+                dialogService,
+                exportService ?? new StandardsExportService(new WindowsGuardrailPromptService(), dialogService),
+                settings,
+                userPromptService ?? new WindowsUserPromptService(),
+                findReplaceService ?? new FindReplaceService(),
+                orchestrator ?? new StandardsExtractionOrchestrator(new RevitIdentityService(), new StandardSerializationEngine()),
+                new PocoIdentityService(),
+                new StandardSerializationEngine(),
+                new StandardsExecutionPipeline(new StandardSerializationEngine(), exportService ?? new StandardsExportService(new WindowsGuardrailPromptService(), dialogService)))
         {
         }
 
@@ -797,6 +867,8 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             : this(doc, dialogService, new StandardsExportService(guardrailService ?? new WindowsGuardrailPromptService(), dialogService), settings)
         {
         }
+
+
 
         /// <summary>
         /// Registers the external event and handler to run database transactions on the Revit API thread.
