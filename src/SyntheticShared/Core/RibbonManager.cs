@@ -14,6 +14,104 @@ namespace Synthetic.Core
     /// </summary>
     public static class RibbonManager
     {
+        private interface IRibbonItemBuilder
+        {
+            void Build(RibbonPanel panel, RibbonItemConfig item, string assemblyPath, string assetsDir, bool isDebug, int activeVersion);
+        }
+
+        private class PushButtonBuilder : IRibbonItemBuilder
+        {
+            public void Build(RibbonPanel panel, RibbonItemConfig item, string assemblyPath, string assetsDir, bool isDebug, int activeVersion)
+            {
+                PushButtonData data = CreatePushButtonData(item, assemblyPath, assetsDir);
+                var ribbonItem = panel.AddItem(data);
+                ValidateCommandClass(ribbonItem as PushButton, item.Class);
+            }
+        }
+
+        private class StackedGroupBuilder : IRibbonItemBuilder
+        {
+            public void Build(RibbonPanel panel, RibbonItemConfig item, string assemblyPath, string assetsDir, bool isDebug, int activeVersion)
+            {
+                if (item.SubItems == null || item.SubItems.Count == 0)
+                {
+                    return;
+                }
+
+                var filteredSubItems = new List<RibbonItemConfig>();
+                foreach (var subItem in item.SubItems)
+                {
+                    if (!ShouldIncludeItem(subItem, isDebug, activeVersion))
+                    {
+                        continue;
+                    }
+                    filteredSubItems.Add(subItem);
+                }
+
+                if (filteredSubItems.Count == 0)
+                {
+                    return;
+                }
+
+                var buttonDatas = new List<RibbonItemData>();
+                foreach (var subItem in filteredSubItems)
+                {
+                    buttonDatas.Add(CreatePushButtonData(subItem, assemblyPath, assetsDir));
+                }
+
+                IList<RibbonItem> addedItems;
+                if (buttonDatas.Count == 3)
+                {
+                    addedItems = panel.AddStackedItems(buttonDatas[0], buttonDatas[1], buttonDatas[2]);
+                }
+                else if (buttonDatas.Count == 2)
+                {
+                    addedItems = panel.AddStackedItems(buttonDatas[0], buttonDatas[1]);
+                }
+                else // count == 1
+                {
+                    addedItems = new List<RibbonItem> { panel.AddItem(buttonDatas[0]) };
+                }
+
+                for (int i = 0; i < addedItems.Count; i++)
+                {
+                    ValidateCommandClass(addedItems[i] as PushButton, filteredSubItems[i].Class);
+                }
+            }
+        }
+
+        private class SplitButtonBuilder : IRibbonItemBuilder
+        {
+            public void Build(RibbonPanel panel, RibbonItemConfig item, string assemblyPath, string assetsDir, bool isDebug, int activeVersion)
+            {
+                SplitButtonData splitButtonData = new SplitButtonData(item.Name, item.Text);
+                var splitButton = panel.AddItem(splitButtonData) as SplitButton;
+
+                if (splitButton != null && item.SubItems != null)
+                {
+                    foreach (var subItem in item.SubItems)
+                    {
+                        if (!ShouldIncludeItem(subItem, isDebug, activeVersion))
+                        {
+                            continue;
+                        }
+
+                        PushButtonData subButtonData = CreatePushButtonData(subItem, assemblyPath, assetsDir);
+                        var subButton = splitButton.AddPushButton(subButtonData);
+                        ValidateCommandClass(subButton, subItem.Class);
+                    }
+                }
+            }
+        }
+
+        private static readonly Dictionary<string, IRibbonItemBuilder> Builders =
+            new Dictionary<string, IRibbonItemBuilder>(StringComparer.OrdinalIgnoreCase)
+            {
+                { "PushButton", new PushButtonBuilder() },
+                { "StackedGroup", new StackedGroupBuilder() },
+                { "SplitButton", new SplitButtonBuilder() }
+            };
+
         public static void Create(UIControlledApplication appControlled, string assemblyPath)
         {
             string assetsDir = Path.Combine(Path.GetDirectoryName(assemblyPath) ?? string.Empty, "Assets");
@@ -69,11 +167,7 @@ namespace Synthetic.Core
                         var filteredSlideout = new List<RibbonItemConfig>();
                         foreach (var item in panelConfig.SlideoutItems)
                         {
-                            if (item.DebugOnly && !isDebug)
-                            {
-                                continue;
-                            }
-                            if (!IsVersionMatch(item, activeVersion))
+                            if (!ShouldIncludeItem(item, isDebug, activeVersion))
                             {
                                 continue;
                             }
@@ -88,6 +182,15 @@ namespace Synthetic.Core
                     }
                 }
             }
+        }
+
+        public static bool ShouldIncludeItem(RibbonItemConfig item, bool isDebug, int activeVersion)
+        {
+            if (item.DebugOnly && !isDebug)
+            {
+                return false;
+            }
+            return IsVersionMatch(item, activeVersion);
         }
 
         public static bool IsVersionMatch(RibbonItemConfig item, int currentVersion)
@@ -107,95 +210,14 @@ namespace Synthetic.Core
         {
             foreach (var item in items)
             {
-                if (item.DebugOnly && !isDebug)
-                {
-                    continue;
-                }
-                if (!IsVersionMatch(item, activeVersion))
+                if (!ShouldIncludeItem(item, isDebug, activeVersion))
                 {
                     continue;
                 }
 
-                if (string.Equals(item.Type, "PushButton", StringComparison.OrdinalIgnoreCase))
+                if (Builders.TryGetValue(item.Type, out var builder))
                 {
-                    PushButtonData data = CreatePushButtonData(item, assemblyPath, assetsDir);
-                    var ribbonItem = panel.AddItem(data);
-                    ValidateCommandClass(ribbonItem as PushButton, item.Class);
-                }
-                else if (string.Equals(item.Type, "StackedGroup", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (item.SubItems == null || item.SubItems.Count == 0)
-                    {
-                        continue;
-                    }
-
-                    var filteredSubItems = new List<RibbonItemConfig>();
-                    foreach (var subItem in item.SubItems)
-                    {
-                        if (subItem.DebugOnly && !isDebug)
-                        {
-                            continue;
-                        }
-                        if (!IsVersionMatch(subItem, activeVersion))
-                        {
-                            continue;
-                        }
-                        filteredSubItems.Add(subItem);
-                    }
-
-                    if (filteredSubItems.Count == 0)
-                    {
-                        continue;
-                    }
-
-                    var buttonDatas = new List<RibbonItemData>();
-                    foreach (var subItem in filteredSubItems)
-                    {
-                        buttonDatas.Add(CreatePushButtonData(subItem, assemblyPath, assetsDir));
-                    }
-
-                    IList<RibbonItem> addedItems;
-                    if (buttonDatas.Count == 3)
-                    {
-                        addedItems = panel.AddStackedItems(buttonDatas[0], buttonDatas[1], buttonDatas[2]);
-                    }
-                    else if (buttonDatas.Count == 2)
-                    {
-                        addedItems = panel.AddStackedItems(buttonDatas[0], buttonDatas[1]);
-                    }
-                    else // count == 1
-                    {
-                        addedItems = new List<RibbonItem> { panel.AddItem(buttonDatas[0]) };
-                    }
-
-                    for (int i = 0; i < addedItems.Count; i++)
-                    {
-                        ValidateCommandClass(addedItems[i] as PushButton, filteredSubItems[i].Class);
-                    }
-                }
-                else if (string.Equals(item.Type, "SplitButton", StringComparison.OrdinalIgnoreCase))
-                {
-                    SplitButtonData splitButtonData = new SplitButtonData(item.Name, item.Text);
-                    var splitButton = panel.AddItem(splitButtonData) as SplitButton;
-
-                    if (splitButton != null && item.SubItems != null)
-                    {
-                        foreach (var subItem in item.SubItems)
-                        {
-                            if (subItem.DebugOnly && !isDebug)
-                            {
-                                continue;
-                            }
-                            if (!IsVersionMatch(subItem, activeVersion))
-                            {
-                                continue;
-                            }
-
-                            PushButtonData subButtonData = CreatePushButtonData(subItem, assemblyPath, assetsDir);
-                            var subButton = splitButton.AddPushButton(subButtonData);
-                            ValidateCommandClass(subButton, subItem.Class);
-                        }
-                    }
+                    builder.Build(panel, item, assemblyPath, assetsDir, isDebug, activeVersion);
                 }
             }
         }
