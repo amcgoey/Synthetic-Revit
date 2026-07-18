@@ -63,7 +63,7 @@ namespace SyntheticTests
                 var successModel = new ElementModel
                 {
                     ElementId = defaultLevel!.Id.ToModel(doc),
-                    Name = defaultLevel.Name
+                    Name = "SomeDifferentName"
                 };
 
                 // Create a failed model (e.g. UnregisteredDummyModel) targeting a level or fake element,
