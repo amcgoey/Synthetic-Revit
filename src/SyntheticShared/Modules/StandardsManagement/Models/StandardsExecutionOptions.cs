@@ -9,5 +9,6 @@ namespace Synthetic.Modules.StandardsManagement.Models
         public bool WriteRevitDatabase { get; set; } = true;
         public bool SaveLocalFiles { get; set; } = true;
         public bool UseTransactionGroup { get; set; } = true;
+        public System.Collections.Generic.List<string> ProtectedPaths { get; set; } = new System.Collections.Generic.List<string>();
     }
 }

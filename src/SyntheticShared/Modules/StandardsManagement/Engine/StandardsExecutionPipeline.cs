@@ -100,14 +100,45 @@ namespace Synthetic.Modules.StandardsManagement.Engine
                     var fileItems = result.Items.Where(i => i.WillSave).ToList();
                     if (fileItems.Count > 0)
                     {
-                        var queueItems = fileItems.Select(item => new QueueItemModel(item.Model, item.WillEnforce, item.WillSave)).ToList();
+                        var queueItems = new List<QueueItemModel>();
+                        var modelMapping = new Dictionary<ObjectModel, ObjectModel>();
+                        foreach (var item in fileItems)
+                        {
+                            var qItem = new QueueItemModel(item.Model, item.WillEnforce, item.WillSave);
+                            queueItems.Add(qItem);
+                            modelMapping[item.Model] = qItem.Model;
+                        }
+
+                        var dbResultsForExport = new List<SerializationResultModel>();
+                        foreach (var r in dbResults)
+                        {
+                            var mappedR = r;
+                            if (r.Model != null && modelMapping.TryGetValue(r.Model, out var clonedModel))
+                            {
+                                mappedR = r.Success
+                                    ? new SerializationResultModel(clonedModel, r.ElementIdentity)
+                                    {
+                                        OperationTarget = r.OperationTarget,
+                                        Action = r.Action,
+                                        Message = r.Message
+                                    }
+                                    : new SerializationResultModel(clonedModel, r.ErrorMessage ?? "Database Write Failed", r.Exception)
+                                    {
+                                        OperationTarget = r.OperationTarget,
+                                        Action = r.Action,
+                                        Message = r.Message
+                                    };
+                            }
+                            dbResultsForExport.Add(mappedR);
+                        }
+
                         string? targetPath = options.StandardsFilePath;
 
                         var fileResults = _exportService.Export(
                             queueItems,
                             targetPath,
-                            dbResults,
-                            new HashSet<string>(StringComparer.OrdinalIgnoreCase),
+                            dbResultsForExport,
+                            new HashSet<string>(options.ProtectedPaths ?? new System.Collections.Generic.List<string>(), StringComparer.OrdinalIgnoreCase),
                             out string? finalPathUsed);
 
                         var mappedFileResults = new List<SerializationResultModel>();
@@ -290,6 +321,7 @@ namespace Synthetic.Modules.StandardsManagement.Engine
                 });
             }
 
+            result.RawResults = allResults;
             return result;
         }
 
