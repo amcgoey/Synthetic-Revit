@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -43,7 +43,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         {
             // Arrange
             var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
-            var vm = parent.StandardsExecutionViewModel;
+            var vm = parent.StandardsExecutionPipelineViewModel;
 
             vm.SaveFilePath = _tempSavePath;
 
@@ -56,8 +56,8 @@ namespace SyntheticTests.Modules.StandardsManagement
             var invalidEl = new ElementModel { Class = null!, Name = "InvalidMaterial" };
             var qInvalid = new QueueItemModel(invalidEl, true, true);
 
-            parent.ActionQueue.Add(qValid);
-            parent.ActionQueue.Add(qInvalid);
+            parent.StagingQueue.Add(qValid);
+            parent.StagingQueue.Add(qInvalid);
 
             // Act
             vm.RunQueueCommand.Execute(null!);
@@ -83,13 +83,13 @@ namespace SyntheticTests.Modules.StandardsManagement
         {
             // Arrange
             var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
-            var vm = parent.StandardsExecutionViewModel;
+            var vm = parent.StandardsExecutionPipelineViewModel;
             vm.SaveFilePath = _tempSavePath;
 
             var param = new ParameterModel("Comments", "SomeValue", null, "String", 1, null, false, false);
             var el = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "MatToCancel", Parameters = new List<ParameterModel> { param } };
             var qItem = new QueueItemModel(el, true, true);
-            parent.ActionQueue.Add(qItem);
+            parent.StagingQueue.Add(qItem);
 
             // Inject a mock cancellation state in the coordinator
             ProgressCoordinator.ForceCancel = true;
@@ -112,13 +112,13 @@ namespace SyntheticTests.Modules.StandardsManagement
         {
             // Arrange
             var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
-            var vm = parent.StandardsExecutionViewModel;
+            var vm = parent.StandardsExecutionPipelineViewModel;
             vm.UpdateFamilies = false;
 
             var param = new ParameterModel("Comments", "Val", null, "String", 1, null, false, false);
             var el = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "Mat", Parameters = new List<ParameterModel> { param } };
             var qItem = new QueueItemModel(el, true, false);
-            parent.ActionQueue.Add(qItem);
+            parent.StagingQueue.Add(qItem);
 
             // Act
             vm.RunQueueCommand.Execute(null!);
@@ -133,7 +133,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         {
             // Arrange
             var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
-            var vm = parent.StandardsExecutionViewModel;
+            var vm = parent.StandardsExecutionPipelineViewModel;
 
             var validParam = new ParameterModel("Comments", "ValidVal", null, "String", 1, null, false, false);
             var validEl = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "ValidMaterial", Parameters = new List<ParameterModel> { validParam } };
@@ -142,15 +142,15 @@ namespace SyntheticTests.Modules.StandardsManagement
             var invalidEl = new ElementModel { Class = null!, Name = "InvalidMaterial" };
             var qInvalid = new QueueItemModel(invalidEl, true, true);
 
-            parent.ActionQueue.Add(qValid);
-            parent.ActionQueue.Add(qInvalid);
+            parent.StagingQueue.Add(qValid);
+            parent.StagingQueue.Add(qInvalid);
 
             // Act
             vm.RunQueueCommand.Execute(null!);
 
             // Assert
-            Assert.AreEqual(1, parent.ActionQueue.Count, "Successful items should be purged, failed should remain.");
-            Assert.AreSame(qInvalid, parent.ActionQueue[0], "The failed item should remain in the queue.");
+            Assert.AreEqual(1, parent.StagingQueue.Count, "Successful items should be purged, failed should remain.");
+            Assert.AreSame(qInvalid, parent.StagingQueue[0], "The failed item should remain in the queue.");
             Assert.IsTrue(qInvalid.HasError, "The failed item should have error registered.");
             Assert.IsFalse(string.IsNullOrEmpty(qInvalid.ErrorMessage), "The error message should be populated.");
         }
@@ -160,13 +160,13 @@ namespace SyntheticTests.Modules.StandardsManagement
         {
             // Arrange
             var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
-            var queueVM = parent.ActionQueueViewModel;
+            var queueVM = parent.StagingQueueViewModel;
             var paramModel = new ParameterModel("Comments", "SomeVal", null, "String", 1, null, false, false);
             var el = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "Mat", Parameters = new List<ParameterModel> { paramModel } };
             var qItem = new QueueItemModel(el, true, true);
             qItem.ErrorMessage = "Some error occurred";
 
-            parent.ActionQueue.Add(qItem);
+            parent.StagingQueue.Add(qItem);
 
             // Select item and enter edit mode
             queueVM.EditCommand.Execute(new List<QueueItemModel> { qItem });

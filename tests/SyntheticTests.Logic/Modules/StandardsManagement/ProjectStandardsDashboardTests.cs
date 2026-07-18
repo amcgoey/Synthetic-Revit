@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using NUnit.Framework;
@@ -243,9 +243,9 @@ namespace SyntheticTests.Modules.StandardsManagement
             vm.PushToQueueCommand.Execute("Save");
 
             // Assert
-            Assert.AreEqual(1, vm.ActionQueue.Count, "One item should be staged in the Action Queue.");
-            Assert.AreEqual("Steel", vm.ActionQueue[0].Name, "Staged item name should match the checked source element.");
-            Assert.IsTrue(vm.ActionQueue[0].WillSave && !vm.ActionQueue[0].WillEnforce, "Staged item execution intent should match parameter.");
+            Assert.AreEqual(1, vm.StagingQueue.Count, "One item should be staged in the Action Queue.");
+            Assert.AreEqual("Steel", vm.StagingQueue[0].Name, "Staged item name should match the checked source element.");
+            Assert.IsTrue(vm.StagingQueue[0].WillSave && !vm.StagingQueue[0].WillEnforce, "Staged item execution intent should match parameter.");
         }
 
         [Test]
@@ -313,10 +313,10 @@ namespace SyntheticTests.Modules.StandardsManagement
             vm.PushToQueueCommand.Execute("Enforce");
 
             // Assert
-            Assert.AreEqual(2, vm.ActionQueue.Count, "Both WallType and Material should be staged in the Action Queue.");
+            Assert.AreEqual(2, vm.StagingQueue.Count, "Both WallType and Material should be staged in the Action Queue.");
 
-            var wallQueueItem = vm.ActionQueue.FirstOrDefault(q => q.Name == "StagingTestWallType");
-            var matQueueItem = vm.ActionQueue.FirstOrDefault(q => q.Name == "StagingTestMaterial");
+            var wallQueueItem = vm.StagingQueue.FirstOrDefault(q => q.Name == "StagingTestWallType");
+            var matQueueItem = vm.StagingQueue.FirstOrDefault(q => q.Name == "StagingTestMaterial");
 
             Assert.IsNotNull(wallQueueItem, "WallType should be staged.");
             Assert.IsNotNull(matQueueItem, "Material dependency should be harvested and staged.");
@@ -403,10 +403,10 @@ namespace SyntheticTests.Modules.StandardsManagement
             vm.PushToQueueCommand.Execute("Enforce");
 
             // Assert
-            Assert.AreEqual(2, vm.ActionQueue.Count, "Both WallType and Material should be staged in the Action Queue.");
+            Assert.AreEqual(2, vm.StagingQueue.Count, "Both WallType and Material should be staged in the Action Queue.");
 
-            var wallQueueItem = vm.ActionQueue.FirstOrDefault(q => q.Name == "Wall-Live");
-            var matQueueItem = vm.ActionQueue.FirstOrDefault(q => q.Name == "Concrete-Live");
+            var wallQueueItem = vm.StagingQueue.FirstOrDefault(q => q.Name == "Wall-Live");
+            var matQueueItem = vm.StagingQueue.FirstOrDefault(q => q.Name == "Concrete-Live");
 
             Assert.IsNotNull(wallQueueItem, "WallType should be staged.");
             Assert.IsNotNull(matQueueItem, "Material dependency should be resolved via PocoIdentityService and staged.");
@@ -444,7 +444,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             vm.PushToQueueCommand.Execute("Enforce");
             
             // Modify name on the staged queue item's model
-            var stagedItem = vm.ActionQueue[0];
+            var stagedItem = vm.StagingQueue[0];
             if (stagedItem.Model is ElementModel stagedElem)
             {
                 stagedElem.Name = "Modified Steel";
@@ -484,15 +484,15 @@ namespace SyntheticTests.Modules.StandardsManagement
 
             // Push both to queue
             vm.PushToQueueCommand.Execute("SaveAndEnforce");
-            Assert.AreEqual(2, vm.ActionQueue.Count);
+            Assert.AreEqual(2, vm.StagingQueue.Count);
 
             // Act - remove item 1
-            var listToRemove = new System.Collections.ArrayList { vm.ActionQueue[0] };
+            var listToRemove = new System.Collections.ArrayList { vm.StagingQueue[0] };
             vm.RemoveFromQueueCommand.Execute(listToRemove);
 
             // Assert
-            Assert.AreEqual(1, vm.ActionQueue.Count, "Action queue should contain exactly 1 element after removal.");
-            Assert.AreEqual("Concrete", vm.ActionQueue[0].Name, "Remaining staged element should be Concrete.");
+            Assert.AreEqual(1, vm.StagingQueue.Count, "Action queue should contain exactly 1 element after removal.");
+            Assert.AreEqual("Concrete", vm.StagingQueue[0].Name, "Remaining staged element should be Concrete.");
         }
 
         [Test]
@@ -514,7 +514,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             elemNode.IsChecked = true;
             vm.PushToQueueCommand.Execute("Enforce");
 
-            var item = vm.ActionQueue[0];
+            var item = vm.StagingQueue[0];
             var listToEdit = new System.Collections.ArrayList { item };
 
             // Act
@@ -554,7 +554,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             elemNode.IsChecked = true;
             vm.PushToQueueCommand.Execute("Enforce");
 
-            var item = vm.ActionQueue[0];
+            var item = vm.StagingQueue[0];
             var listToEdit = new System.Collections.ArrayList { item };
             vm.EditCommand.Execute(listToEdit);
 
@@ -589,7 +589,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             elemNode.IsChecked = true;
             vm.PushToQueueCommand.Execute("Enforce");
 
-            var item = vm.ActionQueue[0];
+            var item = vm.StagingQueue[0];
             var listToEdit = new System.Collections.ArrayList { item };
             vm.EditCommand.Execute(listToEdit);
 
@@ -620,7 +620,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             elemNode.IsChecked = true;
             vm.PushToQueueCommand.Execute("Enforce");
 
-            var item = vm.ActionQueue[0];
+            var item = vm.StagingQueue[0];
             var listToDiff = new System.Collections.ArrayList { item };
 
             // Act
@@ -702,7 +702,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             
             // Item is tagged Save only (should completely bypass Phase 1)
             var item = new QueueItemModel(elem, false, true);
-            vm.ActionQueue.Add(item);
+            vm.StagingQueue.Add(item);
 
             try
             {
@@ -710,7 +710,7 @@ namespace SyntheticTests.Modules.StandardsManagement
                 vm.RunQueueCommand.Execute(null);
 
                 // Assert
-                Assert.AreEqual(0, vm.ActionQueue.Count, "Queue should be cleared.");
+                Assert.AreEqual(0, vm.StagingQueue.Count, "Queue should be cleared.");
                 Assert.IsTrue(File.Exists(tempFile), "Save should write to the JSON file.");
             }
             finally
@@ -740,7 +740,7 @@ namespace SyntheticTests.Modules.StandardsManagement
 
             var elem = new ElementModel { Name = "Steel", Class = "Autodesk.Revit.DB.Material" };
             var item = new QueueItemModel(elem, false, true);
-            vm.ActionQueue.Add(item);
+            vm.StagingQueue.Add(item);
 
             try
             {
@@ -780,7 +780,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             vm.SaveFilePath = protectedFile;
             var elem = new ElementModel { Name = "Steel", Class = "Autodesk.Revit.DB.Material" };
             var item = new QueueItemModel(elem, false, true);
-            vm.ActionQueue.Add(item);
+            vm.StagingQueue.Add(item);
 
             try
             {
@@ -820,7 +820,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             vm.SaveFilePath = protectedFile;
             var elem = new ElementModel { Name = "Steel", Class = "Autodesk.Revit.DB.Material" };
             var item = new QueueItemModel(elem, false, true);
-            vm.ActionQueue.Add(item);
+            vm.StagingQueue.Add(item);
 
             try
             {
@@ -851,7 +851,7 @@ namespace SyntheticTests.Modules.StandardsManagement
 
             var elem = new ElementModel { Name = "Steel", Class = "Autodesk.Revit.DB.Material" };
             var item = new QueueItemModel(elem, false, true);
-            vm.ActionQueue.Add(item);
+            vm.StagingQueue.Add(item);
 
             try
             {
@@ -891,7 +891,7 @@ namespace SyntheticTests.Modules.StandardsManagement
 
             var elem = new ElementModel { Name = "Steel", Class = "Autodesk.Revit.DB.Material" };
             var item = new QueueItemModel(elem, false, true);
-            vm.ActionQueue.Add(item);
+            vm.StagingQueue.Add(item);
 
             try
             {
@@ -1061,7 +1061,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             };
             
             var queueItem = new QueueItemModel(model, false, true);
-            vm.ActionQueue.Add(queueItem);
+            vm.StagingQueue.Add(queueItem);
             
             // Execute Edit
             vm.EditCommand.Execute(new List<QueueItemModel> { queueItem });
@@ -1093,8 +1093,8 @@ namespace SyntheticTests.Modules.StandardsManagement
             var item1 = new QueueItemModel(new ElementModel { Name = "Elem1", Class = "Autodesk.Revit.DB.LinePatternElement" }, false, true);
             var item2 = new QueueItemModel(new ElementModel { Name = "Elem2", Class = "Autodesk.Revit.DB.LinePatternElement" }, false, true);
             
-            vm.ActionQueue.Add(item1);
-            vm.ActionQueue.Add(item2);
+            vm.StagingQueue.Add(item1);
+            vm.StagingQueue.Add(item2);
             
             // Edit single item
             vm.EditCommand.Execute(new List<QueueItemModel> { item1 });
@@ -1122,9 +1122,9 @@ namespace SyntheticTests.Modules.StandardsManagement
             var item2 = new QueueItemModel(new ElementModel { Name = "Elem2", Class = "Autodesk.Revit.DB.TextNoteType" }, false, true);
             var item3 = new QueueItemModel(new ElementModel { Name = "Elem3", Class = "Autodesk.Revit.DB.LinePatternElement" }, false, true);
             
-            vm.ActionQueue.Add(item1);
-            vm.ActionQueue.Add(item2);
-            vm.ActionQueue.Add(item3);
+            vm.StagingQueue.Add(item1);
+            vm.StagingQueue.Add(item2);
+            vm.StagingQueue.Add(item3);
             
             // Act: Edit multiple items
             vm.EditCommand.Execute(new List<QueueItemModel> { item1, item2, item3 });
@@ -1147,8 +1147,8 @@ namespace SyntheticTests.Modules.StandardsManagement
             var item1 = new QueueItemModel(new ElementModel { Name = "Elem1", Class = "Autodesk.Revit.DB.LinePatternElement", Aliases = new List<string> { "Alias1A", "Alias1B" } }, false, true);
             var item2 = new QueueItemModel(new ElementModel { Name = "Elem2", Class = "Autodesk.Revit.DB.LinePatternElement", Aliases = new List<string> { "Alias2A" } }, false, true);
             
-            vm.ActionQueue.Add(item1);
-            vm.ActionQueue.Add(item2);
+            vm.StagingQueue.Add(item1);
+            vm.StagingQueue.Add(item2);
             
             // Act: Edit single item
             vm.EditCommand.Execute(new List<QueueItemModel> { item1 });
@@ -1278,8 +1278,8 @@ namespace SyntheticTests.Modules.StandardsManagement
             var item1 = new QueueItemModel(poco1, false, true);
             var item2 = new QueueItemModel(poco2, false, true);
             
-            vm.ActionQueue.Add(item1);
-            vm.ActionQueue.Add(item2);
+            vm.StagingQueue.Add(item1);
+            vm.StagingQueue.Add(item2);
             
             vm.EditCommand.Execute(new List<QueueItemModel> { item1, item2 });
             

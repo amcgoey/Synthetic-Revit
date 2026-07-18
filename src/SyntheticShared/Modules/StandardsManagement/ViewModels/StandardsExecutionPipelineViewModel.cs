@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -20,7 +20,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
     /// <summary>
     /// ViewModel that manages the options configuration and final save/enforce execution workflow.
     /// </summary>
-    public class StandardsExecutionViewModel : ViewModelBase
+    public class StandardsExecutionPipelineViewModel : ViewModelBase
     {
         private readonly ProjectStandardsDashboardViewModel _parent;
         private readonly IFileDialogService _dialogService;
@@ -96,7 +96,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         /// <summary>
         /// Gets whether the save path panel should be active/visible in the UI.
         /// </summary>
-        public bool IsSavePathActive => _parent.ActionQueue.Any(item => item.WillSave);
+        public bool IsSavePathActive => _parent.StagingQueue.Any(item => item.WillSave);
 
         public ICommand EnforceCommand { get; }
         public ICommand SaveCommand { get; }
@@ -104,11 +104,11 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         public ICommand BrowseSavePathCommand { get; }
         public ICommand RunQueueCommand { get; }
 
-        public StandardsExecutionViewModel(ProjectStandardsDashboardViewModel parent)
+        public StandardsExecutionPipelineViewModel(ProjectStandardsDashboardViewModel parent, IStandardsExecutionPipeline pipeline)
         {
             _parent = parent ?? throw new ArgumentNullException(nameof(parent));
             _dialogService = parent.DialogService;
-            _pipeline = parent.Pipeline;
+            _pipeline = pipeline ?? throw new ArgumentNullException(nameof(pipeline));
 
             EnforceCommand = new RelayCommand(ExecuteEnforce, CanExecuteActions);
             SaveCommand = new RelayCommand(ExecuteSave, CanExecuteActions);
@@ -116,14 +116,14 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             BrowseSavePathCommand = new RelayCommand(ExecuteBrowseSavePath);
             RunQueueCommand = new RelayCommand(ExecuteRunQueue, CanExecuteQueueActions);
 
-            _parent.ActionQueueViewModel.ActionQueue.CollectionChanged += (s, e) =>
+            _parent.StagingQueueViewModel.StagingQueue.CollectionChanged += (s, e) =>
             {
                 OnPropertyChanged(nameof(IsSavePathActive));
             };
         }
 
         private bool CanExecuteActions(object parameter) => _parent.SelectedSource != null;
-        private bool CanExecuteQueueActions(object parameter) => _parent.ActionQueue.Count > 0;
+        private bool CanExecuteQueueActions(object parameter) => _parent.StagingQueue.Count > 0;
 
         private void ExecuteEnforce(object parameter)
         {
@@ -173,7 +173,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             _parent.LastExecutionResults.Clear();
 
             // Map staging queue items
-            var pipelineItems = _parent.ActionQueue.Select(item => new StandardsExecutionItem(item.Model)
+            var pipelineItems = _parent.StagingQueue.Select(item => new StandardsExecutionItem(item.Model)
             {
                 WillEnforce = item.WillEnforce,
                 WillSave = item.WillSave
@@ -205,8 +205,8 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                 CategoryFilter = CategoryFilter,
                 PurgeUnusedStyleTypes = PurgeUnusedStyleTypes,
                 StandardsFilePath = targetPath ?? string.Empty,
-                WriteRevitDatabase = _parent.ActionQueue.Any(i => i.WillEnforce),
-                SaveLocalFiles = _parent.ActionQueue.Any(i => i.WillSave),
+                WriteRevitDatabase = _parent.StagingQueue.Any(i => i.WillEnforce),
+                SaveLocalFiles = _parent.StagingQueue.Any(i => i.WillSave),
                 UseTransactionGroup = true,
                 ProtectedPaths = GetProtectedPaths().ToList()
             };
@@ -248,7 +248,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                     else
                     {
                         // Find the enqueued item to determine if it was Enforced/Saved
-                        var queueItem = _parent.ActionQueue.FirstOrDefault(qi => qi.Model == model);
+                        var queueItem = _parent.StagingQueue.FirstOrDefault(qi => qi.Model == model);
                         if (queueItem != null && queueItem.WillEnforce)
                         {
                             action = "Created";
@@ -298,7 +298,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
 
                 // Systematic queue purging and error message hydration
                 var successfulItems = new List<QueueItemModel>();
-                foreach (var item in _parent.ActionQueue.ToList())
+                foreach (var item in _parent.StagingQueue.ToList())
                 {
                     var resultsForItem = _parent.LastExecutionResults.Where(r => r.Model == item.Model).ToList();
                     if (resultsForItem.Count > 0 && resultsForItem.All(r => r.Success))
@@ -321,7 +321,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
 
                 foreach (var item in successfulItems)
                 {
-                    _parent.ActionQueue.Remove(item);
+                    _parent.StagingQueue.Remove(item);
                 }
 
                 _parent.ActiveWorkspace = WorkspaceMode.Idle;

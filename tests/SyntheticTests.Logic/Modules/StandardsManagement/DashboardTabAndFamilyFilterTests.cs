@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -166,7 +166,7 @@ namespace SyntheticTests.Modules.StandardsManagement
                 }
 
                 // Assert that action queue remains empty
-                Assert.AreEqual(0, parent.ActionQueue.Count, "Action queue must remain empty on launch.");
+                Assert.AreEqual(0, parent.StagingQueue.Count, "Action queue must remain empty on launch.");
             }
             finally
             {

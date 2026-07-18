@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
@@ -34,8 +34,8 @@ namespace SyntheticTests.Modules.StandardsManagement
             var qOak = new QueueItemModel(oak, true, false);
             var qPine = new QueueItemModel(pine, true, false);
 
-            vm.ActionQueue.Add(qOak);
-            vm.ActionQueue.Add(qPine);
+            vm.StagingQueue.Add(qOak);
+            vm.StagingQueue.Add(qPine);
 
             var selectedList = new List<QueueItemModel> { qOak, qPine };
 
@@ -44,8 +44,8 @@ namespace SyntheticTests.Modules.StandardsManagement
 
             // Assert
             // Oak (first item) should be SelectedPrimary by ShowMergeDialog mock.
-            Assert.AreEqual(1, vm.ActionQueue.Count, "Non-survivor pine should be purged.");
-            Assert.AreSame(qOak, vm.ActionQueue.First(), "Oak should remain.");
+            Assert.AreEqual(1, vm.StagingQueue.Count, "Non-survivor pine should be purged.");
+            Assert.AreSame(qOak, vm.StagingQueue.First(), "Oak should remain.");
 
             var oakModel = qOak.Model as ElementModel;
             Assert.IsNotNull(oakModel);
@@ -81,9 +81,9 @@ namespace SyntheticTests.Modules.StandardsManagement
             var qPine = new QueueItemModel(pine, true, false);
             var qWall = new QueueItemModel(wall, true, false);
 
-            vm.ActionQueue.Add(qOak);
-            vm.ActionQueue.Add(qPine);
-            vm.ActionQueue.Add(qWall);
+            vm.StagingQueue.Add(qOak);
+            vm.StagingQueue.Add(qPine);
+            vm.StagingQueue.Add(qWall);
 
             var selectedList = new List<QueueItemModel> { qOak, qPine };
 
@@ -91,7 +91,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             vm.MergeQueueCommand.Execute(selectedList);
 
             // Assert
-            Assert.AreEqual(2, vm.ActionQueue.Count, "Pine should be purged, Oak and Wall should remain.");
+            Assert.AreEqual(2, vm.StagingQueue.Count, "Pine should be purged, Oak and Wall should remain.");
             
             var wallModel = qWall.Model as HostObjTypeModel;
             Assert.IsNotNull(wallModel);
@@ -210,13 +210,13 @@ namespace SyntheticTests.Modules.StandardsManagement
 
             // Act
             var item = new QueueItemModel(new MaterialModel { Class = "Material", Name = "Test" }, false, true);
-            vm.ActionQueue.Add(item);
+            vm.StagingQueue.Add(item);
 
             // Assert
             Assert.IsTrue(vm.IsSavePathActive);
 
             // Act
-            vm.ActionQueue.Remove(item);
+            vm.StagingQueue.Remove(item);
 
             // Assert
             Assert.IsFalse(vm.IsSavePathActive);
@@ -234,8 +234,8 @@ namespace SyntheticTests.Modules.StandardsManagement
             var qOak = new QueueItemModel(oak, true, false);
             var qPine = new QueueItemModel(pine, true, false);
 
-            vm.ActionQueue.Add(qOak);
-            vm.ActionQueue.Add(qPine);
+            vm.StagingQueue.Add(qOak);
+            vm.StagingQueue.Add(qPine);
 
             var selectedList = new List<QueueItemModel> { qOak, qPine };
 
@@ -248,7 +248,7 @@ namespace SyntheticTests.Modules.StandardsManagement
 
             // Assert
             // Oak (first item) should be SelectedPrimary by ShowMergeDialog mock.
-            Assert.AreEqual(1, vm.ActionQueue.Count, "Non-survivor pine should be purged.");
+            Assert.AreEqual(1, vm.StagingQueue.Count, "Non-survivor pine should be purged.");
             Assert.AreEqual(WorkspaceMode.Idle, vm.ActiveWorkspace, "Active workspace should transition to Idle post-merge.");
         }
 
@@ -265,8 +265,8 @@ namespace SyntheticTests.Modules.StandardsManagement
             var qOak = new QueueItemModel(oak, true, false);
             var qPine = new QueueItemModel(pine, false, true);
 
-            vm.ActionQueue.Add(qOak);
-            vm.ActionQueue.Add(qPine);
+            vm.StagingQueue.Add(qOak);
+            vm.StagingQueue.Add(qPine);
 
             var selectedList = new List<QueueItemModel> { qOak, qPine };
 
@@ -274,8 +274,8 @@ namespace SyntheticTests.Modules.StandardsManagement
             vm.MergeQueueCommand.Execute(selectedList);
 
             // Assert
-            Assert.AreEqual(1, vm.ActionQueue.Count, "Pine should be purged.");
-            var survivor = vm.ActionQueue[0];
+            Assert.AreEqual(1, vm.StagingQueue.Count, "Pine should be purged.");
+            var survivor = vm.StagingQueue[0];
             Assert.AreSame(qOak, survivor, "Oak should be the survivor.");
             
             // Flags should be combined

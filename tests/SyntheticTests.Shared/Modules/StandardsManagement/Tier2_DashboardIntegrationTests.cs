@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -67,7 +67,7 @@ namespace SyntheticTests
 
                     // Enqueue the item with SaveAndEnforce intent (Phase 1 + Phase 2)
                     var queueItem = new QueueItemModel(materialModel, true, true);
-                    vm.ActionQueue.Add(queueItem);
+                    vm.StagingQueue.Add(queueItem);
 
                     // Execute
                     vm.RunQueueCommand.Execute(null);
@@ -260,7 +260,7 @@ namespace SyntheticTests
                     };
 
                     var queueItem = new QueueItemModel(primaryModel, true, false);
-                    vm.ActionQueue.Add(queueItem);
+                    vm.StagingQueue.Add(queueItem);
 
                     // Act
                     vm.RunQueueCommand.Execute(null);

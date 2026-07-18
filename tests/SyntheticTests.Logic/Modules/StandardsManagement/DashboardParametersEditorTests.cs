@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
@@ -78,7 +78,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         {
             // Arrange
             var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
-            var vm = parent.ActionQueueViewModel;
+            var vm = parent.StagingQueueViewModel;
 
             var p1 = new ParameterModel("Comments", "ValueA", null, "String", 1, null, false, false);
             var el1 = new ElementModel { Class = "Autodesk.Revit.DB.LinePatternElement", Name = "Dash", Parameters = new List<ParameterModel> { p1 } };
@@ -89,8 +89,8 @@ namespace SyntheticTests.Modules.StandardsManagement
             var q1 = new QueueItemModel(el1, true, false);
             var q2 = new QueueItemModel(el2, true, false);
 
-            vm.ActionQueue.Add(q1);
-            vm.ActionQueue.Add(q2);
+            vm.StagingQueue.Add(q1);
+            vm.StagingQueue.Add(q2);
 
             // Act: Edit items to calculate intersection
             var itemsToEdit = new List<QueueItemModel> { q1, q2 };
@@ -126,11 +126,11 @@ namespace SyntheticTests.Modules.StandardsManagement
         }
 
         [Test]
-        public void CascadingRenameSafety_ShouldUpdateReferencesAcrossActionQueue()
+        public void CascadingRenameSafety_ShouldUpdateReferencesAcrossStagingQueue()
         {
             // Arrange
             var parent = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
-            var vm = parent.ActionQueueViewModel;
+            var vm = parent.StagingQueueViewModel;
 
             var materialModel = new ElementModel
             {
@@ -158,8 +158,8 @@ namespace SyntheticTests.Modules.StandardsManagement
             var qMaterial = new QueueItemModel(materialModel, true, false);
             var qWall = new QueueItemModel(wallModel, true, false);
 
-            vm.ActionQueue.Add(qMaterial);
-            vm.ActionQueue.Add(qWall);
+            vm.StagingQueue.Add(qMaterial);
+            vm.StagingQueue.Add(qWall);
 
             // Act: Edit Material item to start session
             vm.EditCommand.Execute(new List<QueueItemModel> { qMaterial });
@@ -181,8 +181,8 @@ namespace SyntheticTests.Modules.StandardsManagement
             var mat = new ElementModel { Class = "Autodesk.Revit.DB.Material", Name = "Brick" };
             var wall = new HostObjTypeModel { Class = "Autodesk.Revit.DB.WallType", Name = "Brick Wall" };
 
-            vm.ActionQueue.Add(new QueueItemModel(mat, true, false));
-            vm.ActionQueue.Add(new QueueItemModel(wall, true, false));
+            vm.StagingQueue.Add(new QueueItemModel(mat, true, false));
+            vm.StagingQueue.Add(new QueueItemModel(wall, true, false));
 
             // Act
             var pool = vm.AllWrappedElements.ToList();

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -11,6 +11,8 @@ using Synthetic.Shared.UI;
 using Synthetic.Modules.MergeDuplicates.Models;
 using Synthetic.Modules.StandardsManagement.Utilities;
 using Synthetic.Modules.StandardsManagement.Engine;
+using Synthetic.Modules.DiffEngine;
+using Autodesk.Revit.DB;
 
 namespace Synthetic.Modules.StandardsManagement.ViewModels
 {
@@ -18,12 +20,13 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
     /// ViewModel that manages the staging action queue collection, queue manipulation commands,
     /// and the staging elements editing/batch find-replace workflow.
     /// </summary>
-    public class ActionQueueViewModel : ViewModelBase
+    public class StagingQueueViewModel : ViewModelBase
     {
         private readonly ProjectStandardsDashboardViewModel _parent;
         private readonly IPocoIdentityService _pocoIdentityService;
+        private readonly IDiffEngine<IEnumerable<ObjectModel>, Document> _diffEngine;
 
-        private ObservableCollection<QueueItemModel> _actionQueue = new ObservableCollection<QueueItemModel>();
+        private ObservableCollection<QueueItemModel> _stagingQueue = new ObservableCollection<QueueItemModel>();
         private ObservableCollection<QueueItemModel> _selectedQueueItems = new ObservableCollection<QueueItemModel>();
         private ObservableCollection<ParameterWrapperVM> _displayParameters = new ObservableCollection<ParameterWrapperVM>();
         private ObservableCollection<DuplicateClusterModel> _activeDiffClusters = new ObservableCollection<DuplicateClusterModel>();
@@ -48,12 +51,12 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         /// <summary>
         /// Gets the staging action queue collection.
         /// </summary>
-        public ObservableCollection<QueueItemModel> ActionQueue => _actionQueue;
+        public ObservableCollection<QueueItemModel> StagingQueue => _stagingQueue;
 
         /// <summary>
         /// Gets the grouped collection view of the action queue.
         /// </summary>
-        public ICollectionView ActionQueueView { get; }
+        public ICollectionView StagingQueueView { get; }
 
         /// <summary>
         /// Gets the collection of staged elements currently selected for editing/diffing.
@@ -249,13 +252,14 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             }
         }
 
-        public ActionQueueViewModel(ProjectStandardsDashboardViewModel parent, IPocoIdentityService pocoIdentityService)
+        public StagingQueueViewModel(ProjectStandardsDashboardViewModel parent, IPocoIdentityService pocoIdentityService, IDiffEngine<IEnumerable<ObjectModel>, Document> diffEngine)
         {
             _parent = parent ?? throw new ArgumentNullException(nameof(parent));
             _pocoIdentityService = pocoIdentityService ?? throw new ArgumentNullException(nameof(pocoIdentityService));
+            _diffEngine = diffEngine ?? throw new ArgumentNullException(nameof(diffEngine));
 
-            ActionQueueView = CollectionViewSource.GetDefaultView(ActionQueue);
-            ActionQueueView.GroupDescriptions.Add(new PropertyGroupDescription(nameof(QueueItemModel.ClassName)));
+            StagingQueueView = CollectionViewSource.GetDefaultView(StagingQueue);
+            StagingQueueView.GroupDescriptions.Add(new PropertyGroupDescription(nameof(QueueItemModel.ClassName)));
 
             PushToQueueCommand = new RelayCommand(ExecutePushToQueue, CanExecuteActions);
             RemoveFromQueueCommand = new RelayCommand(ExecuteRemoveFromQueue, CanExecuteRemove);
@@ -269,7 +273,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         }
 
         private bool CanExecuteActions(object parameter) => _parent.SelectedSource != null;
-        private bool CanExecuteQueueActions(object parameter) => ActionQueue.Count > 0;
+        private bool CanExecuteQueueActions(object parameter) => StagingQueue.Count > 0;
 
         private void ExecutePushToQueue(object parameter)
         {
@@ -306,9 +310,9 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                 }
             }
 
-            // 2. Track already staged keys in ActionQueue to prevent duplicates
+            // 2. Track already staged keys in StagingQueue to prevent duplicates
             var existingKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var item in ActionQueue)
+            foreach (var item in StagingQueue)
             {
                 if (item.Model is ElementModel elem)
                 {
@@ -338,7 +342,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                     if (clonedPoco != null)
                     {
                         var queueItem = new QueueItemModel(clonedPoco, willEnforce, willSave);
-                        ActionQueue.Add(queueItem);
+                        StagingQueue.Add(queueItem);
                         
                         if (!string.IsNullOrEmpty(item.Element.UniqueId))
                         {
@@ -386,7 +390,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
 
                                 var queueItem = new QueueItemModel(clonedDep, willEnforce, willSave);
                                 queueItem.DependencyOrigin = parentName;
-                                ActionQueue.Add(queueItem);
+                                StagingQueue.Add(queueItem);
 
                                 if (!string.IsNullOrEmpty(sourcePoco.UniqueId))
                                 {
@@ -418,7 +422,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                 var itemsToRemove = list.Cast<QueueItemModel>().ToList();
                 foreach (var item in itemsToRemove)
                 {
-                    ActionQueue.Remove(item);
+                    StagingQueue.Remove(item);
                 }
             }
         }
@@ -514,7 +518,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                         // Purge consumed items
                         foreach (var np in nonPrimaries)
                         {
-                            ActionQueue.Remove(np);
+                            StagingQueue.Remove(np);
                         }
 
                         // Reset workspace back to idle post-merge to prevent ghost references
@@ -573,7 +577,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                     try
                     {
                         var elementPocos = SelectedQueueItems.Select(q => q.Model).OfType<ElementModel>().ToList();
-                        var clusters = StandardsDiffEngine.RunDeepScan(_parent.Document, elementPocos, _parent.SerializationEngine);
+                        var clusters = _diffEngine.Compare(elementPocos, _parent.Document);
 
                         ActiveDiffClusters.Clear();
                         foreach (var cluster in clusters)
@@ -650,7 +654,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             UpdateSelectedElementSubscription();
             RaiseIdentityHeaderStateChanged();
             CalculateParameterIntersection();
-            ActionQueueView?.Refresh();
+            StagingQueueView?.Refresh();
         }
 
         private void ExecuteApplyEdits(object parameter)

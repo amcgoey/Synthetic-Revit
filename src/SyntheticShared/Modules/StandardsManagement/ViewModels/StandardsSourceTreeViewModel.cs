@@ -515,26 +515,14 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         internal string GetRevitLocalFileSaveLocation()
         {
             string? fallbackPath = null;
-            if (_doc != null)
+            object? target = _doc ?? (object?)_uiapp;
+            
+            if (target != null)
             {
                 try
                 {
-                    var appProp = _doc.GetType().GetProperty("Application");
-                    var appObj = appProp?.GetValue(_doc);
-                    if (appObj != null)
-                    {
-                        var defaultPathProp = appObj.GetType().GetProperty("DefaultUserFilePath");
-                        fallbackPath = defaultPathProp?.GetValue(appObj) as string;
-                    }
-                }
-                catch (Exception) { }
-            }
-            else if (_uiapp != null)
-            {
-                try
-                {
-                    var appProp = _uiapp.GetType().GetProperty("Application");
-                    var appObj = appProp?.GetValue(_uiapp);
+                    var appProp = target.GetType().GetProperty("Application");
+                    var appObj = appProp?.GetValue(target);
                     if (appObj != null)
                     {
                         var defaultPathProp = appObj.GetType().GetProperty("DefaultUserFilePath");

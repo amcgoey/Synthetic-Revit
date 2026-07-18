@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
@@ -9,6 +9,7 @@ using Synthetic.Modules.StandardsManagement.Views;
 using Synthetic.Modules.StandardsManagement.Utilities;
 using Synthetic.Modules.RevitDOM;
 using Synthetic.Modules.StandardsManagement.Engine;
+using Synthetic.Modules.DiffEngine;
 
 namespace Synthetic.Modules.StandardsManagement.Commands
 {
@@ -48,6 +49,7 @@ namespace Synthetic.Modules.StandardsManagement.Commands
                 var serializationEngine = new StandardSerializationEngine();
                 var orchestrator = new StandardsExtractionOrchestrator(new RevitIdentityService(), serializationEngine);
                 var pocoIdentityService = new PocoIdentityService();
+                var diffEngine = new PocoToRevitDiffEngine(pocoIdentityService);
                 var pipeline = new StandardsExecutionPipeline(serializationEngine, exportService, new RevitFamilyEnforcer(serializationEngine));
 
                 var vm = new ProjectStandardsDashboardViewModel(
@@ -59,6 +61,7 @@ namespace Synthetic.Modules.StandardsManagement.Commands
                     findReplaceService,
                     orchestrator,
                     pocoIdentityService,
+                    diffEngine,
                     serializationEngine,
                     pipeline);
 

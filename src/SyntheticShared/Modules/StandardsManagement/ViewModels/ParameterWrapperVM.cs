@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -446,7 +446,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                         }
                     }
 
-                    foreach (var qItem in ProjectStandardsDashboardViewModel.Instance.ActionQueue)
+                    foreach (var qItem in ProjectStandardsDashboardViewModel.Instance.StagingQueue)
                     {
                         if (qItem.Model is ElementModel el && string.Equals(el.Class, targetClass, StringComparison.OrdinalIgnoreCase))
                         {

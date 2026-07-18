@@ -19,6 +19,7 @@ using Synthetic.Modules.RevitDOM;
 using Synthetic.Settings;
 using Synthetic.Infrastructure.Persistence;
 using Synthetic.Modules.StandardsManagement.Utilities;
+using Synthetic.Modules.DiffEngine;
 
 namespace Synthetic.Modules.StandardsManagement.ViewModels
 {
@@ -81,55 +82,55 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         public ExternalEvent? ExternalEvent => _externalEvent;
         public StandardsSettings? Settings => _settings;
         private readonly StandardsSourceTreeViewModel _sourceTreeViewModel;
-        private readonly ActionQueueViewModel _actionQueueViewModel;
-        public ActionQueueViewModel ActionQueueViewModel => _actionQueueViewModel;
-        private readonly StandardsExecutionViewModel _standardsExecutionViewModel;
-        public StandardsExecutionViewModel StandardsExecutionViewModel => _standardsExecutionViewModel;
+        private readonly StagingQueueViewModel _stagingQueueViewModel;
+        public StagingQueueViewModel StagingQueueViewModel => _stagingQueueViewModel;
+        private readonly StandardsExecutionPipelineViewModel _standardsExecutionViewModel;
+        public StandardsExecutionPipelineViewModel StandardsExecutionPipelineViewModel => _standardsExecutionViewModel;
 
         /// <summary>
         /// Gets the staging action queue collection.
         /// </summary>
-        public ObservableCollection<QueueItemModel> ActionQueue => _actionQueueViewModel.ActionQueue;
+        public ObservableCollection<QueueItemModel> StagingQueue => _stagingQueueViewModel.StagingQueue;
 
         /// <summary>
         /// Gets the grouped collection view of the action queue.
         /// </summary>
-        public ICollectionView ActionQueueView => _actionQueueViewModel.ActionQueueView;
+        public ICollectionView StagingQueueView => _stagingQueueViewModel.StagingQueueView;
 
         public static ProjectStandardsDashboardViewModel? Instance { get; set; }
-        public ObservableCollection<ParameterWrapperVM> DisplayParameters => _actionQueueViewModel.DisplayParameters;
+        public ObservableCollection<ParameterWrapperVM> DisplayParameters => _stagingQueueViewModel.DisplayParameters;
 
         /// <summary>
         /// Gets the single selected element wrapper when exactly one element is selected.
         /// </summary>
-        public ElementTypeWrapperVM? SelectedElement => _actionQueueViewModel.SelectedElement;
+        public ElementTypeWrapperVM? SelectedElement => _stagingQueueViewModel.SelectedElement;
 
         /// <summary>
         /// Gets whether exactly one element is currently selected.
         /// </summary>
-        public bool IsSingleElementSelected => _actionQueueViewModel.IsSingleElementSelected;
+        public bool IsSingleElementSelected => _stagingQueueViewModel.IsSingleElementSelected;
 
         /// <summary>
         /// Gets or sets the name of the selected element, or a count description if multiple elements are selected.
         /// </summary>
         public string SelectedNameOrCount
         {
-            get => _actionQueueViewModel.SelectedNameOrCount;
-            set => _actionQueueViewModel.SelectedNameOrCount = value;
+            get => _stagingQueueViewModel.SelectedNameOrCount;
+            set => _stagingQueueViewModel.SelectedNameOrCount = value;
         }
 
         /// <summary>
         /// Gets a comma-separated concatenated list of stripped classes for the selected elements.
         /// </summary>
-        public string SelectedDisplayClass => _actionQueueViewModel.SelectedDisplayClass;
+        public string SelectedDisplayClass => _stagingQueueViewModel.SelectedDisplayClass;
 
         /// <summary>
         /// Gets or sets the aliases string of the selected element, or &lt;Varies&gt; if multiple elements are selected.
         /// </summary>
         public string SelectedAliasesString
         {
-            get => _actionQueueViewModel.SelectedAliasesString;
-            set => _actionQueueViewModel.SelectedAliasesString = value;
+            get => _stagingQueueViewModel.SelectedAliasesString;
+            set => _stagingQueueViewModel.SelectedAliasesString = value;
         }
 
         private void RaiseIdentityHeaderStateChanged()
@@ -151,7 +152,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             get
             {
                 var list = new List<ElementTypeWrapperVM>();
-                foreach (var qItem in ActionQueue)
+                foreach (var qItem in StagingQueue)
                 {
                     list.Add(qItem.GetWrapper());
                 }
@@ -218,8 +219,8 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         /// </summary>
         public string FindText
         {
-            get => _actionQueueViewModel.FindText;
-            set => _actionQueueViewModel.FindText = value;
+            get => _stagingQueueViewModel.FindText;
+            set => _stagingQueueViewModel.FindText = value;
         }
 
         /// <summary>
@@ -227,8 +228,8 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         /// </summary>
         public string ReplaceText
         {
-            get => _actionQueueViewModel.ReplaceText;
-            set => _actionQueueViewModel.ReplaceText = value;
+            get => _stagingQueueViewModel.ReplaceText;
+            set => _stagingQueueViewModel.ReplaceText = value;
         }
 
         /// <summary>
@@ -236,8 +237,8 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         /// </summary>
         public SearchScope FindReplaceScope
         {
-            get => _actionQueueViewModel.FindReplaceScope;
-            set => _actionQueueViewModel.FindReplaceScope = value;
+            get => _stagingQueueViewModel.FindReplaceScope;
+            set => _stagingQueueViewModel.FindReplaceScope = value;
         }
 
         /// <summary>
@@ -250,24 +251,24 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         /// </summary>
         public string SelectedItemName
         {
-            get => _actionQueueViewModel.SelectedItemName;
-            set => _actionQueueViewModel.SelectedItemName = value;
+            get => _stagingQueueViewModel.SelectedItemName;
+            set => _stagingQueueViewModel.SelectedItemName = value;
         }
 
         /// <summary>
         /// Gets the error message of the currently selected queue item if it has an error.
         /// </summary>
-        public string? SelectedItemErrorMessage => _actionQueueViewModel.SelectedItemErrorMessage;
+        public string? SelectedItemErrorMessage => _stagingQueueViewModel.SelectedItemErrorMessage;
 
         /// <summary>
         /// Gets the collection of staged elements currently selected for editing/diffing.
         /// </summary>
-        public ObservableCollection<QueueItemModel> SelectedQueueItems => _actionQueueViewModel.SelectedQueueItems;
+        public ObservableCollection<QueueItemModel> SelectedQueueItems => _stagingQueueViewModel.SelectedQueueItems;
 
         /// <summary>
         /// Gets the collection of duplicate/diff clusters populated by the comparison engine.
         /// </summary>
-        public ObservableCollection<DuplicateClusterModel> ActiveDiffClusters => _actionQueueViewModel.ActiveDiffClusters;
+        public ObservableCollection<DuplicateClusterModel> ActiveDiffClusters => _stagingQueueViewModel.ActiveDiffClusters;
 
         /// <summary>
         /// Gets the combined list of results from the last Run Queue execution.
@@ -361,16 +362,16 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         public ICommand SaveCommand => _standardsExecutionViewModel.SaveCommand;
         public ICommand SaveAndEnforceCommand => _standardsExecutionViewModel.SaveAndEnforceCommand;
         public ICommand BrowseSavePathCommand => _standardsExecutionViewModel.BrowseSavePathCommand;
-        public ICommand PushToQueueCommand => _actionQueueViewModel.PushToQueueCommand;
-        public ICommand RemoveFromQueueCommand => _actionQueueViewModel.RemoveFromQueueCommand;
-        public ICommand MergeQueueCommand => _actionQueueViewModel.MergeQueueCommand;
-        public ICommand EditCommand => _actionQueueViewModel.EditCommand;
-        public ICommand DiffCommand => _actionQueueViewModel.DiffCommand;
+        public ICommand PushToQueueCommand => _stagingQueueViewModel.PushToQueueCommand;
+        public ICommand RemoveFromQueueCommand => _stagingQueueViewModel.RemoveFromQueueCommand;
+        public ICommand MergeQueueCommand => _stagingQueueViewModel.MergeQueueCommand;
+        public ICommand EditCommand => _stagingQueueViewModel.EditCommand;
+        public ICommand DiffCommand => _stagingQueueViewModel.DiffCommand;
         public ICommand RunQueueCommand => _standardsExecutionViewModel.RunQueueCommand;
-        public ICommand BatchFindReplaceCommand => _actionQueueViewModel.BatchFindReplaceCommand;
-        public ICommand ApplyEditsCommand => _actionQueueViewModel.ApplyEditsCommand;
-        public ICommand CancelEditsCommand => _actionQueueViewModel.CancelEditsCommand;
-        public ICommand ResolveConflictCommand => _actionQueueViewModel.ResolveConflictCommand;
+        public ICommand BatchFindReplaceCommand => _stagingQueueViewModel.BatchFindReplaceCommand;
+        public ICommand ApplyEditsCommand => _stagingQueueViewModel.ApplyEditsCommand;
+        public ICommand CancelEditsCommand => _stagingQueueViewModel.CancelEditsCommand;
+        public ICommand ResolveConflictCommand => _stagingQueueViewModel.ResolveConflictCommand;
         #endregion
 
         /// <summary>
@@ -385,6 +386,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             IFindReplaceService findReplaceService,
             IStandardsExtractionOrchestrator orchestrator,
             IPocoIdentityService pocoIdentityService,
+            IDiffEngine<IEnumerable<ObjectModel>, Document> diffEngine,
             IStandardSerializationEngine serializationEngine,
             IStandardsExecutionPipeline pipeline)
         {
@@ -419,33 +421,33 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                 }
             };
 
-            _actionQueueViewModel = new ActionQueueViewModel(this, _pocoIdentityService);
-            _actionQueueViewModel.PropertyChanged += (s, e) =>
+            _stagingQueueViewModel = new StagingQueueViewModel(this, _pocoIdentityService, diffEngine);
+            _stagingQueueViewModel.PropertyChanged += (s, e) =>
             {
-                if (e.PropertyName == nameof(ActionQueueViewModel.ActionQueue) ||
-                    e.PropertyName == nameof(ActionQueueViewModel.ActionQueueView) ||
-                    e.PropertyName == nameof(ActionQueueViewModel.SelectedQueueItems) ||
-                    e.PropertyName == nameof(ActionQueueViewModel.SelectedNameOrCount) ||
-                    e.PropertyName == nameof(ActionQueueViewModel.SelectedDisplayClass) ||
-                    e.PropertyName == nameof(ActionQueueViewModel.SelectedAliasesString) ||
-                    e.PropertyName == nameof(ActionQueueViewModel.SelectedElement) ||
-                    e.PropertyName == nameof(ActionQueueViewModel.IsSingleElementSelected) ||
-                    e.PropertyName == nameof(ActionQueueViewModel.SelectedItemErrorMessage))
+                if (e.PropertyName == nameof(StagingQueueViewModel.StagingQueue) ||
+                    e.PropertyName == nameof(StagingQueueViewModel.StagingQueueView) ||
+                    e.PropertyName == nameof(StagingQueueViewModel.SelectedQueueItems) ||
+                    e.PropertyName == nameof(StagingQueueViewModel.SelectedNameOrCount) ||
+                    e.PropertyName == nameof(StagingQueueViewModel.SelectedDisplayClass) ||
+                    e.PropertyName == nameof(StagingQueueViewModel.SelectedAliasesString) ||
+                    e.PropertyName == nameof(StagingQueueViewModel.SelectedElement) ||
+                    e.PropertyName == nameof(StagingQueueViewModel.IsSingleElementSelected) ||
+                    e.PropertyName == nameof(StagingQueueViewModel.SelectedItemErrorMessage))
                 {
                     OnPropertyChanged(e.PropertyName);
                 }
             };
 
-            _standardsExecutionViewModel = new StandardsExecutionViewModel(this);
+            _standardsExecutionViewModel = new StandardsExecutionPipelineViewModel(this, _pipeline);
             _standardsExecutionViewModel.PropertyChanged += (s, e) =>
             {
-                if (e.PropertyName == nameof(StandardsExecutionViewModel.UpdateFamilies) ||
-                    e.PropertyName == nameof(StandardsExecutionViewModel.ProcessNestedRecursive) ||
-                    e.PropertyName == nameof(StandardsExecutionViewModel.PurgeUnusedStyleTypes) ||
-                    e.PropertyName == nameof(StandardsExecutionViewModel.CategoryFilter) ||
-                    e.PropertyName == nameof(StandardsExecutionViewModel.AvailableCategoryFilters) ||
-                    e.PropertyName == nameof(StandardsExecutionViewModel.SaveFilePath) ||
-                    e.PropertyName == nameof(StandardsExecutionViewModel.IsSavePathActive))
+                if (e.PropertyName == nameof(StandardsExecutionPipelineViewModel.UpdateFamilies) ||
+                    e.PropertyName == nameof(StandardsExecutionPipelineViewModel.ProcessNestedRecursive) ||
+                    e.PropertyName == nameof(StandardsExecutionPipelineViewModel.PurgeUnusedStyleTypes) ||
+                    e.PropertyName == nameof(StandardsExecutionPipelineViewModel.CategoryFilter) ||
+                    e.PropertyName == nameof(StandardsExecutionPipelineViewModel.AvailableCategoryFilters) ||
+                    e.PropertyName == nameof(StandardsExecutionPipelineViewModel.SaveFilePath) ||
+                    e.PropertyName == nameof(StandardsExecutionPipelineViewModel.IsSavePathActive))
                 {
                     OnPropertyChanged(e.PropertyName);
                 }
@@ -500,50 +502,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             Initialize(settings);
         }
 
-        /// <summary>
-        /// Initializes a new instance of the <see cref="ProjectStandardsDashboardViewModel"/> class for live Revit environment (3-parameters).
-        /// </summary>
-        public ProjectStandardsDashboardViewModel(
-            UIApplication uiapp, 
-            IFileDialogService dialogService, 
-            IStandardsExportService? exportService = null)
-            : this(uiapp, dialogService, exportService, null)
-        {
-        }
 
-        /// <summary>
-        /// Initializes a new instance of the <see cref="ProjectStandardsDashboardViewModel"/> class for live Revit environment (4-parameters).
-        /// </summary>
-        public ProjectStandardsDashboardViewModel(
-            UIApplication uiapp, 
-            IFileDialogService dialogService, 
-            IStandardsExportService? exportService, 
-            StandardsSettings? settings)
-            : this(
-                uiapp,
-                dialogService,
-                exportService ?? new StandardsExportService(new WindowsGuardrailPromptService(), dialogService),
-                settings,
-                new WindowsUserPromptService(),
-                new FindReplaceService(),
-                new StandardsExtractionOrchestrator(new RevitIdentityService(), new StandardSerializationEngine()),
-                new PocoIdentityService(),
-                new StandardSerializationEngine(),
-                new StandardsExecutionPipeline(new StandardSerializationEngine(), exportService ?? new StandardsExportService(new WindowsGuardrailPromptService(), dialogService), new RevitFamilyEnforcer(new StandardSerializationEngine())))
-        {
-        }
-
-        /// <summary>
-        /// Compatibility constructor that adapts a legacy <see cref="IGuardrailPromptService"/> to the new export service.
-        /// </summary>
-        public ProjectStandardsDashboardViewModel(
-            UIApplication uiapp, 
-            IFileDialogService dialogService, 
-            IGuardrailPromptService? guardrailService, 
-            StandardsSettings? settings = null)
-            : this(uiapp, dialogService, new StandardsExportService(guardrailService ?? new WindowsGuardrailPromptService(), dialogService), settings)
-        {
-        }
 
         /// <summary>
         /// Initializes a new instance of the <see cref="ProjectStandardsDashboardViewModel"/> class for headless testing.
@@ -557,6 +516,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             IFindReplaceService findReplaceService,
             IStandardsExtractionOrchestrator orchestrator,
             IPocoIdentityService pocoIdentityService,
+            IDiffEngine<IEnumerable<ObjectModel>, Document> diffEngine,
             IStandardSerializationEngine serializationEngine,
             IStandardsExecutionPipeline pipeline)
         {
@@ -590,33 +550,33 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                 }
             };
 
-            _actionQueueViewModel = new ActionQueueViewModel(this, _pocoIdentityService);
-            _actionQueueViewModel.PropertyChanged += (s, e) =>
+            _stagingQueueViewModel = new StagingQueueViewModel(this, _pocoIdentityService, diffEngine);
+            _stagingQueueViewModel.PropertyChanged += (s, e) =>
             {
-                if (e.PropertyName == nameof(ActionQueueViewModel.ActionQueue) ||
-                    e.PropertyName == nameof(ActionQueueViewModel.ActionQueueView) ||
-                    e.PropertyName == nameof(ActionQueueViewModel.SelectedQueueItems) ||
-                    e.PropertyName == nameof(ActionQueueViewModel.SelectedNameOrCount) ||
-                    e.PropertyName == nameof(ActionQueueViewModel.SelectedDisplayClass) ||
-                    e.PropertyName == nameof(ActionQueueViewModel.SelectedAliasesString) ||
-                    e.PropertyName == nameof(ActionQueueViewModel.SelectedElement) ||
-                    e.PropertyName == nameof(ActionQueueViewModel.IsSingleElementSelected) ||
-                    e.PropertyName == nameof(ActionQueueViewModel.SelectedItemErrorMessage))
+                if (e.PropertyName == nameof(StagingQueueViewModel.StagingQueue) ||
+                    e.PropertyName == nameof(StagingQueueViewModel.StagingQueueView) ||
+                    e.PropertyName == nameof(StagingQueueViewModel.SelectedQueueItems) ||
+                    e.PropertyName == nameof(StagingQueueViewModel.SelectedNameOrCount) ||
+                    e.PropertyName == nameof(StagingQueueViewModel.SelectedDisplayClass) ||
+                    e.PropertyName == nameof(StagingQueueViewModel.SelectedAliasesString) ||
+                    e.PropertyName == nameof(StagingQueueViewModel.SelectedElement) ||
+                    e.PropertyName == nameof(StagingQueueViewModel.IsSingleElementSelected) ||
+                    e.PropertyName == nameof(StagingQueueViewModel.SelectedItemErrorMessage))
                 {
                     OnPropertyChanged(e.PropertyName);
                 }
             };
 
-            _standardsExecutionViewModel = new StandardsExecutionViewModel(this);
+            _standardsExecutionViewModel = new StandardsExecutionPipelineViewModel(this, _pipeline);
             _standardsExecutionViewModel.PropertyChanged += (s, e) =>
             {
-                if (e.PropertyName == nameof(StandardsExecutionViewModel.UpdateFamilies) ||
-                    e.PropertyName == nameof(StandardsExecutionViewModel.ProcessNestedRecursive) ||
-                    e.PropertyName == nameof(StandardsExecutionViewModel.PurgeUnusedStyleTypes) ||
-                    e.PropertyName == nameof(StandardsExecutionViewModel.CategoryFilter) ||
-                    e.PropertyName == nameof(StandardsExecutionViewModel.AvailableCategoryFilters) ||
-                    e.PropertyName == nameof(StandardsExecutionViewModel.SaveFilePath) ||
-                    e.PropertyName == nameof(StandardsExecutionViewModel.IsSavePathActive))
+                if (e.PropertyName == nameof(StandardsExecutionPipelineViewModel.UpdateFamilies) ||
+                    e.PropertyName == nameof(StandardsExecutionPipelineViewModel.ProcessNestedRecursive) ||
+                    e.PropertyName == nameof(StandardsExecutionPipelineViewModel.PurgeUnusedStyleTypes) ||
+                    e.PropertyName == nameof(StandardsExecutionPipelineViewModel.CategoryFilter) ||
+                    e.PropertyName == nameof(StandardsExecutionPipelineViewModel.AvailableCategoryFilters) ||
+                    e.PropertyName == nameof(StandardsExecutionPipelineViewModel.SaveFilePath) ||
+                    e.PropertyName == nameof(StandardsExecutionPipelineViewModel.IsSavePathActive))
                 {
                     OnPropertyChanged(e.PropertyName);
                 }
@@ -642,42 +602,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             Initialize(settings);
         }
 
-        /// <summary>
-        /// Compatibility constructor for headless testing that handles 2 to 7 parameters using optional defaults.
-        /// </summary>
-        public ProjectStandardsDashboardViewModel(
-            Document doc, 
-            IFileDialogService dialogService, 
-            IStandardsExportService? exportService = null, 
-            StandardsSettings? settings = null,
-            IUserPromptService? userPromptService = null,
-            IFindReplaceService? findReplaceService = null,
-            IStandardsExtractionOrchestrator? orchestrator = null)
-            : this(
-                doc,
-                dialogService,
-                exportService ?? new StandardsExportService(new WindowsGuardrailPromptService(), dialogService),
-                settings,
-                userPromptService ?? new WindowsUserPromptService(),
-                findReplaceService ?? new FindReplaceService(),
-                orchestrator ?? new StandardsExtractionOrchestrator(new RevitIdentityService(), new StandardSerializationEngine()),
-                new PocoIdentityService(),
-                new StandardSerializationEngine(),
-                new StandardsExecutionPipeline(new StandardSerializationEngine(), exportService ?? new StandardsExportService(new WindowsGuardrailPromptService(), dialogService), new RevitFamilyEnforcer(new StandardSerializationEngine())))
-        {
-        }
 
-        /// <summary>
-        /// Compatibility constructor that adapts a legacy <see cref="IGuardrailPromptService"/> to the new export service.
-        /// </summary>
-        public ProjectStandardsDashboardViewModel(
-            Document doc, 
-            IFileDialogService dialogService, 
-            IGuardrailPromptService? guardrailService, 
-            StandardsSettings? settings = null)
-            : this(doc, dialogService, new StandardsExportService(guardrailService ?? new WindowsGuardrailPromptService(), dialogService), settings)
-        {
-        }
 
 
 
@@ -809,7 +734,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
 
         private bool CanExecuteActions(object parameter) => SelectedSource != null;
 
-        private bool CanExecuteQueueActions(object parameter) => ActionQueue.Count > 0;
+        private bool CanExecuteQueueActions(object parameter) => StagingQueue.Count > 0;
 
 
 
@@ -825,7 +750,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                 nameAndAliases.AddRange(oldEl.Aliases);
             }
 
-            foreach (var qItem in ActionQueue)
+            foreach (var qItem in StagingQueue)
             {
                 var el = qItem.TargetModel;
                 if (el == oldElement) continue;
@@ -931,7 +856,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                 }
             }
 
-            foreach (var qItem in ActionQueue)
+            foreach (var qItem in StagingQueue)
             {
                 var el = qItem.TargetModel;
                 if (oldElements.Contains(qItem)) continue;

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -85,17 +85,17 @@ namespace SyntheticTests.Modules.StandardsManagement
             // Explicitly check ONLY the WallType
             wallNode.IsChecked = true;
 
-            var queueVM = new ActionQueueViewModel(parent, new PocoIdentityService());
+            var queueVM = new StagingQueueViewModel(parent, new PocoIdentityService());
 
             // Act
             queueVM.PushToQueueCommand.Execute("Save");
 
             // Assert
             // The queue should have WallA (explicitly checked) and MaterialA (harvested)
-            Assert.AreEqual(2, queueVM.ActionQueue.Count, "Queue should contain both the WallType and its harvested Material dependency.");
+            Assert.AreEqual(2, queueVM.StagingQueue.Count, "Queue should contain both the WallType and its harvested Material dependency.");
 
-            var wallQueueItem = queueVM.ActionQueue.FirstOrDefault(q => q.Name == "WallA");
-            var matQueueItem = queueVM.ActionQueue.FirstOrDefault(q => q.Name == "MaterialA");
+            var wallQueueItem = queueVM.StagingQueue.FirstOrDefault(q => q.Name == "WallA");
+            var matQueueItem = queueVM.StagingQueue.FirstOrDefault(q => q.Name == "MaterialA");
 
             Assert.IsNotNull(wallQueueItem, "WallA queue item should exist.");
             Assert.IsNotNull(matQueueItem, "MaterialA queue item should exist.");
