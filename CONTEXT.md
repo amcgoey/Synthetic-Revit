@@ -27,6 +27,22 @@ _Avoid_: Error log, dump file
 Memory utilization metrics periodically logged in the journal showing system InUse and Peak RAM footprints.
 _Avoid_: Memory stats, RAM info
 
+**Serialization Engine**:
+The core component responsible for extracting Revit elements and categories into standard templates, analyzing differences against live models, and writing templates back to the Revit database.
+_Avoid_: Translator manager, DOM converter
+
+**Standards Extraction**:
+The process of recursively scanning a Revit document to harvest BIM standards and their nested dependencies.
+_Avoid_: Standard harvesting, recursive exporter
+
+**Progress State**:
+A generic telemetry model that holds current progress bounds, task descriptions, and state flags, enabling UI-independent progress reporting.
+_Avoid_: Progress wrapper, UI indicator
+
+**Standards Execution Pipeline**:
+The deep orchestration engine responsible for executing BIM standards updates, coordinating Revit database writes, family editing cycles, file exports, and logging.
+_Avoid_: Execution VM, queue runner
+
 **Standards Merge**:
 The process of combining existing standard elements with newly extracted standard elements prior to export or update operations.
 

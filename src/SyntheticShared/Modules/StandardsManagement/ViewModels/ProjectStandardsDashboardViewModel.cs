@@ -68,6 +68,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         private readonly IStandardsExtractionOrchestrator _orchestrator;
         private readonly IPocoIdentityService _pocoIdentityService;
         private readonly IStandardSerializationEngine _serializationEngine;
+        private readonly IStandardsExecutionPipeline _pipeline;
         public ISummaryDisplayService SummaryDisplayService { get; set; }
         private StandardsSettings? _settings;
         private ExternalEvent? _externalEvent;
@@ -601,7 +602,8 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             IFindReplaceService? findReplaceService = null,
             IStandardsExtractionOrchestrator? orchestrator = null,
             IPocoIdentityService? pocoIdentityService = null,
-            IStandardSerializationEngine? serializationEngine = null)
+            IStandardSerializationEngine? serializationEngine = null,
+            IStandardsExecutionPipeline? pipeline = null)
         {
             _uiapp = uiapp;
             _doc = uiapp.ActiveUIDocument?.Document;
@@ -612,6 +614,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             _orchestrator = orchestrator ?? new StandardsExtractionOrchestrator(new RevitIdentityService());
             _pocoIdentityService = pocoIdentityService ?? new PocoIdentityService();
             _serializationEngine = serializationEngine ?? new StandardSerializationEngine();
+            _pipeline = pipeline ?? new StandardsExecutionPipeline(_serializationEngine, _exportService);
             SummaryDisplayService = new WindowsSummaryDisplayService();
             Instance = this;
 
@@ -705,7 +708,8 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             IFindReplaceService? findReplaceService = null,
             IStandardsExtractionOrchestrator? orchestrator = null,
             IPocoIdentityService? pocoIdentityService = null,
-            IStandardSerializationEngine? serializationEngine = null)
+            IStandardSerializationEngine? serializationEngine = null,
+            IStandardsExecutionPipeline? pipeline = null)
         {
             _doc = doc;
             _dialogService = dialogService;
@@ -715,6 +719,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             _orchestrator = orchestrator ?? new StandardsExtractionOrchestrator(new RevitIdentityService());
             _pocoIdentityService = pocoIdentityService ?? new PocoIdentityService();
             _serializationEngine = serializationEngine ?? new StandardSerializationEngine();
+            _pipeline = pipeline ?? new StandardsExecutionPipeline(_serializationEngine, _exportService);
             SummaryDisplayService = new NoOpSummaryDisplayService();
             Instance = this;
 
@@ -1600,109 +1605,77 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             if (_doc == null) return;
 
             LastExecutionResults.Clear();
+
+            // Map staging queue items
+            var pipelineItems = ActionQueue.Select(item => new StandardsExecutionItem(item.Model)
+            {
+                WillEnforce = item.WillEnforce,
+                WillSave = item.WillSave
+            }).ToList();
+
+            // Determine target path
             string? targetPath = null;
-            bool dbPhaseSucceeded = true;
-
-            // Phase 1: Revit Database writes (Revit-First)
-            var dbItems = ActionQueue.Where(item => item.WillEnforce).ToList();
-
-            var dbResults = new List<SerializationResultModel>();
-
-            if (dbItems.Count > 0)
+            if (!string.IsNullOrEmpty(SaveFilePath))
             {
-                try
+                targetPath = SaveFilePath;
+            }
+            else if (SelectedSource != null && !SelectedSource.IsRevitSource && !string.IsNullOrEmpty(SelectedSource.SourcePath))
+            {
+                targetPath = SelectedSource.SourcePath;
+            }
+            else
+            {
+                string? projectSettingsPath = GetProjectSettingsPath();
+                if (!string.IsNullOrEmpty(projectSettingsPath))
                 {
-                    dbResults = RunRevitDbPhase(dbItems);
-                    foreach (var result in dbResults)
-                    {
-                        result.OperationTarget = "Database";
-                    }
-                    LastExecutionResults.AddRange(dbResults);
-                }
-                catch (OperationCanceledException)
-                {
-                    dbPhaseSucceeded = false;
-                    foreach (var item in dbItems)
-                    {
-                        var result = new SerializationResultModel(item.Model, "Execution cancelled by user.");
-                        result.OperationTarget = "Database";
-                        LastExecutionResults.Add(result);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    // Headless test runs may throw exceptions due to missing TransactionGroup.
-                    // We log this but do NOT set dbPhaseSucceeded = false to allow Phase 2 (File Save) to proceed.
-                    Console.WriteLine($"Revit DB Phase execution skipped or failed: {ex.Message}");
-                    foreach (var item in dbItems)
-                    {
-                        var result = new SerializationResultModel(item.Model, $"Database Write Failed: {ex.Message}", ex);
-                        result.OperationTarget = "Database";
-                        LastExecutionResults.Add(result);
-                    }
+                    targetPath = projectSettingsPath;
                 }
             }
 
-            // Phase 2: File I/O (File-Second)
-            if (dbPhaseSucceeded)
+            // Initialize options
+            var options = new StandardsExecutionOptions
             {
-                var fileItems = ActionQueue.Where(item => item.WillSave).ToList();
+                ProcessFamilies = UpdateFamilies,
+                CategoryFilter = CategoryFilter,
+                PurgeUnusedStyleTypes = PurgeUnusedStyleTypes,
+                StandardsFilePath = targetPath ?? string.Empty,
+                WriteRevitDatabase = ActionQueue.Any(i => i.WillEnforce),
+                SaveLocalFiles = ActionQueue.Any(i => i.WillSave),
+                UseTransactionGroup = true,
+                ProtectedPaths = GetProtectedPaths().ToList()
+            };
 
-                if (fileItems.Count > 0)
-                {
-                    if (!string.IsNullOrEmpty(SaveFilePath))
-                    {
-                        targetPath = SaveFilePath;
-                    }
-                    else if (SelectedSource != null && !SelectedSource.IsRevitSource && !string.IsNullOrEmpty(SelectedSource.SourcePath))
-                    {
-                        targetPath = SelectedSource.SourcePath;
-                    }
-                    else
-                    {
-                        string? projectSettingsPath = GetProjectSettingsPath();
-                        if (!string.IsNullOrEmpty(projectSettingsPath))
-                        {
-                            targetPath = projectSettingsPath;
-                        }
-                    }
+            // Invoke the pipeline
+            var progressReporter = ProgressCoordinator.AsProgressReporter();
+            var result = _pipeline.Execute(_doc, pipelineItems, options, progressReporter, ProgressCoordinator.Token);
 
-                    var fileResults = _exportService.Export(
-                        fileItems,
-                        targetPath,
-                        dbResults,
-                        GetProtectedPaths(),
-                        out string? finalPathUsed);
-
-                    targetPath = finalPathUsed;
-                    LastExecutionResults.AddRange(fileResults);
-                }
-            }
+            // Populate LastExecutionResults
+            LastExecutionResults.AddRange(result.RawResults);
 
             // Build summary tracker log items from LastExecutionResults
             var tracker = new ObservableCollection<ImportLogItem>();
-            foreach (var result in LastExecutionResults)
+            foreach (var res in LastExecutionResults)
             {
-                var model = result.Model;
+                var model = res.Model;
                 string action = "Updated";
-                if (!result.Success)
+                if (!res.Success)
                 {
-                    if (result.Action == "Alias Swap Failed")
+                    if (res.Action == "Alias Swap Failed")
                     {
                         action = "Alias Fail";
                     }
                     else
                     {
-                        action = result.OperationTarget == "File" ? "Save Failed" : "Failed";
+                        action = res.OperationTarget == "File" ? "Save Failed" : "Failed";
                     }
                 }
                 else
                 {
-                    if (!string.IsNullOrEmpty(result.Action))
+                    if (!string.IsNullOrEmpty(res.Action))
                     {
-                        action = result.Action;
+                        action = res.Action;
                     }
-                    else if (result.OperationTarget == "File")
+                    else if (res.OperationTarget == "File")
                     {
                         action = "Saved";
                     }
@@ -1728,14 +1701,14 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                     className = className.Split('.').Last();
                 }
 
-                string message = result.Success ? "Operation completed successfully." : (result.ErrorMessage ?? "Unknown error occurred.");
-                if (!string.IsNullOrEmpty(result.Message))
+                string message = res.Success ? "Operation completed successfully." : (res.ErrorMessage ?? "Unknown error occurred.");
+                if (!string.IsNullOrEmpty(res.Message))
                 {
-                    message = result.Message;
+                    message = res.Message;
                 }
-                if (result.Warnings != null && result.Warnings.Count > 0)
+                if (res.Warnings != null && res.Warnings.Count > 0)
                 {
-                    message += " Warnings: " + string.Join(", ", result.Warnings);
+                    message += " Warnings: " + string.Join(", ", res.Warnings);
                 }
 
                 tracker.Add(new ImportLogItem
@@ -1745,22 +1718,6 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                     ElementName = name,
                     Message = message
                 });
-            }
-
-            // Automatically write Markdown log file next to the saved standard JSON file (if one was written)
-            if (!string.IsNullOrEmpty(targetPath) && File.Exists(targetPath))
-            {
-                try
-                {
-                    string logPath = Path.ChangeExtension(targetPath, ".log.md");
-                    var summaryVMForFile = new ImportSummaryViewModel(tracker, _dialogService);
-                    string markdown = summaryVMForFile.GenerateMarkdown();
-                    File.WriteAllText(logPath, markdown);
-                }
-                catch (Exception logEx)
-                {
-                    Console.WriteLine($"Error writing automatic Markdown log next to target path: {logEx.Message}");
-                }
             }
 
             Action updateUI = () =>
@@ -1858,278 +1815,6 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             return protectedPaths;
         }
 
-        private List<SerializationResultModel> RunRevitDbPhase(List<QueueItemModel> dbItems)
-        {
-            var dbResults = new List<SerializationResultModel>();
-            if (_doc == null) return dbResults;
-
-            int totalWorkItems = dbItems.Count;
-            ProgressCoordinator.Initialize("Consolidate Project Standards", "Starting standard injection...", totalWorkItems);
-
-            using (var txGroup = new TransactionGroup(_doc, "Consolidate Project Standards"))
-            {
-                txGroup.Start();
-                try
-                {
-                    if (dbItems.Count > 0)
-                    {
-                        var elementPocos = dbItems.Select(q => q.Model).OfType<ObjectModel>().ToList();
-                        var engine = _serializationEngine;
-                        var results = engine.ToRevit(elementPocos, _doc, null, ProgressCoordinator.Token).ToList();
-                        dbResults.AddRange(results);
-                    }
-
-                    if (UpdateFamilies)
-                    {
-                        var elementPocos = dbItems.Select(q => q.Model).OfType<ElementModel>().ToList();
-                        ProcessFamilyUpdates(elementPocos);
-                    }
-
-                    txGroup.Assimilate();
-                }
-                catch (Exception)
-                {
-                    txGroup.RollBack();
-                    throw;
-                }
-                finally
-                {
-                    ProgressCoordinator.Close();
-                }
-            }
-            return dbResults;
-        }
-
-        private void ProcessFamilyUpdates(List<ElementModel> standards)
-        {
-            if (_doc == null || !UpdateFamilies) return;
-
-            if (ProgressCoordinator.IsCancelled())
-            {
-                throw new OperationCanceledException();
-            }
-
-            ProgressCoordinator.UpdateStatus("Collecting families to update...");
-
-            IList<Family> allFamilies = new FilteredElementCollector(_doc)
-                .OfClass(typeof(Family))
-                .Cast<Family>()
-                .ToList();
-
-            List<Family> familiesToProcess = new List<Family>();
-            foreach (Family family in allFamilies)
-            {
-                if (family.IsEditable)
-                {
-                    if (CategoryFilter == "Annotations Only" && (family.FamilyCategory == null || family.FamilyCategory.CategoryType != CategoryType.Annotation))
-                        continue;
-#if REVIT2022 || REVIT2023
-                    if (CategoryFilter == "Title Blocks Only" && (family.FamilyCategory == null || family.FamilyCategory.Id.IntegerValue != (int)BuiltInCategory.OST_TitleBlocks))
-#else
-                    if (CategoryFilter == "Title Blocks Only" && (family.FamilyCategory == null || family.FamilyCategory.Id.Value != (long)BuiltInCategory.OST_TitleBlocks))
-#endif
-                        continue;
-
-                    familiesToProcess.Add(family);
-                }
-            }
-
-            if (ProgressCoordinator.IsCancelled())
-            {
-                throw new OperationCanceledException();
-            }
-
-            if (_doc.IsWorkshared && familiesToProcess.Count > 0)
-            {
-                ProgressCoordinator.UpdateStatus("Checking out family worksets...");
-                List<WorksetId> worksetIds = familiesToProcess
-                    .Select(f => f.WorksetId)
-                    .Distinct()
-                    .Where(id => id != WorksetId.InvalidWorksetId)
-                    .ToList();
-
-                if (worksetIds.Count > 0)
-                {
-                    WorksharingUtils.CheckoutWorksets(_doc, worksetIds);
-                }
-            }
-
-            List<string> familyNamesToProcess = familiesToProcess
-                .Select(f => f.Name)
-                .Distinct()
-                .ToList();
-
-            int familyIndex = 0;
-            foreach (string familyName in familyNamesToProcess)
-            {
-                if (ProgressCoordinator.IsCancelled())
-                {
-                    throw new OperationCanceledException();
-                }
-
-                familyIndex++;
-                ProgressCoordinator.UpdateStatus($"Updating family {familyIndex} of {familyNamesToProcess.Count}: {familyName}...");
-
-                Family? family = new FilteredElementCollector(_doc)
-                    .OfClass(typeof(Family))
-                    .Cast<Family>()
-                    .FirstOrDefault(f => f.Name == familyName);
-
-                if (family != null && family.IsValidObject)
-                {
-                    UpdateFamilyRecursively(_doc, family, standards);
-                }
-            }
-        }
-
-        private void UpdateFamilyRecursively(Document parentDoc, Family family, IEnumerable<ElementModel> standards)
-        {
-            if (ProgressCoordinator.IsCancelled())
-            {
-                throw new OperationCanceledException();
-            }
-            if (family == null || !family.IsEditable) return;
-
-            Document? familyDoc = null;
-            try
-            {
-                familyDoc = parentDoc.EditFamily(family);
-            }
-            catch (Exception)
-            {
-                return;
-            }
-
-            if (familyDoc == null) return;
-
-            parentDoc.Application.FailuresProcessing += ResolveWarnings;
-
-            try
-            {
-                if (ProcessNestedRecursive)
-                {
-                    if (ProgressCoordinator.IsCancelled())
-                    {
-                        throw new OperationCanceledException();
-                    }
-                    IList<Family> nestedFamilies = new FilteredElementCollector(familyDoc)
-                        .OfClass(typeof(Family))
-                        .Cast<Family>()
-                        .ToList();
-
-                    var nestedFamiliesInfo = nestedFamilies
-                        .Select(nf => new { Id = nf.Id, Name = nf.Name, IsEditable = nf.IsEditable })
-                        .ToList();
-
-                    foreach (var nfInfo in nestedFamiliesInfo)
-                    {
-                        if (ProgressCoordinator.IsCancelled())
-                        {
-                            throw new OperationCanceledException();
-                        }
-                        if (nfInfo.IsEditable)
-                        {
-                            Family? freshNestedFamily = new FilteredElementCollector(familyDoc)
-                                .OfClass(typeof(Family))
-                                .Cast<Family>()
-                                .FirstOrDefault(nf => nf.Name == nfInfo.Name);
-                            if (freshNestedFamily != null && freshNestedFamily.IsValidObject)
-                            {
-                                UpdateFamilyRecursively(familyDoc, freshNestedFamily, standards);
-                            }
-                        }
-                    }
-                }
-
-                if (ProgressCoordinator.IsCancelled())
-                {
-                    throw new OperationCanceledException();
-                }
-
-                foreach (ElementModel serialElement in standards)
-                {
-                    if (serialElement is ElementTypeModel etModel)
-                    {
-                        etModel.ElementType = null;
-                    }
-                    serialElement.Element = null;
-                    serialElement.Document = null;
-                }
-
-                var familyStandards = standards.Where(s =>
-                {
-                    if (s is MaterialModel) return true;
-                    if (s is ElementTypeModel etModel)
-                    {
-                        if (familyDoc.IsFamilyDocument && etModel.Class == "Autodesk.Revit.DB.SpotDimensionType")
-                        {
-                            return false;
-                        }
-                        return true;
-                    }
-                    return false;
-                }).ToList();
-
-                var engine = _serializationEngine;
-                engine.ToRevit(familyStandards, familyDoc, null, ProgressCoordinator.Token);
-
-                if (PurgeUnusedStyleTypes)
-                {
-                    if (ProgressCoordinator.IsCancelled())
-                    {
-                        throw new OperationCanceledException();
-                    }
-                    try
-                    {
-#if !REVIT2022
-                        DocumentUtil.Purge(parentDoc.Application, familyDoc);
-#endif
-                    }
-                    catch (Exception)
-                    {
-                    }
-                }
-
-                try
-                {
-                    Synthetic.Shared.RevitAPI.FamilyUtil.SetIsChanged(parentDoc, familyDoc);
-                }
-                catch (Exception)
-                {
-                }
-
-                familyDoc.LoadFamily(parentDoc, new ImportFamilyLoadOptions());
-            }
-            finally
-            {
-                parentDoc.Application.FailuresProcessing -= ResolveWarnings;
-                try
-                {
-                    familyDoc.Close(false);
-                }
-                catch (Exception)
-                {
-                }
-            }
-        }
-
-        private static void ResolveWarnings(object? sender, Autodesk.Revit.DB.Events.FailuresProcessingEventArgs e)
-        {
-            FailuresAccessor fa = e.GetFailuresAccessor();
-            IList<FailureMessageAccessor> failList = fa.GetFailureMessages();
-
-            if (failList.Count == 0)
-            {
-                e.SetProcessingResult(FailureProcessingResult.Continue);
-                return;
-            }
-
-            foreach (FailureMessageAccessor failure in failList)
-            {
-                fa.DeleteWarning(failure);
-            }
-            e.SetProcessingResult(FailureProcessingResult.ProceedWithCommit);
-        }
 
         private string? GetProjectSettingsPath()
         {
@@ -2671,22 +2356,6 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             }
         }
 
-        // Dedicated load options class to overwrite parameters and family definitions
-        private class ImportFamilyLoadOptions : IFamilyLoadOptions
-        {
-            public bool OnFamilyFound(bool familyInUse, out bool overwriteParameterValues)
-            {
-                overwriteParameterValues = true;
-                return true;
-            }
-
-            public bool OnSharedFamilyFound(Family sharedFamily, bool familyInUse, out FamilySource source, out bool overwriteParameterValues)
-            {
-                source = FamilySource.Family;
-                overwriteParameterValues = true;
-                return true;
-            }
-        }
     }
 
     /// <summary>

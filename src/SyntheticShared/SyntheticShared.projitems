@@ -133,6 +133,8 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Engine\StandardsDiffEngine.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Engine\IStandardsExtractionOrchestrator.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Engine\StandardsExtractionOrchestrator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Engine\IStandardsExecutionPipeline.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Engine\StandardsExecutionPipeline.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Shared\RevitAPI\StorageUtil.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\FamilyManagement\Utilities\SafeFamilyLoadOptions.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\FamilyManagement\Utilities\PurgeFailuresPreprocessor.cs" />
@@ -152,6 +154,9 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ObjectModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\Worksets\Models\WorksetModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Models\ImportLogItem.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Models\StandardsExecutionItem.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Models\StandardsExecutionOptions.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Models\StandardsExecutionResult.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Models\DuplicateItemModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Models\DuplicateClusterModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Models\DuplicateTypeModel.cs" />
@@ -213,6 +218,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Views\ImportSummaryWindow.xaml.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Shared\UI\SharedProgressWindow.xaml.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Shared\UI\ProgressCoordinator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Shared\UI\ProgressState.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\ViewModels\MergeDetailedReviewViewModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Views\MergeDetailedReviewWindow.xaml.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Handlers\ProcessMergeEventHandler.cs" />
@@ -259,6 +265,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Utilities\IStandardsExportService.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Utilities\FindReplaceService.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Utilities\IFindReplaceService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Utilities\StandardsReportGenerator.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\ProjectStandardsDashboardViewModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Views\ProjectStandardsDashboardWindow.xaml.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\QueueItemModel.cs" />

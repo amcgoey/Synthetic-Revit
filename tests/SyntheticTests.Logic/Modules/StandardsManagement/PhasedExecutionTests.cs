@@ -59,7 +59,6 @@ namespace SyntheticTests.Modules.StandardsManagement
 
             // Act
             vm.RunQueueCommand.Execute(null!);
-
             // Assert: valid element was processed, invalid failed and was stripped
             Assert.AreEqual(3, vm.LastExecutionResults.Count, "Should have 3 execution results logged (2 from Phase 1, 1 from Phase 2).");
             

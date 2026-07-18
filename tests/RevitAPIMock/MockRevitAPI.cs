@@ -213,9 +213,9 @@ namespace Autodesk.Revit.DB
             return familyDoc;
         }
 
-        public bool LoadFamily(Document targetDocument, IFamilyLoadOptions familyLoadOptions)
+        public Family LoadFamily(Document targetDocument, IFamilyLoadOptions familyLoadOptions)
         {
-            return true;
+            return new Family();
         }
 
         public bool Close(bool saveChanges)
@@ -854,7 +854,6 @@ namespace Autodesk.Revit.DB
 
     public class Family : Element
     {
-        public string Name { get; set; } = string.Empty;
         public bool IsEditable { get; set; } = true;
         public Category? FamilyCategory { get; set; }
         public WorksetId WorksetId { get; set; } = WorksetId.InvalidWorksetId;
@@ -863,7 +862,7 @@ namespace Autodesk.Revit.DB
 
     public static class WorksharingUtils
     {
-        public static System.Collections.Generic.IList<WorksetId> CheckoutWorksets(Document doc, System.Collections.Generic.ICollection<WorksetId> worksetIds)
+        public static System.Collections.Generic.ICollection<WorksetId> CheckoutWorksets(Document doc, System.Collections.Generic.ICollection<WorksetId> worksetIds)
         {
             return new System.Collections.Generic.List<WorksetId>();
         }
