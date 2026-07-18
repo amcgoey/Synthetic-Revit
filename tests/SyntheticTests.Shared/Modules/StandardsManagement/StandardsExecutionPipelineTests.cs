@@ -21,6 +21,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         private Document _doc = null!;
         private ConfigurableSerializationEngine _fakeEngine = null!;
         private ConfigurableExportService _fakeExportService = null!;
+        private FakeFamilyEnforcer _fakeFamilyEnforcer = null!;
 
         [SetUp]
         public void Setup()
@@ -28,6 +29,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             _doc = (Document)Activator.CreateInstance(typeof(Document), true)!;
             _fakeEngine = new ConfigurableSerializationEngine();
             _fakeExportService = new ConfigurableExportService();
+            _fakeFamilyEnforcer = new FakeFamilyEnforcer();
             ProgressCoordinator.SuppressUI = true;
         }
 
@@ -35,7 +37,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void Execute_WithWriteDatabaseTrue_CallsSerializationEngineAndSucceeds()
         {
             // Arrange
-            var pipeline = new StandardsExecutionPipeline(_fakeEngine, _fakeExportService);
+            var pipeline = new StandardsExecutionPipeline(_fakeEngine, _fakeExportService, _fakeFamilyEnforcer);
             var options = new StandardsExecutionOptions
             {
                 WriteRevitDatabase = true,
@@ -74,7 +76,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void Execute_WithSaveLocalFilesTrue_CallsExportService()
         {
             // Arrange
-            var pipeline = new StandardsExecutionPipeline(_fakeEngine, _fakeExportService);
+            var pipeline = new StandardsExecutionPipeline(_fakeEngine, _fakeExportService, _fakeFamilyEnforcer);
             var options = new StandardsExecutionOptions
             {
                 WriteRevitDatabase = false,
@@ -103,7 +105,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void Execute_WhenDbPhaseThrows_RollsBackAndFails()
         {
             // Arrange
-            var pipeline = new StandardsExecutionPipeline(_fakeEngine, _fakeExportService);
+            var pipeline = new StandardsExecutionPipeline(_fakeEngine, _fakeExportService, _fakeFamilyEnforcer);
             var options = new StandardsExecutionOptions
             {
                 WriteRevitDatabase = true,
@@ -133,12 +135,12 @@ namespace SyntheticTests.Modules.StandardsManagement
             Assert.IsTrue(result.Items[0].Message.Contains("Simulated database write crash."));
         }
 
-#if !REVIT2022 && !REVIT2023 && !REVIT2024 && !REVIT2025 && !REVIT2026
         [Test]
         public void Execute_WithProcessFamiliesTrue_ProcessesFamiliesAndHandlesFamilyException()
         {
             // Arrange
-            var pipeline = new StandardsExecutionPipeline(_fakeEngine, _fakeExportService);
+            var fakeFamilyEnforcer = new FakeFamilyEnforcer();
+            var pipeline = new StandardsExecutionPipeline(_fakeEngine, _fakeExportService, fakeFamilyEnforcer);
             var options = new StandardsExecutionOptions
             {
                 WriteRevitDatabase = true,
@@ -146,12 +148,6 @@ namespace SyntheticTests.Modules.StandardsManagement
                 ProcessFamilies = true,
                 UseTransactionGroup = false
             };
-
-            var family = CreateMockElement<Family>(_doc, "FaultyFamily", 12345);
-            typeof(Family).GetProperty("IsEditable")?.SetValue(family, true);
-
-            var allFamiliesInDoc = new FilteredElementCollector(_doc).OfClass(typeof(Family)).Cast<Family>().ToList();
-            Assert.AreEqual(1, allFamiliesInDoc.Count, $"Expected 1 family in doc, but got {allFamiliesInDoc.Count}");
 
             var model = new ElementModel { Name = "TestMaterial", Class = "Autodesk.Revit.DB.Material" };
             var item = new StandardsExecutionItem(model)
@@ -162,11 +158,23 @@ namespace SyntheticTests.Modules.StandardsManagement
 
             _fakeEngine.ToRevitHandler = (models, doc) =>
             {
-                if (doc != _doc)
-                {
-                    throw new InvalidOperationException("Failed to update family document contents.");
-                }
                 return new List<SerializationResultModel> { new SerializationResultModel(model) };
+            };
+
+            fakeFamilyEnforcer.EnforceHandler = (doc, standards, opts, progress, dbResults, token) =>
+            {
+                var failedModel = new ElementModel
+                {
+                    Name = "FaultyFamily",
+                    Class = "Autodesk.Revit.DB.Family"
+                };
+                var result = new SerializationResultModel(failedModel, "Failed to update family document contents")
+                {
+                    OperationTarget = StandardsPipelineConstants.TargetDatabase,
+                    Action = StandardsPipelineConstants.ActionFailed,
+                    Message = "Failed to update family document contents"
+                };
+                dbResults.Add(result);
             };
 
             // Act
@@ -181,7 +189,6 @@ namespace SyntheticTests.Modules.StandardsManagement
             Assert.IsTrue(result.ReportMarkdown.Contains("FaultyFamily"), $"Report should contain the family name. Report: {result.ReportMarkdown}");
             Assert.IsTrue(result.ReportMarkdown.Contains("Failed to update family document contents"), "Report should contain the error detail.");
         }
-#endif
 
         private T CreateMockElement<T>(Document doc, string name, int idVal) where T : Element
         {
@@ -218,7 +225,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void Execute_WithCancellationTokenCancelled_AbortsAndReturnsFailure()
         {
             // Arrange
-            var pipeline = new StandardsExecutionPipeline(_fakeEngine, _fakeExportService);
+            var pipeline = new StandardsExecutionPipeline(_fakeEngine, _fakeExportService, _fakeFamilyEnforcer);
             var options = new StandardsExecutionOptions
             {
                 WriteRevitDatabase = true,
@@ -298,6 +305,25 @@ namespace SyntheticTests.Modules.StandardsManagement
             }
 
             return fileItems.Select(item => new SerializationResultModel(item.Model)).ToList();
+        }
+    }
+
+    public class FakeFamilyEnforcer : IFamilyEnforcer
+    {
+        public Action<Document, IEnumerable<ElementModel>, StandardsExecutionOptions, Action<string, string, int>, List<SerializationResultModel>, CancellationToken>? EnforceHandler { get; set; }
+
+        public void Enforce(
+            Document doc,
+            IEnumerable<ElementModel> standards,
+            StandardsExecutionOptions options,
+            Action<string, string, int> reportProgress,
+            List<SerializationResultModel> dbResults,
+            CancellationToken cancellationToken)
+        {
+            if (EnforceHandler != null)
+            {
+                EnforceHandler(doc, standards, options, reportProgress, dbResults, cancellationToken);
+            }
         }
     }
 }

@@ -48,7 +48,7 @@ namespace Synthetic.Modules.StandardsManagement.Commands
                 var serializationEngine = new StandardSerializationEngine();
                 var orchestrator = new StandardsExtractionOrchestrator(new RevitIdentityService(), serializationEngine);
                 var pocoIdentityService = new PocoIdentityService();
-                var pipeline = new StandardsExecutionPipeline(serializationEngine, exportService);
+                var pipeline = new StandardsExecutionPipeline(serializationEngine, exportService, new RevitFamilyEnforcer(serializationEngine));
 
                 var vm = new ProjectStandardsDashboardViewModel(
                     uiapp,
