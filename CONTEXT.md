@@ -48,3 +48,19 @@ The process of combining existing standard elements with newly extracted standar
 
 **Duplicate Detection (Standards)**:
 The strict mechanism for identifying matching standard elements during a Standards Merge, utilizing a unique key composed of the element's Class and Name.
+
+**Family Enforcer**:
+The specialized service responsible for recursively traversing editable Revit families, opening family documents in the background, injecting BIM standards, purging unused style types, and loading them back into the host project.
+_Avoid_: Family processing manager, nested family updater.
+
+**Standards Dashboard**:
+The main user interface coordinator that houses the Source Pane, Staging Queue, and execution settings for managing Revit standards.
+
+**Source Pane**:
+The user interface component showing the hierarchy of elements harvested from a live Revit model or loaded from a JSON file.
+
+**Staging Queue**:
+The collection and user interface component holding elements selected from the Source Pane, prepared for saving or enforcing.
+_Avoid_: Action Queue.
+
+
