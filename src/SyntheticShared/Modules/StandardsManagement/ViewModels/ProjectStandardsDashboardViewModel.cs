@@ -714,7 +714,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                 new StandardsExtractionOrchestrator(new RevitIdentityService(), new StandardSerializationEngine()),
                 new PocoIdentityService(),
                 new StandardSerializationEngine(),
-                new StandardsExecutionPipeline(new StandardSerializationEngine(), exportService ?? new StandardsExportService(new WindowsGuardrailPromptService(), dialogService)))
+                new StandardsExecutionPipeline(new StandardSerializationEngine(), exportService ?? new StandardsExportService(new WindowsGuardrailPromptService(), dialogService), new RevitFamilyEnforcer(new StandardSerializationEngine())))
         {
         }
 
@@ -818,7 +818,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                 orchestrator ?? new StandardsExtractionOrchestrator(new RevitIdentityService(), new StandardSerializationEngine()),
                 new PocoIdentityService(),
                 new StandardSerializationEngine(),
-                new StandardsExecutionPipeline(new StandardSerializationEngine(), exportService ?? new StandardsExportService(new WindowsGuardrailPromptService(), dialogService)))
+                new StandardsExecutionPipeline(new StandardSerializationEngine(), exportService ?? new StandardsExportService(new WindowsGuardrailPromptService(), dialogService), new RevitFamilyEnforcer(new StandardSerializationEngine())))
         {
         }
 
