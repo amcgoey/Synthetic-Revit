@@ -13,14 +13,17 @@ namespace Synthetic.Modules.StandardsManagement.Engine
     public class StandardsExtractionOrchestrator : IStandardsExtractionOrchestrator
     {
         private readonly IIdentityService _identityService;
+        private readonly IStandardSerializationEngine _engine;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="StandardsExtractionOrchestrator"/> class.
         /// </summary>
         /// <param name="identityService">The identity service to use for element resolution and mapping.</param>
-        public StandardsExtractionOrchestrator(IIdentityService identityService)
+        /// <param name="engine">The standard serialization engine to use.</param>
+        public StandardsExtractionOrchestrator(IIdentityService identityService, IStandardSerializationEngine? engine = null)
         {
             _identityService = identityService ?? throw new ArgumentNullException(nameof(identityService));
+            _engine = engine ?? new StandardSerializationEngine();
         }
 
         /// <inheritdoc />
@@ -43,11 +46,8 @@ namespace Synthetic.Modules.StandardsManagement.Engine
 
             while (currentBatch.Count > 0)
             {
-                // Instantiate the StandardSerializationEngine with the injected _identityService
-                var engine = new StandardSerializationEngine(_identityService);
-
                 // Extract current batch of elements to POCOs
-                var pocos = engine.ByRevit(currentBatch, doc, isTemplate, progress).ToList();
+                var pocos = _engine.ByRevit(currentBatch, doc, isTemplate, progress).ToList();
 
                 // Process extracted POCOs
                 foreach (var poco in pocos)

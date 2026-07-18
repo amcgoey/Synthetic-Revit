@@ -67,6 +67,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         private readonly IFindReplaceService _findReplaceService;
         private readonly IStandardsExtractionOrchestrator _orchestrator;
         private readonly IPocoIdentityService _pocoIdentityService;
+        private readonly IStandardSerializationEngine _serializationEngine;
         public ISummaryDisplayService SummaryDisplayService { get; set; }
         private StandardsSettings? _settings;
         private ExternalEvent? _externalEvent;
@@ -599,7 +600,8 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             IUserPromptService? userPromptService = null,
             IFindReplaceService? findReplaceService = null,
             IStandardsExtractionOrchestrator? orchestrator = null,
-            IPocoIdentityService? pocoIdentityService = null)
+            IPocoIdentityService? pocoIdentityService = null,
+            IStandardSerializationEngine? serializationEngine = null)
         {
             _uiapp = uiapp;
             _doc = uiapp.ActiveUIDocument?.Document;
@@ -609,6 +611,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             _findReplaceService = findReplaceService ?? new FindReplaceService();
             _orchestrator = orchestrator ?? new StandardsExtractionOrchestrator(new RevitIdentityService());
             _pocoIdentityService = pocoIdentityService ?? new PocoIdentityService();
+            _serializationEngine = serializationEngine ?? new StandardSerializationEngine();
             SummaryDisplayService = new WindowsSummaryDisplayService();
             Instance = this;
 
@@ -701,7 +704,8 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             IUserPromptService? userPromptService = null,
             IFindReplaceService? findReplaceService = null,
             IStandardsExtractionOrchestrator? orchestrator = null,
-            IPocoIdentityService? pocoIdentityService = null)
+            IPocoIdentityService? pocoIdentityService = null,
+            IStandardSerializationEngine? serializationEngine = null)
         {
             _doc = doc;
             _dialogService = dialogService;
@@ -710,6 +714,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             _findReplaceService = findReplaceService ?? new FindReplaceService();
             _orchestrator = orchestrator ?? new StandardsExtractionOrchestrator(new RevitIdentityService());
             _pocoIdentityService = pocoIdentityService ?? new PocoIdentityService();
+            _serializationEngine = serializationEngine ?? new StandardSerializationEngine();
             SummaryDisplayService = new NoOpSummaryDisplayService();
             Instance = this;
 
@@ -1072,13 +1077,13 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             // 1. Extract categories directly since they are not Elements and don't have nested dependencies
             if (selectedGroupings == null || selectedGroupings.Contains("Categories"))
             {
-                var engine = new StandardSerializationEngine();
+                var engine = _serializationEngine;
                 foreach (Category cat in doc.Settings.Categories)
                 {
                     if (ProgressCoordinator.IsCancelled()) break;
                     try
                     {
-                        var model = engine.Dispatcher.Extract(cat, doc, false);
+                        var model = engine.ExtractCategory(cat, doc, false);
                         if (model is CategoryModel categoryModel)
                         {
                             list.Add(categoryModel);
@@ -1869,7 +1874,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                     if (dbItems.Count > 0)
                     {
                         var elementPocos = dbItems.Select(q => q.Model).OfType<ObjectModel>().ToList();
-                        var engine = new StandardSerializationEngine();
+                        var engine = _serializationEngine;
                         var results = engine.ToRevit(elementPocos, _doc, null, ProgressCoordinator.Token).ToList();
                         dbResults.AddRange(results);
                     }
@@ -2065,7 +2070,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                     return false;
                 }).ToList();
 
-                var engine = new StandardSerializationEngine();
+                var engine = _serializationEngine;
                 engine.ToRevit(familyStandards, familyDoc, null, ProgressCoordinator.Token);
 
                 if (PurgeUnusedStyleTypes)
