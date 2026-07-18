@@ -93,6 +93,49 @@ def authenticate(auth_dir, client_secret_path, token_path):
     return creds
 
 
+def check_git_status_for_targets(pull_targets, projects_dir, workspace_dir):
+    """
+    Check if there are any uncommitted changes or untracked files inside
+    the target directories/files. If so, abort and prompt user.
+    """
+    import subprocess
+    changed_targets = []
+    
+    for target in pull_targets:
+        local_path_raw = target.get("local_path")
+        if not local_path_raw:
+            continue
+        local_target = os.path.abspath(os.path.join(projects_dir, local_path_raw))
+        
+        # We only run git check if the path exists
+        if not os.path.exists(local_target):
+            continue
+            
+        try:
+            # Run git status --porcelain on the target path relative to workspace_dir
+            res = subprocess.run(
+                ['git', 'status', '--porcelain', local_target],
+                cwd=workspace_dir,
+                capture_output=True,
+                text=True,
+                encoding='utf-8'
+            )
+            if res.returncode == 0 and res.stdout.strip():
+                changed_targets.append((local_path_raw, res.stdout.strip()))
+        except Exception as e:
+            print(f"Warning: Failed to run git status on '{local_target}': {e}", file=sys.stderr)
+            
+    if changed_targets:
+        print("\n" + "="*80, file=sys.stderr)
+        print("CRITICAL: Uncommitted changes or untracked files detected in target directories!", file=sys.stderr)
+        print("Please commit or stash them before running the pull pipeline to prevent data loss.\n", file=sys.stderr)
+        for path, status in changed_targets:
+            print(f"Target: {path}", file=sys.stderr)
+            print(f"Status:\n{status}\n", file=sys.stderr)
+        print("="*80 + "\n", file=sys.stderr)
+        sys.exit(1)
+
+
 def validate_safe_path(target_path, allowed_parent):
     """Ensure the target path resolves inside the allowed parent boundary to prevent accidental deletions."""
     target_abs = os.path.abspath(target_path)
@@ -512,6 +555,9 @@ def main():
         sys.exit(0)
 
     print(f"Found {len(pull_targets)} pull targets.")
+
+    workspace_dir = find_workspace_root()
+    check_git_status_for_targets(pull_targets, projects_dir, workspace_dir)
 
     for idx, target in enumerate(pull_targets):
         drive_folder_id = target.get("drive_folder_id")

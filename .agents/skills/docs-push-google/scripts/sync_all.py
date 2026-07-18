@@ -3,8 +3,13 @@ import sys
 import argparse
 import json
 
-# Ensure sibling scripts (aggregate.py, drive_sync.py) are importable regardless of CWD
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+script_dir = os.path.dirname(os.path.abspath(__file__))
+# Resolve relative path to docs-aggregate scripts folder
+docs_aggregate_dir = os.path.abspath(os.path.join(script_dir, "..", "..", "docs-aggregate", "scripts"))
+
+# Ensure sibling scripts and docs-aggregate script are importable regardless of CWD
+sys.path.insert(0, script_dir)
+sys.path.insert(0, docs_aggregate_dir)
 
 from aggregate import process_config, resolve_config_path, get_default_paths
 from drive_sync import sync_to_drive
