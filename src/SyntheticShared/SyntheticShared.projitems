@@ -113,7 +113,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)Settings\SyncSettings.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Settings\FileUtilitySettings.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Settings\StandardsSettings.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Core\SyntheticRibbon.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Core\RibbonManager.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Shared\UI\EnumToBooleanConverter.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\BatchPrint\Utilities\BBPrinterSettingsUtils.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Shared\RevitAPI\CommandUtil.cs" />

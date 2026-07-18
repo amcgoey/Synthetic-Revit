@@ -49,7 +49,7 @@ namespace Synthetic.Core{
         public Result OnStartup(UIControlledApplication appControlled)
         {
             AppControlled = appControlled;
-            SyntheticRibbon.Create(appControlled, _path);
+            RibbonManager.Create(appControlled, _path);
 
             Configurations.AddAppConfig(Config.ReadAppConfig());
 
