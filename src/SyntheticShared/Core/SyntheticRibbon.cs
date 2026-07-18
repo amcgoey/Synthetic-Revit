@@ -203,18 +203,6 @@ namespace Synthetic.Core{
             btAuditPurgeAllFamilies.Image = new BitmapImage(new Uri(Path.Combine(assetsDir, "family_16.png")));
             panelModel.AddItem(btAuditPurgeAllFamilies);
 
-#if DEBUG
-            PushButtonData btTestAuditPurgeJournal = new PushButtonData(
-                "Synthetic.Modules.FamilyManagement.Commands.CmdTestAuditPurgeJournal",
-                "Test Audit Purge",
-                path,
-                "Synthetic.Modules.FamilyManagement.Commands.CmdTestAuditPurgeJournal"
-                );
-            btTestAuditPurgeJournal.ToolTip = "Headless integration test command for Audit & Purge";
-            btTestAuditPurgeJournal.AvailabilityClassName = "Synthetic.Modules.FamilyManagement.Commands.CmdTestAuditPurgeJournalAvailability";
-            panelModel.AddItem(btTestAuditPurgeJournal);
-#endif
-
             PushButtonData btFamilyForceReinsert = new PushButtonData(
                 "Synthetic.Modules.FamilyManagement.Commands.FamiliesForceReinsert",
                 "Force Reinsert Families",
