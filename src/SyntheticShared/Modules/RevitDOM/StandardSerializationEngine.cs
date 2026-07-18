@@ -539,52 +539,15 @@ namespace Synthetic.Modules.RevitDOM
                                 isUnchanged = IsElementSameAsModel(elementModel, element, doc);
                             }
 
-                            ElementId primaryId = ElementId.InvalidElementId;
-
                             if (isUnchanged)
                             {
-                                object resultingElement = element;
-                                if (resultingElement is Element revitElement)
-                                {
-                                    elementModel.Element = revitElement;
-                                    elementModel.ElementId = _identityService.ToModel(revitElement.Id, doc);
-                                    primaryId = revitElement.Id;
-                                }
-                                else if (resultingElement is Autodesk.Revit.DB.Category revitCategory)
-                                {
-                                    elementModel.Element = revitCategory;
-                                    elementModel.ElementId = _identityService.ToModel(revitCategory.Id, doc);
-                                    primaryId = revitCategory.Id;
-
-                                    if (elementModel is CategoryModel categoryModel)
-                                    {
-                                        categoryModel.RevitCategory = revitCategory;
-#if REVIT2022 || REVIT2023
-                                        categoryModel.CategoryId.Id = revitCategory.Id.IntegerValue;
-#else
-                                        categoryModel.CategoryId.Id = revitCategory.Id.Value;
-#endif
-                                        categoryModel.CategoryId.Name = revitCategory.Name;
-                                    }
-                                }
-
-                                // Restore aliases list on the elementModel so it is not lost
-                                if (aliases != null)
-                                {
-                                    elementModel.Aliases = aliases;
-                                }
+                                BindResultingElementToModel(element, elementModel, doc, aliases, modelsWithAliases);
 
                                 results.Add(new SerializationResultModel(model, identityModel)
                                 {
                                     Action = "Unchanged",
                                     Message = "Object is identical to the target model. Edit skipped."
                                 });
-
-                                // Queue for alias processing if successful and aliases exist
-                                if (aliases != null && aliases.Count > 0 && primaryId != ElementId.InvalidElementId)
-                                {
-                                    modelsWithAliases.Add((primaryId, elementModel));
-                                }
                             }
                             else
                             {
@@ -604,51 +567,14 @@ namespace Synthetic.Modules.RevitDOM
                                         {
                                             // Inject standard base parameters
                                             ParameterEngine.InjectParameters(elementModel, revitElement, _identityService);
-
-                                            // Update model bindings
-                                            elementModel.Element = revitElement;
-                                            elementModel.ElementId = _identityService.ToModel(revitElement.Id, doc);
-                                            primaryId = revitElement.Id;
-                                        }
-                                        else if (resultingElement is Autodesk.Revit.DB.Category revitCategory)
-                                        {
-                                            // Update model bindings
-                                            elementModel.Element = revitCategory;
-                                            elementModel.ElementId = _identityService.ToModel(revitCategory.Id, doc);
-                                            primaryId = revitCategory.Id;
-
-                                            if (elementModel is CategoryModel categoryModel)
-                                            {
-                                                categoryModel.RevitCategory = revitCategory;
-#if REVIT2022 || REVIT2023
-                                                categoryModel.CategoryId.Id = revitCategory.Id.IntegerValue;
-#else
-                                                categoryModel.CategoryId.Id = revitCategory.Id.Value;
-#endif
-                                                categoryModel.CategoryId.Name = revitCategory.Name;
-                                            }
-                                        }
-                                        else
-                                        {
-                                            throw new InvalidOperationException($"Resulting object '{resultingElement.GetType().Name}' is neither a Revit Element nor a Category.");
                                         }
 
-                                        // Restore aliases list on the elementModel so it is not lost
-                                        if (aliases != null)
-                                        {
-                                            elementModel.Aliases = aliases;
-                                        }
+                                        BindResultingElementToModel(resultingElement, elementModel, doc, aliases, modelsWithAliases);
 
                                         tx.Commit();
                                         
                                         string actionStr = (element == null) ? "Created" : "Updated";
                                         results.Add(new SerializationResultModel(model, identityModel) { Action = actionStr });
-
-                                        // Queue for alias processing if successful and aliases exist
-                                        if (aliases != null && aliases.Count > 0 && primaryId != ElementId.InvalidElementId)
-                                        {
-                                            modelsWithAliases.Add((primaryId, elementModel));
-                                        }
                                     }
                                     catch (Exception ex)
                                     {
@@ -781,25 +707,21 @@ namespace Synthetic.Modules.RevitDOM
                 if (liveModel == null) return false;
 
                 // Clone both models to avoid modifying the original structures
-                var c1 = (ElementModel)incomingModel.Clone();
-                var c2 = (ElementModel)liveModel.Clone();
-                // Set metadata/ignored fields to null/default on both clones
-                c1.Parameters = null;
-                c2.Parameters = null;
-                c1.Element = null;
-                c2.Element = null;
-                c1.Document = null;
-                c2.Document = null;
-                c1.DependencyOrigin = null;
-                c2.DependencyOrigin = null;
+                var incomingClone = (ElementModel)incomingModel.Clone();
+                var liveClone = (ElementModel)liveModel.Clone();
+
+                // Clear metadata/ignored fields on both clones
+                ClearMetadataForComparison(incomingClone);
+                ClearMetadataForComparison(liveClone);
+
                 // Compare JSON representations of the non-parameter properties
                 var settings = new JsonSerializerSettings
                 {
                     ContractResolver = new IgnoreIdContractResolver(),
                     Formatting = Formatting.None
                 };
-                string json1 = JsonConvert.SerializeObject(c1, settings);
-                string json2 = JsonConvert.SerializeObject(c2, settings);
+                string json1 = JsonConvert.SerializeObject(incomingClone, settings);
+                string json2 = JsonConvert.SerializeObject(liveClone, settings);
 
                 if (json1 != json2)
                 {
@@ -853,6 +775,61 @@ namespace Synthetic.Modules.RevitDOM
             }
 
             return true;
+        }
+
+        private void ClearMetadataForComparison(ElementModel model)
+        {
+            if (model == null) return;
+            model.Parameters = null;
+            model.Element = null;
+            model.Document = null;
+            model.DependencyOrigin = null;
+        }
+
+        private ElementId BindResultingElementToModel(object resultingElement, ElementModel elementModel, Document doc, List<string>? aliases, List<(ElementId PrimaryId, ElementModel Model)> modelsWithAliases)
+        {
+            ElementId primaryId = ElementId.InvalidElementId;
+            if (resultingElement is Element revitElement)
+            {
+                elementModel.Element = revitElement;
+                elementModel.ElementId = _identityService.ToModel(revitElement.Id, doc);
+                primaryId = revitElement.Id;
+            }
+            else if (resultingElement is Autodesk.Revit.DB.Category revitCategory)
+            {
+                elementModel.Element = revitCategory;
+                elementModel.ElementId = _identityService.ToModel(revitCategory.Id, doc);
+                primaryId = revitCategory.Id;
+
+                if (elementModel is CategoryModel categoryModel)
+                {
+                    categoryModel.RevitCategory = revitCategory;
+#if REVIT2022 || REVIT2023
+                    categoryModel.CategoryId.Id = revitCategory.Id.IntegerValue;
+#else
+                    categoryModel.CategoryId.Id = revitCategory.Id.Value;
+#endif
+                    categoryModel.CategoryId.Name = revitCategory.Name;
+                }
+            }
+            else
+            {
+                throw new InvalidOperationException($"Resulting object '{resultingElement.GetType().Name}' is neither a Revit Element nor a Category.");
+            }
+
+            // Restore aliases list on the elementModel so it is not lost
+            if (aliases != null)
+            {
+                elementModel.Aliases = aliases;
+            }
+
+            // Queue for alias processing if successful and aliases exist
+            if (aliases != null && aliases.Count > 0 && primaryId != ElementId.InvalidElementId)
+            {
+                modelsWithAliases.Add((primaryId, elementModel));
+            }
+
+            return primaryId;
         }
     }
 }
