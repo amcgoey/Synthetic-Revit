@@ -240,6 +240,10 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             {
                 if (poco is ElementModel elementModel)
                 {
+                    // Clear the active element reference so we only store the DTO in presentation lists
+                    elementModel.Element = null;
+                    elementModel.Document = null;
+                    
                     list.Add(elementModel);
                 }
             }
@@ -302,7 +306,9 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             TryGather<MullionType>("Mullion Types");
             TryGather<Autodesk.Revit.DB.Architecture.FasciaType>("Fascia Types");
             TryGather<Autodesk.Revit.DB.Architecture.GutterType>("Gutter Types");
-#if !REVIT2022 && !REVIT2023
+#if REVIT2022 || REVIT2023
+            // ToposolidType not available in older versions
+#else
             try
             {
                 if (!ProgressCoordinator.IsCancelled() && (selectedGroupings == null || selectedGroupings.Contains("Toposolid Types")))
@@ -357,8 +363,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                     if (ProgressCoordinator.IsCancelled()) return rootElements;
                     var familySymbols = new FilteredElementCollector(doc)
                         .OfClass(typeof(FamilySymbol))
-                        .Cast<FamilySymbol>()
-                        .ToList();
+                        .Cast<FamilySymbol>();
 
                     foreach (var fs in familySymbols)
                     {
