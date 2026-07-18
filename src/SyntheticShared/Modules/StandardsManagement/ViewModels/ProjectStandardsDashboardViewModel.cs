@@ -686,13 +686,24 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         }
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="ProjectStandardsDashboardViewModel"/> class for live Revit environment.
+        /// Initializes a new instance of the <see cref="ProjectStandardsDashboardViewModel"/> class for live Revit environment (3-parameters).
         /// </summary>
         public ProjectStandardsDashboardViewModel(
             UIApplication uiapp, 
             IFileDialogService dialogService, 
-            IStandardsExportService? exportService = null, 
-            StandardsSettings? settings = null)
+            IStandardsExportService? exportService = null)
+            : this(uiapp, dialogService, exportService, null)
+        {
+        }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="ProjectStandardsDashboardViewModel"/> class for live Revit environment (4-parameters).
+        /// </summary>
+        public ProjectStandardsDashboardViewModel(
+            UIApplication uiapp, 
+            IFileDialogService dialogService, 
+            IStandardsExportService? exportService, 
+            StandardsSettings? settings)
             : this(
                 uiapp,
                 dialogService,
@@ -787,61 +798,16 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         }
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="ProjectStandardsDashboardViewModel"/> class for headless testing with optional/fallback dependencies.
+        /// Compatibility constructor for headless testing that handles 2 to 7 parameters using optional defaults.
         /// </summary>
         public ProjectStandardsDashboardViewModel(
             Document doc, 
             IFileDialogService dialogService, 
             IStandardsExportService? exportService = null, 
-            StandardsSettings? settings = null)
-            : this(
-                doc,
-                dialogService,
-                exportService ?? new StandardsExportService(new WindowsGuardrailPromptService(), dialogService),
-                settings,
-                new WindowsUserPromptService(),
-                new FindReplaceService(),
-                new StandardsExtractionOrchestrator(new RevitIdentityService(), new StandardSerializationEngine()),
-                new PocoIdentityService(),
-                new StandardSerializationEngine(),
-                new StandardsExecutionPipeline(new StandardSerializationEngine(), exportService ?? new StandardsExportService(new WindowsGuardrailPromptService(), dialogService)))
-        {
-        }
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="ProjectStandardsDashboardViewModel"/> class for headless testing with 5 parameters.
-        /// </summary>
-        public ProjectStandardsDashboardViewModel(
-            Document doc, 
-            IFileDialogService dialogService, 
-            IStandardsExportService? exportService, 
-            StandardsSettings? settings,
-            IStandardsExtractionOrchestrator? orchestrator)
-            : this(
-                doc,
-                dialogService,
-                exportService ?? new StandardsExportService(new WindowsGuardrailPromptService(), dialogService),
-                settings,
-                new WindowsUserPromptService(),
-                new FindReplaceService(),
-                orchestrator ?? new StandardsExtractionOrchestrator(new RevitIdentityService(), new StandardSerializationEngine()),
-                new PocoIdentityService(),
-                new StandardSerializationEngine(),
-                new StandardsExecutionPipeline(new StandardSerializationEngine(), exportService ?? new StandardsExportService(new WindowsGuardrailPromptService(), dialogService)))
-        {
-        }
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="ProjectStandardsDashboardViewModel"/> class for headless testing with 7 parameters.
-        /// </summary>
-        public ProjectStandardsDashboardViewModel(
-            Document doc, 
-            IFileDialogService dialogService, 
-            IStandardsExportService? exportService, 
-            StandardsSettings? settings,
-            IUserPromptService? userPromptService,
-            IFindReplaceService? findReplaceService,
-            IStandardsExtractionOrchestrator? orchestrator)
+            StandardsSettings? settings = null,
+            IUserPromptService? userPromptService = null,
+            IFindReplaceService? findReplaceService = null,
+            IStandardsExtractionOrchestrator? orchestrator = null)
             : this(
                 doc,
                 dialogService,

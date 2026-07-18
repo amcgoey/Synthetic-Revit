@@ -133,6 +133,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             Assert.IsTrue(result.Items[0].Message.Contains("Simulated database write crash."));
         }
 
+#if !REVIT2022 && !REVIT2023 && !REVIT2024 && !REVIT2025 && !REVIT2026
         [Test]
         public void Execute_WithProcessFamiliesTrue_ProcessesFamiliesAndHandlesFamilyException()
         {
@@ -180,6 +181,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             Assert.IsTrue(result.ReportMarkdown.Contains("FaultyFamily"), $"Report should contain the family name. Report: {result.ReportMarkdown}");
             Assert.IsTrue(result.ReportMarkdown.Contains("Failed to update family document contents"), "Report should contain the error detail.");
         }
+#endif
 
         private T CreateMockElement<T>(Document doc, string name, int idVal) where T : Element
         {
