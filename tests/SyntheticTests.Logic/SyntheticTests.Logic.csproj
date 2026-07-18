@@ -20,6 +20,13 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Synthetic2026\Synthetic2026.csproj" />
     <Compile Include="..\SyntheticTests.Shared\Modules\RevitDOM\FakeIdentityService.cs" Link="Modules\RevitDOM\FakeIdentityService.cs" />
+    <Compile Include="..\SyntheticTests.Shared\Modules\StandardsManagement\StandardsExecutionPipelineTests.cs" Link="Modules\StandardsManagement\StandardsExecutionPipelineTests.cs" />
+    <Compile Include="..\SyntheticTests.Shared\Modules\StandardsManagement\DashboardTestFactory.cs" Link="Modules\StandardsManagement\DashboardTestFactory.cs" />
+    <Compile Include="..\SyntheticTests.Shared\Modules\StandardsManagement\FakeFileDialogService.cs" Link="Modules\StandardsManagement\FakeFileDialogService.cs" />
+    <Compile Include="..\SyntheticTests.Shared\Modules\StandardsManagement\FakeGuardrailPromptService.cs" Link="Modules\StandardsManagement\FakeGuardrailPromptService.cs" />
+    <Compile Include="..\SyntheticTests.Shared\Modules\StandardsManagement\FakeUserPromptService.cs" Link="Modules\StandardsManagement\FakeUserPromptService.cs" />
+    <Compile Remove="Infrastructure\UI\RibbonTests.cs" />
+    <Compile Include="Infrastructure\UI\RibbonTests.cs" />
   </ItemGroup>
 
   <!-- Compile mock RevitAPI and RevitAPIUI projects and copy them to output directory post-build -->

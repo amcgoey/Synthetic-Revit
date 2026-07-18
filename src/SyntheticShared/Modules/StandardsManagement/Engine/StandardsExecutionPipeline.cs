@@ -17,15 +17,16 @@ namespace Synthetic.Modules.StandardsManagement.Engine
     {
         private readonly IStandardSerializationEngine _serializationEngine;
         private readonly IStandardsExportService _exportService;
+        private readonly IFamilyEnforcer _familyEnforcer;
 
         public StandardsExecutionPipeline(
-            IStandardSerializationEngine? serializationEngine = null,
-            IStandardsExportService? exportService = null)
+            IStandardSerializationEngine serializationEngine,
+            IStandardsExportService exportService,
+            IFamilyEnforcer familyEnforcer)
         {
-            _serializationEngine = serializationEngine ?? new StandardSerializationEngine();
-            _exportService = exportService ?? new StandardsExportService(
-                new WindowsGuardrailPromptService(),
-                new WindowsFileDialogService());
+            _serializationEngine = serializationEngine ?? throw new ArgumentNullException(nameof(serializationEngine));
+            _exportService = exportService ?? throw new ArgumentNullException(nameof(exportService));
+            _familyEnforcer = familyEnforcer ?? throw new ArgumentNullException(nameof(familyEnforcer));
         }
 
         public StandardsExecutionResult Execute(
@@ -65,8 +66,8 @@ namespace Synthetic.Modules.StandardsManagement.Engine
                     {
                         var r = new SerializationResultModel(item.Model, "Execution cancelled by user.")
                         {
-                            OperationTarget = "Database",
-                            Action = "Canceled",
+                            OperationTarget = StandardsPipelineConstants.TargetDatabase,
+                            Action = StandardsPipelineConstants.ActionCanceled,
                             Message = "Execution cancelled by user."
                         };
                         dbResults.Add(r);
@@ -80,8 +81,8 @@ namespace Synthetic.Modules.StandardsManagement.Engine
                       {
                         var r = new SerializationResultModel(item.Model, $"Database Write Failed: {ex.Message}", ex)
                         {
-                            OperationTarget = "Database",
-                            Action = "Failed",
+                            OperationTarget = StandardsPipelineConstants.TargetDatabase,
+                            Action = StandardsPipelineConstants.ActionFailed,
                             Message = ex.Message
                         };
                         dbResults.Add(r);
@@ -152,7 +153,7 @@ namespace Synthetic.Modules.StandardsManagement.Engine
                                 var mappedResult = r.Success
                                     ? new SerializationResultModel(originalItem.Model, r.ElementIdentity)
                                     : new SerializationResultModel(originalItem.Model, r.ErrorMessage ?? "File Save Failed", r.Exception);
-                                mappedResult.OperationTarget = "File";
+                                mappedResult.OperationTarget = StandardsPipelineConstants.TargetFile;
                                 mappedResult.Action = r.Action;
                                 mappedResult.Message = r.Message;
                                 mappedFileResults.Add(mappedResult);
@@ -170,8 +171,8 @@ namespace Synthetic.Modules.StandardsManagement.Engine
                     {
                         var r = new SerializationResultModel(item.Model, "File Save Cancelled.")
                         {
-                            OperationTarget = "File",
-                            Action = "Canceled",
+                            OperationTarget = StandardsPipelineConstants.TargetFile,
+                            Action = StandardsPipelineConstants.ActionCanceled,
                             Message = "File Save Cancelled."
                         };
                         allResults.Add(r);
@@ -184,8 +185,8 @@ namespace Synthetic.Modules.StandardsManagement.Engine
                     {
                         var r = new SerializationResultModel(item.Model, $"File Save Failed: {ex.Message}", ex)
                         {
-                            OperationTarget = "File",
-                            Action = "Failed",
+                            OperationTarget = StandardsPipelineConstants.TargetFile,
+                            Action = StandardsPipelineConstants.ActionFailed,
                             Message = ex.Message
                         };
                         allResults.Add(r);
@@ -198,7 +199,7 @@ namespace Synthetic.Modules.StandardsManagement.Engine
             foreach (var res in allResults)
             {
                 var model = res.Model;
-                string action = "Updated";
+                string action = StandardsPipelineConstants.ActionUpdated;
                 if (!res.Success)
                 {
                     if (res.Action == "Alias Swap Failed")
@@ -207,7 +208,7 @@ namespace Synthetic.Modules.StandardsManagement.Engine
                     }
                     else
                     {
-                        action = res.OperationTarget == "File" ? "Save Failed" : "Failed";
+                        action = res.OperationTarget == StandardsPipelineConstants.TargetFile ? StandardsPipelineConstants.ActionSaveFailed : StandardsPipelineConstants.ActionFailed;
                     }
                 }
                 else
@@ -216,20 +217,20 @@ namespace Synthetic.Modules.StandardsManagement.Engine
                     {
                         action = res.Action;
                     }
-                    else if (res.OperationTarget == "File")
+                    else if (res.OperationTarget == StandardsPipelineConstants.TargetFile)
                     {
-                        action = "Saved";
+                        action = StandardsPipelineConstants.ActionSaved;
                     }
                     else
                     {
                         var matchingItem = result.Items.FirstOrDefault(qi => qi.Model == model);
                         if (matchingItem != null && matchingItem.WillEnforce)
                         {
-                            action = "Created";
+                            action = StandardsPipelineConstants.ActionCreated;
                         }
                         else
                         {
-                            action = "Updated";
+                            action = StandardsPipelineConstants.ActionUpdated;
                         }
                     }
                 }
@@ -288,25 +289,25 @@ namespace Synthetic.Modules.StandardsManagement.Engine
                     var failedResult = itemResults.FirstOrDefault(r => !r.Success);
                     if (failedResult != null)
                     {
-                        item.Action = failedResult.Action ?? (failedResult.OperationTarget == "File" ? "Save Failed" : "Failed");
+                        item.Action = failedResult.Action ?? (failedResult.OperationTarget == StandardsPipelineConstants.TargetFile ? StandardsPipelineConstants.ActionSaveFailed : StandardsPipelineConstants.ActionFailed);
                         item.Message = failedResult.ErrorMessage ?? "Error occurred.";
                     }
                     else
                     {
                         var lastResult = itemResults.Last();
-                        item.Action = lastResult.Action ?? (lastResult.OperationTarget == "File" ? "Saved" : (item.WillEnforce ? "Created" : "Updated"));
+                        item.Action = lastResult.Action ?? (lastResult.OperationTarget == StandardsPipelineConstants.TargetFile ? StandardsPipelineConstants.ActionSaved : (item.WillEnforce ? StandardsPipelineConstants.ActionCreated : StandardsPipelineConstants.ActionUpdated));
                         item.Message = lastResult.Message ?? "Operation completed successfully.";
                     }
                 }
                 else
                 {
-                    item.Action = "Unchanged";
+                    item.Action = StandardsPipelineConstants.ActionUnchanged;
                     item.Message = "Staged, but no database write or file save operations were performed.";
                 }
             }
 
             // Overall success requires that the database writes succeeded (if attempted) and all input items are successful
-            result.Success = dbPhaseSucceeded && result.Items.All(i => i.Action != "Failed" && i.Action != "Save Failed" && i.Action != "Canceled");
+            result.Success = dbPhaseSucceeded && result.Items.All(i => i.Action != StandardsPipelineConstants.ActionFailed && i.Action != StandardsPipelineConstants.ActionSaveFailed && i.Action != StandardsPipelineConstants.ActionCanceled);
 
             // Update progress as completed
             if (progress != null)
@@ -401,270 +402,10 @@ namespace Synthetic.Modules.StandardsManagement.Engine
                 cancellationToken.ThrowIfCancellationRequested();
 
                 var elementPocos = dbItems.Select(q => q.Model).OfType<ElementModel>().ToList();
-                ProcessFamilyUpdates(doc, elementPocos, options, reportProgress, dbResults, cancellationToken);
+                _familyEnforcer.Enforce(doc, elementPocos, options, reportProgress, dbResults, cancellationToken);
             }
         }
 
-        private void ProcessFamilyUpdates(
-            Document doc,
-            List<ElementModel> standards,
-            StandardsExecutionOptions options,
-            Action<string, string, int> reportProgress,
-            List<SerializationResultModel> dbResults,
-            CancellationToken cancellationToken)
-        {
-            if (doc == null || !options.ProcessFamilies) return;
 
-            cancellationToken.ThrowIfCancellationRequested();
-
-            reportProgress("Consolidate Project Standards", "Collecting families to update...", dbResults.Count);
-
-            IList<Family> allFamilies = new FilteredElementCollector(doc)
-                .OfClass(typeof(Family))
-                .Cast<Family>()
-                .ToList();
-
-            List<Family> familiesToProcess = new List<Family>();
-            foreach (Family family in allFamilies)
-            {
-                if (family.IsEditable)
-                {
-                    if (options.CategoryFilter == "Annotations Only" && (family.FamilyCategory == null || family.FamilyCategory.CategoryType != CategoryType.Annotation))
-                        continue;
-#if REVIT2022 || REVIT2023
-                    if (options.CategoryFilter == "Title Blocks Only" && (family.FamilyCategory == null || family.FamilyCategory.Id.IntegerValue != (int)BuiltInCategory.OST_TitleBlocks))
-#else
-                    if (options.CategoryFilter == "Title Blocks Only" && (family.FamilyCategory == null || family.FamilyCategory.Id.Value != (long)BuiltInCategory.OST_TitleBlocks))
-#endif
-                        continue;
-
-                    familiesToProcess.Add(family);
-                }
-            }
-
-            cancellationToken.ThrowIfCancellationRequested();
-
-            if (doc.IsWorkshared && familiesToProcess.Count > 0)
-            {
-                reportProgress("Consolidate Project Standards", "Checking out family worksets...", dbResults.Count);
-                List<WorksetId> worksetIds = familiesToProcess
-                    .Select(f => f.WorksetId)
-                    .Distinct()
-                    .Where(id => id != WorksetId.InvalidWorksetId)
-                    .ToList();
-
-                if (worksetIds.Count > 0)
-                {
-                    WorksharingUtils.CheckoutWorksets(doc, worksetIds);
-                }
-            }
-
-            List<string> familyNamesToProcess = familiesToProcess
-                .Select(f => f.Name)
-                .Distinct()
-                .ToList();
-
-            int familyIndex = 0;
-            foreach (string familyName in familyNamesToProcess)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-
-                familyIndex++;
-                reportProgress(
-                    "Consolidate Project Standards",
-                    $"Updating family {familyIndex} of {familyNamesToProcess.Count}: {familyName}...",
-                    dbResults.Count);
-
-                Family? family = new FilteredElementCollector(doc)
-                    .OfClass(typeof(Family))
-                    .Cast<Family>()
-                    .FirstOrDefault(f => f.Name == familyName);
-
-                if (family != null && family.IsValidObject)
-                {
-                    try
-                    {
-                        UpdateFamilyRecursively(doc, family, standards, options, cancellationToken);
-                    }
-                    catch (Exception ex)
-                    {
-                        var failedModel = new ElementModel
-                        {
-                            Name = familyName,
-                            Class = "Autodesk.Revit.DB.Family"
-                        };
-                        var result = new SerializationResultModel(failedModel, $"Family update failed for {familyName}: {ex.Message}", ex)
-                        {
-                            OperationTarget = "Database",
-                            Action = "Failed",
-                            Message = ex.Message
-                        };
-                        dbResults.Add(result);
-                    }
-                }
-            }
-        }
-
-        private void UpdateFamilyRecursively(
-            Document parentDoc,
-            Family family,
-            IEnumerable<ElementModel> standards,
-            StandardsExecutionOptions options,
-            CancellationToken cancellationToken)
-        {
-            if (cancellationToken.IsCancellationRequested)
-            {
-                throw new OperationCanceledException();
-            }
-
-            if (family == null || !family.IsEditable) return;
-
-            Document? familyDoc = null;
-            try
-            {
-                familyDoc = parentDoc.EditFamily(family);
-            }
-            catch (Exception)
-            {
-                return;
-            }
-
-            if (familyDoc == null) return;
-
-            parentDoc.Application.FailuresProcessing += ResolveWarnings;
-
-            try
-            {
-                IList<Family> nestedFamilies = new FilteredElementCollector(familyDoc)
-                    .OfClass(typeof(Family))
-                    .Cast<Family>()
-                    .ToList();
-
-                var nestedFamiliesInfo = nestedFamilies
-                    .Select(nf => new { Id = nf.Id, Name = nf.Name, IsEditable = nf.IsEditable })
-                    .ToList();
-
-                foreach (var nfInfo in nestedFamiliesInfo)
-                {
-                    if (cancellationToken.IsCancellationRequested)
-                    {
-                        throw new OperationCanceledException();
-                    }
-                    if (nfInfo.IsEditable)
-                    {
-                        Family? freshNestedFamily = new FilteredElementCollector(familyDoc)
-                            .OfClass(typeof(Family))
-                            .Cast<Family>()
-                            .FirstOrDefault(nf => nf.Name == nfInfo.Name);
-                        if (freshNestedFamily != null && freshNestedFamily.IsValidObject)
-                        {
-                            UpdateFamilyRecursively(familyDoc, freshNestedFamily, standards, options, cancellationToken);
-                        }
-                    }
-                }
-
-                if (cancellationToken.IsCancellationRequested)
-                {
-                    throw new OperationCanceledException();
-                }
-
-                var familyStandards = standards.Where(s =>
-                {
-                    if (s is MaterialModel) return true;
-                    if (s is ElementTypeModel etModel)
-                    {
-                        if (familyDoc.IsFamilyDocument && etModel.Class == "Autodesk.Revit.DB.SpotDimensionType")
-                        {
-                            return false;
-                        }
-                        return true;
-                    }
-                    return false;
-                }).ToList();
-
-                foreach (var serialElement in familyStandards)
-                {
-                    if (serialElement is ElementTypeModel etModel)
-                    {
-                        etModel.ElementType = null;
-                    }
-                    serialElement.Element = null;
-                    serialElement.Document = null;
-                }
-
-                _serializationEngine.ToRevit(familyStandards, familyDoc, null, cancellationToken);
-
-                if (options.PurgeUnusedStyleTypes)
-                {
-                    if (cancellationToken.IsCancellationRequested)
-                    {
-                        throw new OperationCanceledException();
-                    }
-                    try
-                    {
-#if !REVIT2022
-                        DocumentUtil.Purge(parentDoc.Application, familyDoc);
-#endif
-                    }
-                    catch (Exception)
-                    {
-                    }
-                }
-
-                try
-                {
-                    Synthetic.Shared.RevitAPI.FamilyUtil.SetIsChanged(parentDoc, familyDoc);
-                    familyDoc.LoadFamily(parentDoc, new ImportFamilyLoadOptions());
-                }
-                catch (Exception)
-                {
-                }
-            }
-            finally
-            {
-                parentDoc.Application.FailuresProcessing -= ResolveWarnings;
-                try
-                {
-                    familyDoc.Close(false);
-                }
-                catch (Exception)
-                {
-                }
-            }
-        }
-
-        private static void ResolveWarnings(object? sender, Autodesk.Revit.DB.Events.FailuresProcessingEventArgs e)
-        {
-            FailuresAccessor fa = e.GetFailuresAccessor();
-            IList<FailureMessageAccessor> failList = fa.GetFailureMessages();
-
-            if (failList.Count == 0)
-            {
-                e.SetProcessingResult(FailureProcessingResult.Continue);
-                return;
-            }
-
-            foreach (FailureMessageAccessor failure in failList)
-            {
-                fa.DeleteWarning(failure);
-            }
-            e.SetProcessingResult(FailureProcessingResult.ProceedWithCommit);
-        }
-
-        private class ImportFamilyLoadOptions : IFamilyLoadOptions
-        {
-            public bool OnFamilyFound(bool familyInUse, out bool overwriteParameterValues)
-            {
-                overwriteParameterValues = true;
-                return true;
-            }
-
-            public bool OnSharedFamilyFound(Family sharedFamily, bool familyInUse, out FamilySource source, out bool overwriteParameterValues)
-            {
-                source = FamilySource.Family;
-                overwriteParameterValues = true;
-                return true;
-            }
-        }
     }
 }

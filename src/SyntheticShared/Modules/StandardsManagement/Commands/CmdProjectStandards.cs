@@ -7,6 +7,9 @@ using Synthetic.Shared.UI;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Modules.StandardsManagement.Views;
 using Synthetic.Modules.StandardsManagement.Utilities;
+using Synthetic.Modules.RevitDOM;
+using Synthetic.Modules.StandardsManagement.Engine;
+using Synthetic.Modules.DiffEngine;
 
 namespace Synthetic.Modules.StandardsManagement.Commands
 {
@@ -41,7 +44,26 @@ namespace Synthetic.Modules.StandardsManagement.Commands
                 var fileDialog = new WindowsFileDialogService();
                 var guardrail = new WindowsGuardrailPromptService();
                 var exportService = new StandardsExportService(guardrail, fileDialog);
-                var vm = new ProjectStandardsDashboardViewModel(uiapp, fileDialog, exportService);
+                var userPromptService = new WindowsUserPromptService();
+                var findReplaceService = new FindReplaceService();
+                var serializationEngine = new StandardSerializationEngine();
+                var orchestrator = new StandardsExtractionOrchestrator(new RevitIdentityService(), serializationEngine);
+                var pocoIdentityService = new PocoIdentityService();
+                var diffEngine = new PocoToRevitDiffEngine(new RevitIdentityService());
+                var pipeline = new StandardsExecutionPipeline(serializationEngine, exportService, new RevitFamilyEnforcer(serializationEngine));
+
+                var vm = new ProjectStandardsDashboardViewModel(
+                    uiapp,
+                    fileDialog,
+                    exportService,
+                    null, // settings
+                    userPromptService,
+                    findReplaceService,
+                    orchestrator,
+                    pocoIdentityService,
+                    diffEngine,
+                    serializationEngine,
+                    pipeline);
 
                 // Create external event for modeless execution
                 var handler = new ProjectStandardsExternalEventHandler();

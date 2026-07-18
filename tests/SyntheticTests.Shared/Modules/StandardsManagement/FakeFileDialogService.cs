@@ -1,4 +1,4 @@
-using Synthetic.Shared.UI;
+﻿using Synthetic.Shared.UI;
 
 namespace SyntheticTests.Modules.StandardsManagement
 {

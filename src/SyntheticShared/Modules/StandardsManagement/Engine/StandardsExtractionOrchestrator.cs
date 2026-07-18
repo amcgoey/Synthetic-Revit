@@ -23,7 +23,7 @@ namespace Synthetic.Modules.StandardsManagement.Engine
         public StandardsExtractionOrchestrator(IIdentityService identityService, IStandardSerializationEngine? engine = null)
         {
             _identityService = identityService ?? throw new ArgumentNullException(nameof(identityService));
-            _engine = engine ?? new StandardSerializationEngine();
+            _engine = engine ?? new StandardSerializationEngine(identityService);
         }
 
         /// <inheritdoc />

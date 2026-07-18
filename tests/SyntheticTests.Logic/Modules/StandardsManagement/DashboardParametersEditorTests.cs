@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
@@ -77,7 +77,8 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void StagedMultiSelectIntersection_ShouldAggregateParametersAndDisplayVaries()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
+            var vm = parent.StagingQueueViewModel;
 
             var p1 = new ParameterModel("Comments", "ValueA", null, "String", 1, null, false, false);
             var el1 = new ElementModel { Class = "Autodesk.Revit.DB.LinePatternElement", Name = "Dash", Parameters = new List<ParameterModel> { p1 } };
@@ -88,13 +89,12 @@ namespace SyntheticTests.Modules.StandardsManagement
             var q1 = new QueueItemModel(el1, true, false);
             var q2 = new QueueItemModel(el2, true, false);
 
-            vm.ActionQueue.Add(q1);
-            vm.ActionQueue.Add(q2);
+            vm.StagingQueue.Add(q1);
+            vm.StagingQueue.Add(q2);
 
             // Act: Edit items to calculate intersection
             var itemsToEdit = new List<QueueItemModel> { q1, q2 };
-            var editMethod = typeof(ProjectStandardsDashboardViewModel).GetMethod("ExecuteEdit", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            editMethod?.Invoke(vm, new object[] { itemsToEdit });
+            vm.EditCommand.Execute(itemsToEdit);
 
             // Assert intersection has Comments with <Varies>
             var commentsParam = vm.DisplayParameters.FirstOrDefault(p => p.Name == "Comments");
@@ -114,8 +114,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             Assert.IsTrue(q2.IsEdited);
  
             // Act: Cancel edits
-            var cancelMethod = typeof(ProjectStandardsDashboardViewModel).GetMethod("ExecuteCancelEdits", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            cancelMethod?.Invoke(vm, new object[] { null! });
+            vm.CancelEditsCommand.Execute(null!);
  
             // Assert revert to original baseline values and original intents (Enforce)
             Assert.AreEqual("ValueA", ((ElementModel)q1.TargetModel).Parameters[0].Value);
@@ -127,10 +126,11 @@ namespace SyntheticTests.Modules.StandardsManagement
         }
 
         [Test]
-        public void CascadingRenameSafety_ShouldUpdateReferencesAcrossActionQueue()
+        public void CascadingRenameSafety_ShouldUpdateReferencesAcrossStagingQueue()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
+            var vm = parent.StagingQueueViewModel;
 
             var materialModel = new ElementModel
             {
@@ -158,12 +158,11 @@ namespace SyntheticTests.Modules.StandardsManagement
             var qMaterial = new QueueItemModel(materialModel, true, false);
             var qWall = new QueueItemModel(wallModel, true, false);
 
-            vm.ActionQueue.Add(qMaterial);
-            vm.ActionQueue.Add(qWall);
+            vm.StagingQueue.Add(qMaterial);
+            vm.StagingQueue.Add(qWall);
 
             // Act: Edit Material item to start session
-            var editMethod = typeof(ProjectStandardsDashboardViewModel).GetMethod("ExecuteEdit", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            editMethod?.Invoke(vm, new object[] { new List<QueueItemModel> { qMaterial } });
+            vm.EditCommand.Execute(new List<QueueItemModel> { qMaterial });
 
             // Trigger Name property change via SelectedItemName property
             vm.SelectedItemName = "NewMaterialName";
@@ -177,13 +176,13 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void NestedModalWiring_ShouldRetrievePoolFromAllWrappedElements()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
 
             var mat = new ElementModel { Class = "Autodesk.Revit.DB.Material", Name = "Brick" };
             var wall = new HostObjTypeModel { Class = "Autodesk.Revit.DB.WallType", Name = "Brick Wall" };
 
-            vm.ActionQueue.Add(new QueueItemModel(mat, true, false));
-            vm.ActionQueue.Add(new QueueItemModel(wall, true, false));
+            vm.StagingQueue.Add(new QueueItemModel(mat, true, false));
+            vm.StagingQueue.Add(new QueueItemModel(wall, true, false));
 
             // Act
             var pool = vm.AllWrappedElements.ToList();

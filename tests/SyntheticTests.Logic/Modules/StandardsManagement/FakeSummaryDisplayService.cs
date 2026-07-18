@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using Synthetic.Shared.UI;
 
 namespace SyntheticTests.Modules.StandardsManagement

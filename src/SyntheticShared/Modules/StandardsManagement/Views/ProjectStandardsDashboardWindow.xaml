@@ -1,4 +1,4 @@
-<Window x:Class="Synthetic.Modules.StandardsManagement.Views.ProjectStandardsDashboardWindow"
+﻿<Window x:Class="Synthetic.Modules.StandardsManagement.Views.ProjectStandardsDashboardWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="clr-namespace:Synthetic.Modules.StandardsManagement.ViewModels"
@@ -604,7 +604,7 @@
 
             <!-- Grouped ListBox -->
             <ListBox Grid.Row="1" x:Name="QueueListBox"
-                     ItemsSource="{Binding ActionQueueView}"
+                     ItemsSource="{Binding StagingQueueView}"
                      Background="Transparent"
                      BorderBrush="{DynamicResource Synthetic.Brushes.BorderNormal}"
                      BorderThickness="1"

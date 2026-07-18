@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
@@ -69,8 +69,9 @@ namespace SyntheticTests
                         }
                         targetParam.Value = mutatedValue;
 
-                        // 5. Run the deep scan comparison
-                        var clusters = StandardsDiffEngine.RunDeepScan(doc, new List<ElementModel> { model });
+                        // 5. Run the comparison directly on the engine
+                        var engine = new Synthetic.Modules.DiffEngine.PocoToRevitDiffEngine();
+                        var clusters = engine.Compare(new List<ObjectModel> { model }, doc).ToList();
 
                         // 6. Assert that conflicts were successfully identified
                         Assert.IsNotNull(clusters, "RunDeepScan should return a non-null collection.");
@@ -86,6 +87,77 @@ namespace SyntheticTests
                         var conflictRow = mapping.ParameterResolutions.FirstOrDefault(r => r.ParameterName == targetParam.Name);
                         Assert.IsNotNull(conflictRow, $"A parameter resolution row should exist for the mutated parameter '{targetParam.Name}'.");
                         Assert.IsTrue(conflictRow.HasConflict, "The parameter resolution row should indicate a conflict.");
+                    }
+                    finally
+                    {
+                        txGroup.RollBack();
+                    }
+                }
+            }
+            finally
+            {
+                doc.Close(false);
+            }
+        }
+        [Test]
+        public void RunDeepScan_ShouldDelegateToAnalyze_Correctly()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            Document doc = app.NewProjectDocument(UnitSystem.Metric);
+
+            try
+            {
+                using (TransactionGroup txGroup = new TransactionGroup(doc, "Tier2_StandardsDiffEngineTests"))
+                {
+                    txGroup.Start();
+                    try
+                    {
+                        TextNoteType? textNoteType = new FilteredElementCollector(doc)
+                            .OfClass(typeof(TextNoteType))
+                            .Cast<TextNoteType>()
+                            .FirstOrDefault();
+
+                        if (textNoteType == null)
+                        {
+                            Assert.Ignore("No TextNoteType found in the active document to test deep scan.");
+                            return;
+                        }
+
+                        var model = (ElementTypeModel)textNoteType.ToModel(true);
+                        
+                        var targetParam = model.Parameters.FirstOrDefault(p => !p.IsReadOnly);
+                        if (targetParam == null)
+                        {
+                            Assert.Ignore("No writable parameters found on TextNoteType to test mutation.");
+                            return;
+                        }
+
+                        string originalValue = targetParam.Value ?? "";
+                        string mutatedValue = originalValue + "_MutatedForTest";
+                        if (targetParam.StorageType == "Double" || targetParam.StorageType == "Integer")
+                        {
+                            mutatedValue = "999";
+                        }
+                        targetParam.Value = mutatedValue;
+
+                        var serializationEngine = new StandardSerializationEngine();
+                        
+                        var listModels = new List<ElementModel> { model };
+
+                        var analyzeClusters = serializationEngine.Analyze(listModels, doc).ToList();
+                        var deepScanClusters = StandardsDiffEngine.RunDeepScan(doc, listModels, serializationEngine).ToList();
+
+                        Assert.IsNotNull(analyzeClusters);
+                        Assert.IsNotNull(deepScanClusters);
+                        Assert.AreEqual(analyzeClusters.Count, deepScanClusters.Count, "Analyze and RunDeepScan should return the same number of clusters.");
+                        
+                        if(analyzeClusters.Count > 0)
+                        {
+                            var clusterAnalyze = analyzeClusters[0];
+                            var clusterDeepScan = deepScanClusters[0];
+                            Assert.AreEqual(clusterAnalyze.TypeMappings.Count, clusterDeepScan.TypeMappings.Count, "Mappings count should match.");
+                        }
                     }
                     finally
                     {
