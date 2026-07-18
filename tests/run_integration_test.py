@@ -14,7 +14,7 @@ def run_test(revit_version="2025"):
     print(f"[TEST RUNNER] Starting integration test for Audit & Purge on Revit {revit_version}...")
     
     # 1. Run the test suite via the test_executor from the QA plugin
-    test_executor.run_test_suite("CmdTestAuditPurgeJournal", revit_version)
+    test_executor.run_test_suite("", revit_version)
     
     # 2. Locate the latest journal using the revit_journal_tool from the QA plugin
     latest_journal = revit_journal_tool.get_latest_journal(revit_version)

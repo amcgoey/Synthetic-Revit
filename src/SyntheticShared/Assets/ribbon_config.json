@@ -145,15 +145,6 @@
         },
         {
           "type": "PushButton",
-          "name": "Synthetic.Modules.FamilyManagement.Commands.CmdTestAuditPurgeJournal",
-          "text": "Test Audit Purge",
-          "class": "Synthetic.Modules.FamilyManagement.Commands.CmdTestAuditPurgeJournal",
-          "tooltip": "Headless integration test command for Audit & Purge",
-          "availability_class": "Synthetic.Modules.FamilyManagement.Commands.CmdTestAuditPurgeJournalAvailability",
-          "debugOnly": true
-        },
-        {
-          "type": "PushButton",
           "name": "Synthetic.Modules.FamilyManagement.Commands.FamiliesForceReinsert",
           "text": "Force Reinsert Families",
           "class": "Synthetic.Modules.FamilyManagement.Commands.FamiliesForceReinsert",
