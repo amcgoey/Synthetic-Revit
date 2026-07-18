@@ -38,9 +38,52 @@ namespace SyntheticTests
             var windowType = Type.GetType($"Synthetic.Modules.StandardsManagement.Views.ProjectStandardsDashboardWindow, Synthetic{revitVersion}");
             Assert.IsNotNull(windowType, $"ProjectStandardsDashboardWindow type could not be loaded for Revit version {revitVersion}.");
 
-            // Instantiate ViewModel and Window
             var fakeDialog = new FakeFileDialogService();
-            var vm = Activator.CreateInstance(vmType, _uiapp!, fakeDialog, null);
+
+            var suffix = $", Synthetic{revitVersion}";
+            var guardrail = new SyntheticTests.Modules.StandardsManagement.FakeGuardrailPromptService();
+            var userPromptService = new SyntheticTests.Modules.StandardsManagement.FakeUserPromptService();
+
+            var exportServiceType = Type.GetType($"Synthetic.Modules.StandardsManagement.Utilities.StandardsExportService{suffix}");
+            var exportService = Activator.CreateInstance(exportServiceType, guardrail, fakeDialog);
+
+            var findReplaceType = Type.GetType($"Synthetic.Modules.StandardsManagement.Utilities.FindReplaceService{suffix}");
+            var findReplaceService = Activator.CreateInstance(findReplaceType);
+
+            var serializationEngineType = Type.GetType($"Synthetic.Modules.RevitDOM.StandardSerializationEngine{suffix}");
+            var serializationEngine = Activator.CreateInstance(serializationEngineType);
+
+            var revitIdentityType = Type.GetType($"Synthetic.Modules.RevitDOM.RevitIdentityService{suffix}");
+            var revitIdentity = Activator.CreateInstance(revitIdentityType);
+
+            var orchestratorType = Type.GetType($"Synthetic.Modules.RevitDOM.StandardsExtractionOrchestrator{suffix}");
+            var orchestrator = Activator.CreateInstance(orchestratorType, revitIdentity, serializationEngine);
+
+            var pocoIdentityType = Type.GetType($"Synthetic.Modules.RevitDOM.PocoIdentityService{suffix}");
+            var pocoIdentityService = Activator.CreateInstance(pocoIdentityType);
+
+            var diffEngineType = Type.GetType($"Synthetic.Modules.DiffEngine.PocoToRevitDiffEngine{suffix}");
+            var diffEngine = Activator.CreateInstance(diffEngineType, revitIdentity);
+
+            var revitFamilyEnforcerType = Type.GetType($"Synthetic.Modules.StandardsManagement.Engine.RevitFamilyEnforcer{suffix}");
+            var revitFamilyEnforcer = Activator.CreateInstance(revitFamilyEnforcerType, serializationEngine);
+
+            var pipelineType = Type.GetType($"Synthetic.Modules.StandardsManagement.Engine.StandardsExecutionPipeline{suffix}");
+            var pipeline = Activator.CreateInstance(pipelineType, serializationEngine, exportService, revitFamilyEnforcer);
+
+            var vm = Activator.CreateInstance(vmType, 
+                _uiapp!, 
+                fakeDialog, 
+                exportService, 
+                null, 
+                userPromptService, 
+                findReplaceService, 
+                orchestrator, 
+                pocoIdentityService, 
+                diffEngine, 
+                serializationEngine, 
+                pipeline);
+
             var window = Activator.CreateInstance(windowType, _uiapp!.MainWindowHandle);
 
             Assert.IsNotNull(vm, "ViewModel could not be instantiated.");
