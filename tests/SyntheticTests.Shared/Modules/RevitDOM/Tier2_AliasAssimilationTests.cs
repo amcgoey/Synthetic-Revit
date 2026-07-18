@@ -112,7 +112,7 @@ namespace SyntheticTests
                     Assert.AreEqual(primaryMaterial.Id, wallType.GetCompoundStructure().GetLayers()[0].MaterialId);
 
                     // Assert serialization results
-                    Assert.IsTrue(results.Any(r => r.Success && r.Model == primaryModel && r.Action == null), "Should contain a primary creation result");
+                    Assert.IsTrue(results.Any(r => r.Success && r.Model == primaryModel && r.Action == "Created"), "Should contain a primary creation result");
                     Assert.IsTrue(results.Any(r => r.Success && r.Model == primaryModel && r.Action == "Merged Alias"), "Should contain a merge alias success result");
 
                     tg.RollBack();
@@ -181,7 +181,7 @@ namespace SyntheticTests
                     Assert.IsNotNull(primaryMaterial, "Primary Material should exist even if alias swap fails.");
 
                     // 4. Assert serialization results contain success and failure/warning entries
-                    Assert.IsTrue(results.Any(r => r.Success && r.Model == primaryModel && r.Action == null), "Should contain a primary creation success result");
+                    Assert.IsTrue(results.Any(r => r.Success && r.Model == primaryModel && r.Action == "Created"), "Should contain a primary creation success result");
                     Assert.IsTrue(results.Any(r => !r.Success && r.Model == primaryModel && r.Action == "Alias Swap Failed"), "Should contain an alias swap failure result");
 
                     tg.RollBack();

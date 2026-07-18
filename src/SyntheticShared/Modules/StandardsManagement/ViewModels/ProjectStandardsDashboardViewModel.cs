@@ -1693,9 +1693,9 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                 }
                 else
                 {
-                    if (result.Action == "Merged Alias")
+                    if (!string.IsNullOrEmpty(result.Action))
                     {
-                        action = "Merged Alias";
+                        action = result.Action;
                     }
                     else if (result.OperationTarget == "File")
                     {

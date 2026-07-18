@@ -33,6 +33,11 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         /// </summary>
         public int RenamedCount => LogItems.Count(item => item.Action == "Renamed");
 
+        /// <summary>
+        /// Gets the count of items that were unchanged during import.
+        /// </summary>
+        public int UnchangedCount => LogItems.Count(item => item.Action == "Unchanged");
+
         private readonly IFileDialogService? _dialogService;
 
         /// <summary>
@@ -73,6 +78,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             sb.AppendLine("| :--- | :--- |");
             sb.AppendLine($"| **Elements Created** | {CreatedCount} |");
             sb.AppendLine($"| **Elements Updated** | {UpdatedCount} |");
+            sb.AppendLine($"| **Elements Unchanged** | {UnchangedCount} |");
             sb.AppendLine($"| **Aliases Renamed** | {RenamedCount} |");
             sb.AppendLine($"| **Errors / Failed** | {ErrorsCount} |");
             sb.AppendLine();

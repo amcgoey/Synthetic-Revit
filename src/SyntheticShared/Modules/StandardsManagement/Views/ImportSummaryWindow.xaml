@@ -27,7 +27,7 @@
         <TextBlock Grid.Row="0" Text="Import Process Results" FontSize="16" FontWeight="Bold" Margin="0,0,0,15" Foreground="{DynamicResource Synthetic.Brushes.TextPrimary}"/>
 
         <!-- High-level stats panel -->
-        <UniformGrid Grid.Row="1" Columns="4" Margin="0,0,0,15">
+        <UniformGrid Grid.Row="1" Columns="5" Margin="0,0,0,15">
             <!-- Created Card -->
             <Border Background="{DynamicResource Synthetic.Brushes.ControlSurface}" BorderBrush="{DynamicResource Synthetic.Brushes.BorderNormal}" BorderThickness="1" CornerRadius="4" Margin="0,0,8,0" Padding="10">
                 <StackPanel HorizontalAlignment="Center">
@@ -41,6 +41,14 @@
                 <StackPanel HorizontalAlignment="Center">
                     <TextBlock Text="{Binding UpdatedCount}" FontSize="24" FontWeight="Bold" Foreground="{DynamicResource Synthetic.Brushes.AccentActive}" HorizontalAlignment="Center"/>
                     <TextBlock Text="Elements Updated" FontSize="11" Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}" HorizontalAlignment="Center"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Unchanged Card -->
+            <Border Background="{DynamicResource Synthetic.Brushes.ControlSurface}" BorderBrush="{DynamicResource Synthetic.Brushes.BorderNormal}" BorderThickness="1" CornerRadius="4" Margin="0,0,8,0" Padding="10">
+                <StackPanel HorizontalAlignment="Center">
+                    <TextBlock Text="{Binding UnchangedCount}" FontSize="24" FontWeight="Bold" Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}" HorizontalAlignment="Center"/>
+                    <TextBlock Text="Elements Unchanged" FontSize="11" Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}" HorizontalAlignment="Center"/>
                 </StackPanel>
             </Border>
 
@@ -86,6 +94,9 @@
                                             </DataTrigger>
                                             <DataTrigger Binding="{Binding Action}" Value="Failed">
                                                 <Setter Property="Foreground" Value="{DynamicResource Synthetic.Brushes.Error}"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Action}" Value="Unchanged">
+                                                <Setter Property="Foreground" Value="{DynamicResource Synthetic.Brushes.TextSecondary}"/>
                                             </DataTrigger>
                                             <DataTrigger Binding="{Binding Action}" Value="Canceled">
                                                 <Setter Property="Foreground" Value="{DynamicResource Synthetic.Brushes.TextSecondary}"/>
