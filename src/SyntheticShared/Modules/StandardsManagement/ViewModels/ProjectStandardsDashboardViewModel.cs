@@ -424,7 +424,13 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             {
                 if (e.PropertyName == nameof(ActionQueueViewModel.ActionQueue) ||
                     e.PropertyName == nameof(ActionQueueViewModel.ActionQueueView) ||
-                    e.PropertyName == nameof(ActionQueueViewModel.SelectedQueueItems))
+                    e.PropertyName == nameof(ActionQueueViewModel.SelectedQueueItems) ||
+                    e.PropertyName == nameof(ActionQueueViewModel.SelectedNameOrCount) ||
+                    e.PropertyName == nameof(ActionQueueViewModel.SelectedDisplayClass) ||
+                    e.PropertyName == nameof(ActionQueueViewModel.SelectedAliasesString) ||
+                    e.PropertyName == nameof(ActionQueueViewModel.SelectedElement) ||
+                    e.PropertyName == nameof(ActionQueueViewModel.IsSingleElementSelected) ||
+                    e.PropertyName == nameof(ActionQueueViewModel.SelectedItemErrorMessage))
                 {
                     OnPropertyChanged(e.PropertyName);
                 }
@@ -589,7 +595,13 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             {
                 if (e.PropertyName == nameof(ActionQueueViewModel.ActionQueue) ||
                     e.PropertyName == nameof(ActionQueueViewModel.ActionQueueView) ||
-                    e.PropertyName == nameof(ActionQueueViewModel.SelectedQueueItems))
+                    e.PropertyName == nameof(ActionQueueViewModel.SelectedQueueItems) ||
+                    e.PropertyName == nameof(ActionQueueViewModel.SelectedNameOrCount) ||
+                    e.PropertyName == nameof(ActionQueueViewModel.SelectedDisplayClass) ||
+                    e.PropertyName == nameof(ActionQueueViewModel.SelectedAliasesString) ||
+                    e.PropertyName == nameof(ActionQueueViewModel.SelectedElement) ||
+                    e.PropertyName == nameof(ActionQueueViewModel.IsSingleElementSelected) ||
+                    e.PropertyName == nameof(ActionQueueViewModel.SelectedItemErrorMessage))
                 {
                     OnPropertyChanged(e.PropertyName);
                 }
