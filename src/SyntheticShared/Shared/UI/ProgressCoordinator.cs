@@ -81,6 +81,29 @@ namespace Synthetic.Shared.UI
         }
 
         /// <summary>
+        /// Creates an IProgress reporter targeting this coordinator.
+        /// </summary>
+        /// <returns>An progress reporter instance.</returns>
+        public static IProgress<ProgressState> AsProgressReporter()
+        {
+            return new Progress<ProgressState>(state =>
+            {
+                if (state.IsCompleted)
+                {
+                    Close();
+                }
+                else if (_viewModel != null)
+                {
+                    _viewModel.MainTaskDescription = state.TaskDescription;
+                    _viewModel.MaximumValue = state.MaximumBounds;
+                    _viewModel.CurrentValue = state.ProgressIndex;
+                    _viewModel.CurrentItemName = state.CurrentItemName;
+                    AllowUIToUpdate();
+                }
+            });
+        }
+
+        /// <summary>
         /// Increments the current progress value by 1 and updates the current item status text.
         /// </summary>
         /// <param name="currentItemName">The name of the item currently being processed.</param>
