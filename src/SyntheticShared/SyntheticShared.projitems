@@ -254,6 +254,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Utilities\StandardsHierarchyUtility.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Utilities\PathResolutionUtility.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Utilities\StandardsExportService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Utilities\StandardsMergeUtility.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Utilities\IStandardsExportService.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Utilities\FindReplaceService.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Utilities\IFindReplaceService.cs" />

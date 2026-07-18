@@ -5,6 +5,7 @@ using NUnit.Framework;
 using Autodesk.Revit.DB;
 using Synthetic.Modules.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
+using Synthetic.Modules.StandardsManagement.Utilities;
 
 namespace SyntheticTests.Modules.StandardsManagement
 {
@@ -168,7 +169,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             };
 
             // Act
-            var result = ProjectStandardsDashboardViewModel.MergeStandardsLists(existing, newElements, overwriteDuplicates: true);
+            var result = StandardsMergeUtility.Merge(existing, newElements, overwriteDuplicates: true);
 
             // Assert
             Assert.AreEqual(2, result.Count);
@@ -192,7 +193,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             };
 
             // Act
-            var result = ProjectStandardsDashboardViewModel.MergeStandardsLists(existing, newElements, overwriteDuplicates: false);
+            var result = StandardsMergeUtility.Merge(existing, newElements, overwriteDuplicates: false);
 
             // Assert
             Assert.AreEqual(2, result.Count);

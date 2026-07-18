@@ -27,3 +27,8 @@ _Avoid_: Error log, dump file
 Memory utilization metrics periodically logged in the journal showing system InUse and Peak RAM footprints.
 _Avoid_: Memory stats, RAM info
 
+**Standards Merge**:
+The process of combining existing standard elements with newly extracted standard elements prior to export or update operations.
+
+**Duplicate Detection (Standards)**:
+The strict mechanism for identifying matching standard elements during a Standards Merge, utilizing a unique key composed of the element's Class and Name.
