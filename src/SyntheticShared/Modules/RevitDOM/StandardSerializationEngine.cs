@@ -783,7 +783,6 @@ namespace Synthetic.Modules.RevitDOM
                 // Clone both models to avoid modifying the original structures
                 var c1 = (ElementModel)incomingModel.Clone();
                 var c2 = (ElementModel)liveModel.Clone();
-
                 // Set metadata/ignored fields to null/default on both clones
                 c1.Parameters = null;
                 c2.Parameters = null;
@@ -791,15 +790,8 @@ namespace Synthetic.Modules.RevitDOM
                 c2.Element = null;
                 c1.Document = null;
                 c2.Document = null;
-                c1.ElementId = null;
-                c2.ElementId = null;
-                c1.Id = 0;
-                c2.Id = 0;
-                c1.UniqueId = null;
-                c2.UniqueId = null;
                 c1.DependencyOrigin = null;
                 c2.DependencyOrigin = null;
-
                 // Compare JSON representations of the non-parameter properties
                 var settings = new JsonSerializerSettings
                 {

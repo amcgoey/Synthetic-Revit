@@ -156,5 +156,53 @@ namespace SyntheticTests
                 doc.Close(false);
             }
         }
+
+        [Test]
+        public void ToRevit_UnchangedElement_SkipsModificationsAndReturnsUnchanged()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            Document doc = app.NewProjectDocument(UnitSystem.Metric);
+
+            try
+            {
+                // Find a default level to target
+                Level? defaultLevel = new FilteredElementCollector(doc)
+                    .OfClass(typeof(Level))
+                    .Cast<Level>()
+                    .FirstOrDefault();
+
+                Assert.IsNotNull(defaultLevel, "A default Level should exist.");
+                string originalName = defaultLevel.Name;
+
+                // Create a model matching the level exactly
+                var unchangedModel = new ElementModel
+                {
+                    ElementId = defaultLevel!.Id.ToModel(doc),
+                    Name = defaultLevel.Name
+                };
+
+                var engine = new StandardSerializationEngine();
+                
+                // Register our stub translator for ElementModel
+                var stubTranslator = new StubLevelTranslator();
+                engine.Dispatcher.Register<ElementModel, StubLevelTranslator>(stubTranslator, typeof(Level));
+
+                // Act
+                var resultsList = engine.ToRevit(new List<ObjectModel> { unchangedModel }, doc).ToList();
+
+                // Assert
+                Assert.AreEqual(1, resultsList.Count);
+                var result = resultsList[0];
+                Assert.IsTrue(result.Success);
+                Assert.AreEqual("Unchanged", result.Action, "Should be flagged as Unchanged.");
+                Assert.IsFalse(stubTranslator.WasInjected, "InjectSpecifics should be skipped when element is unchanged.");
+                Assert.AreEqual(originalName, defaultLevel.Name, "Level name should not have changed.");
+            }
+            finally
+            {
+                doc.Close(false);
+            }
+        }
     }
 }
