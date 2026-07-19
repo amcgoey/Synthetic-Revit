@@ -103,8 +103,8 @@
     <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\ViewSheetTranslator.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\ViewTranslator.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\XYZTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\DiffEngine\IDiffEngine.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\DiffEngine\PocoToRevitDiffEngine.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Diffing\IDiffEngine.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Diffing\PocoToRevitDiffEngine.cs" />
 
     <Compile Include="$(MSBuildThisFileDirectory)Modules\Worksets\Models\ElementsOnWorkset.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Settings\ConfigCollection.cs" />
@@ -518,3 +518,4 @@
     </None>
   </ItemGroup>
 </Project>
+

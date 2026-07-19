@@ -62,7 +62,7 @@ namespace SyntheticTests
             var pocoIdentityType = Type.GetType($"Synthetic.Modules.RevitDOM.PocoIdentityService{suffix}");
             var pocoIdentityService = Activator.CreateInstance(pocoIdentityType);
 
-            var diffEngineType = Type.GetType($"Synthetic.Modules.DiffEngine.PocoToRevitDiffEngine{suffix}");
+            var diffEngineType = Type.GetType($"Synthetic.RevitDOM.Operations.Diffing.PocoToRevitDiffEngine{suffix}");
             var diffEngine = Activator.CreateInstance(diffEngineType, revitIdentity);
 
             var revitFamilyEnforcerType = Type.GetType($"Synthetic.Modules.StandardsManagement.Engine.RevitFamilyEnforcer{suffix}");
@@ -122,3 +122,4 @@ namespace SyntheticTests
         }
     }
 }
+

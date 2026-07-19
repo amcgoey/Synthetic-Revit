@@ -22,7 +22,7 @@ using Synthetic.RevitDOM;
 using Synthetic.Settings;
 using Synthetic.Infrastructure.Persistence;
 using Synthetic.Modules.StandardsManagement.Utilities;
-using Synthetic.Modules.DiffEngine;
+using Synthetic.RevitDOM.Operations.Diffing;
 
 namespace Synthetic.Modules.StandardsManagement.ViewModels
 {
@@ -931,3 +931,4 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         }
     }
 }
+

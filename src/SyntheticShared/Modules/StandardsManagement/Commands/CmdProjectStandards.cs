@@ -12,7 +12,7 @@ using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.Engine;
-using Synthetic.Modules.DiffEngine;
+using Synthetic.RevitDOM.Operations.Diffing;
 
 namespace Synthetic.Modules.StandardsManagement.Commands
 {
@@ -90,3 +90,4 @@ namespace Synthetic.Modules.StandardsManagement.Commands
         }
     }
 }
+

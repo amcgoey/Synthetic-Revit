@@ -100,7 +100,7 @@ namespace SyntheticTests
             try
             {
                 // 5. Run the comparison directly on the engine
-                var engine = new Synthetic.Modules.DiffEngine.PocoToRevitDiffEngine();
+                var engine = new Synthetic.RevitDOM.Operations.Diffing.PocoToRevitDiffEngine();
                 var clusters = engine.Compare(new List<ObjectModel> { context.Model }, context.Doc).ToList();
 
                 // 6. Assert that conflicts were successfully identified
@@ -156,3 +156,4 @@ namespace SyntheticTests
         }
     }
 }
+

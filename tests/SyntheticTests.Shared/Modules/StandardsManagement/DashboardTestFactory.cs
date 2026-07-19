@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.DiffEngine;
+using Synthetic.RevitDOM.Operations.Diffing;
 using Synthetic.Modules.MergeDuplicates.Models;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
@@ -87,3 +87,4 @@ namespace SyntheticTests.Modules.StandardsManagement
         }
     }
 }
+

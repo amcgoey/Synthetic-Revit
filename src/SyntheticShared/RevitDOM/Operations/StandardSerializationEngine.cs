@@ -173,7 +173,7 @@ namespace Synthetic.RevitDOM.Operations
             IProgress<string>? progress = null,
             CancellationToken cancellationToken = default)
         {
-            var diffEngine = new Synthetic.Modules.DiffEngine.PocoToRevitDiffEngine(_identityService);
+            var diffEngine = new Synthetic.RevitDOM.Operations.Diffing.PocoToRevitDiffEngine(_identityService);
             return diffEngine.Compare(models, doc, progress, cancellationToken);
         }
 
@@ -460,7 +460,7 @@ namespace Synthetic.RevitDOM.Operations
                     if (string.IsNullOrEmpty(paramModel.Name)) continue;
                     if (paramModel.IsReadOnly) continue;
 
-                    Parameter? p = Synthetic.Modules.DiffEngine.PocoToRevitDiffEngine.GetLiveParameter(liveElement, paramModel);
+                    Parameter? p = Synthetic.RevitDOM.Operations.Diffing.PocoToRevitDiffEngine.GetLiveParameter(liveElement, paramModel);
                     if (p == null)
                     {
                         // Check if incoming parameter specifies a non-empty target value
@@ -477,10 +477,10 @@ namespace Synthetic.RevitDOM.Operations
                     }
 
                     string srcStorage = p.StorageType.ToString();
-                    string srcVal = Synthetic.Modules.DiffEngine.PocoToRevitDiffEngine.GetParameterValueWithoutPrefix(p);
+                    string srcVal = Synthetic.RevitDOM.Operations.Diffing.PocoToRevitDiffEngine.GetParameterValueWithoutPrefix(p);
 
                     string tgtStorage = paramModel.StorageType ?? "String";
-                    string tgtVal = Synthetic.Modules.DiffEngine.PocoToRevitDiffEngine.GetJsonParameterValue(doc, paramModel, _identityService);
+                    string tgtVal = Synthetic.RevitDOM.Operations.Diffing.PocoToRevitDiffEngine.GetJsonParameterValue(doc, paramModel, _identityService);
 
                     bool isSchemaMismatch = (srcStorage != tgtStorage);
                     bool hasConflict = (srcVal != tgtVal);
@@ -558,3 +558,4 @@ namespace Synthetic.RevitDOM.Operations
         }
     }
 }
+

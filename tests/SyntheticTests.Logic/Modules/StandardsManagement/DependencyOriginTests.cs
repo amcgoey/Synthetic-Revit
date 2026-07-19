@@ -11,7 +11,7 @@ using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Modules.StandardsManagement.Models;
 using Synthetic.Shared.UI;
-using Synthetic.Modules.DiffEngine;
+using Synthetic.RevitDOM.Operations.Diffing;
 using SyntheticTests.Modules.RevitDOM;
 
 namespace SyntheticTests.Modules.StandardsManagement
@@ -115,3 +115,4 @@ namespace SyntheticTests.Modules.StandardsManagement
         }
     }
 }
+

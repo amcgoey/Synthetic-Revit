@@ -10,7 +10,7 @@ using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
 using Synthetic.Shared.RevitAPI;
 
-namespace Synthetic.Modules.DiffEngine
+namespace Synthetic.RevitDOM.Operations.Diffing
 {
     /// <summary>
     /// Implementation of IDiffEngine that compares a collection of pure POCO ObjectModels against a live Revit Document.
@@ -348,3 +348,4 @@ namespace Synthetic.Modules.DiffEngine
         }
     }
 }
+

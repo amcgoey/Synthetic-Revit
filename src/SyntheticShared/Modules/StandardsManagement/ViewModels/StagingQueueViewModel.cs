@@ -14,7 +14,7 @@ using Synthetic.Shared.UI;
 using Synthetic.Modules.MergeDuplicates.Models;
 using Synthetic.Modules.StandardsManagement.Utilities;
 using Synthetic.Modules.StandardsManagement.Engine;
-using Synthetic.Modules.DiffEngine;
+using Synthetic.RevitDOM.Operations.Diffing;
 using Autodesk.Revit.DB;
 
 namespace Synthetic.Modules.StandardsManagement.ViewModels
@@ -878,3 +878,4 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         }
     }
 }
+

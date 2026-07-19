@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using Synthetic.Modules.MergeDuplicates.Models;
 
-namespace Synthetic.Modules.DiffEngine
+namespace Synthetic.RevitDOM.Operations.Diffing
 {
     /// <summary>
     /// Generic interface defining the contract for comparing a source data set against a target model/database.
