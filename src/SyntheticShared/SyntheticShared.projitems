@@ -183,7 +183,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)Shared\UI\RevitWindowHelper.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\AutoTagger\Models\TagTemplate.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Shared\RevitAPI\CoordinateUtility.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Engine\MergeAnalysisEngine.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Merge\MergeAnalysisEngine.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\AutoTagger\Repositories\TemplateStorageRepository.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\AutoTagger\ViewModels\SetTemplateViewModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\AutoTagger\Views\SetTemplateView.xaml.cs" />

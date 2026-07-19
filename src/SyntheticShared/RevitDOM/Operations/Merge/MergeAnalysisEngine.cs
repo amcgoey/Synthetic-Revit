@@ -12,13 +12,10 @@ using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
 using Synthetic.Infrastructure.Serialization;
 using Synthetic.Modules.MergeDuplicates.Handlers;
-using Synthetic.Modules.MergeDuplicates.Engine;
-using Synthetic.RevitDOM.Operations.Merge;
-using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Shared.RevitAPI;
 
-namespace Synthetic.Modules.MergeDuplicates.Engine
+namespace Synthetic.RevitDOM.Operations.Merge
 {
     /// <summary>
     /// Analysis engine that scans the document for duplicates and calculates merge recommendations.
@@ -226,18 +223,13 @@ namespace Synthetic.Modules.MergeDuplicates.Engine
         /// <param name="elements">The list of ElementModels to group.</param>
         /// <param name="token">A cancellation token.</param>
         /// <returns>A collection of duplicate cluster models.</returns>
-        public static ObservableCollection<DuplicateClusterModel> BuildClustersFromModels(List<ElementModel> elements, CancellationToken token)
-        {
-            return new ObservableCollection<DuplicateClusterModel>();
-        }
-
-        private static ObservableCollection<DuplicateClusterModel> BuildClustersFromElements(Document doc, List<Element> elements, CancellationToken token)
+        public static ObservableCollection<DuplicateClusterModel> BuildClustersFromModels(IEnumerable<ElementModel> elements, CancellationToken token)
         {
             var clusters = new ObservableCollection<DuplicateClusterModel>();
 
             // Group by Category Name
             var elementsByCategory = elements
-                .GroupBy(elem => GetElementCategoryName(doc, elem));
+                .GroupBy(elem => elem.Category ?? "Unknown Category");
 
             foreach (var categoryGroup in elementsByCategory)
             {
@@ -267,188 +259,67 @@ namespace Synthetic.Modules.MergeDuplicates.Engine
                             // Create DuplicateItemModel
                             var item = new DuplicateItemModel
                             {
-                                RevitElementId = elem.Id.ToModel(doc, false),
+                                RevitElementId = elem.ElementId,
                                 ItemName = elem.Name,
                                 CategoryName = categoryName,
                                 IsPrimary = false,
                                 IsIncludedForMerge = true,
-                                IsLoadableFamily = (elem is Family)
+                                IsLoadableFamily = (elem.Class == "Autodesk.Revit.DB.Family" || elem.Class == "Autodesk.Revit.DB.FamilySymbol")
                             };
 
-                            // Get instances to calculate count, location, bounding box
-                            var instances = new List<Element>();
-                            if (elem is Family family)
-                            {
-                                var symbolIds = family.GetFamilySymbolIds();
-                                if (symbolIds != null && symbolIds.Count > 0)
-                                {
-                                    var symbolIdSet = new HashSet<ElementId>(symbolIds);
-                                    var familyInstances = new FilteredElementCollector(doc)
-                                        .OfClass(typeof(FamilyInstance))
-                                        .Where(inst => symbolIdSet.Contains(inst.GetTypeId()))
-                                        .ToList();
-                                    instances.AddRange(familyInstances);
-                                }
-                            }
-                            else if (elem is GroupType gt)
-                            {
-                                var groupInstances = new FilteredElementCollector(doc)
-                                    .OfClass(typeof(Autodesk.Revit.DB.Group))
-                                    .Where(g => g.GetTypeId() == gt.Id)
-                                    .ToList();
-                                instances.AddRange(groupInstances);
-                            }
-                            else if (elem is AssemblyType at)
-                            {
-                                var assemblyInstances = new FilteredElementCollector(doc)
-                                    .OfClass(typeof(AssemblyInstance))
-                                    .Where(a => a.GetTypeId() == at.Id)
-                                    .ToList();
-                                instances.AddRange(assemblyInstances);
-                            }
-                            else if (elem is ElementType et)
-                            {
-                                var typeInstances = new FilteredElementCollector(doc)
-                                    .WherePasses(new ElementIsElementTypeFilter(true)) // Instances
-                                    .Where(x => x.GetTypeId() == et.Id)
-                                    .ToList();
-                                instances.AddRange(typeInstances);
-                            }
-
-                            item.InstanceCount = instances.Count;
-
-                            var firstInstance = instances.FirstOrDefault();
-                            if (firstInstance != null)
-                            {
-                                if (firstInstance.Location is LocationPoint lp)
-                                {
-                                    item.Location = lp.Point.ToModel();
-                                }
-                                else if (firstInstance is FamilyInstance fi)
-                                {
-                                    item.Location = fi.GetTransform().Origin.ToModel();
-                                }
-                                else
-                                {
-                                    var bbox = firstInstance.get_BoundingBox(null);
-                                    if (bbox != null)
-                                    {
-                                        item.Location = ((bbox.Max + bbox.Min) * 0.5).ToModel();
-                                    }
-                                }
-                                item.BoundingBox = firstInstance.get_BoundingBox(null).ToModel();
-                            }
+                            item.InstanceCount = elem.InstanceCount;
+                            item.Location = elem.Location;
+                            item.BoundingBox = elem.BoundingBox;
 
                             // Populate parameters (legacy dict)
                             item.Parameters = new Dictionary<string, string>();
-                            if (elem is Family familyElem)
+                            foreach (var p in elem.Parameters)
                             {
-                                var symbolIds = familyElem.GetFamilySymbolIds();
-                                var symbols = symbolIds?.Select(id => doc.GetElement(id)).OfType<FamilySymbol>().ToList() ?? new List<FamilySymbol>();
-                                foreach (var symbol in symbols)
+                                if (!string.IsNullOrEmpty(p.Name) && !item.Parameters.ContainsKey(p.Name))
                                 {
-                                    foreach (Parameter p in symbol.Parameters)
-                                    {
-                                        if (p.Definition != null && !item.Parameters.ContainsKey(p.Definition.Name))
-                                        {
-                                            item.Parameters[p.Definition.Name] = p.StorageType.ToString();
-                                        }
-                                    }
-                                }
-                            }
-                            else
-                            {
-                                foreach (Parameter p in elem.Parameters)
-                                {
-                                    if (p.Definition != null && !item.Parameters.ContainsKey(p.Definition.Name))
-                                    {
-                                        item.Parameters[p.Definition.Name] = p.StorageType.ToString();
-                                    }
+                                    item.Parameters[p.Name] = p.StorageType;
                                 }
                             }
 
                             // Populate Nested Collection of Types
-                            if (elem is Family fam)
+                            if (elem.NestedTypes != null && elem.NestedTypes.Count > 0)
                             {
-                                var symbolIds = fam.GetFamilySymbolIds();
-                                if (symbolIds != null)
+                                foreach (var nestedType in elem.NestedTypes)
                                 {
-                                    foreach (var sId in symbolIds)
+                                    var typeModel = new DuplicateTypeModel
                                     {
-                                        var symbol = doc.GetElement(sId) as FamilySymbol;
-                                        if (symbol != null)
+                                        RevitTypeId = nestedType.ElementId,
+                                        Name = nestedType.Name,
+                                        Parameters = new Dictionary<string, string>()
+                                    };
+                                    foreach (var p in nestedType.Parameters)
+                                    {
+                                        if (!string.IsNullOrEmpty(p.Name) && !typeModel.Parameters.ContainsKey(p.Name))
                                         {
-                                            var typeModel = new DuplicateTypeModel
-                                            {
-                                                RevitTypeId = symbol.Id.ToModel(doc),
-                                                Name = symbol.Name,
-                                                Parameters = new Dictionary<string, string>()
-                                            };
-                                            foreach (Parameter p in symbol.Parameters)
-                                            {
-                                                if (p.Definition != null && !typeModel.Parameters.ContainsKey(p.Definition.Name))
-                                                {
-                                                    if (IsIdentityParameter(p.Definition.Name)) continue;
-                                                    typeModel.Parameters[p.Definition.Name] = GetParameterValueString(p, doc);
-                                                }
-                                            }
-                                            item.Types.Add(typeModel);
+                                            if (IsIdentityParameter(p.Name)) continue;
+                                            typeModel.Parameters[p.Name] = GetParameterValueString(p);
                                         }
                                     }
+                                    item.Types.Add(typeModel);
                                 }
                             }
-                            else if (elem is GroupType gType)
+                            else
                             {
+                                // Fallback: add the element itself as the single type
                                 var typeModel = new DuplicateTypeModel
                                 {
-                                    RevitTypeId = gType.Id.ToModel(doc),
-                                    Name = gType.Name,
+                                    RevitTypeId = elem.ElementId,
+                                    Name = elem.Name,
                                     Parameters = new Dictionary<string, string>()
                                 };
-                                 foreach (Parameter p in gType.Parameters)
-                                 {
-                                     if (p.Definition != null && !typeModel.Parameters.ContainsKey(p.Definition.Name))
-                                     {
-                                         if (IsIdentityParameter(p.Definition.Name)) continue;
-                                         typeModel.Parameters[p.Definition.Name] = GetParameterValueString(p, doc);
-                                     }
-                                 }
-                                item.Types.Add(typeModel);
-                            }
-                            else if (elem is AssemblyType aType)
-                            {
-                                var typeModel = new DuplicateTypeModel
+                                foreach (var p in elem.Parameters)
                                 {
-                                    RevitTypeId = aType.Id.ToModel(doc),
-                                    Name = aType.Name,
-                                    Parameters = new Dictionary<string, string>()
-                                };
-                                 foreach (Parameter p in aType.Parameters)
-                                 {
-                                     if (p.Definition != null && !typeModel.Parameters.ContainsKey(p.Definition.Name))
-                                     {
-                                         if (IsIdentityParameter(p.Definition.Name)) continue;
-                                         typeModel.Parameters[p.Definition.Name] = GetParameterValueString(p, doc);
-                                     }
-                                 }
-                                item.Types.Add(typeModel);
-                            }
-                            else if (elem is ElementType eType)
-                            {
-                                var typeModel = new DuplicateTypeModel
-                                {
-                                    RevitTypeId = eType.Id.ToModel(doc),
-                                    Name = eType.Name,
-                                    Parameters = new Dictionary<string, string>()
-                                };
-                                 foreach (Parameter p in eType.Parameters)
-                                 {
-                                     if (p.Definition != null && !typeModel.Parameters.ContainsKey(p.Definition.Name))
-                                     {
-                                         if (IsIdentityParameter(p.Definition.Name)) continue;
-                                         typeModel.Parameters[p.Definition.Name] = GetParameterValueString(p, doc);
-                                     }
-                                 }
+                                    if (!string.IsNullOrEmpty(p.Name) && !typeModel.Parameters.ContainsKey(p.Name))
+                                    {
+                                        if (IsIdentityParameter(p.Name)) continue;
+                                        typeModel.Parameters[p.Name] = GetParameterValueString(p);
+                                    }
+                                }
                                 item.Types.Add(typeModel);
                             }
 
@@ -472,6 +343,113 @@ namespace Synthetic.Modules.MergeDuplicates.Engine
                 }
             }
             return clusters;
+        }
+
+        /// <summary>
+        /// Gets a string representation of a ParameterModel's value.
+        /// </summary>
+        public static string GetParameterValueString(ParameterModel p)
+        {
+            if (p == null) return string.Empty;
+            string valueString = string.Empty;
+            if (p.StorageType == "ElementId" && p.ValueElemId != null)
+            {
+                valueString = !string.IsNullOrEmpty(p.ValueElemId.Name) ? p.ValueElemId.Name : p.ValueElemId.Id.ToString();
+            }
+            else
+            {
+                valueString = p.Value ?? string.Empty;
+            }
+            return $"{p.StorageType}:{valueString}";
+        }
+
+        private static ElementModel ConvertToPoco(Document doc, Element elem)
+        {
+            var model = elem.ToModel(false);
+            
+            // Get instances to calculate count, location, bounding box
+            var instances = new List<Element>();
+            if (elem is Family family)
+            {
+                var symbolIds = family.GetFamilySymbolIds();
+                if (symbolIds != null && symbolIds.Count > 0)
+                {
+                    var symbolIdSet = new HashSet<ElementId>(symbolIds);
+                    var familyInstances = new FilteredElementCollector(doc)
+                        .OfClass(typeof(FamilyInstance))
+                        .Where(inst => symbolIdSet.Contains(inst.GetTypeId()))
+                        .ToList();
+                    instances.AddRange(familyInstances);
+                }
+            }
+            else if (elem is GroupType gt)
+            {
+                var groupInstances = new FilteredElementCollector(doc)
+                    .OfClass(typeof(Autodesk.Revit.DB.Group))
+                    .Where(g => g.GetTypeId() == gt.Id)
+                    .ToList();
+                instances.AddRange(groupInstances);
+            }
+            else if (elem is AssemblyType at)
+            {
+                var assemblyInstances = new FilteredElementCollector(doc)
+                    .OfClass(typeof(AssemblyInstance))
+                    .Where(a => a.GetTypeId() == at.Id)
+                    .ToList();
+                instances.AddRange(assemblyInstances);
+            }
+            else if (elem is ElementType et)
+            {
+                var typeInstances = new FilteredElementCollector(doc)
+                    .WherePasses(new ElementIsElementTypeFilter(true)) // Instances
+                    .Where(x => x.GetTypeId() == et.Id)
+                    .ToList();
+                instances.AddRange(typeInstances);
+            }
+
+            model.InstanceCount = instances.Count;
+
+            var firstInstance = instances.FirstOrDefault();
+            if (firstInstance != null)
+            {
+                if (firstInstance.Location is LocationPoint lp)
+                {
+                    model.Location = lp.Point.ToModel();
+                }
+                else if (firstInstance is FamilyInstance fi)
+                {
+                    model.Location = fi.GetTransform().Origin.ToModel();
+                }
+                else
+                {
+                    var bbox = firstInstance.get_BoundingBox(null);
+                    if (bbox != null)
+                    {
+                        model.Location = ((bbox.Max + bbox.Min) * 0.5).ToModel();
+                    }
+                }
+                model.BoundingBox = firstInstance.get_BoundingBox(null).ToModel();
+            }
+
+            // Populate NestedTypes if it is a Family
+            if (elem is Family fam)
+            {
+                var symbolIds = fam.GetFamilySymbolIds();
+                if (symbolIds != null)
+                {
+                    foreach (var sId in symbolIds)
+                    {
+                        var symbol = doc.GetElement(sId) as FamilySymbol;
+                        if (symbol != null)
+                        {
+                            var nestedModel = symbol.ToModel(false);
+                            model.NestedTypes.Add(nestedModel);
+                        }
+                    }
+                }
+            }
+
+            return model;
         }
 
         /// <summary>
@@ -506,16 +484,16 @@ namespace Synthetic.Modules.MergeDuplicates.Engine
                 }
             }
 
-            return BuildClustersFromElements(doc, elements, token);
+            var models = new List<ElementModel>();
+            foreach (var elem in elements)
+            {
+                token.ThrowIfCancellationRequested();
+                models.Add(ConvertToPoco(doc, elem));
+            }
+
+            return BuildClustersFromModels(models, token);
         }
 
-        /// <summary>
-        /// Scans the Revit document specifically for duplicate elements of the same types/categories as the selected elements.
-        /// </summary>
-        /// <param name="doc">The active Revit document.</param>
-        /// <param name="selectedIds">A collection of ElementIds specifying the user selection to scan against.</param>
-        /// <param name="token">A cancellation token to monitor for cancellation requests.</param>
-        /// <returns>A collection of duplicate cluster models matching the targeted elements.</returns>
         public static ObservableCollection<DuplicateClusterModel> RunTargetedScan(Document doc, ICollection<ElementId> selectedIds, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
@@ -602,7 +580,14 @@ namespace Synthetic.Modules.MergeDuplicates.Engine
                 }
             }
 
-            return BuildClustersFromElements(doc, elements, token);
+            var models = new List<ElementModel>();
+            foreach (var elem in elements)
+            {
+                token.ThrowIfCancellationRequested();
+                models.Add(ConvertToPoco(doc, elem));
+            }
+
+            return BuildClustersFromModels(models, token);
         }
         /// <summary>
         /// Performs a deep comparison of the schemas and geometry in the given duplicate cluster.

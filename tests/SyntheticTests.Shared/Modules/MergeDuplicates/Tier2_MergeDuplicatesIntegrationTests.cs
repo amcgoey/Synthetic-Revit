@@ -12,7 +12,7 @@ using Synthetic.Modules.MergeDuplicates.Handlers;
 using Synthetic.Modules.MergeDuplicates.ViewModels;
 using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.RevitDOM.Models;
-using Synthetic.Modules.MergeDuplicates.Engine;
+
 
 namespace SyntheticTests
 {
@@ -323,6 +323,14 @@ namespace SyntheticTests
                     // 4. Run Fast Scan
                     var token = CancellationToken.None;
                     var clusters = MergeAnalysisEngine.RunFastScan(doc, token);
+                    foreach (var c in clusters)
+                    {
+                        app.WriteJournalComment($"[TEST_CLUSTER_DEBUG] Cluster: {c.ClusterName}", true);
+                        foreach (var i in c.Items)
+                        {
+                            app.WriteJournalComment($"  [TEST_CLUSTER_DEBUG] Item: Name={i.ItemName}, ID={i.RevitElementId.ToElementId().ToString()}", true);
+                        }
+                    }
                     var targetCluster = clusters.FirstOrDefault(c => c.ClusterName.Contains(sourceFamily.Name));
                     Assert.IsNotNull(targetCluster, "MergeAnalysisEngine should detect the duplicate cluster.");
 
@@ -438,6 +446,14 @@ namespace SyntheticTests
                     // 4. Run Scan & Analyze
                     var token = CancellationToken.None;
                     var clusters = MergeAnalysisEngine.RunFastScan(doc, token);
+                    foreach (var c in clusters)
+                    {
+                        app.WriteJournalComment($"[TEST_CLUSTER_DEBUG] Cluster: {c.ClusterName}", true);
+                        foreach (var i in c.Items)
+                        {
+                            app.WriteJournalComment($"  [TEST_CLUSTER_DEBUG] Item: Name={i.ItemName}, ID={i.RevitElementId.ToElementId().ToString()}", true);
+                        }
+                    }
                     var targetCluster = clusters.FirstOrDefault(c => c.ClusterName.Contains(sourceFamily.Name));
                     Assert.IsNotNull(targetCluster, "MergeAnalysisEngine should detect the duplicate cluster.");
 
@@ -510,6 +526,14 @@ namespace SyntheticTests
                     // 4. Run Scan
                     var token = CancellationToken.None;
                     var clusters = MergeAnalysisEngine.RunFastScan(doc, token);
+                    foreach (var c in clusters)
+                    {
+                        app.WriteJournalComment($"[TEST_CLUSTER_DEBUG] Cluster: {c.ClusterName}", true);
+                        foreach (var i in c.Items)
+                        {
+                            app.WriteJournalComment($"  [TEST_CLUSTER_DEBUG] Item: Name={i.ItemName}, ID={i.RevitElementId.ToElementId().ToString()}", true);
+                        }
+                    }
                     var targetCluster = clusters.FirstOrDefault(c => c.ClusterName.Contains(sourceFamily.Name));
                     Assert.IsNotNull(targetCluster, "MergeAnalysisEngine should detect the duplicate cluster.");
 

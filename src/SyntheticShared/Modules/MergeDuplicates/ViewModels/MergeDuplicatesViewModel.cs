@@ -18,7 +18,7 @@ using Synthetic.Infrastructure.IO;
 
 using Synthetic.Shared.UI;
 using Synthetic.Modules.MergeDuplicates.Handlers;
-using Synthetic.Modules.MergeDuplicates.Engine;
+
 using Synthetic.Modules.MergeDuplicates.Views;
 using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.RevitDOM.Operations.Merge;

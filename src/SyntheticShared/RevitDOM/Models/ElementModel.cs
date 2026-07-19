@@ -87,6 +87,26 @@ namespace Synthetic.RevitDOM.Models
         public List<ParameterModel> Parameters { get; set; } = new List<ParameterModel>();
 
         /// <summary>
+        /// Gets or sets the count of instances in the document.
+        /// </summary>
+        public int InstanceCount { get; set; }
+
+        /// <summary>
+        /// Gets or sets the location point representation.
+        /// </summary>
+        public XYZModel? Location { get; set; }
+
+        /// <summary>
+        /// Gets or sets the bounding box representation.
+        /// </summary>
+        public BoundingBoxXYZModel? BoundingBox { get; set; }
+
+        /// <summary>
+        /// Nested collection of types/symbols belonging to this element (e.g. for families).
+        /// </summary>
+        public List<ElementModel> NestedTypes { get; set; } = new List<ElementModel>();
+
+        /// <summary>
         /// The Revit ElementId of the element linked to the SerialElement.
         /// </summary>
         [JsonIgnoreAttribute]

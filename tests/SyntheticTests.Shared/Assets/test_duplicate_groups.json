@@ -5,7 +5,7 @@
     "Name": "TestGroup",
     "Aliases": null,
     "Id": 1391734,
-    "UniqueId": "a30eff79-8cbd-496e-bf00-d17acf5e1965-00153c76",
+    "UniqueId": "cc97889f-61fb-4f55-bd1d-f6c541be8835-00153c76",
     "Parameters": [
       {
         "Name": "Type Image",
@@ -59,7 +59,7 @@
       },
       {
         "Name": "Type IfcGUID",
-        "Value": "2Z3lzvZBr9Rhy0qNhFIoKJ",
+        "Value": "3CbuYVOVjFLRqTziL1gxH3",
         "ValueElemId": null,
         "StorageType": "String",
         "Id": -1019001,
@@ -147,7 +147,11 @@
         "IsShared": false,
         "IsReadOnly": false
       }
-    ]
+    ],
+    "InstanceCount": 0,
+    "Location": null,
+    "BoundingBox": null,
+    "NestedTypes": []
   },
   {
     "Class": "Autodesk.Revit.DB.GroupType",
@@ -155,7 +159,7 @@
     "Name": "TestGroup1",
     "Aliases": null,
     "Id": 1391740,
-    "UniqueId": "a30eff79-8cbd-496e-bf00-d17acf5e1965-00153c7c",
+    "UniqueId": "cc97889f-61fb-4f55-bd1d-f6c541be8835-00153c7c",
     "Parameters": [
       {
         "Name": "Type Image",
@@ -209,7 +213,7 @@
       },
       {
         "Name": "Type IfcGUID",
-        "Value": "2Z3lzvZBr9Rhy0qNhFIoKP",
+        "Value": "3CbuYVOVjFLRqTziL1gxH9",
         "ValueElemId": null,
         "StorageType": "String",
         "Id": -1019001,
@@ -297,6 +301,10 @@
         "IsShared": false,
         "IsReadOnly": false
       }
-    ]
+    ],
+    "InstanceCount": 0,
+    "Location": null,
+    "BoundingBox": null,
+    "NestedTypes": []
   }
 ]

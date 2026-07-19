@@ -8,7 +8,7 @@ using Newtonsoft.Json;
 
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Operations.Merge;
-using Synthetic.Modules.MergeDuplicates.Engine;
+
 
 namespace SyntheticTests
 {

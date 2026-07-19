@@ -167,7 +167,11 @@
         "IsShared": false,
         "IsReadOnly": false
       }
-    ]
+    ],
+    "InstanceCount": 0,
+    "Location": null,
+    "BoundingBox": null,
+    "NestedTypes": []
   },
   {
     "Class": "Autodesk.Revit.DB.FamilySymbol",
@@ -337,7 +341,11 @@
         "IsShared": false,
         "IsReadOnly": false
       }
-    ]
+    ],
+    "InstanceCount": 0,
+    "Location": null,
+    "BoundingBox": null,
+    "NestedTypes": []
   },
   {
     "Class": "Autodesk.Revit.DB.FamilySymbol",
@@ -507,7 +515,11 @@
         "IsShared": false,
         "IsReadOnly": false
       }
-    ]
+    ],
+    "InstanceCount": 0,
+    "Location": null,
+    "BoundingBox": null,
+    "NestedTypes": []
   },
   {
     "Class": "Autodesk.Revit.DB.FamilySymbol",
@@ -515,7 +527,7 @@
     "Name": "Running Section",
     "Aliases": null,
     "Id": 1391999,
-    "UniqueId": "02dfd4d9-f83d-431a-9405-bd691c4009a2-00153d7f",
+    "UniqueId": "cc24214d-7f49-41f9-8918-327867c3b92a-00153d7f",
     "Parameters": [
       {
         "Name": "Keynote",
@@ -559,7 +571,7 @@
       },
       {
         "Name": "Type IfcGUID",
-        "Value": "02tzJP_3r36fG5lMaSLJJT",
+        "Value": "3C925DVqb1_OaOCdXdreHL",
         "ValueElemId": null,
         "StorageType": "String",
         "Id": -1019001,
@@ -677,7 +689,11 @@
         "IsShared": false,
         "IsReadOnly": false
       }
-    ]
+    ],
+    "InstanceCount": 0,
+    "Location": null,
+    "BoundingBox": null,
+    "NestedTypes": []
   },
   {
     "Class": "Autodesk.Revit.DB.FamilySymbol",
@@ -685,7 +701,7 @@
     "Name": "Soldier & Plan",
     "Aliases": null,
     "Id": 1392001,
-    "UniqueId": "02dfd4d9-f83d-431a-9405-bd691c4009a2-00153d81",
+    "UniqueId": "cc24214d-7f49-41f9-8918-327867c3b92a-00153d81",
     "Parameters": [
       {
         "Name": "Keynote",
@@ -729,7 +745,7 @@
       },
       {
         "Name": "Type IfcGUID",
-        "Value": "02tzJP_3r36fG5lMaSLJGZ",
+        "Value": "3C925DVqb1_OaOCdXdreIh",
         "ValueElemId": null,
         "StorageType": "String",
         "Id": -1019001,
@@ -847,7 +863,11 @@
         "IsShared": false,
         "IsReadOnly": false
       }
-    ]
+    ],
+    "InstanceCount": 0,
+    "Location": null,
+    "BoundingBox": null,
+    "NestedTypes": []
   },
   {
     "Class": "Autodesk.Revit.DB.FamilySymbol",
@@ -855,7 +875,7 @@
     "Name": "Rowlock",
     "Aliases": null,
     "Id": 1392003,
-    "UniqueId": "02dfd4d9-f83d-431a-9405-bd691c4009a2-00153d83",
+    "UniqueId": "cc24214d-7f49-41f9-8918-327867c3b92a-00153d83",
     "Parameters": [
       {
         "Name": "Keynote",
@@ -899,7 +919,7 @@
       },
       {
         "Name": "Type IfcGUID",
-        "Value": "02tzJP_3r36fG5lMaSLJGX",
+        "Value": "3C925DVqb1_OaOCdXdreIf",
         "ValueElemId": null,
         "StorageType": "String",
         "Id": -1019001,
@@ -1017,6 +1037,10 @@
         "IsShared": false,
         "IsReadOnly": false
       }
-    ]
+    ],
+    "InstanceCount": 0,
+    "Location": null,
+    "BoundingBox": null,
+    "NestedTypes": []
   }
 ]
