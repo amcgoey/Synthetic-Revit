@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -17,12 +17,12 @@ using Autodesk.Revit.DB;
 namespace Synthetic.Modules.StandardsManagement.ViewModels
 {
     /// <summary>
-    /// ViewModel that manages the staging action queue collection, queue manipulation commands,
+    /// ViewModel that manages the staging queue collection, queue manipulation commands,
     /// and the staging elements editing/batch find-replace workflow.
     /// </summary>
     public class StagingQueueViewModel : ViewModelBase
     {
-        private readonly ProjectStandardsDashboardViewModel _parent;
+        private readonly IProjectStandardsDashboard _parent;
         private readonly IPocoIdentityService _pocoIdentityService;
         private readonly IDiffEngine<IEnumerable<ObjectModel>, Document> _diffEngine;
 
@@ -49,12 +49,12 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         private SearchScope _findReplaceScope = SearchScope.Both;
 
         /// <summary>
-        /// Gets the staging action queue collection.
+        /// Gets the staging queue collection.
         /// </summary>
         public ObservableCollection<QueueItemModel> StagingQueue => _stagingQueue;
 
         /// <summary>
-        /// Gets the grouped collection view of the action queue.
+        /// Gets the grouped collection view of the staging queue.
         /// </summary>
         public ICollectionView StagingQueueView { get; }
 
@@ -225,14 +225,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                     SelectedQueueItems[0].RaisePropertyChanged(nameof(QueueItemModel.Name));
                     SelectedQueueItems[0].RaisePropertyChanged(nameof(QueueItemModel.Model));
                     
-                    _activeWrappers = SelectedQueueItems.Select(q => q.GetWrapper()).ToList();
-                    OnPropertyChanged(nameof(SelectedElement));
-                    UpdateSelectedElementSubscription();
-                    RaiseIdentityHeaderStateChanged();
-                    CalculateParameterIntersection();
-                    
-                    OnPropertyChanged(nameof(SelectedItemName));
-                    OnPropertyChanged(nameof(SelectedItemErrorMessage));
+                    RefreshUIState(false);
                 }
             }
         }
@@ -252,7 +245,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             }
         }
 
-        public StagingQueueViewModel(ProjectStandardsDashboardViewModel parent, IPocoIdentityService pocoIdentityService, IDiffEngine<IEnumerable<ObjectModel>, Document> diffEngine)
+        public StagingQueueViewModel(IProjectStandardsDashboard parent, IPocoIdentityService pocoIdentityService, IDiffEngine<IEnumerable<ObjectModel>, Document> diffEngine)
         {
             _parent = parent ?? throw new ArgumentNullException(nameof(parent));
             _pocoIdentityService = pocoIdentityService ?? throw new ArgumentNullException(nameof(pocoIdentityService));
@@ -512,7 +505,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
 
                         primaryItem.RaisePropertyChanged(nameof(QueueItemModel.Model));
 
-                        // Scan all other elements in the Action Queue and replace references!
+                        // Scan all other elements in the Staging Queue and replace references!
                         _parent.ReplaceQueueReferences(nonPrimaries, primaryItem.Name);
 
                         // Purge consumed items
@@ -550,16 +543,9 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                     };
                 }
 
-                _activeWrappers = SelectedQueueItems.Select(q => q.GetWrapper()).ToList();
-                OnPropertyChanged(nameof(SelectedElement));
-                UpdateSelectedElementSubscription();
-                RaiseIdentityHeaderStateChanged();
-                CalculateParameterIntersection();
-                OnPropertyChanged(nameof(SelectedItemName));
-                OnPropertyChanged(nameof(SelectedItemErrorMessage));
-
-                _parent.ActiveWorkspace = WorkspaceMode.Edit;
+                RefreshUIState(false);
             }
+            _parent.ActiveWorkspace = WorkspaceMode.Edit;
         }
 
         private void ExecuteDiff(object parameter)
@@ -649,11 +635,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                 }
             }
 
-            _activeWrappers = SelectedQueueItems.Select(q => q.GetWrapper()).ToList();
-            OnPropertyChanged(nameof(SelectedElement));
-            UpdateSelectedElementSubscription();
-            RaiseIdentityHeaderStateChanged();
-            CalculateParameterIntersection();
+            RefreshUIState(false);
             StagingQueueView?.Refresh();
         }
 
@@ -663,10 +645,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             {
                 item.IsEdited = true;
             }
-            _activeWrappers.Clear();
-            OnPropertyChanged(nameof(SelectedElement));
-            UpdateSelectedElementSubscription();
-            RaiseIdentityHeaderStateChanged();
+            RefreshUIState(true);
             _parent.ActiveWorkspace = WorkspaceMode.Idle;
         }
 
@@ -683,12 +662,37 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                     item.IsDiffed = backup.IsDiffed;
                 }
             }
-            _activeWrappers.Clear();
+            RefreshUIState(true);
+            _parent.ActiveWorkspace = WorkspaceMode.Idle;
+        }
+
+        private void RefreshUIState(bool clearWrappers = false)
+        {
+            if (clearWrappers)
+            {
+                _activeWrappers.Clear();
+                foreach (var param in DisplayParameters)
+                {
+                    param.PropertyChanged -= DisplayParam_PropertyChanged;
+                }
+                DisplayParameters.Clear();
+            }
+            else
+            {
+                _activeWrappers = SelectedQueueItems.Select(q => q.GetWrapper()).ToList();
+            }
+
             OnPropertyChanged(nameof(SelectedElement));
             UpdateSelectedElementSubscription();
             RaiseIdentityHeaderStateChanged();
+
+            if (!clearWrappers)
+            {
+                CalculateParameterIntersection();
+            }
+
             OnPropertyChanged(nameof(SelectedItemName));
-            _parent.ActiveWorkspace = WorkspaceMode.Idle;
+            OnPropertyChanged(nameof(SelectedItemErrorMessage));
         }
 
         private void UpdateSelectedElementSubscription()

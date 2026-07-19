@@ -211,7 +211,7 @@ namespace Synthetic.Modules.StandardsManagement.Engine
                 {
                     familyTg.Start();
 
-                    _serializationEngine.ToRevit(familyStandards, familyDoc, null, cancellationToken);
+                    _serializationEngine.ToRevit(familyStandards, familyDoc, null, cancellationToken, new DeleteWarningsPreprocessor());
 
                     if (options.PurgeUnusedStyleTypes)
                     {
@@ -235,15 +235,16 @@ namespace Synthetic.Modules.StandardsManagement.Engine
                         }
                     }
 
-                    familyTg.Commit();
+                    familyTg.Assimilate();
                 }
 
                 using (Transaction parentTx = new Transaction(parentDoc, "Load Family"))
                 {
-                    parentTx.Start();
                     FailureHandlingOptions parentOptions = parentTx.GetFailureHandlingOptions();
                     parentOptions.SetFailuresPreprocessor(new DeleteWarningsPreprocessor());
                     parentTx.SetFailureHandlingOptions(parentOptions);
+
+                    parentTx.Start();
 
                     try
                     {

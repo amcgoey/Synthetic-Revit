@@ -19,7 +19,7 @@ namespace SyntheticTests.Shared.Modules.RevitDOM
             return new List<DuplicateClusterModel>();
         }
 
-        public IEnumerable<SerializationResultModel> ToRevit(IEnumerable<ObjectModel> models, Document doc, IProgress<string>? progress = null, CancellationToken cancellationToken = default)
+        public IEnumerable<SerializationResultModel> ToRevit(IEnumerable<ObjectModel> models, Document doc, IProgress<string>? progress = null, CancellationToken cancellationToken = default, IFailuresPreprocessor? failuresPreprocessor = null)
         {
             return new List<SerializationResultModel>();
         }

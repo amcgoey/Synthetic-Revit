@@ -185,7 +185,8 @@ namespace Synthetic.Modules.RevitDOM
             IEnumerable<ObjectModel> models,
             Document doc,
             IProgress<string>? progress = null,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            IFailuresPreprocessor? failuresPreprocessor = null)
         {
             if (models == null) throw new ArgumentNullException(nameof(models));
             if (doc == null) throw new ArgumentNullException(nameof(doc));
@@ -260,6 +261,12 @@ namespace Synthetic.Modules.RevitDOM
                             {
                                 using (var tx = new Transaction(doc, $"Import {modelName}"))
                                 {
+                                    if (failuresPreprocessor != null)
+                                    {
+                                        FailureHandlingOptions options = tx.GetFailureHandlingOptions();
+                                        options.SetFailuresPreprocessor(failuresPreprocessor);
+                                        tx.SetFailureHandlingOptions(options);
+                                    }
                                     tx.Start();
                                     try
                                     {

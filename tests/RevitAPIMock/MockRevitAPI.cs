@@ -1145,7 +1145,24 @@ namespace Autodesk.Revit.DB
         public TransactionStatus Commit() { _status = TransactionStatus.Committed; return _status; }
         public TransactionStatus RollBack() { _status = TransactionStatus.RolledBack; return _status; }
         public TransactionStatus GetStatus() => _status;
+        public FailureHandlingOptions GetFailureHandlingOptions() => new FailureHandlingOptions();
+        public void SetFailureHandlingOptions(FailureHandlingOptions options) { }
         public void Dispose() { }
+    }
+
+    public interface IFailuresPreprocessor
+    {
+        FailureProcessingResult PreprocessFailures(FailuresAccessor failuresAccessor);
+    }
+
+    public class FailureHandlingOptions
+    {
+        public FailureHandlingOptions SetFailuresPreprocessor(IFailuresPreprocessor preprocessor) => this;
+        public IFailuresPreprocessor GetFailuresPreprocessor() => null;
+        public FailureHandlingOptions SetClearAfterRollback(bool clearAfterRollback) => this;
+        public bool GetClearAfterRollback() => false;
+        public FailureHandlingOptions SetForcedModalHandling(bool forcedModalHandling) => this;
+        public bool GetForcedModalHandling() => false;
     }
 
     public enum FailureProcessingResult

@@ -31,15 +31,7 @@ namespace Synthetic.Modules.StandardsManagement.Engine
         public static ObservableCollection<DuplicateClusterModel> RunDeepScan(Document doc, IEnumerable<ElementModel> incomingModels, IStandardSerializationEngine engine)
         {
             if (incomingModels == null) return new ObservableCollection<DuplicateClusterModel>();
-
-            IIdentityService? identityService = null;
-            if (engine is StandardSerializationEngine standardEngine)
-            {
-                identityService = standardEngine.IdentityService;
-            }
-
-            var diffEngine = new DiffEngine.PocoToRevitDiffEngine(identityService);
-            var clusters = diffEngine.Compare(incomingModels, doc);
+            var clusters = engine.Analyze(incomingModels, doc);
             return new ObservableCollection<DuplicateClusterModel>(clusters);
         }
     }

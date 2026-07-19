@@ -58,7 +58,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
     /// ViewModel that manages the Project Standards Dashboard modeless window.
     /// Orchestrates multiple source tabs, hierarchical trees, search filtering, and staging.
     /// </summary>
-    public class ProjectStandardsDashboardViewModel : ViewModelBase
+    public class ProjectStandardsDashboardViewModel : ViewModelBase, IProjectStandardsDashboard
     {
         private readonly UIApplication? _uiapp;
         private readonly Document? _doc;
@@ -88,12 +88,12 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         public StandardsExecutionPipelineViewModel StandardsExecutionPipelineViewModel => _standardsExecutionViewModel;
 
         /// <summary>
-        /// Gets the staging action queue collection.
+        /// Gets the staging queue collection.
         /// </summary>
         public ObservableCollection<QueueItemModel> StagingQueue => _stagingQueueViewModel.StagingQueue;
 
         /// <summary>
-        /// Gets the grouped collection view of the action queue.
+        /// Gets the grouped collection view of the staging queue.
         /// </summary>
         public ICollectionView StagingQueueView => _stagingQueueViewModel.StagingQueueView;
 
@@ -172,7 +172,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             }
         }
 
-        internal void GetElementModelsFromHierarchy(SourceTreeItemViewModel node, List<ElementModel> list)
+        public void GetElementModelsFromHierarchy(SourceTreeItemViewModel node, List<ElementModel> list)
         {
             if (node == null) return;
             if (node is StandardElementModel sem && sem.Element != null)
@@ -411,47 +411,13 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                 orchestrator,
                 serializationEngine);
 
-            _sourceTreeViewModel.PropertyChanged += (s, e) =>
-            {
-                if (e.PropertyName == nameof(StandardsSourceTreeViewModel.AvailableSources) ||
-                    e.PropertyName == nameof(StandardsSourceTreeViewModel.SelectedSource) ||
-                    e.PropertyName == nameof(StandardsSourceTreeViewModel.SearchText))
-                {
-                    OnPropertyChanged(e.PropertyName);
-                }
-            };
+            _sourceTreeViewModel.PropertyChanged += OnSourceTreePropertyChanged;
 
             _stagingQueueViewModel = new StagingQueueViewModel(this, _pocoIdentityService, diffEngine);
-            _stagingQueueViewModel.PropertyChanged += (s, e) =>
-            {
-                if (e.PropertyName == nameof(StagingQueueViewModel.StagingQueue) ||
-                    e.PropertyName == nameof(StagingQueueViewModel.StagingQueueView) ||
-                    e.PropertyName == nameof(StagingQueueViewModel.SelectedQueueItems) ||
-                    e.PropertyName == nameof(StagingQueueViewModel.SelectedNameOrCount) ||
-                    e.PropertyName == nameof(StagingQueueViewModel.SelectedDisplayClass) ||
-                    e.PropertyName == nameof(StagingQueueViewModel.SelectedAliasesString) ||
-                    e.PropertyName == nameof(StagingQueueViewModel.SelectedElement) ||
-                    e.PropertyName == nameof(StagingQueueViewModel.IsSingleElementSelected) ||
-                    e.PropertyName == nameof(StagingQueueViewModel.SelectedItemErrorMessage))
-                {
-                    OnPropertyChanged(e.PropertyName);
-                }
-            };
+            _stagingQueueViewModel.PropertyChanged += OnStagingQueuePropertyChanged;
 
             _standardsExecutionViewModel = new StandardsExecutionPipelineViewModel(this, _pipeline);
-            _standardsExecutionViewModel.PropertyChanged += (s, e) =>
-            {
-                if (e.PropertyName == nameof(StandardsExecutionPipelineViewModel.UpdateFamilies) ||
-                    e.PropertyName == nameof(StandardsExecutionPipelineViewModel.ProcessNestedRecursive) ||
-                    e.PropertyName == nameof(StandardsExecutionPipelineViewModel.PurgeUnusedStyleTypes) ||
-                    e.PropertyName == nameof(StandardsExecutionPipelineViewModel.CategoryFilter) ||
-                    e.PropertyName == nameof(StandardsExecutionPipelineViewModel.AvailableCategoryFilters) ||
-                    e.PropertyName == nameof(StandardsExecutionPipelineViewModel.SaveFilePath) ||
-                    e.PropertyName == nameof(StandardsExecutionPipelineViewModel.IsSavePathActive))
-                {
-                    OnPropertyChanged(e.PropertyName);
-                }
-            };
+            _standardsExecutionViewModel.PropertyChanged += OnStandardsExecutionPropertyChanged;
 
 
 
@@ -540,47 +506,13 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                 orchestrator,
                 serializationEngine);
 
-            _sourceTreeViewModel.PropertyChanged += (s, e) =>
-            {
-                if (e.PropertyName == nameof(StandardsSourceTreeViewModel.AvailableSources) ||
-                    e.PropertyName == nameof(StandardsSourceTreeViewModel.SelectedSource) ||
-                    e.PropertyName == nameof(StandardsSourceTreeViewModel.SearchText))
-                {
-                    OnPropertyChanged(e.PropertyName);
-                }
-            };
+            _sourceTreeViewModel.PropertyChanged += OnSourceTreePropertyChanged;
 
             _stagingQueueViewModel = new StagingQueueViewModel(this, _pocoIdentityService, diffEngine);
-            _stagingQueueViewModel.PropertyChanged += (s, e) =>
-            {
-                if (e.PropertyName == nameof(StagingQueueViewModel.StagingQueue) ||
-                    e.PropertyName == nameof(StagingQueueViewModel.StagingQueueView) ||
-                    e.PropertyName == nameof(StagingQueueViewModel.SelectedQueueItems) ||
-                    e.PropertyName == nameof(StagingQueueViewModel.SelectedNameOrCount) ||
-                    e.PropertyName == nameof(StagingQueueViewModel.SelectedDisplayClass) ||
-                    e.PropertyName == nameof(StagingQueueViewModel.SelectedAliasesString) ||
-                    e.PropertyName == nameof(StagingQueueViewModel.SelectedElement) ||
-                    e.PropertyName == nameof(StagingQueueViewModel.IsSingleElementSelected) ||
-                    e.PropertyName == nameof(StagingQueueViewModel.SelectedItemErrorMessage))
-                {
-                    OnPropertyChanged(e.PropertyName);
-                }
-            };
+            _stagingQueueViewModel.PropertyChanged += OnStagingQueuePropertyChanged;
 
             _standardsExecutionViewModel = new StandardsExecutionPipelineViewModel(this, _pipeline);
-            _standardsExecutionViewModel.PropertyChanged += (s, e) =>
-            {
-                if (e.PropertyName == nameof(StandardsExecutionPipelineViewModel.UpdateFamilies) ||
-                    e.PropertyName == nameof(StandardsExecutionPipelineViewModel.ProcessNestedRecursive) ||
-                    e.PropertyName == nameof(StandardsExecutionPipelineViewModel.PurgeUnusedStyleTypes) ||
-                    e.PropertyName == nameof(StandardsExecutionPipelineViewModel.CategoryFilter) ||
-                    e.PropertyName == nameof(StandardsExecutionPipelineViewModel.AvailableCategoryFilters) ||
-                    e.PropertyName == nameof(StandardsExecutionPipelineViewModel.SaveFilePath) ||
-                    e.PropertyName == nameof(StandardsExecutionPipelineViewModel.IsSavePathActive))
-                {
-                    OnPropertyChanged(e.PropertyName);
-                }
-            };
+            _standardsExecutionViewModel.PropertyChanged += OnStandardsExecutionPropertyChanged;
 
 
 
@@ -817,7 +749,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
 
 
 
-        internal List<StandardElementModel> GetCheckedElements()
+        public List<StandardElementModel> GetCheckedElements()
         {
             var list = new List<StandardElementModel>();
             if (SelectedSource == null) return list;
@@ -844,7 +776,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
 
 
 
-        internal void ReplaceQueueReferences(List<QueueItemModel> oldElements, string newName)
+        public void ReplaceQueueReferences(List<QueueItemModel> oldElements, string newName)
         {
             var nameAndAliases = new List<string>();
             foreach (var oldEl in oldElements)
@@ -915,11 +847,50 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                     {
                         mat.AppearanceAssetId.Name = newName;
                         mat.AppearanceAssetId.Id = 0;
-                        mat.AppearanceAssetId.UniqueId = null;
                     }
+                }
             }
         }
-    }
+
+        private void OnSourceTreePropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(StandardsSourceTreeViewModel.AvailableSources) ||
+                e.PropertyName == nameof(StandardsSourceTreeViewModel.SelectedSource) ||
+                e.PropertyName == nameof(StandardsSourceTreeViewModel.SearchText))
+            {
+                OnPropertyChanged(e.PropertyName);
+            }
+        }
+
+        private void OnStagingQueuePropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(StagingQueueViewModel.StagingQueue) ||
+                e.PropertyName == nameof(StagingQueueViewModel.StagingQueueView) ||
+                e.PropertyName == nameof(StagingQueueViewModel.SelectedQueueItems) ||
+                e.PropertyName == nameof(StagingQueueViewModel.SelectedNameOrCount) ||
+                e.PropertyName == nameof(StagingQueueViewModel.SelectedDisplayClass) ||
+                e.PropertyName == nameof(StagingQueueViewModel.SelectedAliasesString) ||
+                e.PropertyName == nameof(StagingQueueViewModel.SelectedElement) ||
+                e.PropertyName == nameof(StagingQueueViewModel.IsSingleElementSelected) ||
+                e.PropertyName == nameof(StagingQueueViewModel.SelectedItemErrorMessage))
+            {
+                OnPropertyChanged(e.PropertyName);
+            }
+        }
+
+        private void OnStandardsExecutionPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(StandardsExecutionPipelineViewModel.UpdateFamilies) ||
+                e.PropertyName == nameof(StandardsExecutionPipelineViewModel.ProcessNestedRecursive) ||
+                e.PropertyName == nameof(StandardsExecutionPipelineViewModel.PurgeUnusedStyleTypes) ||
+                e.PropertyName == nameof(StandardsExecutionPipelineViewModel.CategoryFilter) ||
+                e.PropertyName == nameof(StandardsExecutionPipelineViewModel.AvailableCategoryFilters) ||
+                e.PropertyName == nameof(StandardsExecutionPipelineViewModel.SaveFilePath) ||
+                e.PropertyName == nameof(StandardsExecutionPipelineViewModel.IsSavePathActive))
+            {
+                OnPropertyChanged(e.PropertyName);
+            }
+        }
 
         public void RunQueueInternal()
         {

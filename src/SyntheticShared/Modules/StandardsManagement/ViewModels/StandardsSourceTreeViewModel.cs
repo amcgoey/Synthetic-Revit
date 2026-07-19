@@ -240,11 +240,12 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             {
                 if (poco is ElementModel elementModel)
                 {
-                    // Clear the active element reference so we only store the DTO in presentation lists
-                    elementModel.Element = null;
-                    elementModel.Document = null;
+                    // Clone the model to construct a representation DTO without mutative side-effects on the original extracted model
+                    var representation = (ElementModel)elementModel.Clone();
+                    representation.Element = null;
+                    representation.Document = null;
                     
-                    list.Add(elementModel);
+                    list.Add(representation);
                 }
             }
 
