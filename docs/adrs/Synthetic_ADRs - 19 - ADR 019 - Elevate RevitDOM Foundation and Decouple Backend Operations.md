@@ -1,0 +1,3 @@
+# Elevate RevitDOM Foundation and Decouple Backend Operations
+
+To support headless testing and resolve coupling between business logic and presentation, we decided to elevate `RevitDOM` to a top-level folder outside the command-oriented `Modules/` directory and restructure it to house all pure domain models, translators, and backend engines (including diffing, standards execution, and duplicate analysis). As part of this reorganization, we decided to refactor the duplicate matching engine to analyze pure POCOs headlessly, defining duplicate merging as a nuanced preparation phase where aliases are mapped to POCOs before executing an alias reference swap in the document. WPF views, ViewModels, and commands remain in dedicated presentation-only modules.

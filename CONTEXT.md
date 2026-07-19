@@ -31,6 +31,10 @@ _Avoid_: Memory stats, RAM info
 The core component responsible for extracting Revit elements and categories into standard templates, analyzing differences against live models, and writing templates back to the Revit database.
 _Avoid_: Translator manager, DOM converter
 
+**RevitDOM**:
+The foundational architectural framework housing the pure C# POCO models, translators, and operations engines representing Revit elements without active Revit API dependencies.
+_Avoid_: Revit DOM, Revit models folder, Serializer module.
+
 **Standards Extraction**:
 The process of recursively scanning a Revit document to harvest BIM standards and their nested dependencies.
 _Avoid_: Standard harvesting, recursive exporter
@@ -63,4 +67,10 @@ The user interface component showing the hierarchy of elements harvested from a 
 The collection and user interface component holding elements selected from the Source Pane, prepared for saving or enforcing.
 _Avoid_: Action Queue.
 
+**Duplicate Merging**:
+The process of identifying duplicate Revit elements (such as families, groups, or assemblies) using POCO-based matching rules, mapping aliases to their standard POCO counterparts, and performing an alias swap to redirect references and delete the redundant elements.
+_Avoid_: Duplicate deletion, element merging, MergeDuplicates.
 
+**Alias Swapping**:
+The operation that scans a Revit document to redirect all parameter and style references pointing to an aliased element ID over to a target standard element ID.
+_Avoid_: Reference swapping, ID redirecting.
