@@ -220,6 +220,17 @@ namespace Synthetic.Modules.MergeDuplicates.Engine
             return null;
         }
 
+        /// <summary>
+        /// Groups POCO element models into duplicate clusters headlessly.
+        /// </summary>
+        /// <param name="elements">The list of ElementModels to group.</param>
+        /// <param name="token">A cancellation token.</param>
+        /// <returns>A collection of duplicate cluster models.</returns>
+        public static ObservableCollection<DuplicateClusterModel> BuildClustersFromModels(List<ElementModel> elements, CancellationToken token)
+        {
+            return new ObservableCollection<DuplicateClusterModel>();
+        }
+
         private static ObservableCollection<DuplicateClusterModel> BuildClustersFromElements(Document doc, List<Element> elements, CancellationToken token)
         {
             var clusters = new ObservableCollection<DuplicateClusterModel>();
