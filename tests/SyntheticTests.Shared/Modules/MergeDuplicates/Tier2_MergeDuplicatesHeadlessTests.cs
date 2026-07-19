@@ -107,5 +107,278 @@ namespace SyntheticTests
             var nonPrimaryItem = groupCluster.Items.First(i => !i.IsPrimary);
             Assert.AreEqual("TestGroup1", nonPrimaryItem.ItemName);
         }
+
+        [Test]
+        public void Test_CompareParameters_IdentifiesMatches()
+        {
+            var primaryElem = new ElementModel
+            {
+                ElementId = new ElementIdModel { Id = 1001, UniqueId = "uid-1001" },
+                Name = "Running Section",
+                Category = "Detail Items",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                Parameters = new List<ParameterModel>
+                {
+                    new ParameterModel { Name = "Cost", Value = "100.0", StorageType = "Double", Id = 101 },
+                    new ParameterModel { Name = "Type Comments", Value = "Standard", StorageType = "String", Id = 102 }
+                }
+            };
+
+            var duplicateElem = new ElementModel
+            {
+                ElementId = new ElementIdModel { Id = 1002, UniqueId = "uid-1002" },
+                Name = "Running Section",
+                Category = "Detail Items",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                Parameters = new List<ParameterModel>
+                {
+                    new ParameterModel { Name = "Cost", Value = "100.0", StorageType = "Double", Id = 101 },
+                    new ParameterModel { Name = "Type Comments", Value = "Standard", StorageType = "String", Id = 102 }
+                }
+            };
+
+            var elements = new List<ElementModel> { primaryElem, duplicateElem };
+            var token = CancellationToken.None;
+            var clusters = MergeAnalysisEngine.BuildClustersFromModels(elements, token);
+            Assert.AreEqual(1, clusters.Count);
+
+            var cluster = clusters[0];
+            var primaryItem = cluster.Items.First(i => i.RevitElementId.Id == 1001);
+            cluster.UpdatePrimaryItem(primaryItem);
+
+            MergeAnalysisEngine.GenerateRecommendations(cluster);
+
+            var mapping = cluster.TypeMappings.First();
+            Assert.IsNotNull(mapping);
+
+            var costRow = mapping.ParameterResolutions.FirstOrDefault(r => r.ParameterName == "Cost");
+            Assert.IsNotNull(costRow);
+            Assert.IsFalse(costRow.HasConflict, "Identical Cost parameter should not have conflict.");
+            Assert.IsFalse(costRow.IsSchemaMismatch, "Identical Cost parameter should not have schema mismatch.");
+
+            var commentRow = mapping.ParameterResolutions.FirstOrDefault(r => r.ParameterName == "Type Comments");
+            Assert.IsNotNull(commentRow);
+            Assert.IsFalse(commentRow.HasConflict, "Identical Type Comments parameter should not have conflict.");
+            Assert.IsFalse(commentRow.IsSchemaMismatch, "Identical Type Comments parameter should not have schema mismatch.");
+        }
+
+        [Test]
+        public void Test_CompareParameters_IdentifiesConflicts()
+        {
+            var primaryElem = new ElementModel
+            {
+                ElementId = new ElementIdModel { Id = 1001, UniqueId = "uid-1001" },
+                Name = "Running Section",
+                Category = "Detail Items",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                Parameters = new List<ParameterModel>
+                {
+                    new ParameterModel { Name = "Type Comments", Value = "Standard", StorageType = "String", Id = 102 }
+                }
+            };
+
+            var duplicateElem = new ElementModel
+            {
+                ElementId = new ElementIdModel { Id = 1002, UniqueId = "uid-1002" },
+                Name = "Running Section",
+                Category = "Detail Items",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                Parameters = new List<ParameterModel>
+                {
+                    new ParameterModel { Name = "Type Comments", Value = "Override", StorageType = "String", Id = 102 }
+                }
+            };
+
+            var elements = new List<ElementModel> { primaryElem, duplicateElem };
+            var token = CancellationToken.None;
+            var clusters = MergeAnalysisEngine.BuildClustersFromModels(elements, token);
+            var cluster = clusters[0];
+            var primaryItem = cluster.Items.First(i => i.RevitElementId.Id == 1001);
+            cluster.UpdatePrimaryItem(primaryItem);
+
+            MergeAnalysisEngine.GenerateRecommendations(cluster);
+
+            var mapping = cluster.TypeMappings.First();
+            var row = mapping.ParameterResolutions.FirstOrDefault(r => r.ParameterName == "Type Comments");
+            Assert.IsNotNull(row);
+            Assert.IsTrue(row.HasConflict, "Differing parameter values should flag conflict.");
+            Assert.IsFalse(row.IsSchemaMismatch, "Differing parameter values with same storage type should not have schema mismatch.");
+            Assert.AreEqual(2, row.Options.Count);
+            Assert.AreEqual("Override", row.Options[0].DisplayText);
+            Assert.AreEqual("Standard", row.Options[1].DisplayText);
+        }
+
+        [Test]
+        public void Test_CompareParameters_IdentifiesSchemaMismatches()
+        {
+            var primaryElem = new ElementModel
+            {
+                ElementId = new ElementIdModel { Id = 1001, UniqueId = "uid-1001" },
+                Name = "Running Section",
+                Category = "Detail Items",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                Parameters = new List<ParameterModel>
+                {
+                    new ParameterModel { Name = "Cost", Value = "100.0", StorageType = "Double", Id = 101 }
+                }
+            };
+
+            var duplicateElem = new ElementModel
+            {
+                ElementId = new ElementIdModel { Id = 1002, UniqueId = "uid-1002" },
+                Name = "Running Section",
+                Category = "Detail Items",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                Parameters = new List<ParameterModel>
+                {
+                    new ParameterModel { Name = "Cost", Value = "100.0", StorageType = "String", Id = 101 }
+                }
+            };
+
+            var elements = new List<ElementModel> { primaryElem, duplicateElem };
+            var token = CancellationToken.None;
+            var clusters = MergeAnalysisEngine.BuildClustersFromModels(elements, token);
+            var cluster = clusters[0];
+            var primaryItem = cluster.Items.First(i => i.RevitElementId.Id == 1001);
+            cluster.UpdatePrimaryItem(primaryItem);
+
+            MergeAnalysisEngine.GenerateRecommendations(cluster);
+
+            var mapping = cluster.TypeMappings.First();
+            var row = mapping.ParameterResolutions.FirstOrDefault(r => r.ParameterName == "Cost");
+            Assert.IsNotNull(row);
+            Assert.IsTrue(row.IsSchemaMismatch, "Differing storage types should flag schema mismatch.");
+        }
+
+        [Test]
+        public void Test_CompareParameters_IdentifiesMissingParameters()
+        {
+            var primaryElem = new ElementModel
+            {
+                ElementId = new ElementIdModel { Id = 1001, UniqueId = "uid-1001" },
+                Name = "Running Section",
+                Category = "Detail Items",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                Parameters = new List<ParameterModel>
+                {
+                    new ParameterModel { Name = "OnlyInPrimary", Value = "Hello", StorageType = "String", Id = 103 }
+                }
+            };
+
+            var duplicateElem = new ElementModel
+            {
+                ElementId = new ElementIdModel { Id = 1002, UniqueId = "uid-1002" },
+                Name = "Running Section",
+                Category = "Detail Items",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                Parameters = new List<ParameterModel>
+                {
+                    new ParameterModel { Name = "OnlyInSource", Value = "World", StorageType = "String", Id = 104 }
+                }
+            };
+
+            var elements = new List<ElementModel> { primaryElem, duplicateElem };
+            var token = CancellationToken.None;
+            var clusters = MergeAnalysisEngine.BuildClustersFromModels(elements, token);
+            var cluster = clusters[0];
+            var primaryItem = cluster.Items.First(i => i.RevitElementId.Id == 1001);
+            cluster.UpdatePrimaryItem(primaryItem);
+
+            MergeAnalysisEngine.GenerateRecommendations(cluster);
+
+            var mapping = cluster.TypeMappings.First();
+            
+            // OnlyInPrimary row (in target, missing in source)
+            var primRow = mapping.ParameterResolutions.FirstOrDefault(r => r.ParameterName == "OnlyInPrimary");
+            Assert.IsNotNull(primRow);
+            Assert.IsFalse(primRow.IsSchemaMismatch, "Missing parameter on source is not a schema mismatch.");
+            Assert.IsFalse(primRow.IsInjectEnabled, "Missing parameter on source should not be inject-enabled on target.");
+
+            // OnlyInSource row (in source, missing in target)
+            var srcRow = mapping.ParameterResolutions.FirstOrDefault(r => r.ParameterName == "OnlyInSource");
+            Assert.IsNotNull(srcRow);
+            Assert.IsFalse(srcRow.IsSchemaMismatch, "Missing parameter on target is not a schema mismatch.");
+            Assert.IsTrue(srcRow.IsInjectEnabled, "Missing parameter on target should be inject-enabled.");
+        }
+
+        [Test]
+        public void Test_GenerateRecommendedAction_MatchesDecisions()
+        {
+            // Case 1: Loadable Family (IsLoadableFamily = true)
+            var primaryFam = new ElementModel
+            {
+                ElementId = new ElementIdModel { Id = 1001, UniqueId = "uid-1001" },
+                Name = "Running Section",
+                Category = "Detail Items",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                NestedTypes = new List<ElementModel>
+                {
+                    new ElementModel { ElementId = new ElementIdModel { Id = 10011 }, Name = "Type A" }
+                }
+            };
+
+            var duplicateFam = new ElementModel
+            {
+                ElementId = new ElementIdModel { Id = 1002, UniqueId = "uid-1002" },
+                Name = "Running Section 1",
+                Category = "Detail Items",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                NestedTypes = new List<ElementModel>
+                {
+                    new ElementModel { ElementId = new ElementIdModel { Id = 10021 }, Name = "Type A" },
+                    new ElementModel { ElementId = new ElementIdModel { Id = 10022 }, Name = "Type B" }
+                }
+            };
+
+            var elements = new List<ElementModel> { primaryFam, duplicateFam };
+            var token = CancellationToken.None;
+            var clusters = MergeAnalysisEngine.BuildClustersFromModels(elements, token);
+            Assert.AreEqual(1, clusters.Count);
+
+            var cluster = clusters[0];
+            var primaryItem = cluster.Items.First(i => i.RevitElementId.Id == 1001);
+            cluster.UpdatePrimaryItem(primaryItem);
+
+            MergeAnalysisEngine.GenerateRecommendations(cluster);
+
+            Assert.AreEqual(2, cluster.TypeMappings.Count);
+            
+            var typeAMapping = cluster.TypeMappings.First(m => m.SourceType.Name == "Type A");
+            Assert.AreEqual(RecommendedAction.Merge, typeAMapping.RecommendedAction, "Type A exists in primary and should be Merged.");
+
+            var typeBMapping = cluster.TypeMappings.First(m => m.SourceType.Name == "Type B");
+            Assert.AreEqual(RecommendedAction.Migrate, typeBMapping.RecommendedAction, "Type B is unique to duplicate family and should be Migrated.");
+
+            // Case 2: Group (IsLoadableFamily = false)
+            var primaryGroup = new ElementModel
+            {
+                ElementId = new ElementIdModel { Id = 2001, UniqueId = "uid-2001" },
+                Name = "TestGroup",
+                Category = "Model Groups",
+                Class = "Autodesk.Revit.DB.GroupType"
+            };
+
+            var duplicateGroup = new ElementModel
+            {
+                ElementId = new ElementIdModel { Id = 2002, UniqueId = "uid-2002" },
+                Name = "TestGroup 1",
+                Category = "Model Groups",
+                Class = "Autodesk.Revit.DB.GroupType"
+            };
+
+            var groupElements = new List<ElementModel> { primaryGroup, duplicateGroup };
+            var groupClusters = MergeAnalysisEngine.BuildClustersFromModels(groupElements, token);
+            Assert.AreEqual(1, groupClusters.Count);
+
+            var groupCluster = groupClusters[0];
+            var primaryGroupItem = groupCluster.Items.First(i => i.RevitElementId.Id == 2001);
+            groupCluster.UpdatePrimaryItem(primaryGroupItem);
+
+            MergeAnalysisEngine.GenerateRecommendations(groupCluster);
+
+            Assert.AreEqual(1, groupCluster.TypeMappings.Count);
+            var groupMapping = groupCluster.TypeMappings.First();
+            Assert.AreEqual(RecommendedAction.Merge, groupMapping.RecommendedAction, "Groups should default to Merge even if names differ.");
+        }
     }
 }
