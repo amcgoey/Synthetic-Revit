@@ -9,7 +9,8 @@ using Autodesk.Revit.DB;
 
 using Synthetic.Modules.MergeDuplicates.Handlers;
 using Synthetic.Modules.MergeDuplicates.ViewModels;
-using Synthetic.Modules.MergeDuplicates.Models;
+using Synthetic.RevitDOM.Operations.Merge;
+using Synthetic.RevitDOM.Models;
 using Synthetic.Modules.MergeDuplicates.Engine;
 
 namespace SyntheticTests
@@ -307,11 +308,11 @@ namespace SyntheticTests
                     MergeAnalysisEngine.GenerateRecommendations(targetCluster);
 
                     // Set primary item and ensure duplicate is included for merge
-                    var primaryItem = targetCluster.Items.FirstOrDefault(i => i.RevitElementId == sourceFamily.Id);
+                    var primaryItem = targetCluster.Items.FirstOrDefault(i => i.RevitElementId.ToElementId() == sourceFamily.Id);
                     Assert.IsNotNull(primaryItem, "Primary item should exist in cluster.");
                     targetCluster.UpdatePrimaryItem(primaryItem);
 
-                    var duplicateItem = targetCluster.Items.FirstOrDefault(i => i.RevitElementId == duplicatedFamily.Id);
+                    var duplicateItem = targetCluster.Items.FirstOrDefault(i => i.RevitElementId.ToElementId() == duplicatedFamily.Id);
                     Assert.IsNotNull(duplicateItem, "Duplicate item should exist in cluster.");
                     duplicateItem.IsIncludedForMerge = true;
 
@@ -490,11 +491,11 @@ namespace SyntheticTests
                     MergeAnalysisEngine.GenerateRecommendations(targetCluster);
 
                     // 6. Locate conflict row & designate winner
-                    var primaryItem = targetCluster.Items.FirstOrDefault(i => i.RevitElementId == sourceFamily.Id);
+                    var primaryItem = targetCluster.Items.FirstOrDefault(i => i.RevitElementId.ToElementId() == sourceFamily.Id);
                     Assert.IsNotNull(primaryItem);
                     targetCluster.UpdatePrimaryItem(primaryItem);
 
-                    var duplicateItem = targetCluster.Items.FirstOrDefault(i => i.RevitElementId == duplicatedFamily.Id);
+                    var duplicateItem = targetCluster.Items.FirstOrDefault(i => i.RevitElementId.ToElementId() == duplicatedFamily.Id);
                     Assert.IsNotNull(duplicateItem);
                     duplicateItem.IsIncludedForMerge = true;
 
@@ -504,7 +505,7 @@ namespace SyntheticTests
                     Assert.IsTrue(descRow.HasConflict, "Should detect parameter value conflict.");
 
                     // Designate duplicate symbol's parameter value as the winner
-                    descRow.WinningValueElementId = duplicateSymbol.Id;
+                    descRow.WinningValueElementId = duplicateSymbol.Id.ToModel(doc);
 
                     // 7. Execute Merge
                     var queueVM = new MergeQueueViewModel();
@@ -544,11 +545,252 @@ namespace SyntheticTests
             }
         }
 
+        [Test]
+        public void Test_MergeGroupDuplicates_SuccessfulMerge()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            Document doc = OpenTestTemplate(app);
+
+            try
+            {
+                GroupType? sourceGroupType = null;
+                GroupType? duplicateGroupType = null;
+                Group? groupInstance1 = null;
+                Group? groupInstance2 = null;
+
+                using (Transaction t = new Transaction(doc, "Create Test Groups"))
+                {
+                    t.Start();
+
+                    // Create Model Curve on a Level Plane to form a Model Group
+                    Level? level = new FilteredElementCollector(doc)
+                        .OfClass(typeof(Level))
+                        .Cast<Level>()
+                        .FirstOrDefault();
+                    Assert.IsNotNull(level, "Document must have at least one level.");
+
+                    Plane plane = Plane.CreateByNormalAndOrigin(XYZ.BasisZ, new XYZ(0, 0, level.Elevation));
+                    SketchPlane sketchPlane = SketchPlane.Create(doc, plane);
+
+                    Line line = Line.CreateBound(XYZ.Zero, new XYZ(5, 0, 0));
+                    ModelCurve modelLine = doc.Create.NewModelCurve(line, sketchPlane);
+
+                    // Create group
+                    Group sourceGroupInstance = doc.Create.NewGroup(new List<ElementId> { modelLine.Id });
+                    sourceGroupType = sourceGroupInstance.GroupType;
+                    sourceGroupType.Name = "TestGroup";
+
+                    // Duplicate group type
+                    duplicateGroupType = (GroupType)sourceGroupType.Duplicate("TestGroup1");
+
+                    // Place instances
+                    groupInstance1 = doc.Create.PlaceGroup(new XYZ(0, 0, 0), sourceGroupType);
+                    groupInstance2 = doc.Create.PlaceGroup(new XYZ(5, 0, 0), duplicateGroupType);
+
+                    t.Commit();
+                }
+
+                Assert.IsNotNull(sourceGroupType);
+                Assert.IsNotNull(duplicateGroupType);
+                Assert.IsNotNull(groupInstance1);
+                Assert.IsNotNull(groupInstance2);
+
+                ElementId duplicateGroupTypeId = duplicateGroupType.Id;
+
+                using (var tg = new TransactionGroup(doc, "Merge Group Duplicates Integration Test"))
+                {
+                    tg.Start();
+
+                    var token = CancellationToken.None;
+                    var clusters = MergeAnalysisEngine.RunFastScan(doc, token);
+                    var targetCluster = clusters.FirstOrDefault(c => c.ClusterName.Contains("TestGroup"));
+                    Assert.IsNotNull(targetCluster, "MergeAnalysisEngine should detect the duplicate group cluster.");
+
+                    MergeAnalysisEngine.RunDeepScan(doc, targetCluster, token);
+                    Assert.IsFalse(targetCluster.HasSchemaMismatch, "Should not have schema mismatch.");
+                    Assert.IsFalse(targetCluster.HasOriginMismatch, "Should not have origin mismatch.");
+
+                    MergeAnalysisEngine.GenerateRecommendations(targetCluster);
+
+                    var primaryItem = targetCluster.Items.FirstOrDefault(i => i.RevitElementId.ToElementId() == sourceGroupType.Id);
+                    Assert.IsNotNull(primaryItem, "Primary item should exist in cluster.");
+                    targetCluster.UpdatePrimaryItem(primaryItem);
+
+                    var duplicateItem = targetCluster.Items.FirstOrDefault(i => i.RevitElementId.ToElementId() == duplicateGroupType.Id);
+                    Assert.IsNotNull(duplicateItem, "Duplicate item should exist in cluster.");
+                    duplicateItem.IsIncludedForMerge = true;
+
+                    var queueVM = new MergeQueueViewModel();
+                    queueVM.QueuedClusters.Add(targetCluster);
+
+                    var handler = new ProcessMergeEventHandler();
+                    handler.QueueRequest(queueVM, null, null, token);
+                    handler.Execute(_uiapp);
+
+                    // Verify duplicate group type was deleted/purged
+                    var deletedGroupType = doc.GetElement(duplicateGroupTypeId);
+                    Assert.IsNull(deletedGroupType, "Duplicate group type should be deleted.");
+
+                    // Verify instance is redirected to the primary group type
+                    Assert.AreEqual(sourceGroupType.Id, groupInstance2.GroupType.Id, "Group instance should be redirected to the primary group type.");
+
+                    tg.RollBack();
+                }
+            }
+            finally
+            {
+                doc.Close(false);
+            }
+        }
+
+        [Test]
+        public void Test_MergeGroupDuplicates_ResolvesParameterConflicts()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            Document doc = OpenTestTemplate(app);
+
+            GroupType? sourceGroupType = null;
+            GroupType? duplicateGroupType = null;
+            Group? groupInstance1 = null;
+            Group? groupInstance2 = null;
+
+            // Create shared parameters file
+            string tempFilePath = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".txt");
+            File.WriteAllText(tempFilePath, ""); // Create empty file
+            
+            string originalSharedParamFile = app.SharedParametersFilename;
+            app.SharedParametersFilename = tempFilePath;
+
+            try
+            {
+                using (Transaction t = new Transaction(doc, "Create Test Groups and Bind Parameter"))
+                {
+                    t.Start();
+
+                    // 1. Create a Type Parameter bound to Model Groups category
+                    DefinitionFile defFile = app.OpenSharedParameterFile();
+                    Assert.IsNotNull(defFile, "Failed to open temporary shared parameter file.");
+
+                    DefinitionGroup group = defFile.Groups.Create("TestGroup");
+                    Definition definition = group.Definitions.Create(new ExternalDefinitionCreationOptions("TestParam", SpecTypeId.String.Text));
+                    Assert.IsNotNull(definition, "Failed to create shared parameter definition.");
+
+                    CategorySet categorySet = app.Create.NewCategorySet();
+                    Category groupCat1 = doc.Settings.Categories.get_Item(BuiltInCategory.OST_IOSModelGroups);
+                    categorySet.Insert(groupCat1);
+
+                    Binding binding = app.Create.NewTypeBinding(categorySet);
+                    bool inserted = doc.ParameterBindings.Insert(definition, binding);
+                    Assert.IsTrue(inserted, "Failed to insert parameter binding.");
+
+                    // 2. Create Model Curve on a Level Plane to form a Model Group
+                    Level? level = new FilteredElementCollector(doc)
+                        .OfClass(typeof(Level))
+                        .Cast<Level>()
+                        .FirstOrDefault();
+                    Assert.IsNotNull(level, "Document must have at least one level.");
+
+                    Plane plane = Plane.CreateByNormalAndOrigin(XYZ.BasisZ, new XYZ(0, 0, level.Elevation));
+                    SketchPlane sketchPlane = SketchPlane.Create(doc, plane);
+
+                    Line line = Line.CreateBound(XYZ.Zero, new XYZ(5, 0, 0));
+                    ModelCurve modelLine = doc.Create.NewModelCurve(line, sketchPlane);
+
+                    // Create group
+                    Group sourceGroupInstance = doc.Create.NewGroup(new List<ElementId> { modelLine.Id });
+                    sourceGroupType = sourceGroupInstance.GroupType;
+                    sourceGroupType.Name = "TestGroupParam";
+
+                    // Duplicate group type
+                    duplicateGroupType = (GroupType)sourceGroupType.Duplicate("TestGroupParam1");
+
+                    // Place instances
+                    groupInstance1 = doc.Create.PlaceGroup(new XYZ(0, 0, 0), sourceGroupType);
+                    groupInstance2 = doc.Create.PlaceGroup(new XYZ(5, 0, 0), duplicateGroupType);
+
+                    // Set conflicting parameter values on the newly created Type Parameter using LookupParameter
+                    var srcDescParam = sourceGroupType.LookupParameter("TestParam");
+                    var dupDescParam = duplicateGroupType.LookupParameter("TestParam");
+                    
+                    Assert.IsNotNull(srcDescParam, "Source group type should have TestParam parameter.");
+                    Assert.IsNotNull(dupDescParam, "Duplicate group type should have TestParam parameter.");
+                    
+                    srcDescParam.Set("Primary Value");
+                    dupDescParam.Set("Duplicate Value");
+
+                    t.Commit();
+                }
+
+                Assert.IsNotNull(sourceGroupType);
+                Assert.IsNotNull(duplicateGroupType);
+                Assert.IsNotNull(groupInstance1);
+                Assert.IsNotNull(groupInstance2);
+
+                ElementId duplicateGroupTypeId = duplicateGroupType.Id;
+
+                using (var tg = new TransactionGroup(doc, "Parameter Conflict Resolution Test for Groups"))
+                {
+                    tg.Start();
+
+                    var token = CancellationToken.None;
+                    var clusters = MergeAnalysisEngine.RunFastScan(doc, token);
+                    var targetCluster = clusters.FirstOrDefault(c => c.ClusterName.Contains("TestGroupParam"));
+                    Assert.IsNotNull(targetCluster, "MergeAnalysisEngine should detect the duplicate group cluster.");
+
+                    MergeAnalysisEngine.RunDeepScan(doc, targetCluster, token);
+                    MergeAnalysisEngine.GenerateRecommendations(targetCluster);
+
+                    var primaryItem = targetCluster.Items.FirstOrDefault(i => i.RevitElementId.ToElementId() == sourceGroupType.Id);
+                    Assert.IsNotNull(primaryItem);
+                    targetCluster.UpdatePrimaryItem(primaryItem);
+
+                    var duplicateItem = targetCluster.Items.FirstOrDefault(i => i.RevitElementId.ToElementId() == duplicateGroupType.Id);
+                    Assert.IsNotNull(duplicateItem);
+                    duplicateItem.IsIncludedForMerge = true;
+
+                    var mapping = targetCluster.TypeMappings.First();
+                    var descRow = mapping.ParameterResolutions.FirstOrDefault(r => r.ParameterName.Equals("TestParam", StringComparison.OrdinalIgnoreCase));
+                    Assert.IsNotNull(descRow, "Should find TestParam parameter row.");
+                    Assert.IsTrue(descRow.HasConflict, "Should detect parameter value conflict.");
+
+                    // Designate duplicate type's parameter value as the winner
+                    descRow.WinningValueElementId = duplicateGroupType.Id.ToModel(doc);
+
+                    var queueVM = new MergeQueueViewModel();
+                    queueVM.QueuedClusters.Add(targetCluster);
+
+                    var handler = new ProcessMergeEventHandler();
+                    handler.QueueRequest(queueVM, null, null, token);
+                    handler.Execute(_uiapp);
+
+                    // Verify duplicate group type was deleted/purged
+                    var deletedGroupType = doc.GetElement(duplicateGroupTypeId);
+                    Assert.IsNull(deletedGroupType, "Duplicate group type should be deleted.");
+
+                    // Verify winning parameter value was copied to primary group type
+                    string finalValue = sourceGroupType.LookupParameter("TestParam").AsString();
+                    Assert.AreEqual("Duplicate Value", finalValue, "Primary group type's TestParam parameter should retain the designated winning value.");
+
+                    tg.RollBack();
+                }
+            }
+            finally
+            {
+                doc.Close(false);
+                app.SharedParametersFilename = originalSharedParamFile;
+                try
+                {
+                    if (File.Exists(tempFilePath))
+                    {
+                        File.Delete(tempFilePath);
+                    }
+                }
+                catch {}
+            }
+        }
+
         #endregion
     }
 }
-
-
-
-
-
