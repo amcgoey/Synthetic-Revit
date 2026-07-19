@@ -18,6 +18,7 @@ using Synthetic.Shared.UI;
 using Synthetic.Modules.MergeDuplicates.Handlers;
 using Synthetic.Modules.MergeDuplicates.ViewModels;
 using Synthetic.Modules.MergeDuplicates.Models;
+using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Shared.RevitAPI;
 
@@ -189,7 +190,7 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
 
                         try
                         {
-                            Element primElement = doc.GetElement(primaryItem.RevitElementId);
+                            Element primElement = doc.GetElement(primaryItem.RevitElementId.ToElementId());
                             if (primElement != null)
                             {
                                 // 1. Schema Parameter Injection
@@ -274,7 +275,7 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                                             famDoc.Close(false);
 
                                             // Re-retrieve primary element reference in case LoadFamily updated it
-                                            primElement = doc.GetElement(primaryItem.RevitElementId);
+                                            primElement = doc.GetElement(primaryItem.RevitElementId.ToElementId());
                                         }
                                     }
                                 }
@@ -496,7 +497,7 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                         trans2.Start();
                         try
                         {
-                            Element primElement = doc.GetElement(primaryItem.RevitElementId);
+                            Element primElement = doc.GetElement(primaryItem.RevitElementId.ToElementId());
                             int purgedCount = 0;
                             foreach (var dupItem in duplicateItems)
                             {
@@ -515,7 +516,7 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                                 {
                                     try
                                     {
-                                        doc.Delete(dupItem.RevitElementId);
+                                        doc.Delete(dupItem.RevitElementId.ToElementId());
                                         purgedCount++;
                                     }
                                     catch (Exception)

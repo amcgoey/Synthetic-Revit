@@ -14,6 +14,7 @@ using Synthetic.Infrastructure.Serialization;
 using Synthetic.Modules.MergeDuplicates.Handlers;
 using Synthetic.Modules.MergeDuplicates.Engine;
 using Synthetic.Modules.MergeDuplicates.Models;
+using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Shared.RevitAPI;
 
@@ -255,7 +256,7 @@ namespace Synthetic.Modules.MergeDuplicates.Engine
                             // Create DuplicateItemModel
                             var item = new DuplicateItemModel
                             {
-                                RevitElementId = elem.Id,
+                                RevitElementId = elem.Id.ToModel(doc, false),
                                 ItemName = elem.Name,
                                 CategoryName = categoryName,
                                 IsPrimary = false,
@@ -310,21 +311,21 @@ namespace Synthetic.Modules.MergeDuplicates.Engine
                             {
                                 if (firstInstance.Location is LocationPoint lp)
                                 {
-                                    item.Location = lp.Point;
+                                    item.Location = lp.Point.ToModel();
                                 }
                                 else if (firstInstance is FamilyInstance fi)
                                 {
-                                    item.Location = fi.GetTransform().Origin;
+                                    item.Location = fi.GetTransform().Origin.ToModel();
                                 }
                                 else
                                 {
                                     var bbox = firstInstance.get_BoundingBox(null);
                                     if (bbox != null)
                                     {
-                                        item.Location = (bbox.Max + bbox.Min) * 0.5;
+                                        item.Location = ((bbox.Max + bbox.Min) * 0.5).ToModel();
                                     }
                                 }
-                                item.BoundingBox = firstInstance.get_BoundingBox(null);
+                                item.BoundingBox = firstInstance.get_BoundingBox(null).ToModel();
                             }
 
                             // Populate parameters (legacy dict)
@@ -660,8 +661,16 @@ namespace Synthetic.Modules.MergeDuplicates.Engine
                 if (firstBBox != null && currentBBox != null && firstLoc != null && currentLoc != null)
                 {
                     // Compare Bounding Box size (rotation-independent)
-                    XYZ firstSize = firstBBox.Max - firstBBox.Min;
-                    XYZ currentSize = currentBBox.Max - currentBBox.Min;
+                    XYZ nativeFirstMax = firstBBox.Max.ToNative()!;
+                    XYZ nativeFirstMin = firstBBox.Min.ToNative()!;
+                    XYZ nativeCurrentMax = currentBBox.Max.ToNative()!;
+                    XYZ nativeCurrentMin = currentBBox.Min.ToNative()!;
+                    XYZ nativeFirstLoc = firstLoc.ToNative()!;
+                    XYZ nativeCurrentLoc = currentLoc.ToNative()!;
+
+                    // Compare Bounding Box size (rotation-independent)
+                    XYZ firstSize = nativeFirstMax - nativeFirstMin;
+                    XYZ currentSize = nativeCurrentMax - nativeCurrentMin;
 
                     if (Math.Abs(firstSize.X - currentSize.X) > 1e-3 ||
                         Math.Abs(firstSize.Y - currentSize.Y) > 1e-3 ||
@@ -672,11 +681,11 @@ namespace Synthetic.Modules.MergeDuplicates.Engine
                     }
 
                     // Compare Origin relative to Bounding Box center
-                    XYZ firstCenter = (firstBBox.Max + firstBBox.Min) * 0.5;
-                    XYZ currentCenter = (currentBBox.Max + currentBBox.Min) * 0.5;
+                    XYZ firstCenter = (nativeFirstMax + nativeFirstMin) * 0.5;
+                    XYZ currentCenter = (nativeCurrentMax + nativeCurrentMin) * 0.5;
 
-                    XYZ firstOffset = firstLoc - firstCenter;
-                    XYZ currentOffset = currentLoc - currentCenter;
+                    XYZ firstOffset = nativeFirstLoc - firstCenter;
+                    XYZ currentOffset = nativeCurrentLoc - currentCenter;
 
                     if (Math.Abs(firstOffset.GetLength() - currentOffset.GetLength()) > 1e-3)
                     {
