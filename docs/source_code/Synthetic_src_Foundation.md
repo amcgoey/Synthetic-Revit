@@ -51,7 +51,7 @@ namespace Synthetic.Core{
         public Result OnStartup(UIControlledApplication appControlled)
         {
             AppControlled = appControlled;
-            SyntheticRibbon.Create(appControlled, _path);
+            RibbonManager.Create(appControlled, _path);
 
             Configurations.AddAppConfig(Config.ReadAppConfig());
 
@@ -174,377 +174,343 @@ namespace Synthetic.Core{
 }
 ```
 
-### File: Core/SyntheticRibbon.cs
+### File: Core/RibbonManager.cs
 ```csharp
 using Autodesk.Revit.UI;
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Text;
+using System.Reflection;
 using System.Windows.Media.Imaging;
-using Synthetic.Modules.AutoTagger.Commands;
-using Synthetic.Modules.BatchPrint.Commands;
-using Synthetic.Modules.DetailItemFactory.Commands;
-using Synthetic.Modules.FamilyManagement.Commands;
-using Synthetic.Modules.MaterialManagement.Commands;
-using Synthetic.Modules.ViewManagement.Commands;
-using Synthetic.Modules.Worksets.Commands;
-using Synthetic.Modules.MergeDuplicates.Commands;
-using Synthetic.Modules.StandardsManagement.Commands;
-using Synthetic.Modules.SettingsDashboard.Commands;
-using Synthetic.Infrastructure.Diagnostics;
+using Newtonsoft.Json;
 
-using Synthetic.Core;
-using Synthetic.Infrastructure.IO;
-using Synthetic.Settings;
-using Synthetic.Modules.MergeDuplicates.Commands;
-using Synthetic.Modules.StandardsManagement.Commands;
-using Synthetic.Modules.RevitDOM;
-using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.SettingsDashboard.Commands;
-namespace Synthetic.Core{
+namespace Synthetic.Core
+{
     /// <summary>
-    /// Creation and management class for the Synthetic Revit ribbon interface.
+    /// Static class responsible for dynamically loading the JSON configuration
+    /// and building the Revit ribbon controls.
     /// </summary>
-    public class SyntheticRibbon
+    public static class RibbonManager
     {
-        /// <summary>
-        /// The Ribbon Tab Name.
-        /// </summary>
-        public const string TabName = "Synthetic";
+        private interface IRibbonItemBuilder
+        {
+            void Build(RibbonPanel panel, RibbonItemConfig item, string assemblyPath, string assetsDir, bool isDebug, int activeVersion);
+        }
 
-        /// <summary>
-        /// The Ribbon Panel Name.
-        /// </summary>
-        public const string PanelName = "Commands";
-
-        /// <summary>
-        /// Creates a new Ribbon Tab for the App along with panels and buttons.
-        /// </summary>
-        /// <param name="appControlled">The Revit UIControlledApplication object</param>
-        /// <param name="path">Path to the DLL assembly</param>
-        public static void Create (UIControlledApplication appControlled, string path) {
-            string assetsDir = Path.Combine(Path.GetDirectoryName(path) ?? string.Empty, "Assets");
-
-            appControlled.CreateRibbonTab(TabName);
-
-            // --- Panel 1: Views & Tags ---
-            RibbonPanel panelViewsTags = appControlled.CreateRibbonPanel(TabName, "Views & Tags");
-
-            PushButtonData btAutoNumber = new PushButtonData(
-                "Synthetic.Modules.ViewManagement.Commands.ViewsAutoNumber",
-                " Autonumber\nViews ",
-                path,
-                "Synthetic.Modules.ViewManagement.Commands.ViewsAutoNumber"
-                );
-            btAutoNumber.ToolTip = "Autonumber Views on the Active Sheet";
-            btAutoNumber.LargeImage = new BitmapImage(new Uri(Path.Combine(assetsDir, "autonumber_32.png")));
-            btAutoNumber.Image = new BitmapImage(new Uri(Path.Combine(assetsDir, "autonumber_16.png")));
-            panelViewsTags.AddItem(btAutoNumber);
-
-            PushButtonData btBatchTag = new PushButtonData(
-                "Synthetic.Modules.AutoTagger.Commands.CmdBatchTag",
-                " AutoTag \nFamilies",
-                path,
-                "Synthetic.Modules.AutoTagger.Commands.CmdBatchTag"
-                );
-            btBatchTag.ToolTip = "Automatically tag all valid elements in the active view (or current selection) using your saved Universal Auto-Tagger templates.";
-            btBatchTag.LargeImage = new BitmapImage(new Uri(Path.Combine(assetsDir, "autotag_32.png")));
-            btBatchTag.Image = new BitmapImage(new Uri(Path.Combine(assetsDir, "autotag_16.png")));
-            panelViewsTags.AddItem(btBatchTag);
-
-            PushButtonData btManageTemplates = new PushButtonData(
-                "Synthetic.Modules.AutoTagger.Commands.CmdManageTemplates",
-                "Manage Templates",
-                path,
-                "Synthetic.Modules.AutoTagger.Commands.CmdManageTemplates"
-                );
-            btManageTemplates.ToolTip = "Open the Universal Auto-Tagger control panel to view, delete, import, or export tag templates.";
-            btManageTemplates.LargeImage = new BitmapImage(new Uri(Path.Combine(assetsDir, "autotag_32.png")));
-            btManageTemplates.Image = new BitmapImage(new Uri(Path.Combine(assetsDir, "autotag_16.png")));
-
-            PushButtonData btAutoNumberConfig = new PushButtonData(
-                "Synthetic.Modules.ViewManagement.Commands.ViewAutoNumberConfig",
-                "Autonumber Config",
-                path,
-                "Synthetic.Modules.ViewManagement.Commands.ViewAutoNumberConfig"
-                );
-            btAutoNumberConfig.ToolTip = "Configure Autonumber View";
-            btAutoNumberConfig.LargeImage = new BitmapImage(new Uri(Path.Combine(assetsDir, "autonumber_32.png")));
-            btAutoNumberConfig.Image = new BitmapImage(new Uri(Path.Combine(assetsDir, "autonumber_16.png")));
-
-            panelViewsTags.AddStackedItems(btManageTemplates, btAutoNumberConfig);
-
-            PushButtonData btDetailItemFactory = new PushButtonData(
-                "Synthetic.Modules.DetailItemFactory.Commands.CmdDetailItemFactory",
-                "Detail Item\nFactory",
-                path,
-                "Synthetic.Modules.DetailItemFactory.Commands.CmdDetailItemFactory"
-                );
-            btDetailItemFactory.ToolTip = "Batch process selected elements into 2D Detail Item families via DWG tracing.";
-            btDetailItemFactory.LargeImage = new BitmapImage(new Uri(Path.Combine(assetsDir, "convert_32.png")));
-            btDetailItemFactory.Image = new BitmapImage(new Uri(Path.Combine(assetsDir, "convert_16.png")));
-            panelViewsTags.AddItem(btDetailItemFactory);
-
-            // --- Panel 2: Legends ---
-            RibbonPanel panelLegends = appControlled.CreateRibbonPanel(TabName, "Legends");
-
-            PushButtonData btDraftingToLegend = new PushButtonData(
-                "Synthetic.Modules.ViewManagement.Commands.ConvertDraftingToLegend",
-                " Drafting to\nLegend ",
-                path,
-                "Synthetic.Modules.ViewManagement.Commands.ConvertDraftingToLegend"
-                );
-            btDraftingToLegend.ToolTip = "Converts Drafting Views to Legends";
-            btDraftingToLegend.LargeImage = new BitmapImage(new Uri(Path.Combine(assetsDir, "convert_32.png")));
-            btDraftingToLegend.Image = new BitmapImage(new Uri(Path.Combine(assetsDir, "convert_16.png")));
-            panelLegends.AddItem(btDraftingToLegend);
-
-            PushButtonData btLegendToDrafting = new PushButtonData(
-                "Synthetic.Modules.ViewManagement.Commands.ConvertLegendToDrafting",
-                " Legend to\nDrafting ",
-                path,
-                "Synthetic.Modules.ViewManagement.Commands.ConvertLegendToDrafting"
-                );
-            btLegendToDrafting.ToolTip = "Converts Legends to Drafting Views";
-            btLegendToDrafting.LargeImage = new BitmapImage(new Uri(Path.Combine(assetsDir, "convert_32.png")));
-            btLegendToDrafting.Image = new BitmapImage(new Uri(Path.Combine(assetsDir, "convert_16.png")));
-            panelLegends.AddItem(btLegendToDrafting);
-
-            // --- Panel 3: Model Management ---
-            RibbonPanel panelModel = appControlled.CreateRibbonPanel(TabName, "Model Management");
-
-            PushButtonData btnMergeDuplicates = new PushButtonData(
-                "Synthetic.Modules.MergeDuplicates.Commands.CmdMergeDuplicates",
-                "Merge\nDuplicates",
-                path,
-                "Synthetic.Modules.MergeDuplicates.Commands.CmdMergeDuplicates"
-                );
-            btnMergeDuplicates.ToolTip = "Scans the model or active selection for duplicate families, groups, or assemblies, matching parameters and swapping instances cleanly.";
-            btnMergeDuplicates.LargeImage = new BitmapImage(new Uri(Path.Combine(assetsDir, "family_32.png")));
-            btnMergeDuplicates.Image = new BitmapImage(new Uri(Path.Combine(assetsDir, "family_16.png")));
-            panelModel.AddItem(btnMergeDuplicates);
-
-            PushButtonData btnProjectStandards = new PushButtonData(
-                "Synthetic.Modules.StandardsManagement.Commands.CmdProjectStandards",
-                "Project Standards",
-                path,
-                "Synthetic.Modules.StandardsManagement.Commands.CmdProjectStandards"
-                );
-            btnProjectStandards.ToolTip = "Launch the Project Standards Workspace to load, stage, batch edit, and enforce standard configurations.";
-            btnProjectStandards.LargeImage = new BitmapImage(new Uri(Path.Combine(assetsDir, "family_32.png")));
-            btnProjectStandards.Image = new BitmapImage(new Uri(Path.Combine(assetsDir, "family_16.png")));
-            panelModel.AddItem(btnProjectStandards);
-
-            PushButtonData btMaterialsRepathAll = new PushButtonData(
-                "Synthetic.Modules.MaterialManagement.Commands.MaterialsRepathAll",
-                "Material Repath",
-                path,
-                "Synthetic.Modules.MaterialManagement.Commands.MaterialsRepathAll"
-                );
-            btMaterialsRepathAll.ToolTip = "Command will replace the file paths for the selected materials based on a series of selected file paths to search.  The first instance of the file will be chosen based on the order of the paths.";
-            btMaterialsRepathAll.LargeImage = new BitmapImage(new Uri(Path.Combine(assetsDir, "material_32.png")));
-            btMaterialsRepathAll.Image = new BitmapImage(new Uri(Path.Combine(assetsDir, "material_16.png")));
-
-            PushButtonData btMaterialImagePackage = new PushButtonData(
-                MaterialImagesPackage.CommandPath,
-                "Material Image Pkg",
-                path,
-                MaterialImagesPackage.CommandPath
-                );
-            btMaterialImagePackage.ToolTip = MaterialImagesPackage.CommandTooltip;
-            btMaterialImagePackage.LargeImage = new BitmapImage(new Uri(Path.Combine(assetsDir, "material_32.png")));
-            btMaterialImagePackage.Image = new BitmapImage(new Uri(Path.Combine(assetsDir, "material_16.png")));
-
-            PushButtonData btPaintElements = new PushButtonData(
-                "Synthetic.Modules.MaterialManagement.Commands.PaintElements",
-                " Paint\nElements ",
-                path,
-                "Synthetic.Modules.MaterialManagement.Commands.PaintElements"
-                );
-            btPaintElements.ToolTip = "Paints all faces of the selected elements with the chosen material.";
-            btPaintElements.LargeImage = new BitmapImage(new Uri(Path.Combine(assetsDir, "paint_32.png")));
-            btPaintElements.Image = new BitmapImage(new Uri(Path.Combine(assetsDir, "paint_16.png")));
-
-            panelModel.AddStackedItems(btMaterialsRepathAll, btMaterialImagePackage, btPaintElements);
-
-            panelModel.AddSlideOut();
-
-            PushButtonData btAuditPurgeAllFamilies = new PushButtonData(
-                "Synthetic.Modules.FamilyManagement.Commands.AuditPurgeAllFamilies",
-                "Audit & Purge Families",
-                path,
-                "Synthetic.Modules.FamilyManagement.Commands.AuditPurgeAllFamilies"
-                );
-            btAuditPurgeAllFamilies.ToolTip = "Command open each family in the project, checking it for warnings and errors as well as purging it and deleting all schema in memory.";
-            btAuditPurgeAllFamilies.LargeImage = new BitmapImage(new Uri(Path.Combine(assetsDir, "family_32.png")));
-            btAuditPurgeAllFamilies.Image = new BitmapImage(new Uri(Path.Combine(assetsDir, "family_16.png")));
-            panelModel.AddItem(btAuditPurgeAllFamilies);
-
-#if DEBUG
-            PushButtonData btTestAuditPurgeJournal = new PushButtonData(
-                "Synthetic.Modules.FamilyManagement.Commands.CmdTestAuditPurgeJournal",
-                "Test Audit Purge",
-                path,
-                "Synthetic.Modules.FamilyManagement.Commands.CmdTestAuditPurgeJournal"
-                );
-            btTestAuditPurgeJournal.ToolTip = "Headless integration test command for Audit & Purge";
-            btTestAuditPurgeJournal.AvailabilityClassName = "Synthetic.Modules.FamilyManagement.Commands.CmdTestAuditPurgeJournalAvailability";
-            panelModel.AddItem(btTestAuditPurgeJournal);
-#endif
-
-            PushButtonData btFamilyForceReinsert = new PushButtonData(
-                "Synthetic.Modules.FamilyManagement.Commands.FamiliesForceReinsert",
-                "Force Reinsert Families",
-                path,
-                "Synthetic.Modules.FamilyManagement.Commands.FamiliesForceReinsert"
-                );
-            btFamilyForceReinsert.ToolTip = "Forces a reinsert and overwrite of all families.  This can fix some post upgrade issues such as when text in families revert back to default font style.";
-            btFamilyForceReinsert.LargeImage = new BitmapImage(new Uri(Path.Combine(assetsDir, "family_32.png")));
-            btFamilyForceReinsert.Image = new BitmapImage(new Uri(Path.Combine(assetsDir, "family_16.png")));
-            panelModel.AddItem(btFamilyForceReinsert);
-
-
-
-            // --- Panel 4: Worksets & Setup ---
-            RibbonPanel panelWorkset = appControlled.CreateRibbonPanel(TabName, "Worksets & Setup");
-
-            PushButtonData btWorksetImport = new PushButtonData(
-                "Synthetic.Modules.Worksets.Commands.WorksetsImport",
-                " Import\nWorksets ",
-                path,
-                "Synthetic.Modules.Worksets.Commands.WorksetsImport"
-                );
-            btWorksetImport.ToolTip = "Creates worksets from an Excel file";
-            btWorksetImport.LargeImage = new BitmapImage(new Uri(Path.Combine(assetsDir, "workset_32.png")));
-            btWorksetImport.Image = new BitmapImage(new Uri(Path.Combine(assetsDir, "workset_16.png")));
-            panelWorkset.AddItem(btWorksetImport);
-
-            PushButtonData btMoveScopeBoxes = new PushButtonData(
-                "Synthetic.Modules.Worksets.Commands.ScopeBoxesMoveToWorkset",
-                " Move\nScope Boxes ",
-                path,
-                "Synthetic.Modules.Worksets.Commands.ScopeBoxesMoveToWorkset"
-                );
-            btMoveScopeBoxes.ToolTip = "Moves all scope boxes in the project to a selected workset.";
-            btMoveScopeBoxes.LargeImage = new BitmapImage(new Uri(Path.Combine(assetsDir, "scopebox_32.png")));
-            btMoveScopeBoxes.Image = new BitmapImage(new Uri(Path.Combine(assetsDir, "scopebox_16.png")));
-            panelWorkset.AddItem(btMoveScopeBoxes);
-
-            PushButtonData btWorksetFile = new PushButtonData(
-                "Synthetic.Modules.Worksets.Commands.WorksetSetFile",
-                "Set Workset File",
-                path,
-                "Synthetic.Modules.Worksets.Commands.WorksetSetFile"
-                );
-            btWorksetFile.ToolTip = "Set the path and worksheet for importing Worksets";
-            btWorksetFile.LargeImage = new BitmapImage(new Uri(Path.Combine(assetsDir, "workset_32.png")));
-            btWorksetFile.Image = new BitmapImage(new Uri(Path.Combine(assetsDir, "workset_16.png")));
-
-            PushButtonData btWorksetShow = new PushButtonData(
-                "Synthetic.Modules.Worksets.Commands.WorksetSettingsShow",
-                "Display Settings",
-                path,
-                "Synthetic.Modules.Worksets.Commands.WorksetSettingsShow"
-                );
-            btWorksetShow.ToolTip = "Display the project's Workset Settings";
-            btWorksetShow.LargeImage = new BitmapImage(new Uri(Path.Combine(assetsDir, "workset_32.png")));
-            btWorksetShow.Image = new BitmapImage(new Uri(Path.Combine(assetsDir, "workset_16.png")));
-
-            PushButtonData btWorksetStartView = new PushButtonData(
-                "Synthetic.Modules.Worksets.Commands.WorksetStartView",
-                "Workset Startview",
-                path,
-                "Synthetic.Modules.Worksets.Commands.WorksetStartView"
-                );
-            btWorksetStartView.ToolTip = "Sets the project information (like start view) from the Excel file";
-            btWorksetStartView.LargeImage = new BitmapImage(new Uri(Path.Combine(assetsDir, "workset_32.png")));
-            btWorksetStartView.Image = new BitmapImage(new Uri(Path.Combine(assetsDir, "workset_16.png")));
-
-            panelWorkset.AddStackedItems(btWorksetFile, btWorksetShow, btWorksetStartView);
-
-            panelWorkset.AddSlideOut();
-
-            PushButtonData btRecordWorkset = new PushButtonData(
-                "Synthetic.Modules.Worksets.Commands.ElementsOnWorksetRecord",
-                "Record Elements",
-                path,
-                "Synthetic.Modules.Worksets.Commands.ElementsOnWorksetRecord"
-                );
-            btRecordWorkset.ToolTip = "Records the elements on a workset in a text file to be recalled later.";
-            btRecordWorkset.LargeImage = new BitmapImage(new Uri(Path.Combine(assetsDir, "workset_32.png")));
-            btRecordWorkset.Image = new BitmapImage(new Uri(Path.Combine(assetsDir, "workset_16.png")));
-            panelWorkset.AddItem(btRecordWorkset);
-
-            PushButtonData btReloadWorkset = new PushButtonData(
-                "Synthetic.Modules.Worksets.Commands.ElementsOnWorksetReload",
-                "Reload Elements",
-                path,
-                "Synthetic.Modules.Worksets.Commands.ElementsOnWorksetReload"
-                );
-            btReloadWorkset.ToolTip = "Reloads a list of elements from a file and moves them to the workset listed.  Command will create the workset if it doesn't already exist.";
-            btReloadWorkset.LargeImage = new BitmapImage(new Uri(Path.Combine(assetsDir, "workset_32.png")));
-            btReloadWorkset.Image = new BitmapImage(new Uri(Path.Combine(assetsDir, "workset_16.png")));
-            panelWorkset.AddItem(btReloadWorkset);
-
-            // --- Panel 5: Publish ---
-            RibbonPanel panelPublish = appControlled.CreateRibbonPanel(TabName, "Publish");
-
-            PushButtonData btMultiPrint = new PushButtonData(
-                "Synthetic.Modules.BatchPrint.Commands.PrintBatchMultiDoc",
-                " Batch Print\nMulti Doc ",
-                path,
-                "Synthetic.Modules.BatchPrint.Commands.PrintBatchMultiDoc"
-                );
-            btMultiPrint.ToolTip = "Prints a view set in multiple documents";
-            btMultiPrint.LargeImage = new BitmapImage(new Uri(Path.Combine(assetsDir, "print_32.png")));
-            btMultiPrint.Image = new BitmapImage(new Uri(Path.Combine(assetsDir, "print_16.png")));
-            panelPublish.AddItem(btMultiPrint);
-
-            // --- Panel 6: Admin & Settings ---
-            RibbonPanel panelSettings = appControlled.CreateRibbonPanel(TabName, "Admin & Settings");
-
-            PushButtonData btSettingsDashboard = new PushButtonData(
-                "Synthetic.Modules.SettingsDashboard.Commands.SettingsDashboardCommand",
-                "Settings Dashboard",
-                path,
-                "Synthetic.Modules.SettingsDashboard.Commands.SettingsDashboardCommand"
-                );
-            btSettingsDashboard.ToolTip = "Opens the Settings Dashboard to view and edit project configuration overrides.";
-            btSettingsDashboard.LargeImage = new BitmapImage(new Uri(Path.Combine(assetsDir, "settings_32.png")));
-            btSettingsDashboard.Image = new BitmapImage(new Uri(Path.Combine(assetsDir, "settings_16.png")));
-            panelSettings.AddItem(btSettingsDashboard);
-
-            // Extensible Storage
-            SplitButtonData sbd1 = new SplitButtonData("Synthetic.Split.Schema", "Ext. Storage");
-            SplitButton? sb1 = panelSettings.AddItem(sbd1) as SplitButton;
-
-            if (sb1 != null)
+        private class PushButtonBuilder : IRibbonItemBuilder
+        {
+            public void Build(RibbonPanel panel, RibbonItemConfig item, string assemblyPath, string assetsDir, bool isDebug, int activeVersion)
             {
-                PushButtonData btStorageQuery = new PushButtonData(
-                    "Synthetic.Infrastructure.Diagnostics.StorageQuery",
-                    "Display Ext Storage",
-                    path,
-                    "Synthetic.Infrastructure.Diagnostics.StorageQuery"
-                    );
-                btStorageQuery.ToolTip = "List all Schemas and entities";
-                btStorageQuery.LargeImage = new BitmapImage(new Uri(Path.Combine(assetsDir, "schema_32.png")));
-                btStorageQuery.Image = new BitmapImage(new Uri(Path.Combine(assetsDir, "schema_16.png")));
-                sb1.AddPushButton(btStorageQuery);
-
-                PushButtonData btStorageDelete = new PushButtonData(
-                    "Synthetic.Infrastructure.Diagnostics.StorageDelete",
-                    "Delete Ext Storage",
-                    path,
-                    "Synthetic.Infrastructure.Diagnostics.StorageDelete"
-                    );
-                btStorageDelete.ToolTip = "Delete All Schema and entities from current model.  Will throw errors if links are opened.";
-                btStorageDelete.LargeImage = new BitmapImage(new Uri(Path.Combine(assetsDir, "schema_32.png")));
-                btStorageDelete.Image = new BitmapImage(new Uri(Path.Combine(assetsDir, "schema_16.png")));
-                sb1.AddPushButton(btStorageDelete);
+                PushButtonData data = CreatePushButtonData(item, assemblyPath, assetsDir);
+                var ribbonItem = panel.AddItem(data);
+                ValidateCommandClass(ribbonItem as PushButton, item.Class);
             }
         }
 
+        private class StackedGroupBuilder : IRibbonItemBuilder
+        {
+            public void Build(RibbonPanel panel, RibbonItemConfig item, string assemblyPath, string assetsDir, bool isDebug, int activeVersion)
+            {
+                if (item.SubItems == null || item.SubItems.Count == 0)
+                {
+                    return;
+                }
+
+                var filteredSubItems = new List<RibbonItemConfig>();
+                foreach (var subItem in item.SubItems)
+                {
+                    if (!ShouldIncludeItem(subItem, isDebug, activeVersion))
+                    {
+                        continue;
+                    }
+                    filteredSubItems.Add(subItem);
+                }
+
+                if (filteredSubItems.Count == 0)
+                {
+                    return;
+                }
+
+                var buttonDatas = new List<RibbonItemData>();
+                foreach (var subItem in filteredSubItems)
+                {
+                    buttonDatas.Add(CreatePushButtonData(subItem, assemblyPath, assetsDir));
+                }
+
+                IList<RibbonItem> addedItems;
+                if (buttonDatas.Count == 3)
+                {
+                    addedItems = panel.AddStackedItems(buttonDatas[0], buttonDatas[1], buttonDatas[2]);
+                }
+                else if (buttonDatas.Count == 2)
+                {
+                    addedItems = panel.AddStackedItems(buttonDatas[0], buttonDatas[1]);
+                }
+                else // count == 1
+                {
+                    addedItems = new List<RibbonItem> { panel.AddItem(buttonDatas[0]) };
+                }
+
+                for (int i = 0; i < addedItems.Count; i++)
+                {
+                    ValidateCommandClass(addedItems[i] as PushButton, filteredSubItems[i].Class);
+                }
+            }
+        }
+
+        private class SplitButtonBuilder : IRibbonItemBuilder
+        {
+            public void Build(RibbonPanel panel, RibbonItemConfig item, string assemblyPath, string assetsDir, bool isDebug, int activeVersion)
+            {
+                SplitButtonData splitButtonData = new SplitButtonData(item.Name, item.Text);
+                var splitButton = panel.AddItem(splitButtonData) as SplitButton;
+
+                if (splitButton != null && item.SubItems != null)
+                {
+                    foreach (var subItem in item.SubItems)
+                    {
+                        if (!ShouldIncludeItem(subItem, isDebug, activeVersion))
+                        {
+                            continue;
+                        }
+
+                        PushButtonData subButtonData = CreatePushButtonData(subItem, assemblyPath, assetsDir);
+                        var subButton = splitButton.AddPushButton(subButtonData);
+                        ValidateCommandClass(subButton, subItem.Class);
+                    }
+                }
+            }
+        }
+
+        private static readonly Dictionary<string, IRibbonItemBuilder> Builders =
+            new Dictionary<string, IRibbonItemBuilder>(StringComparer.OrdinalIgnoreCase)
+            {
+                { "PushButton", new PushButtonBuilder() },
+                { "StackedGroup", new StackedGroupBuilder() },
+                { "SplitButton", new SplitButtonBuilder() }
+            };
+
+        public static void Create(UIControlledApplication appControlled, string assemblyPath)
+        {
+            string assetsDir = Path.Combine(Path.GetDirectoryName(assemblyPath) ?? string.Empty, "Assets");
+            string configPath = Path.Combine(assetsDir, "ribbon_config.json");
+
+            if (!File.Exists(configPath))
+            {
+                throw new FileNotFoundException("Ribbon configuration file not found.", configPath);
+            }
+
+            string json = File.ReadAllText(configPath);
+            var config = JsonConvert.DeserializeObject<RibbonConfig>(json);
+
+            if (config == null)
+            {
+                return;
+            }
+
+            // Create Ribbon Tab
+            appControlled.CreateRibbonTab(config.TabName);
+
+#if DEBUG
+            bool isDebug = true;
+#else
+            bool isDebug = false;
+#endif
+
+            int activeVersion = 2026;
+            if (appControlled?.ControlledApplication != null)
+            {
+                if (int.TryParse(appControlled.ControlledApplication.VersionNumber, out int parsedVersion))
+                {
+                    activeVersion = parsedVersion;
+                }
+            }
+
+            if (config.Panels != null)
+            {
+                foreach (var panelConfig in config.Panels)
+                {
+                    RibbonPanel panel = appControlled.CreateRibbonPanel(config.TabName, panelConfig.Name);
+
+                    // Add items
+                    if (panelConfig.Items != null)
+                    {
+                        AddItemsToPanel(panel, panelConfig.Items, assemblyPath, assetsDir, isDebug, activeVersion);
+                    }
+
+                    // Add slideout items if present
+                    if (panelConfig.SlideoutItems != null && panelConfig.SlideoutItems.Count > 0)
+                    {
+                        // Filter slideout items first, so we only call AddSlideOut if there's actually something to add
+                        var filteredSlideout = new List<RibbonItemConfig>();
+                        foreach (var item in panelConfig.SlideoutItems)
+                        {
+                            if (!ShouldIncludeItem(item, isDebug, activeVersion))
+                            {
+                                continue;
+                            }
+                            filteredSlideout.Add(item);
+                        }
+
+                        if (filteredSlideout.Count > 0)
+                        {
+                            panel.AddSlideOut();
+                            AddItemsToPanel(panel, filteredSlideout, assemblyPath, assetsDir, isDebug, activeVersion);
+                        }
+                    }
+                }
+            }
+        }
+
+        public static bool ShouldIncludeItem(RibbonItemConfig item, bool isDebug, int activeVersion)
+        {
+            if (item.DebugOnly && !isDebug)
+            {
+                return false;
+            }
+            return IsVersionMatch(item, activeVersion);
+        }
+
+        public static bool IsVersionMatch(RibbonItemConfig item, int currentVersion)
+        {
+            if (item.MinVersion.HasValue && currentVersion < item.MinVersion.Value)
+            {
+                return false;
+            }
+            if (item.MaxVersion.HasValue && currentVersion > item.MaxVersion.Value)
+            {
+                return false;
+            }
+            return true;
+        }
+
+        private static void AddItemsToPanel(RibbonPanel panel, List<RibbonItemConfig> items, string assemblyPath, string assetsDir, bool isDebug, int activeVersion)
+        {
+            foreach (var item in items)
+            {
+                if (!ShouldIncludeItem(item, isDebug, activeVersion))
+                {
+                    continue;
+                }
+
+                if (Builders.TryGetValue(item.Type, out var builder))
+                {
+                    builder.Build(panel, item, assemblyPath, assetsDir, isDebug, activeVersion);
+                }
+            }
+        }
+
+        private static PushButtonData CreatePushButtonData(RibbonItemConfig item, string assemblyPath, string assetsDir)
+        {
+            PushButtonData data = new PushButtonData(
+                item.Name,
+                item.Text,
+                assemblyPath,
+                item.Class
+            );
+
+            data.ToolTip = item.Tooltip ?? string.Empty;
+
+            if (!string.IsNullOrEmpty(item.AvailabilityClass))
+            {
+                data.AvailabilityClassName = item.AvailabilityClass;
+            }
+
+            // Fallback for large image
+            string largeImageName = string.IsNullOrEmpty(item.LargeImage) ? "placeholder_32.png" : item.LargeImage;
+            string largeImagePath = Path.Combine(assetsDir, largeImageName);
+            if (!File.Exists(largeImagePath))
+            {
+                largeImagePath = Path.Combine(assetsDir, "placeholder_32.png");
+            }
+            data.LargeImage = new BitmapImage(new Uri(largeImagePath));
+
+            // Fallback for small image
+            string imageName = string.IsNullOrEmpty(item.Image) ? "placeholder_16.png" : item.Image;
+            string imagePath = Path.Combine(assetsDir, imageName);
+            if (!File.Exists(imagePath))
+            {
+                imagePath = Path.Combine(assetsDir, "placeholder_16.png");
+            }
+            data.Image = new BitmapImage(new Uri(imagePath));
+
+            return data;
+        }
+
+        private static void ValidateCommandClass(PushButton? button, string classPath)
+        {
+            if (button == null || string.IsNullOrEmpty(classPath))
+            {
+                return;
+            }
+
+            var type = Assembly.GetExecutingAssembly().GetType(classPath);
+            if (type == null)
+            {
+                button.Enabled = false;
+                button.ToolTip = $"[WARNING] Command class not found: {classPath}";
+            }
+        }
+    }
+
+    public class RibbonConfig
+    {
+        [JsonProperty("tab_name")]
+        public string TabName { get; set; }
+
+        [JsonProperty("panels")]
+        public List<PanelConfig> Panels { get; set; }
+    }
+
+    public class PanelConfig
+    {
+        [JsonProperty("name")]
+        public string Name { get; set; }
+
+        [JsonProperty("items")]
+        public List<RibbonItemConfig> Items { get; set; }
+
+        [JsonProperty("slideout_items")]
+        public List<RibbonItemConfig> SlideoutItems { get; set; }
+    }
+
+    public class RibbonItemConfig
+    {
+        [JsonProperty("type")]
+        public string Type { get; set; }
+
+        [JsonProperty("name")]
+        public string Name { get; set; }
+
+        [JsonProperty("text")]
+        public string Text { get; set; }
+
+        [JsonProperty("class")]
+        public string Class { get; set; }
+
+        [JsonProperty("tooltip")]
+        public string Tooltip { get; set; }
+
+        [JsonProperty("large_image")]
+        public string LargeImage { get; set; }
+
+        [JsonProperty("image")]
+        public string Image { get; set; }
+
+        [JsonProperty("availability_class")]
+        public string AvailabilityClass { get; set; }
+
+        [JsonProperty("debugOnly")]
+        public bool DebugOnly { get; set; }
+
+        [JsonProperty("minVersion")]
+        public int? MinVersion { get; set; }
+
+        [JsonProperty("maxVersion")]
+        public int? MaxVersion { get; set; }
+
+        [JsonProperty("sub_items")]
+        public List<RibbonItemConfig> SubItems { get; set; }
     }
 }
 ```
@@ -928,19 +894,15 @@ namespace Synthetic.Infrastructure.IO{
             }
 
             // Fallback for archive roots
-            if (archiveRoots == null || archiveRoots.Count == 0)
+            if (archiveRoots == null)
             {
-                archiveRoots = new List<string> { @"\\NAS04\Archive" };
+                archiveRoots = new List<string>();
             }
 
             // Fallback for alternate paths
-            if (configAlternatePaths == null || configAlternatePaths.Count == 0)
+            if (configAlternatePaths == null)
             {
-                configAlternatePaths = new Dictionary<string, List<string>>
-                {
-                    { @"\\server05\library\inc materials", new List<string> { @"G:\Shared drives\INC Library\INC Viz\INC Material Maps" } },
-                    { @"\\server05", new List<string> { @"\\incserver03vm" } }
-                };
+                configAlternatePaths = new Dictionary<string, List<string>>();
             }
 
             // Resolve actual subdirectories from archive roots with null checking and Directory.Exists checks
@@ -2638,12 +2600,8 @@ namespace Synthetic.Settings
         /// <returns>This settings instance.</returns>
         public FileUtilitySettings Defaults()
         {
-            ArchiveDirectories = new List<string> { @"\\NAS04\Archive" };
-            AlternatePaths = new Dictionary<string, List<string>>
-            {
-                { @"\\server05\library\inc materials", new List<string> { @"G:\Shared drives\INC Library\INC Viz\INC Material Maps" } },
-                { @"\\server05", new List<string> { @"\\incserver03vm" } }
-            };
+            ArchiveDirectories = new List<string>();
+            AlternatePaths = new Dictionary<string, List<string>>();
             return this;
         }
 
@@ -6710,6 +6668,29 @@ namespace Synthetic.Shared.UI
         }
 
         /// <summary>
+        /// Creates an IProgress reporter targeting this coordinator.
+        /// </summary>
+        /// <returns>An progress reporter instance.</returns>
+        public static IProgress<ProgressState> AsProgressReporter()
+        {
+            return new Progress<ProgressState>(state =>
+            {
+                if (state.IsCompleted)
+                {
+                    Close();
+                }
+                else if (_viewModel != null)
+                {
+                    _viewModel.MainTaskDescription = state.TaskDescription;
+                    _viewModel.MaximumValue = state.MaximumBounds;
+                    _viewModel.CurrentValue = state.ProgressIndex;
+                    _viewModel.CurrentItemName = state.CurrentItemName;
+                    AllowUIToUpdate();
+                }
+            });
+        }
+
+        /// <summary>
         /// Increments the current progress value by 1 and updates the current item status text.
         /// </summary>
         /// <param name="currentItemName">The name of the item currently being processed.</param>
@@ -6800,6 +6781,45 @@ namespace Synthetic.Shared.UI
             }
             catch { }
         }
+    }
+}
+```
+
+### File: Shared/UI/ProgressState.cs
+```csharp
+using System;
+
+namespace Synthetic.Shared.UI
+{
+    /// <summary>
+    /// Represents the progress state of a modeless background operation.
+    /// </summary>
+    public class ProgressState
+    {
+        /// <summary>
+        /// Gets or sets the main task description message.
+        /// </summary>
+        public string TaskDescription { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Gets or sets the name of the current item being processed.
+        /// </summary>
+        public string CurrentItemName { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Gets or sets the progress index.
+        /// </summary>
+        public int ProgressIndex { get; set; }
+
+        /// <summary>
+        /// Gets or sets the maximum bounds.
+        /// </summary>
+        public int MaximumBounds { get; set; }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether the task is completed.
+        /// </summary>
+        public bool IsCompleted { get; set; }
     }
 }
 ```
@@ -9383,225 +9403,5 @@ namespace Synthetic.Shared.UI
         }
     }
 }
-```
-
-### File: src/fix_qualified_references.py
-```python
-import os
-import re
-
-workspace_dir = r"c:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2"
-src_dir = os.path.join(workspace_dir, "src")
-
-# 1. Map of relocated files to their new namespaces
-relocated_mappings = {
-    # MergeDuplicates
-    r"SyntheticShared\Modules\MergeDuplicates\Commands\CmdMergeDuplicates.cs": ("Synthetic.Commands", "Synthetic.Modules.MergeDuplicates.Commands"),
-    r"SyntheticShared\Modules\MergeDuplicates\Handlers\ProcessMergeEventHandler.cs": ("Synthetic", "Synthetic.Modules.MergeDuplicates.Handlers"),
-    r"SyntheticShared\Modules\MergeDuplicates\Engine\MergeAnalysisEngine.cs": ("Synthetic", "Synthetic.Modules.MergeDuplicates.Engine"),
-    r"SyntheticShared\Modules\MergeDuplicates\ViewModels\MergeDuplicatesViewModel.cs": ("Synthetic.ViewModels", "Synthetic.Modules.MergeDuplicates.ViewModels"),
-    r"SyntheticShared\Modules\MergeDuplicates\ViewModels\MergeDetailedReviewViewModel.cs": ("Synthetic.ViewModels", "Synthetic.Modules.MergeDuplicates.ViewModels"),
-    r"SyntheticShared\Modules\MergeDuplicates\ViewModels\MergeQueueViewModel.cs": ("Synthetic.ViewModels", "Synthetic.Modules.MergeDuplicates.ViewModels"),
-    r"SyntheticShared\Modules\MergeDuplicates\Views\MergeDuplicatesWindow.xaml.cs": ("Synthetic.Views", "Synthetic.Modules.MergeDuplicates.Views"),
-    r"SyntheticShared\Modules\MergeDuplicates\Views\MergeDuplicatesWindow.xaml": ("Synthetic.Views", "Synthetic.Modules.MergeDuplicates.Views"),
-    r"SyntheticShared\Modules\MergeDuplicates\Views\MergeDetailedReviewWindow.xaml.cs": ("Synthetic.Views", "Synthetic.Modules.MergeDuplicates.Views"),
-    r"SyntheticShared\Modules\MergeDuplicates\Views\MergeDetailedReviewWindow.xaml": ("Synthetic.Views", "Synthetic.Modules.MergeDuplicates.Views"),
-    r"SyntheticShared\Modules\MergeDuplicates\Models\ParameterDiffRowModel.cs": ("Synthetic.Models", "Synthetic.Modules.MergeDuplicates.Models"),
-    r"SyntheticShared\Modules\MergeDuplicates\Models\DuplicateTypeModel.cs": ("Synthetic.Models", "Synthetic.Modules.MergeDuplicates.Models"),
-    r"SyntheticShared\Modules\MergeDuplicates\Models\DuplicateItemModel.cs": ("Synthetic.Models", "Synthetic.Modules.MergeDuplicates.Models"),
-    r"SyntheticShared\Modules\MergeDuplicates\Models\DuplicateClusterModel.cs": ("Synthetic.Models", "Synthetic.Modules.MergeDuplicates.Models"),
-    r"SyntheticShared\Modules\MergeDuplicates\Models\TypeMappingModel.cs": ("Synthetic.Models", "Synthetic.Modules.MergeDuplicates.Models"),
-    r"SyntheticShared\Modules\MergeDuplicates\Models\RecommendedAction.cs": ("Synthetic.Models", "Synthetic.Modules.MergeDuplicates.Models"),
-
-    # StandardsManagement
-    r"SyntheticShared\Modules\StandardsManagement\Commands\StandardsEditorShow.cs": ("Synthetic", "Synthetic.Modules.StandardsManagement.Commands"),
-    r"SyntheticShared\Modules\StandardsManagement\Commands\CmdEnforceStandards.cs": ("Synthetic", "Synthetic.Modules.StandardsManagement.Commands"),
-    r"SyntheticShared\Modules\StandardsManagement\Commands\CmdExportStandards.cs": ("Synthetic", "Synthetic.Modules.StandardsManagement.Commands"),
-    r"SyntheticShared\Modules\StandardsManagement\Handlers\JsonEditorExternalEventHandler.cs": ("Synthetic", "Synthetic.Modules.StandardsManagement.Handlers"),
-    r"SyntheticShared\Modules\StandardsManagement\Engine\StandardsDiffEngine.cs": ("Synthetic", "Synthetic.Modules.StandardsManagement.Engine"),
-    r"SyntheticShared\Modules\StandardsManagement\ViewModels\JsonEditorMainViewModel.cs": ("Synthetic.ViewModels", "Synthetic.Modules.StandardsManagement.ViewModels"),
-    r"SyntheticShared\Modules\StandardsManagement\ViewModels\NestedDataEditorViewModel.cs": ("Synthetic.ViewModels", "Synthetic.Modules.StandardsManagement.ViewModels"),
-    r"SyntheticShared\Modules\StandardsManagement\ViewModels\ExportStylesViewModel.cs": ("Synthetic.ViewModels", "Synthetic.Modules.StandardsManagement.ViewModels"),
-    r"SyntheticShared\Modules\StandardsManagement\ViewModels\EnforceStandardsViewModel.cs": ("Synthetic.ViewModels", "Synthetic.Modules.StandardsManagement.ViewModels"),
-    r"SyntheticShared\Modules\StandardsManagement\ViewModels\StandardsReviewViewModel.cs": ("Synthetic.ViewModels", "Synthetic.Modules.StandardsManagement.ViewModels"),
-    r"SyntheticShared\Modules\StandardsManagement\ViewModels\StandardsClassSelectionViewModel.cs": ("Synthetic.ViewModels", "Synthetic.Modules.StandardsManagement.ViewModels"),
-    r"SyntheticShared\Modules\StandardsManagement\ViewModels\ImportSummaryViewModel.cs": ("Synthetic.ViewModels", "Synthetic.Modules.StandardsManagement.ViewModels"),
-    r"SyntheticShared\Modules\StandardsManagement\ViewModels\ElementTypeWrapperVM.cs": ("Synthetic.ViewModels", "Synthetic.Modules.StandardsManagement.ViewModels"),
-    r"SyntheticShared\Modules\StandardsManagement\ViewModels\ParameterWrapperVM.cs": ("Synthetic.ViewModels", "Synthetic.Modules.StandardsManagement.ViewModels"),
-    r"SyntheticShared\Modules\StandardsManagement\ViewModels\FindReplaceViewModel.cs": ("Synthetic.ViewModels", "Synthetic.Modules.StandardsManagement.ViewModels"),
-    r"SyntheticShared\Modules\StandardsManagement\ViewModels\CategorySelectionViewModel.cs": ("Synthetic.ViewModels", "Synthetic.Modules.StandardsManagement.ViewModels"),
-    r"SyntheticShared\Modules\StandardsManagement\Views\JsonEditorWindow.xaml.cs": ("Synthetic.Views", "Synthetic.Modules.StandardsManagement.Views"),
-    r"SyntheticShared\Modules\StandardsManagement\Views\JsonEditorWindow.xaml": ("Synthetic.Views", "Synthetic.Modules.StandardsManagement.Views"),
-    r"SyntheticShared\Modules\StandardsManagement\Views\NestedDataEditorWindow.xaml.cs": ("Synthetic.Views", "Synthetic.Modules.StandardsManagement.Views"),
-    r"SyntheticShared\Modules\StandardsManagement\Views\NestedDataEditorWindow.xaml": ("Synthetic.Views", "Synthetic.Modules.StandardsManagement.Views"),
-    r"SyntheticShared\Modules\StandardsManagement\Views\ExportStylesView.xaml.cs": ("Synthetic.Views", "Synthetic.Modules.StandardsManagement.Views"),
-    r"SyntheticShared\Modules\StandardsManagement\Views\ExportStylesView.xaml": ("Synthetic.Views", "Synthetic.Modules.StandardsManagement.Views"),
-    r"SyntheticShared\Modules\StandardsManagement\Views\EnforceStandardsView.xaml.cs": ("Synthetic.Views", "Synthetic.Modules.StandardsManagement.Views"),
-    r"SyntheticShared\Modules\StandardsManagement\Views\EnforceStandardsView.xaml": ("Synthetic.Views", "Synthetic.Modules.StandardsManagement.Views"),
-    r"SyntheticShared\Modules\StandardsManagement\Views\StandardsReviewWindow.xaml.cs": ("Synthetic.Views", "Synthetic.Modules.StandardsManagement.Views"),
-    r"SyntheticShared\Modules\StandardsManagement\Views\StandardsReviewWindow.xaml": ("Synthetic.Views", "Synthetic.Modules.StandardsManagement.Views"),
-    r"SyntheticShared\Modules\StandardsManagement\Views\StandardsClassSelectionControl.xaml.cs": ("Synthetic.Views", "Synthetic.Modules.StandardsManagement.Views"),
-    r"SyntheticShared\Modules\StandardsManagement\Views\StandardsClassSelectionControl.xaml": ("Synthetic.Views", "Synthetic.Modules.StandardsManagement.Views"),
-    r"SyntheticShared\Modules\StandardsManagement\Views\FindReplaceWindow.xaml.cs": ("Synthetic.Views", "Synthetic.Modules.StandardsManagement.Views"),
-    r"SyntheticShared\Modules\StandardsManagement\Views\FindReplaceWindow.xaml": ("Synthetic.Views", "Synthetic.Modules.StandardsManagement.Views"),
-    r"SyntheticShared\Modules\StandardsManagement\Views\ImportSummaryWindow.xaml.cs": ("Synthetic.Views", "Synthetic.Modules.StandardsManagement.Views"),
-    r"SyntheticShared\Modules\StandardsManagement\Views\ImportSummaryWindow.xaml": ("Synthetic.Views", "Synthetic.Modules.StandardsManagement.Views"),
-    r"SyntheticShared\Modules\StandardsManagement\Views\CategorySelectionControl.xaml.cs": ("Synthetic.Views", "Synthetic.Modules.StandardsManagement.Views"),
-    r"SyntheticShared\Modules\StandardsManagement\Views\CategorySelectionControl.xaml": ("Synthetic.Views", "Synthetic.Modules.StandardsManagement.Views"),
-    r"SyntheticShared\Modules\StandardsManagement\Models\ImportLogItem.cs": ("Synthetic.Models", "Synthetic.Modules.StandardsManagement.Models"),
-
-    # SettingsDashboard
-    r"SyntheticShared\Modules\SettingsDashboard\Commands\SettingsDashboardCommand.cs": ("Synthetic.Commands", "Synthetic.Modules.SettingsDashboard.Commands"),
-    r"SyntheticShared\Modules\SettingsDashboard\Handlers\SyncExternalEventHandler.cs": ("Synthetic", "Synthetic.Modules.SettingsDashboard.Handlers"),
-    r"SyntheticShared\Modules\SettingsDashboard\ViewModels\SettingsDashboardViewModel.cs": ("Synthetic.ViewModels", "Synthetic.Modules.SettingsDashboard.ViewModels"),
-    r"SyntheticShared\Modules\SettingsDashboard\ViewModels\SyncSettingsViewModel.cs": ("Synthetic.ViewModels", "Synthetic.Modules.SettingsDashboard.ViewModels"),
-    r"SyntheticShared\Modules\SettingsDashboard\ViewModels\SyncWizardViewModel.cs": ("Synthetic.ViewModels", "Synthetic.Modules.SettingsDashboard.ViewModels"),
-    r"SyntheticShared\Modules\SettingsDashboard\ViewModels\FileUtilitySettingsViewModel.cs": ("Synthetic.ViewModels", "Synthetic.Modules.SettingsDashboard.ViewModels"),
-    r"SyntheticShared\Modules\SettingsDashboard\ViewModels\MaterialLibraryViewModel.cs": ("Synthetic.ViewModels", "Synthetic.Modules.SettingsDashboard.ViewModels"),
-    r"SyntheticShared\Modules\SettingsDashboard\ViewModels\ProjectMaterialsViewModel.cs": ("Synthetic.ViewModels", "Synthetic.Modules.SettingsDashboard.ViewModels"),
-    r"SyntheticShared\Modules\SettingsDashboard\ViewModels\WorksetSettingsViewModel.cs": ("Synthetic.ViewModels", "Synthetic.Modules.SettingsDashboard.ViewModels"),
-    r"SyntheticShared\Modules\SettingsDashboard\ViewModels\WorksetWizardViewModel.cs": ("Synthetic.ViewModels", "Synthetic.Modules.SettingsDashboard.ViewModels"),
-    r"SyntheticShared\Modules\SettingsDashboard\ViewModels\ViewAutoNumSettingsViewModel.cs": ("Synthetic.ViewModels", "Synthetic.Modules.SettingsDashboard.ViewModels"),
-    r"SyntheticShared\Modules\SettingsDashboard\ViewModels\ViewAutoNumWizardViewModel.cs": ("Synthetic.ViewModels", "Synthetic.Modules.SettingsDashboard.ViewModels"),
-    r"SyntheticShared\Modules\SettingsDashboard\ViewModels\NetworkPathsWizardViewModel.cs": ("Synthetic.ViewModels", "Synthetic.Modules.SettingsDashboard.ViewModels"),
-    r"SyntheticShared\Modules\SettingsDashboard\ViewModels\PathMappingViewModel.cs": ("Synthetic.ViewModels", "Synthetic.Modules.SettingsDashboard.ViewModels"),
-    r"SyntheticShared\Modules\SettingsDashboard\ViewModels\ISettingModuleViewModel.cs": ("Synthetic.ViewModels", "Synthetic.Modules.SettingsDashboard.ViewModels"),
-    r"SyntheticShared\Modules\SettingsDashboard\ViewModels\StandardsSettingsViewModel.cs": ("Synthetic.ViewModels", "Synthetic.Modules.SettingsDashboard.ViewModels"),
-    r"SyntheticShared\Modules\SettingsDashboard\Views\SettingsDashboardWindow.xaml.cs": ("Synthetic.Views", "Synthetic.Modules.SettingsDashboard.Views"),
-    r"SyntheticShared\Modules\SettingsDashboard\Views\SettingsDashboardWindow.xaml": ("Synthetic.Views", "Synthetic.Modules.SettingsDashboard.Views"),
-    r"SyntheticShared\Modules\SettingsDashboard\Views\SyncWizardWindow.xaml.cs": ("Synthetic.Views", "Synthetic.Modules.SettingsDashboard.Views"),
-    r"SyntheticShared\Modules\SettingsDashboard\Views\SyncWizardWindow.xaml": ("Synthetic.Views", "Synthetic.Modules.SettingsDashboard.Views"),
-    r"SyntheticShared\Modules\SettingsDashboard\Views\SyncResolutionWindow.xaml.cs": ("Synthetic.Views", "Synthetic.Modules.SettingsDashboard.Views"),
-    r"SyntheticShared\Modules\SettingsDashboard\Views\SyncResolutionWindow.xaml": ("Synthetic.Views", "Synthetic.Modules.SettingsDashboard.Views"),
-    r"SyntheticShared\Modules\SettingsDashboard\Views\SyncSettingsView.xaml.cs": ("Synthetic.Views", "Synthetic.Modules.SettingsDashboard.Views"),
-    r"SyntheticShared\Modules\SettingsDashboard\Views\SyncSettingsView.xaml": ("Synthetic.Views", "Synthetic.Modules.SettingsDashboard.Views"),
-    r"SyntheticShared\Modules\SettingsDashboard\Views\SyncToastNotification.xaml.cs": ("Synthetic.Views", "Synthetic.Modules.SettingsDashboard.Views"),
-    r"SyntheticShared\Modules\SettingsDashboard\Views\SyncToastNotification.xaml": ("Synthetic.Views", "Synthetic.Modules.SettingsDashboard.Views"),
-    r"SyntheticShared\Modules\SettingsDashboard\Views\NetworkPathsWizardWindow.xaml.cs": ("Synthetic.Views", "Synthetic.Modules.SettingsDashboard.Views"),
-    r"SyntheticShared\Modules\SettingsDashboard\Views\NetworkPathsWizardWindow.xaml": ("Synthetic.Views", "Synthetic.Modules.SettingsDashboard.Views"),
-    r"SyntheticShared\Modules\SettingsDashboard\Views\ViewAutoNumWizardWindow.xaml.cs": ("Synthetic.Views", "Synthetic.Modules.SettingsDashboard.Views"),
-    r"SyntheticShared\Modules\SettingsDashboard\Views\ViewAutoNumWizardWindow.xaml": ("Synthetic.Views", "Synthetic.Modules.SettingsDashboard.Views"),
-    r"SyntheticShared\Modules\SettingsDashboard\Views\WorksetWizardWindow.xaml.cs": ("Synthetic.Views", "Synthetic.Modules.SettingsDashboard.Views"),
-    r"SyntheticShared\Modules\SettingsDashboard\Views\WorksetWizardWindow.xaml": ("Synthetic.Views", "Synthetic.Modules.SettingsDashboard.Views"),
-    r"SyntheticShared\Modules\SettingsDashboard\Views\StandardsSettingsView.xaml.cs": ("Synthetic.Views", "Synthetic.Modules.SettingsDashboard.Views"),
-    r"SyntheticShared\Modules\SettingsDashboard\Views\StandardsSettingsView.xaml": ("Synthetic.Views", "Synthetic.Modules.SettingsDashboard.Views"),
-
-    # Shared UI
-    r"SyntheticShared\Shared\UI\DropdownSelectionViewModel.cs": ("Synthetic.ViewModels", "Synthetic.Shared.UI"),
-    r"SyntheticShared\Shared\UI\DropdownSelectionView.xaml.cs": ("Synthetic.Views", "Synthetic.Shared.UI"),
-    r"SyntheticShared\Shared\UI\DropdownSelectionView.xaml": ("Synthetic.Views", "Synthetic.Shared.UI"),
-    r"SyntheticShared\Shared\UI\ListByCheckboxViewModel.cs": ("Synthetic.ViewModels", "Synthetic.Shared.UI"),
-    r"SyntheticShared\Shared\UI\ListByCheckboxView.xaml.cs": ("Synthetic.Views", "Synthetic.Shared.UI"),
-    r"SyntheticShared\Shared\UI\ListByCheckboxView.xaml": ("Synthetic.Views", "Synthetic.Shared.UI"),
-    r"SyntheticShared\Shared\UI\SelectSearchPathsViewModel.cs": ("Synthetic.ViewModels", "Synthetic.Shared.UI"),
-    r"SyntheticShared\Shared\UI\SelectSearchPathsView.xaml.cs": ("Synthetic.Views", "Synthetic.Shared.UI"),
-    r"SyntheticShared\Shared\UI\SelectSearchPathsView.xaml": ("Synthetic.Views", "Synthetic.Shared.UI"),
-    r"SyntheticShared\Shared\UI\SharedProgressViewModel.cs": ("Synthetic.ViewModels", "Synthetic.Shared.UI"),
-    r"SyntheticShared\Shared\UI\SharedProgressWindow.xaml.cs": ("Synthetic.Views", "Synthetic.Shared.UI"),
-    r"SyntheticShared\Shared\UI\SharedProgressWindow.xaml": ("Synthetic.Views", "Synthetic.Shared.UI"),
-    r"SyntheticShared\Shared\UI\ProgressCoordinator.cs": ("Synthetic", "Synthetic.Shared.UI"),
-    r"SyntheticShared\Shared\UI\ViewModelBase.cs": ("Synthetic.ViewModels", "Synthetic.Shared.UI"),
-
-    # Shared Revit API
-    r"SyntheticShared\Shared\RevitAPI\CommandUtil.cs": ("Synthetic", "Synthetic.Shared.RevitAPI"),
-    r"SyntheticShared\Shared\RevitAPI\FamilySymbolUtil.cs": ("Synthetic", "Synthetic.Shared.RevitAPI"),
-    r"SyntheticShared\Shared\RevitAPI\Select.cs": ("Synthetic", "Synthetic.Shared.RevitAPI"),
-    r"SyntheticShared\Shared\RevitAPI\StorageUtil.cs": ("Synthetic", "Synthetic.Shared.RevitAPI"),
-    r"SyntheticShared\Shared\EnumUtil.cs": ("Synthetic", "Synthetic.Shared"),
-
-    # Revit DOM Models
-    r"SyntheticShared\Modules\RevitDOM\BooleanModel.cs": ("Synthetic", "Synthetic.Modules.RevitDOM"),
-    r"SyntheticShared\Modules\RevitDOM\ListModel.cs": ("Synthetic", "Synthetic.Modules.RevitDOM"),
-    r"SyntheticShared\Modules\RevitDOM\DimensionTypeModel.cs": ("Synthetic.Models", "Synthetic.Modules.RevitDOM"),
-
-    # DetailItemFactory Model
-    r"SyntheticShared\Modules\DetailItemFactory\Models\DetailItemResultItem.cs": ("Synthetic.Models", "Synthetic.Modules.DetailItemFactory.Models"),
-
-    # FamilyManagement Handlers/Utilities
-    r"SyntheticShared\Modules\FamilyManagement\Handlers\AuditPurgeEventHandler.cs": ("Synthetic", "Synthetic.Modules.FamilyManagement.Handlers"),
-    r"SyntheticShared\Modules\FamilyManagement\Utilities\SafeFamilyLoadOptions.cs": ("Synthetic", "Synthetic.Modules.FamilyManagement.Utilities"),
-    r"SyntheticShared\Modules\FamilyManagement\Utilities\PurgeFailuresPreprocessor.cs": ("Synthetic", "Synthetic.Modules.FamilyManagement.Utilities"),
-
-    # Infrastructure IO
-    r"SyntheticShared\Infrastructure\IO\SearchPaths.cs": ("Synthetic", "Synthetic.Infrastructure.IO")
-}
-
-# Normalize paths to OS specific backslashes
-relocated_mappings = {os.path.join(src_dir, os.path.normpath(k)): v for k, v in relocated_mappings.items()}
-
-# 2. Discover all type names and their old/new namespaces
-type_to_new_ns = {}
-type_to_old_ns = {}
-
-type_decl_re = re.compile(r'\b(class|struct|enum|interface)\s+([a-zA-Z0-9_]+)\b')
-
-for filepath, (old_ns, new_ns) in relocated_mappings.items():
-    if not filepath.endswith(".cs"):
-        continue
-    if not os.path.exists(filepath):
-        continue
-    with open(filepath, 'r', encoding='utf-8') as f:
-        content = f.read()
-    
-    matches = type_decl_re.findall(content)
-    for t_type, t_name in matches:
-        type_to_new_ns[t_name] = new_ns
-        type_to_old_ns[t_name] = old_ns
-
-# Explicit nested/inner types
-nested_types = {
-    "SearchScope": ("Synthetic.ViewModels", "Synthetic.Modules.StandardsManagement.ViewModels"),
-    "SearchableField": ("Synthetic.ViewModels", "Synthetic.Modules.StandardsManagement.ViewModels"),
-    "CompoundLayerRowVM": ("Synthetic.ViewModels", "Synthetic.Modules.StandardsManagement.ViewModels"),
-    "VisibilityOverrideRowVM": ("Synthetic.ViewModels", "Synthetic.Modules.StandardsManagement.ViewModels"),
-    "CategorySelectionItem": ("Synthetic.ViewModels", "Synthetic.Modules.StandardsManagement.ViewModels"),
-    "ProcessMergeFamilyLoadOptions": ("Synthetic", "Synthetic.Modules.MergeDuplicates.Handlers"),
-    "MergeExecutionReport": ("Synthetic", "Synthetic.Modules.MergeDuplicates.Handlers"),
-    "ParameterValueOption": ("Synthetic.Models", "Synthetic.Modules.MergeDuplicates.Models")
-}
-for t_name, (old_ns, new_ns) in nested_types.items():
-    type_to_new_ns[t_name] = new_ns
-    type_to_old_ns[t_name] = old_ns
-
-print(f"Total resolved type names: {len(type_to_new_ns)}")
-
-# 3. Replace all qualified usages solution-wide
-# E.g. Synthetic.Models.ImportLogItem -> Synthetic.Modules.StandardsManagement.Models.ImportLogItem
-# or Synthetic.ViewModels.ViewModelBase -> Synthetic.Shared.UI.ViewModelBase
-count = 0
-for root, dirs, files in os.walk(src_dir):
-    if any(p in root for p in ["obj", "bin", ".git", ".vs"]):
-        continue
-    for file in files:
-        if not file.endswith((".cs", ".xaml")):
-            continue
-        filepath = os.path.join(root, file)
-        
-        with open(filepath, 'r', encoding='utf-8') as f:
-            content = f.read()
-            
-        modified = False
-        new_content = content
-        
-        for type_name, new_ns in type_to_new_ns.items():
-            old_ns = type_to_old_ns[type_name]
-            
-            # Match old qualified reference like "Synthetic.Models.ImportLogItem"
-            # whole words check
-            pattern_str = r'\b' + re.escape(old_ns) + r'\.' + re.escape(type_name) + r'\b'
-            replacement_str = f"{new_ns}.{type_name}"
-            
-            new_content_2, num_subs = re.subn(pattern_str, replacement_str, new_content)
-            if num_subs > 0:
-                new_content = new_content_2
-                modified = True
-                print(f"  Replaced qualified {old_ns}.{type_name} -> {new_ns}.{type_name} in {file}")
-                
-        if modified:
-            with open(filepath, 'w', encoding='utf-8') as f:
-                f.write(new_content)
-            count += 1
-
-print(f"Completed! Modified {count} files.")
 ```
 

@@ -13,7 +13,7 @@ Use this playbook to aggregate the codebase and sync local documentation bundles
 The sync pipeline consists of two sequential phases executed via the `sync_all.py` script:
 
 1. **Phase 1: Codebase Aggregation (`aggregate.py`):**
-   * Scans configured directories in `sync_config.json` (inside `Revit API Synthetic v2 Support/auth/`).
+   * Scans configured directories in `sync_config.json` (inside `Revit API Synthetic v2/auth/`).
    * Bundles source file headers, code syntax, and comments into specialized markdown file collections (e.g. `Synthetic_src_Foundation.md`, `Synthetic_tests.md`) in the `docs/source_code/` folder.
 2. **Phase 2: Google Drive Upload (`drive_sync.py`):**
    * Reads targets defined in `sync_config.json` and syncs them to Google Drive (using `drive_folder_id`).
@@ -32,7 +32,7 @@ python .agents/skills/docs-push-google/scripts/sync_all.py
 Because the Google Drive client uses the interactive OAuth 2.0 flow:
 
 * **Token Check:** Before running the sync command, check if a valid Google token exists at:
-  `Revit API Synthetic v2 Support/auth/token.json`
+  `Revit API Synthetic v2/auth/token.json`
 * **OAuth Interactive Browser Fail-Safe:** If `token.json` is missing or expired, do **not** run the script headlessly, as the browser redirection flow will hang.
 * **User Redirection Prompt:** Instruct the user to run the authentication flow manually in their terminal. Print this exact message:
 

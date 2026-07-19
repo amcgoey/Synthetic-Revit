@@ -18,7 +18,7 @@ from drive_sync import sync_to_drive
 def main():
     projects_dir, default_agg_config = get_default_paths()
     default_sync_config = os.path.join(
-        projects_dir, "Revit API Synthetic v2 Support", "auth", "sync_config.json"
+        os.path.dirname(default_agg_config), "sync_config.json"
     )
 
     parser = argparse.ArgumentParser(

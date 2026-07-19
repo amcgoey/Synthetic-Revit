@@ -9,6 +9,9 @@ using Synthetic.Shared.UI;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Modules.StandardsManagement.Views;
 using Synthetic.Modules.StandardsManagement.Utilities;
+using Synthetic.Modules.RevitDOM;
+using Synthetic.Modules.StandardsManagement.Engine;
+using Synthetic.Modules.DiffEngine;
 
 namespace Synthetic.Modules.StandardsManagement.Commands
 {
@@ -43,7 +46,26 @@ namespace Synthetic.Modules.StandardsManagement.Commands
                 var fileDialog = new WindowsFileDialogService();
                 var guardrail = new WindowsGuardrailPromptService();
                 var exportService = new StandardsExportService(guardrail, fileDialog);
-                var vm = new ProjectStandardsDashboardViewModel(uiapp, fileDialog, exportService);
+                var userPromptService = new WindowsUserPromptService();
+                var findReplaceService = new FindReplaceService();
+                var serializationEngine = new StandardSerializationEngine();
+                var orchestrator = new StandardsExtractionOrchestrator(new RevitIdentityService(), serializationEngine);
+                var pocoIdentityService = new PocoIdentityService();
+                var diffEngine = new PocoToRevitDiffEngine(new RevitIdentityService());
+                var pipeline = new StandardsExecutionPipeline(serializationEngine, exportService, new RevitFamilyEnforcer(serializationEngine));
+
+                var vm = new ProjectStandardsDashboardViewModel(
+                    uiapp,
+                    fileDialog,
+                    exportService,
+                    null, // settings
+                    userPromptService,
+                    findReplaceService,
+                    orchestrator,
+                    pocoIdentityService,
+                    diffEngine,
+                    serializationEngine,
+                    pipeline);
 
                 // Create external event for modeless execution
                 var handler = new ProjectStandardsExternalEventHandler();
@@ -65,6 +87,53 @@ namespace Synthetic.Modules.StandardsManagement.Commands
                 return Result.Failed;
             }
         }
+    }
+}
+```
+
+### File: StandardsManagement/Engine/IFamilyEnforcer.cs
+```csharp
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using Autodesk.Revit.DB;
+using Synthetic.Modules.RevitDOM;
+using Synthetic.Modules.StandardsManagement.Models;
+
+namespace Synthetic.Modules.StandardsManagement.Engine
+{
+    public interface IFamilyEnforcer
+    {
+        void Enforce(
+            Document doc,
+            IEnumerable<ElementModel> standards,
+            StandardsExecutionOptions options,
+            Action<string, string, int> reportProgress,
+            List<SerializationResultModel> dbResults,
+            CancellationToken cancellationToken);
+    }
+}
+```
+
+### File: StandardsManagement/Engine/IStandardsExecutionPipeline.cs
+```csharp
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using Autodesk.Revit.DB;
+using Synthetic.Modules.StandardsManagement.Models;
+using Synthetic.Shared.UI;
+
+namespace Synthetic.Modules.StandardsManagement.Engine
+{
+    public interface IStandardsExecutionPipeline
+    {
+        StandardsExecutionResult Execute(
+            Document doc,
+            IEnumerable<StandardsExecutionItem> items,
+            StandardsExecutionOptions options,
+            IProgress<ProgressState>? progress = null,
+            CancellationToken cancellationToken = default);
     }
 }
 ```
@@ -105,6 +174,318 @@ namespace Synthetic.Modules.StandardsManagement.Engine
 }
 ```
 
+### File: StandardsManagement/Engine/RevitFamilyEnforcer.cs
+```csharp
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using Autodesk.Revit.DB;
+using Synthetic.Modules.RevitDOM;
+using Synthetic.Modules.StandardsManagement.Models;
+using Synthetic.Modules.StandardsManagement.Utilities;
+using Synthetic.Shared.RevitAPI;
+
+namespace Synthetic.Modules.StandardsManagement.Engine
+{
+    public class RevitFamilyEnforcer : IFamilyEnforcer
+    {
+        private readonly IStandardSerializationEngine _serializationEngine;
+
+        public RevitFamilyEnforcer(IStandardSerializationEngine serializationEngine)
+        {
+            _serializationEngine = serializationEngine ?? throw new ArgumentNullException(nameof(serializationEngine));
+        }
+
+        public void Enforce(
+            Document doc,
+            IEnumerable<ElementModel> standards,
+            StandardsExecutionOptions options,
+            Action<string, string, int> reportProgress,
+            List<SerializationResultModel> dbResults,
+            CancellationToken cancellationToken)
+        {
+            if (doc == null || !options.ProcessFamilies) return;
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            reportProgress("Consolidate Project Standards", "Collecting families to update...", dbResults.Count);
+
+            IList<Family> allFamilies = new FilteredElementCollector(doc)
+                .OfClass(typeof(Family))
+                .Cast<Family>()
+                .ToList();
+
+            List<Family> familiesToProcess = new List<Family>();
+            foreach (Family family in allFamilies)
+            {
+                if (family.IsEditable)
+                {
+                    if (options.CategoryFilter == "Annotations Only" && (family.FamilyCategory == null || family.FamilyCategory.CategoryType != CategoryType.Annotation))
+                        continue;
+#if REVIT2022 || REVIT2023
+                    if (options.CategoryFilter == "Title Blocks Only" && (family.FamilyCategory == null || family.FamilyCategory.Id.IntegerValue != (int)BuiltInCategory.OST_TitleBlocks))
+#elif REVIT2024 || REVIT2025
+                    if (options.CategoryFilter == "Title Blocks Only" && (family.FamilyCategory == null || family.FamilyCategory.Id.Value != (long)BuiltInCategory.OST_TitleBlocks))
+#else
+                    if (options.CategoryFilter == "Title Blocks Only" && (family.FamilyCategory == null || family.FamilyCategory.Id.Value != (long)BuiltInCategory.OST_TitleBlocks))
+#endif
+                        continue;
+
+                    familiesToProcess.Add(family);
+                }
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (doc.IsWorkshared && familiesToProcess.Count > 0)
+            {
+                reportProgress("Consolidate Project Standards", "Checking out family worksets...", dbResults.Count);
+                List<WorksetId> worksetIds = familiesToProcess
+                    .Select(f => f.WorksetId)
+                    .Distinct()
+                    .Where(id => id != WorksetId.InvalidWorksetId)
+                    .ToList();
+
+                if (worksetIds.Count > 0)
+                {
+                    WorksharingUtils.CheckoutWorksets(doc, worksetIds);
+                }
+            }
+
+            List<string> familyNamesToProcess = familiesToProcess
+                .Select(f => f.Name)
+                .Distinct()
+                .ToList();
+
+            int familyIndex = 0;
+            foreach (string familyName in familyNamesToProcess)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                familyIndex++;
+                reportProgress(
+                    "Consolidate Project Standards",
+                    $"Updating family {familyIndex} of {familyNamesToProcess.Count}: {familyName}...",
+                    dbResults.Count);
+
+                Family? family = new FilteredElementCollector(doc)
+                    .OfClass(typeof(Family))
+                    .Cast<Family>()
+                    .FirstOrDefault(f => f.Name == familyName);
+
+                if (family != null && family.IsValidObject)
+                {
+                    try
+                    {
+                        UpdateFamilyRecursively(doc, family, standards, options, cancellationToken);
+                    }
+                    catch (Exception ex)
+                    {
+                        var failedModel = new ElementModel
+                        {
+                            Name = familyName,
+                            Class = "Autodesk.Revit.DB.Family"
+                        };
+                        var result = new SerializationResultModel(failedModel, $"Family update failed for {familyName}: {ex.Message}", ex)
+                        {
+                            OperationTarget = StandardsPipelineConstants.TargetDatabase,
+                            Action = StandardsPipelineConstants.ActionFailed,
+                            Message = ex.Message
+                        };
+                        dbResults.Add(result);
+                    }
+                }
+            }
+        }
+
+        private void UpdateFamilyRecursively(
+            Document parentDoc,
+            Family family,
+            IEnumerable<ElementModel> standards,
+            StandardsExecutionOptions options,
+            CancellationToken cancellationToken)
+        {
+            if (cancellationToken.IsCancellationRequested)
+            {
+                throw new OperationCanceledException();
+            }
+
+            if (family == null || !family.IsEditable) return;
+
+            Document? familyDoc = null;
+            try
+            {
+                familyDoc = parentDoc.EditFamily(family);
+            }
+            catch (Exception)
+            {
+                return;
+            }
+
+            if (familyDoc == null) return;
+
+            try
+            {
+                IList<Family> nestedFamilies = new FilteredElementCollector(familyDoc)
+                    .OfClass(typeof(Family))
+                    .Cast<Family>()
+                    .ToList();
+
+                var nestedFamiliesInfo = nestedFamilies
+                    .Select(nf => new { Id = nf.Id, Name = nf.Name, IsEditable = nf.IsEditable })
+                    .ToList();
+
+                foreach (var nfInfo in nestedFamiliesInfo)
+                {
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        throw new OperationCanceledException();
+                    }
+                    if (nfInfo.IsEditable)
+                    {
+                        Family? freshNestedFamily = new FilteredElementCollector(familyDoc)
+                            .OfClass(typeof(Family))
+                            .Cast<Family>()
+                            .FirstOrDefault(nf => nf.Name == nfInfo.Name);
+                        if (freshNestedFamily != null && freshNestedFamily.IsValidObject)
+                        {
+                            UpdateFamilyRecursively(familyDoc, freshNestedFamily, standards, options, cancellationToken);
+                        }
+                    }
+                }
+
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    throw new OperationCanceledException();
+                }
+
+                var familyStandards = standards.Where(s =>
+                {
+                    if (s is MaterialModel) return true;
+                    if (s is ElementTypeModel etModel)
+                    {
+                        if (familyDoc.IsFamilyDocument && etModel.Class == "Autodesk.Revit.DB.SpotDimensionType")
+                        {
+                            return false;
+                        }
+                        return true;
+                    }
+                    return false;
+                }).ToList();
+
+                foreach (var serialElement in familyStandards)
+                {
+                    if (serialElement is ElementTypeModel etModel)
+                    {
+                        etModel.ElementType = null;
+                    }
+                    serialElement.Element = null;
+                    serialElement.Document = null;
+                }
+
+                using (TransactionGroup familyTg = new TransactionGroup(familyDoc, "Update Family Standards"))
+                {
+                    familyTg.Start();
+
+                    _serializationEngine.ToRevit(familyStandards, familyDoc, null, cancellationToken, new DeleteWarningsPreprocessor());
+
+                    if (options.PurgeUnusedStyleTypes)
+                    {
+                        if (cancellationToken.IsCancellationRequested)
+                        {
+                            familyTg.RollBack();
+                            throw new OperationCanceledException();
+                        }
+                        try
+                        {
+#if REVIT2022
+                            // Do nothing
+#elif REVIT2023 || REVIT2024 || REVIT2025
+                            DocumentUtil.Purge(parentDoc.Application, familyDoc);
+#else
+                            DocumentUtil.Purge(parentDoc.Application, familyDoc);
+#endif
+                        }
+                        catch (Exception)
+                        {
+                        }
+                    }
+
+                    familyTg.Assimilate();
+                }
+
+                using (Transaction parentTx = new Transaction(parentDoc, "Load Family"))
+                {
+                    FailureHandlingOptions parentOptions = parentTx.GetFailureHandlingOptions();
+                    parentOptions.SetFailuresPreprocessor(new DeleteWarningsPreprocessor());
+                    parentTx.SetFailureHandlingOptions(parentOptions);
+
+                    parentTx.Start();
+
+                    try
+                    {
+                        Synthetic.Shared.RevitAPI.FamilyUtil.SetIsChanged(parentDoc, familyDoc);
+                        familyDoc.LoadFamily(parentDoc, new ImportFamilyLoadOptions());
+                    }
+                    catch (Exception)
+                    {
+                    }
+
+                    parentTx.Commit();
+                }
+            }
+            finally
+            {
+                try
+                {
+                    familyDoc.Close(false);
+                }
+                catch (Exception)
+                {
+                }
+            }
+        }
+
+        private class DeleteWarningsPreprocessor : IFailuresPreprocessor
+        {
+            public FailureProcessingResult PreprocessFailures(FailuresAccessor failuresAccessor)
+            {
+                IList<FailureMessageAccessor> failList = failuresAccessor.GetFailureMessages();
+
+                if (failList.Count == 0)
+                {
+                    return FailureProcessingResult.Continue;
+                }
+
+                foreach (FailureMessageAccessor failure in failList)
+                {
+                    failuresAccessor.DeleteWarning(failure);
+                }
+                return FailureProcessingResult.ProceedWithCommit;
+            }
+        }
+
+        private class ImportFamilyLoadOptions : IFamilyLoadOptions
+        {
+            public bool OnFamilyFound(bool familyInUse, out bool overwriteParameterValues)
+            {
+                overwriteParameterValues = true;
+                return true;
+            }
+
+            public bool OnSharedFamilyFound(Family sharedFamily, bool familyInUse, out FamilySource source, out bool overwriteParameterValues)
+            {
+                source = FamilySource.Family;
+                overwriteParameterValues = true;
+                return true;
+            }
+        }
+    }
+}
+```
+
 ### File: StandardsManagement/Engine/StandardsDiffEngine.cs
 ```csharp
 using System;
@@ -137,13 +518,427 @@ namespace Synthetic.Modules.StandardsManagement.Engine
         /// <param name="doc">The active Revit document context (can be a project or family document).</param>
         /// <param name="incomingModels">The collection of deserialized JSON standard element models to analyze.</param>
         /// <returns>An ObservableCollection of DuplicateClusterModel objects summarizing the resolved parameter conflicts.</returns>
-        public static ObservableCollection<DuplicateClusterModel> RunDeepScan(Document doc, IEnumerable<ElementModel> incomingModels)
+        public static ObservableCollection<DuplicateClusterModel> RunDeepScan(Document doc, IEnumerable<ElementModel> incomingModels, IStandardSerializationEngine engine)
         {
             if (incomingModels == null) return new ObservableCollection<DuplicateClusterModel>();
-            var engine = new StandardSerializationEngine();
             var clusters = engine.Analyze(incomingModels, doc);
             return new ObservableCollection<DuplicateClusterModel>(clusters);
         }
+    }
+}
+```
+
+### File: StandardsManagement/Engine/StandardsExecutionPipeline.cs
+```csharp
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using Autodesk.Revit.DB;
+using Synthetic.Modules.RevitDOM;
+using Synthetic.Modules.StandardsManagement.Models;
+using Synthetic.Modules.StandardsManagement.Utilities;
+using Synthetic.Shared.RevitAPI;
+using Synthetic.Shared.UI;
+using Synthetic.Modules.StandardsManagement.ViewModels;
+
+namespace Synthetic.Modules.StandardsManagement.Engine
+{
+    public class StandardsExecutionPipeline : IStandardsExecutionPipeline
+    {
+        private readonly IStandardSerializationEngine _serializationEngine;
+        private readonly IStandardsExportService _exportService;
+        private readonly IFamilyEnforcer _familyEnforcer;
+
+        public StandardsExecutionPipeline(
+            IStandardSerializationEngine serializationEngine,
+            IStandardsExportService exportService,
+            IFamilyEnforcer familyEnforcer)
+        {
+            _serializationEngine = serializationEngine ?? throw new ArgumentNullException(nameof(serializationEngine));
+            _exportService = exportService ?? throw new ArgumentNullException(nameof(exportService));
+            _familyEnforcer = familyEnforcer ?? throw new ArgumentNullException(nameof(familyEnforcer));
+        }
+
+        public StandardsExecutionResult Execute(
+            Document doc,
+            IEnumerable<StandardsExecutionItem> items,
+            StandardsExecutionOptions options,
+            IProgress<ProgressState>? progress = null,
+            CancellationToken cancellationToken = default)
+        {
+            if (items == null) throw new ArgumentNullException(nameof(items));
+            if (options == null) throw new ArgumentNullException(nameof(options));
+
+            var result = new StandardsExecutionResult
+            {
+                Items = items.ToList()
+            };
+
+            var allResults = new List<SerializationResultModel>();
+            var dbResults = new List<SerializationResultModel>();
+            bool dbPhaseSucceeded = true;
+            string? actualFilePath = null;
+
+            var itemsToEnforce = result.Items.Where(i => i.WillEnforce).ToList();
+
+            if (options.WriteRevitDatabase)
+            {
+                try
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    dbResults = RunRevitDbPhase(doc, itemsToEnforce, options, progress, cancellationToken);
+                    allResults.AddRange(dbResults);
+                }
+                catch (OperationCanceledException)
+                {
+                    dbPhaseSucceeded = false;
+                    foreach (var item in itemsToEnforce)
+                    {
+                        var r = new SerializationResultModel(item.Model, "Execution cancelled by user.")
+                        {
+                            OperationTarget = StandardsPipelineConstants.TargetDatabase,
+                            Action = StandardsPipelineConstants.ActionCanceled,
+                            Message = "Execution cancelled by user."
+                        };
+                        dbResults.Add(r);
+                        allResults.Add(r);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    dbPhaseSucceeded = false;
+                    foreach (var item in itemsToEnforce)
+                      {
+                        var r = new SerializationResultModel(item.Model, $"Database Write Failed: {ex.Message}", ex)
+                        {
+                            OperationTarget = StandardsPipelineConstants.TargetDatabase,
+                            Action = StandardsPipelineConstants.ActionFailed,
+                            Message = ex.Message
+                        };
+                        dbResults.Add(r);
+                        allResults.Add(r);
+                    }
+                }
+            }
+
+            // Phase 2: File saving
+            if (options.SaveLocalFiles && dbPhaseSucceeded)
+            {
+                try
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    var fileItems = result.Items.Where(i => i.WillSave).ToList();
+                    if (fileItems.Count > 0)
+                    {
+                        var queueItems = new List<QueueItemModel>();
+                        var modelMapping = new Dictionary<ObjectModel, ObjectModel>();
+                        foreach (var item in fileItems)
+                        {
+                            var qItem = new QueueItemModel(item.Model, item.WillEnforce, item.WillSave);
+                            queueItems.Add(qItem);
+                            modelMapping[item.Model] = qItem.Model;
+                        }
+
+                        var dbResultsForExport = new List<SerializationResultModel>();
+                        foreach (var r in dbResults)
+                        {
+                            var mappedR = r;
+                            if (r.Model != null && modelMapping.TryGetValue(r.Model, out var clonedModel))
+                            {
+                                mappedR = r.Success
+                                    ? new SerializationResultModel(clonedModel, r.ElementIdentity)
+                                    {
+                                        OperationTarget = r.OperationTarget,
+                                        Action = r.Action,
+                                        Message = r.Message
+                                    }
+                                    : new SerializationResultModel(clonedModel, r.ErrorMessage ?? "Database Write Failed", r.Exception)
+                                    {
+                                        OperationTarget = r.OperationTarget,
+                                        Action = r.Action,
+                                        Message = r.Message
+                                    };
+                            }
+                            dbResultsForExport.Add(mappedR);
+                        }
+
+                        string? targetPath = options.StandardsFilePath;
+
+                        var fileResults = _exportService.Export(
+                            queueItems,
+                            targetPath,
+                            dbResultsForExport,
+                            new HashSet<string>(options.ProtectedPaths ?? new System.Collections.Generic.List<string>(), StringComparer.OrdinalIgnoreCase),
+                            out string? finalPathUsed);
+
+                        var mappedFileResults = new List<SerializationResultModel>();
+                        for (int i = 0; i < queueItems.Count; i++)
+                        {
+                            var originalItem = fileItems[i];
+                            var clonedModel = queueItems[i].Model;
+                            var resultsForClone = fileResults.Where(r => r.Model == clonedModel).ToList();
+                            foreach (var r in resultsForClone)
+                              {
+                                var mappedResult = r.Success
+                                    ? new SerializationResultModel(originalItem.Model, r.ElementIdentity)
+                                    : new SerializationResultModel(originalItem.Model, r.ErrorMessage ?? "File Save Failed", r.Exception);
+                                mappedResult.OperationTarget = StandardsPipelineConstants.TargetFile;
+                                mappedResult.Action = r.Action;
+                                mappedResult.Message = r.Message;
+                                mappedFileResults.Add(mappedResult);
+                            }
+                        }
+
+                        allResults.AddRange(mappedFileResults);
+                        actualFilePath = finalPathUsed;
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    var fileItems = result.Items.Where(i => i.WillSave).ToList();
+                    foreach (var item in fileItems)
+                    {
+                        var r = new SerializationResultModel(item.Model, "File Save Cancelled.")
+                        {
+                            OperationTarget = StandardsPipelineConstants.TargetFile,
+                            Action = StandardsPipelineConstants.ActionCanceled,
+                            Message = "File Save Cancelled."
+                        };
+                        allResults.Add(r);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    var fileItems = result.Items.Where(i => i.WillSave).ToList();
+                    foreach (var item in fileItems)
+                    {
+                        var r = new SerializationResultModel(item.Model, $"File Save Failed: {ex.Message}", ex)
+                        {
+                            OperationTarget = StandardsPipelineConstants.TargetFile,
+                            Action = StandardsPipelineConstants.ActionFailed,
+                            Message = ex.Message
+                        };
+                        allResults.Add(r);
+                    }
+                }
+            }
+
+            // Build ImportLogItem collection from allResults
+            var logItems = new List<ImportLogItem>();
+            foreach (var res in allResults)
+            {
+                var model = res.Model;
+                string action = StandardsPipelineConstants.ActionUpdated;
+                if (!res.Success)
+                {
+                    if (res.Action == "Alias Swap Failed")
+                    {
+                        action = "Alias Fail";
+                    }
+                    else
+                    {
+                        action = res.OperationTarget == StandardsPipelineConstants.TargetFile ? StandardsPipelineConstants.ActionSaveFailed : StandardsPipelineConstants.ActionFailed;
+                    }
+                }
+                else
+                {
+                    if (!string.IsNullOrEmpty(res.Action))
+                    {
+                        action = res.Action;
+                    }
+                    else if (res.OperationTarget == StandardsPipelineConstants.TargetFile)
+                    {
+                        action = StandardsPipelineConstants.ActionSaved;
+                    }
+                    else
+                    {
+                        var matchingItem = result.Items.FirstOrDefault(qi => qi.Model == model);
+                        if (matchingItem != null && matchingItem.WillEnforce)
+                        {
+                            action = StandardsPipelineConstants.ActionCreated;
+                        }
+                        else
+                        {
+                            action = StandardsPipelineConstants.ActionUpdated;
+                        }
+                    }
+                }
+
+                string name = (model is ElementModel em) ? (em.Name ?? "Unnamed") : model.GetType().Name;
+                string className = (model is ElementModel emClass) ? (emClass.Class ?? "Unknown") : model.GetType().Name;
+                if (className.Contains("."))
+                {
+                    className = className.Split('.').Last();
+                }
+
+                string message = res.Success ? "Operation completed successfully." : (res.ErrorMessage ?? "Unknown error occurred.");
+                if (!string.IsNullOrEmpty(res.Message))
+                {
+                    message = res.Message;
+                }
+                if (res.Warnings != null && res.Warnings.Count > 0)
+                {
+                    message += " Warnings: " + string.Join(", ", res.Warnings);
+                }
+
+                logItems.Add(new ImportLogItem
+                {
+                    Action = action,
+                    Class = className,
+                    ElementName = name,
+                    Message = message
+                });
+            }
+
+            // Generate report markdown
+            string markdown = StandardsReportGenerator.GenerateMarkdown(logItems);
+            result.ReportMarkdown = markdown;
+
+            // Write markdown log file next to target path
+            if (!string.IsNullOrEmpty(actualFilePath) && File.Exists(actualFilePath))
+            {
+                try
+                {
+                    string logPath = Path.ChangeExtension(actualFilePath, ".log.md");
+                    File.WriteAllText(logPath, markdown);
+                    result.LogFilePath = logPath;
+                }
+                catch (Exception logEx)
+                {
+                    Console.WriteLine($"Error writing automatic Markdown log next to target path: {logEx.Message}");
+                }
+            }
+
+            // Populate results on individual items
+            foreach (var item in result.Items)
+            {
+                var itemResults = allResults.Where(r => r.Model == item.Model).ToList();
+                if (itemResults.Count > 0)
+                {
+                    var failedResult = itemResults.FirstOrDefault(r => !r.Success);
+                    if (failedResult != null)
+                    {
+                        item.Action = failedResult.Action ?? (failedResult.OperationTarget == StandardsPipelineConstants.TargetFile ? StandardsPipelineConstants.ActionSaveFailed : StandardsPipelineConstants.ActionFailed);
+                        item.Message = failedResult.ErrorMessage ?? "Error occurred.";
+                    }
+                    else
+                    {
+                        var lastResult = itemResults.Last();
+                        item.Action = lastResult.Action ?? (lastResult.OperationTarget == StandardsPipelineConstants.TargetFile ? StandardsPipelineConstants.ActionSaved : (item.WillEnforce ? StandardsPipelineConstants.ActionCreated : StandardsPipelineConstants.ActionUpdated));
+                        item.Message = lastResult.Message ?? "Operation completed successfully.";
+                    }
+                }
+                else
+                {
+                    item.Action = StandardsPipelineConstants.ActionUnchanged;
+                    item.Message = "Staged, but no database write or file save operations were performed.";
+                }
+            }
+
+            // Overall success requires that the database writes succeeded (if attempted) and all input items are successful
+            result.Success = dbPhaseSucceeded && result.Items.All(i => i.Action != StandardsPipelineConstants.ActionFailed && i.Action != StandardsPipelineConstants.ActionSaveFailed && i.Action != StandardsPipelineConstants.ActionCanceled);
+
+            // Update progress as completed
+            if (progress != null)
+            {
+                progress.Report(new ProgressState
+                {
+                    TaskDescription = "Consolidate Project Standards",
+                    CurrentItemName = "Execution completed.",
+                    ProgressIndex = result.Items.Count,
+                    MaximumBounds = result.Items.Count,
+                    IsCompleted = true
+                });
+            }
+
+            result.RawResults = allResults;
+            return result;
+        }
+
+        private List<SerializationResultModel> RunRevitDbPhase(
+            Document doc,
+            List<StandardsExecutionItem> dbItems,
+            StandardsExecutionOptions options,
+            IProgress<ProgressState>? progress,
+            CancellationToken cancellationToken)
+        {
+            var dbResults = new List<SerializationResultModel>();
+            if (doc == null) return dbResults;
+
+            int totalWorkItems = dbItems.Count;
+
+            void ReportProgress(string taskDesc, string itemName, int index)
+            {
+                if (progress != null)
+                {
+                    progress.Report(new ProgressState
+                    {
+                        TaskDescription = taskDesc,
+                        CurrentItemName = itemName,
+                        ProgressIndex = index,
+                        MaximumBounds = totalWorkItems,
+                        IsCompleted = false
+                    });
+                }
+            }
+
+            ReportProgress("Consolidate Project Standards", "Starting standard injection...", 0);
+
+            if (options.UseTransactionGroup)
+            {
+                using (var txGroup = new TransactionGroup(doc, "Consolidate Project Standards"))
+                {
+                    txGroup.Start();
+                    try
+                    {
+                        ProcessDbPhaseInternal(doc, dbItems, options, ReportProgress, dbResults, cancellationToken);
+                        txGroup.Assimilate();
+                    }
+                    catch (Exception)
+                    {
+                        txGroup.RollBack();
+                        throw;
+                    }
+                }
+            }
+            else
+            {
+                ProcessDbPhaseInternal(doc, dbItems, options, ReportProgress, dbResults, cancellationToken);
+            }
+
+            return dbResults;
+        }
+
+        private void ProcessDbPhaseInternal(
+            Document doc,
+            List<StandardsExecutionItem> dbItems,
+            StandardsExecutionOptions options,
+            Action<string, string, int> reportProgress,
+            List<SerializationResultModel> dbResults,
+            CancellationToken cancellationToken)
+        {
+            if (dbItems.Count > 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var elementPocos = dbItems.Select(q => q.Model).ToList();
+                var results = _serializationEngine.ToRevit(elementPocos, doc, null, cancellationToken).ToList();
+                dbResults.AddRange(results);
+            }
+
+            if (options.ProcessFamilies)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var elementPocos = dbItems.Select(q => q.Model).OfType<ElementModel>().ToList();
+                _familyEnforcer.Enforce(doc, elementPocos, options, reportProgress, dbResults, cancellationToken);
+            }
+        }
+
+
     }
 }
 ```
@@ -165,14 +960,17 @@ namespace Synthetic.Modules.StandardsManagement.Engine
     public class StandardsExtractionOrchestrator : IStandardsExtractionOrchestrator
     {
         private readonly IIdentityService _identityService;
+        private readonly IStandardSerializationEngine _engine;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="StandardsExtractionOrchestrator"/> class.
         /// </summary>
         /// <param name="identityService">The identity service to use for element resolution and mapping.</param>
-        public StandardsExtractionOrchestrator(IIdentityService identityService)
+        /// <param name="engine">The standard serialization engine to use.</param>
+        public StandardsExtractionOrchestrator(IIdentityService identityService, IStandardSerializationEngine? engine = null)
         {
             _identityService = identityService ?? throw new ArgumentNullException(nameof(identityService));
+            _engine = engine ?? new StandardSerializationEngine(identityService);
         }
 
         /// <inheritdoc />
@@ -195,11 +993,8 @@ namespace Synthetic.Modules.StandardsManagement.Engine
 
             while (currentBatch.Count > 0)
             {
-                // Instantiate the StandardSerializationEngine with the injected _identityService
-                var engine = new StandardSerializationEngine(_identityService);
-
                 // Extract current batch of elements to POCOs
-                var pocos = engine.ByRevit(currentBatch, doc, isTemplate, progress).ToList();
+                var pocos = _engine.ByRevit(currentBatch, doc, isTemplate, progress).ToList();
 
                 // Process extracted POCOs
                 foreach (var poco in pocos)
@@ -327,6 +1122,78 @@ namespace Synthetic.Modules.StandardsManagement.Models
         /// Gets or sets any details or error messages associated with the action.
         /// </summary>
         public string Message { get; set; } = string.Empty;
+    }
+}
+```
+
+### File: StandardsManagement/Models/StandardsExecutionItem.cs
+```csharp
+using System;
+using Synthetic.Modules.RevitDOM;
+
+namespace Synthetic.Modules.StandardsManagement.Models
+{
+    public class StandardsExecutionItem
+    {
+        public ObjectModel Model { get; set; }
+        public string Action { get; set; } = "Pending";
+        public string Message { get; set; } = string.Empty;
+        public bool WillEnforce { get; set; } = true;
+        public bool WillSave { get; set; } = true;
+
+        public StandardsExecutionItem(ObjectModel model)
+        {
+            Model = model ?? throw new ArgumentNullException(nameof(model));
+        }
+    }
+}
+```
+
+### File: StandardsManagement/Models/StandardsExecutionOptions.cs
+```csharp
+namespace Synthetic.Modules.StandardsManagement.Models
+{
+    public class StandardsExecutionOptions
+    {
+        public bool ProcessFamilies { get; set; }
+        public string CategoryFilter { get; set; } = string.Empty;
+        public bool PurgeUnusedStyleTypes { get; set; }
+        public string StandardsFilePath { get; set; } = string.Empty;
+        public bool WriteRevitDatabase { get; set; } = true;
+        public bool SaveLocalFiles { get; set; } = true;
+        public bool UseTransactionGroup { get; set; } = true;
+        public System.Collections.Generic.List<string> ProtectedPaths { get; set; } = new System.Collections.Generic.List<string>();
+    }
+}
+```
+
+### File: StandardsManagement/Models/StandardsExecutionResult.cs
+```csharp
+using System.Collections.Generic;
+
+namespace Synthetic.Modules.StandardsManagement.Models
+{
+    public class StandardsExecutionResult
+    {
+        public bool Success { get; set; }
+        public List<StandardsExecutionItem> Items { get; set; } = new List<StandardsExecutionItem>();
+        public List<Synthetic.Modules.RevitDOM.SerializationResultModel> RawResults { get; set; } = new List<Synthetic.Modules.RevitDOM.SerializationResultModel>();
+        public string ReportMarkdown { get; set; } = string.Empty;
+        public string LogFilePath { get; set; } = string.Empty;
+    }
+
+    public static class StandardsPipelineConstants
+    {
+        public const string TargetDatabase = "Database";
+        public const string TargetFile = "File";
+
+        public const string ActionCanceled = "Canceled";
+        public const string ActionFailed = "Failed";
+        public const string ActionSaveFailed = "Save Failed";
+        public const string ActionSaved = "Saved";
+        public const string ActionCreated = "Created";
+        public const string ActionUpdated = "Updated";
+        public const string ActionUnchanged = "Unchanged";
     }
 }
 ```
@@ -691,7 +1558,7 @@ namespace Synthetic.Modules.StandardsManagement.Utilities
                             }
                         }
 
-                        var mergedElements = ProjectStandardsDashboardViewModel.MergeStandardsLists(existingElements, newElements, overwriteDuplicates);
+                        var mergedElements = StandardsMergeUtility.Merge(existingElements, newElements, overwriteDuplicates);
                         string serializedJson = ModelsToSerialize.SerializeToJson(mergedElements.Cast<ObjectModel>().ToList());
                         File.WriteAllText(fullTargetPath, serializedJson);
 
@@ -1075,6 +1942,122 @@ namespace Synthetic.Modules.StandardsManagement.Utilities
                 return "Host Object Types";
             }
             return element.Class ?? "Unknown Class";
+        }
+    }
+}
+```
+
+### File: StandardsManagement/Utilities/StandardsMergeUtility.cs
+```csharp
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using Synthetic.Modules.RevitDOM;
+
+namespace Synthetic.Modules.StandardsManagement.Utilities
+{
+    public static class StandardsMergeUtility
+    {
+        /// <summary>
+        /// Merges a list of existing standard elements with new standard elements, identifying duplicates strictly by Class + Name.
+        /// </summary>
+        public static List<ElementModel> Merge(List<ElementModel> existingElements, List<ElementModel> newElements, bool overwriteDuplicates)
+        {
+            var resultDict = new Dictionary<string, ElementModel>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var el in existingElements)
+            {
+                if (el != null && !string.IsNullOrEmpty(el.Class) && !string.IsNullOrEmpty(el.Name))
+                {
+                    string key = $"{el.Class}:{el.Name}";
+                    resultDict[key] = el;
+                }
+            }
+
+            foreach (var el in newElements)
+            {
+                if (el != null && !string.IsNullOrEmpty(el.Class) && !string.IsNullOrEmpty(el.Name))
+                {
+                    string key = $"{el.Class}:{el.Name}";
+                    if (resultDict.ContainsKey(key))
+                    {
+                        if (overwriteDuplicates)
+                        {
+                            resultDict[key] = el;
+                        }
+                    }
+                    else
+                    {
+                        resultDict[key] = el;
+                    }
+                }
+            }
+
+            return resultDict.Values.ToList();
+        }
+    }
+}
+```
+
+### File: StandardsManagement/Utilities/StandardsReportGenerator.cs
+```csharp
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+using Synthetic.Modules.StandardsManagement.Models;
+
+namespace Synthetic.Modules.StandardsManagement.Utilities
+{
+    /// <summary>
+    /// Utility class for generating standards reports.
+    /// </summary>
+    public static class StandardsReportGenerator
+    {
+        /// <summary>
+        /// Generates a formatted markdown report from the summary log items.
+        /// </summary>
+        /// <param name="logItems">The list of import log items to summarize.</param>
+        /// <returns>A markdown formatted string.</returns>
+        public static string GenerateMarkdown(IEnumerable<ImportLogItem> logItems)
+        {
+            if (logItems == null) throw new ArgumentNullException(nameof(logItems));
+
+            var logList = logItems.ToList();
+            int createdCount = logList.Count(item => item.Action == "Created");
+            int updatedCount = logList.Count(item => item.Action == "Updated");
+            int renamedCount = logList.Count(item => item.Action == "Renamed");
+            int unchangedCount = logList.Count(item => item.Action == "Unchanged");
+            int errorsCount = logList.Count(item => item.Action == "Failed");
+
+            var sb = new StringBuilder();
+            sb.AppendLine("# Project Standards Consolidation Execution Report");
+            sb.AppendLine();
+            sb.AppendLine($"- **Date:** {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+            sb.AppendLine();
+            sb.AppendLine("## Summary Statistics");
+            sb.AppendLine();
+            sb.AppendLine("| Metric | Count |");
+            sb.AppendLine("| :--- | :--- |");
+            sb.AppendLine($"| **Elements Created** | {createdCount} |");
+            sb.AppendLine($"| **Elements Updated** | {updatedCount} |");
+            sb.AppendLine($"| **Elements Unchanged** | {unchangedCount} |");
+            sb.AppendLine($"| **Aliases Renamed** | {renamedCount} |");
+            sb.AppendLine($"| **Errors / Failed** | {errorsCount} |");
+            sb.AppendLine();
+            sb.AppendLine("## Detailed Execution Log");
+            sb.AppendLine();
+            sb.AppendLine("| Action | Class | Element Name | Details / Message |");
+            sb.AppendLine("| :--- | :--- | :--- | :--- |");
+            foreach (var item in logList)
+            {
+                string action = item.Action ?? string.Empty;
+                string cls = item.Class ?? string.Empty;
+                string name = (item.ElementName ?? string.Empty).Replace("|", "\\|");
+                string msg = (item.Message ?? string.Empty).Replace("|", "\\|");
+                sb.AppendLine($"| {action} | {cls} | {name} | {msg} |");
+            }
+            return sb.ToString();
         }
     }
 }
@@ -1883,6 +2866,8 @@ using Synthetic.Infrastructure.Serialization;
 
 using Synthetic.Shared.UI;
 using Synthetic.Modules.StandardsManagement.Models;
+using Synthetic.Modules.StandardsManagement.Utilities;
+
 namespace Synthetic.Modules.StandardsManagement.ViewModels
 {
     /// <summary>
@@ -1909,6 +2894,11 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         /// Gets the count of items that were renamed during import.
         /// </summary>
         public int RenamedCount => LogItems.Count(item => item.Action == "Renamed");
+
+        /// <summary>
+        /// Gets the count of items that were unchanged during import.
+        /// </summary>
+        public int UnchangedCount => LogItems.Count(item => item.Action == "Unchanged");
 
         private readonly IFileDialogService? _dialogService;
 
@@ -1939,33 +2929,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         /// </summary>
         public string GenerateMarkdown()
         {
-            var sb = new System.Text.StringBuilder();
-            sb.AppendLine("# Project Standards Consolidation Execution Report");
-            sb.AppendLine();
-            sb.AppendLine($"- **Date:** {System.DateTime.Now:yyyy-MM-dd HH:mm:ss}");
-            sb.AppendLine();
-            sb.AppendLine("## Summary Statistics");
-            sb.AppendLine();
-            sb.AppendLine("| Metric | Count |");
-            sb.AppendLine("| :--- | :--- |");
-            sb.AppendLine($"| **Elements Created** | {CreatedCount} |");
-            sb.AppendLine($"| **Elements Updated** | {UpdatedCount} |");
-            sb.AppendLine($"| **Aliases Renamed** | {RenamedCount} |");
-            sb.AppendLine($"| **Errors / Failed** | {ErrorsCount} |");
-            sb.AppendLine();
-            sb.AppendLine("## Detailed Execution Log");
-            sb.AppendLine();
-            sb.AppendLine("| Action | Class | Element Name | Details / Message |");
-            sb.AppendLine("| :--- | :--- | :--- | :--- |");
-            foreach (var item in LogItems)
-            {
-                string action = item.Action ?? string.Empty;
-                string cls = item.Class ?? string.Empty;
-                string name = (item.ElementName ?? string.Empty).Replace("|", "\\|");
-                string msg = (item.Message ?? string.Empty).Replace("|", "\\|");
-                sb.AppendLine($"| {action} | {cls} | {name} | {msg} |");
-            }
-            return sb.ToString();
+            return StandardsReportGenerator.GenerateMarkdown(LogItems);
         }
 
         private void ExecuteExportLog(object parameter)
@@ -1991,6 +2955,81 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         {
             return _dialogService != null && LogItems != null && LogItems.Count > 0;
         }
+    }
+}
+```
+
+### File: StandardsManagement/ViewModels/IProjectStandardsDashboard.cs
+```csharp
+using System;
+using System.Collections.Generic;
+using Autodesk.Revit.DB;
+using Synthetic.Modules.RevitDOM;
+using Synthetic.Modules.StandardsManagement.Models;
+using Synthetic.Modules.StandardsManagement.Utilities;
+
+namespace Synthetic.Modules.StandardsManagement.ViewModels
+{
+    /// <summary>
+    /// Defines the contract for the parent Project Standards Dashboard ViewModel.
+    /// Breaks tight coupling and reduces Feature Envy/Inappropriate Intimacy between sub-ViewModels.
+    /// </summary>
+    public interface IProjectStandardsDashboard
+    {
+        /// <summary>
+        /// Gets or sets the currently active source standard tab.
+        /// </summary>
+        ProjectStandardsSourceViewModel? SelectedSource { get; set; }
+
+        /// <summary>
+        /// Gets or sets the active panel mode in the right column sub-workspace.
+        /// </summary>
+        WorkspaceMode ActiveWorkspace { get; set; }
+
+        /// <summary>
+        /// Gets the active Revit document.
+        /// </summary>
+        Document? Document { get; }
+
+        /// <summary>
+        /// Gets the find and replace utility service.
+        /// </summary>
+        IFindReplaceService FindReplaceService { get; }
+
+        /// <summary>
+        /// Gets or sets the mock open documents list for headless testing.
+        /// </summary>
+        List<Document>? MockOpenDocuments { get; set; }
+
+        /// <summary>
+        /// Shows the document selection dialog callback.
+        /// </summary>
+        Func<SelectRevitDocumentViewModel, bool?>? ShowDocumentSelectionDialog { get; set; }
+
+        /// <summary>
+        /// Shows the consolidation merge dialog callback.
+        /// </summary>
+        Func<Synthetic.Shared.UI.SingleItemSelectionViewModel<QueueItemModel>, bool?>? ShowMergeDialog { get; set; }
+
+        /// <summary>
+        /// Traverses a source tree node hierarchy recursively and populates a flat list of ElementModels.
+        /// </summary>
+        void GetElementModelsFromHierarchy(SourceTreeItemViewModel node, List<ElementModel> list);
+
+        /// <summary>
+        /// Gathers the flat list of all checked element nodes in the active source tree.
+        /// </summary>
+        List<StandardElementModel> GetCheckedElements();
+
+        /// <summary>
+        /// Updates parameter value name references targeting an old name to the new name.
+        /// </summary>
+        void ReplaceReferences(ObjectModel oldElement, string oldName, string newName);
+
+        /// <summary>
+        /// Replaces name references targeting a list of consolidated old queue items to the new survivor name.
+        /// </summary>
+        void ReplaceQueueReferences(List<QueueItemModel> oldElements, string newName);
     }
 }
 ```
@@ -2856,7 +3895,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
 
 ### File: StandardsManagement/ViewModels/ParameterWrapperVM.cs
 ```csharp
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -3304,7 +4343,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                         }
                     }
 
-                    foreach (var qItem in ProjectStandardsDashboardViewModel.Instance.ActionQueue)
+                    foreach (var qItem in ProjectStandardsDashboardViewModel.Instance.StagingQueue)
                     {
                         if (qItem.Model is ElementModel el && string.Equals(el.Class, targetClass, StringComparison.OrdinalIgnoreCase))
                         {
@@ -3544,6 +4583,7 @@ using Synthetic.Modules.RevitDOM;
 using Synthetic.Settings;
 using Synthetic.Infrastructure.Persistence;
 using Synthetic.Modules.StandardsManagement.Utilities;
+using Synthetic.Modules.DiffEngine;
 
 namespace Synthetic.Modules.StandardsManagement.ViewModels
 {
@@ -3582,7 +4622,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
     /// ViewModel that manages the Project Standards Dashboard modeless window.
     /// Orchestrates multiple source tabs, hierarchical trees, search filtering, and staging.
     /// </summary>
-    public class ProjectStandardsDashboardViewModel : ViewModelBase
+    public class ProjectStandardsDashboardViewModel : ViewModelBase, IProjectStandardsDashboard
     {
         private readonly UIApplication? _uiapp;
         private readonly Document? _doc;
@@ -3590,180 +4630,71 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         private readonly IStandardsExportService _exportService;
         internal readonly IUserPromptService _userPromptService;
         private readonly IFindReplaceService _findReplaceService;
+        private readonly IStandardsExtractionOrchestrator _orchestrator;
+        private readonly IPocoIdentityService _pocoIdentityService;
+        private readonly IStandardSerializationEngine _serializationEngine;
+        private readonly IStandardsExecutionPipeline _pipeline;
         public ISummaryDisplayService SummaryDisplayService { get; set; }
+        public IPocoIdentityService PocoIdentityService => _pocoIdentityService;
+        public IFindReplaceService FindReplaceService => _findReplaceService;
+        public IStandardSerializationEngine SerializationEngine => _serializationEngine;
+        public IFileDialogService DialogService => _dialogService;
+        public IStandardsExecutionPipeline Pipeline => _pipeline;
         private StandardsSettings? _settings;
         private ExternalEvent? _externalEvent;
         private ProjectStandardsExternalEventHandler? _eventHandler;
-
-        private ObservableCollection<ProjectStandardsSourceViewModel> _availableSources = new ObservableCollection<ProjectStandardsSourceViewModel>();
-        private ProjectStandardsSourceViewModel? _selectedSource;
-        private string _searchText = string.Empty;
-        private ObservableCollection<QueueItemModel> _actionQueue = new ObservableCollection<QueueItemModel>();
-
-        /// <summary>
-        /// Gets the staging action queue collection.
-        /// </summary>
-        public ObservableCollection<QueueItemModel> ActionQueue => _actionQueue;
+        public ExternalEvent? ExternalEvent => _externalEvent;
+        public StandardsSettings? Settings => _settings;
+        private readonly StandardsSourceTreeViewModel _sourceTreeViewModel;
+        private readonly StagingQueueViewModel _stagingQueueViewModel;
+        public StagingQueueViewModel StagingQueueViewModel => _stagingQueueViewModel;
+        private readonly StandardsExecutionPipelineViewModel _standardsExecutionViewModel;
+        public StandardsExecutionPipelineViewModel StandardsExecutionPipelineViewModel => _standardsExecutionViewModel;
 
         /// <summary>
-        /// Gets the grouped collection view of the action queue.
+        /// Gets the staging queue collection.
         /// </summary>
-        public ICollectionView ActionQueueView { get; }
+        public ObservableCollection<QueueItemModel> StagingQueue => _stagingQueueViewModel.StagingQueue;
+
+        /// <summary>
+        /// Gets the grouped collection view of the staging queue.
+        /// </summary>
+        public ICollectionView StagingQueueView => _stagingQueueViewModel.StagingQueueView;
 
         public static ProjectStandardsDashboardViewModel? Instance { get; set; }
-        public ObservableCollection<ParameterWrapperVM> DisplayParameters { get; } = new ObservableCollection<ParameterWrapperVM>();
-        private List<ElementTypeWrapperVM> _activeWrappers = new List<ElementTypeWrapperVM>();
-        private class QueueItemStateBackup
-        {
-            public bool WillEnforce { get; set; }
-            public bool WillSave { get; set; }
-            public bool IsEdited { get; set; }
-            public bool IsDiffed { get; set; }
-        }
-        private Dictionary<QueueItemModel, QueueItemStateBackup> _originalIntents = new Dictionary<QueueItemModel, QueueItemStateBackup>();
-
-        private string _lastSelectedName = string.Empty;
-        private ElementTypeWrapperVM? _subscribedWrapper;
+        public ObservableCollection<ParameterWrapperVM> DisplayParameters => _stagingQueueViewModel.DisplayParameters;
 
         /// <summary>
         /// Gets the single selected element wrapper when exactly one element is selected.
         /// </summary>
-        public ElementTypeWrapperVM? SelectedElement
-        {
-            get
-            {
-                if (_activeWrappers != null && _activeWrappers.Count == 1)
-                {
-                    return _activeWrappers[0];
-                }
-                return null;
-            }
-        }
-
-        private void UpdateSelectedElementSubscription()
-        {
-            if (_subscribedWrapper != null)
-            {
-                _subscribedWrapper.PropertyChanged -= SelectedElementWrapper_PropertyChanged;
-            }
-
-            _subscribedWrapper = SelectedElement;
-
-            if (_subscribedWrapper != null)
-            {
-                _subscribedWrapper.PropertyChanged += SelectedElementWrapper_PropertyChanged;
-                _lastSelectedName = _subscribedWrapper.Name;
-            }
-            else
-            {
-                _lastSelectedName = string.Empty;
-            }
-        }
-
-        private void SelectedElementWrapper_PropertyChanged(object? sender, PropertyChangedEventArgs e)
-        {
-            if (sender is ElementTypeWrapperVM wrapper && wrapper == _subscribedWrapper)
-            {
-                var queueItem = SelectedQueueItems.FirstOrDefault(q => q.Model == wrapper.GetUpdatedModel());
-                if (queueItem != null)
-                {
-                    if (e.PropertyName == nameof(ElementTypeWrapperVM.Name))
-                    {
-                        string oldName = _lastSelectedName;
-                        string newName = wrapper.Name;
-                        if (oldName != newName)
-                        {
-                            ReplaceReferences(queueItem.TargetModel, oldName, newName);
-                            _lastSelectedName = newName;
-                            
-                            queueItem.IsEdited = true;
-                            queueItem.ErrorMessage = null;
-                            queueItem.RaisePropertyChanged(nameof(QueueItemModel.Name));
-                            queueItem.RaisePropertyChanged(nameof(QueueItemModel.Model));
-                            
-                            OnPropertyChanged(nameof(SelectedItemName));
-                            OnPropertyChanged(nameof(SelectedNameOrCount));
-                        }
-                    }
-                    else if (e.PropertyName == nameof(ElementTypeWrapperVM.AliasesString))
-                    {
-                        queueItem.IsEdited = true;
-                        queueItem.ErrorMessage = null;
-                        queueItem.RaisePropertyChanged(nameof(QueueItemModel.Model));
-                        OnPropertyChanged(nameof(SelectedAliasesString));
-                    }
-                }
-            }
-        }
+        public ElementTypeWrapperVM? SelectedElement => _stagingQueueViewModel.SelectedElement;
 
         /// <summary>
         /// Gets whether exactly one element is currently selected.
         /// </summary>
-        public bool IsSingleElementSelected => SelectedQueueItems.Count == 1;
+        public bool IsSingleElementSelected => _stagingQueueViewModel.IsSingleElementSelected;
 
         /// <summary>
         /// Gets or sets the name of the selected element, or a count description if multiple elements are selected.
         /// </summary>
         public string SelectedNameOrCount
         {
-            get
-            {
-                if (SelectedQueueItems.Count == 1)
-                {
-                    return SelectedElement?.Name ?? string.Empty;
-                }
-                return SelectedQueueItems.Count > 1 ? $"Editing {SelectedQueueItems.Count} elements" : string.Empty;
-            }
-            set
-            {
-                if (SelectedQueueItems.Count == 1 && SelectedElement != null)
-                {
-                    SelectedElement.Name = value;
-                    OnPropertyChanged(nameof(SelectedNameOrCount));
-                }
-            }
+            get => _stagingQueueViewModel.SelectedNameOrCount;
+            set => _stagingQueueViewModel.SelectedNameOrCount = value;
         }
 
         /// <summary>
         /// Gets a comma-separated concatenated list of stripped classes for the selected elements.
         /// </summary>
-        public string SelectedDisplayClass
-        {
-            get
-            {
-                if (SelectedQueueItems.Count == 0) return string.Empty;
-
-                var classes = SelectedQueueItems
-                    .Select(q => q.ClassName)
-                    .Select(c => c.StartsWith("Autodesk.Revit.DB.") ? c.Substring("Autodesk.Revit.DB.".Length) : c)
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-
-                return string.Join(", ", classes);
-            }
-        }
+        public string SelectedDisplayClass => _stagingQueueViewModel.SelectedDisplayClass;
 
         /// <summary>
         /// Gets or sets the aliases string of the selected element, or &lt;Varies&gt; if multiple elements are selected.
         /// </summary>
         public string SelectedAliasesString
         {
-            get
-            {
-                if (SelectedQueueItems.Count == 1)
-                {
-                    return SelectedElement?.AliasesString ?? string.Empty;
-                }
-                return SelectedQueueItems.Count > 1 ? "<Varies>" : string.Empty;
-            }
-            set
-            {
-                if (SelectedQueueItems.Count == 1 && SelectedElement != null)
-                {
-                    SelectedElement.AliasesString = value;
-                    OnPropertyChanged(nameof(SelectedAliasesString));
-                }
-            }
+            get => _stagingQueueViewModel.SelectedAliasesString;
+            set => _stagingQueueViewModel.SelectedAliasesString = value;
         }
 
         private void RaiseIdentityHeaderStateChanged()
@@ -3785,7 +4716,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             get
             {
                 var list = new List<ElementTypeWrapperVM>();
-                foreach (var qItem in ActionQueue)
+                foreach (var qItem in StagingQueue)
                 {
                     list.Add(qItem.GetWrapper());
                 }
@@ -3805,7 +4736,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             }
         }
 
-        private void GetElementModelsFromHierarchy(SourceTreeItemViewModel node, List<ElementModel> list)
+        public void GetElementModelsFromHierarchy(SourceTreeItemViewModel node, List<ElementModel> list)
         {
             if (node == null) return;
             if (node is StandardElementModel sem && sem.Element != null)
@@ -3822,8 +4753,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         }
 
         private WorkspaceMode _activeWorkspace = WorkspaceMode.Idle;
-        private string _findText = string.Empty;
-        private string _replaceText = string.Empty;
+
 
         /// <summary>
         /// Gets or sets the active right pane sub-workspace mode.
@@ -3834,29 +4764,27 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             set => SetProperty(ref _activeWorkspace, value);
         }
 
-        private string? _saveFilePath;
-
         /// <summary>
         /// Gets or sets the target file path for save actions.
         /// </summary>
         public string? SaveFilePath
         {
-            get => _saveFilePath;
-            set => SetProperty(ref _saveFilePath, value);
+            get => _standardsExecutionViewModel.SaveFilePath;
+            set => _standardsExecutionViewModel.SaveFilePath = value;
         }
 
         /// <summary>
         /// Gets whether the save path panel should be active/visible in the UI.
         /// </summary>
-        public bool IsSavePathActive => ActionQueue.Any(item => item.WillSave);
+        public bool IsSavePathActive => _standardsExecutionViewModel.IsSavePathActive;
 
         /// <summary>
         /// Gets or sets the search string for batch find-and-replace edits.
         /// </summary>
         public string FindText
         {
-            get => _findText;
-            set => SetProperty(ref _findText, value);
+            get => _stagingQueueViewModel.FindText;
+            set => _stagingQueueViewModel.FindText = value;
         }
 
         /// <summary>
@@ -3864,19 +4792,17 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         /// </summary>
         public string ReplaceText
         {
-            get => _replaceText;
-            set => SetProperty(ref _replaceText, value);
+            get => _stagingQueueViewModel.ReplaceText;
+            set => _stagingQueueViewModel.ReplaceText = value;
         }
-
-        private SearchScope _findReplaceScope = SearchScope.Both;
 
         /// <summary>
         /// Gets or sets the search scope for batch find-and-replace edits.
         /// </summary>
         public SearchScope FindReplaceScope
         {
-            get => _findReplaceScope;
-            set => SetProperty(ref _findReplaceScope, value);
+            get => _stagingQueueViewModel.FindReplaceScope;
+            set => _stagingQueueViewModel.FindReplaceScope = value;
         }
 
         /// <summary>
@@ -3889,70 +4815,24 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         /// </summary>
         public string SelectedItemName
         {
-            get
-            {
-                if (SelectedQueueItems.Count == 1)
-                {
-                    return SelectedQueueItems[0].Name;
-                }
-                return SelectedQueueItems.Count > 1 ? "<Varies>" : string.Empty;
-            }
-            set
-            {
-                if (SelectedQueueItems.Count == 1 && SelectedQueueItems[0].Name != value)
-                {
-                    string oldName = SelectedQueueItems[0].Name;
-                    
-                    // Trigger relational rename cascading
-                    ReplaceReferences(SelectedQueueItems[0].TargetModel, oldName, value);
-
-                    // Update Name property on TargetModel
-                    if (SelectedQueueItems[0].TargetModel is ElementModel el)
-                    {
-                        el.Name = value;
-                    }
-                    
-                    SelectedQueueItems[0].IsEdited = true;
-                    SelectedQueueItems[0].ErrorMessage = null;
-                    SelectedQueueItems[0].RaisePropertyChanged(nameof(QueueItemModel.Name));
-                    SelectedQueueItems[0].RaisePropertyChanged(nameof(QueueItemModel.Model));
-                    
-                    _activeWrappers = SelectedQueueItems.Select(q => q.GetWrapper()).ToList();
-                    OnPropertyChanged(nameof(SelectedElement));
-                    UpdateSelectedElementSubscription();
-                    RaiseIdentityHeaderStateChanged();
-                    CalculateParameterIntersection();
-                    
-                    OnPropertyChanged(nameof(SelectedItemName));
-                    OnPropertyChanged(nameof(SelectedItemErrorMessage));
-                }
-            }
+            get => _stagingQueueViewModel.SelectedItemName;
+            set => _stagingQueueViewModel.SelectedItemName = value;
         }
 
         /// <summary>
         /// Gets the error message of the currently selected queue item if it has an error.
         /// </summary>
-        public string? SelectedItemErrorMessage
-        {
-            get
-            {
-                if (SelectedQueueItems.Count == 1)
-                {
-                    return SelectedQueueItems[0].ErrorMessage;
-                }
-                return null;
-            }
-        }
+        public string? SelectedItemErrorMessage => _stagingQueueViewModel.SelectedItemErrorMessage;
 
         /// <summary>
         /// Gets the collection of staged elements currently selected for editing/diffing.
         /// </summary>
-        public ObservableCollection<QueueItemModel> SelectedQueueItems { get; } = new ObservableCollection<QueueItemModel>();
+        public ObservableCollection<QueueItemModel> SelectedQueueItems => _stagingQueueViewModel.SelectedQueueItems;
 
         /// <summary>
         /// Gets the collection of duplicate/diff clusters populated by the comparison engine.
         /// </summary>
-        public ObservableCollection<DuplicateClusterModel> ActiveDiffClusters { get; } = new ObservableCollection<DuplicateClusterModel>();
+        public ObservableCollection<DuplicateClusterModel> ActiveDiffClusters => _stagingQueueViewModel.ActiveDiffClusters;
 
         /// <summary>
         /// Gets the combined list of results from the last Run Queue execution.
@@ -3960,12 +4840,17 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         public List<SerializationResultModel> LastExecutionResults { get; } = new List<SerializationResultModel>();
 
         /// <summary>
+        /// Gets the source tree sub-ViewModel.
+        /// </summary>
+        public StandardsSourceTreeViewModel SourceTreeViewModel => _sourceTreeViewModel;
+
+        /// <summary>
         /// Gets or sets the collection of loaded standard sources (tabs).
         /// </summary>
         public ObservableCollection<ProjectStandardsSourceViewModel> AvailableSources
         {
-            get => _availableSources;
-            set => SetProperty(ref _availableSources, value);
+            get => _sourceTreeViewModel.AvailableSources;
+            set => _sourceTreeViewModel.AvailableSources = value;
         }
 
         /// <summary>
@@ -3973,81 +4858,28 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         /// </summary>
         public ProjectStandardsSourceViewModel? SelectedSource
         {
-            get => _selectedSource;
-            set => SetProperty(ref _selectedSource, value);
+            get => _sourceTreeViewModel.SelectedSource;
+            set => _sourceTreeViewModel.SelectedSource = value;
         }
 
+        /// <summary>
+        /// Gets or sets the search filter text.
+        /// </summary>
         public string SearchText
         {
-            get => _searchText;
-            set
-            {
-                if (SetProperty(ref _searchText, value))
-                {
-                    ApplySearchFilter();
-                }
-            }
-        }
-
-        private void ApplySearchFilter()
-        {
-            foreach (var source in AvailableSources)
-            {
-                if (source != null)
-                {
-                    foreach (var group in source.SourceHierarchy)
-                    {
-                        UpdateVisibilityRecursive(group, SearchText);
-                    }
-                }
-            }
-        }
-
-        private bool UpdateVisibilityRecursive(SourceTreeItemViewModel node, string query)
-        {
-            if (string.IsNullOrEmpty(query))
-            {
-                node.IsVisible = true;
-                node.IsExpanded = node is StandardGroupModel;
-                foreach (var child in node.Children)
-                {
-                    UpdateVisibilityRecursive(child, query);
-                }
-                return true;
-            }
-
-            bool anyChildVisible = false;
-            foreach (var child in node.Children)
-            {
-                if (UpdateVisibilityRecursive(child, query))
-                {
-                    anyChildVisible = true;
-                }
-            }
-
-            bool selfMatches = node.Name != null && node.Name.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0;
-            node.IsVisible = selfMatches || anyChildVisible;
-            if (anyChildVisible && !string.IsNullOrEmpty(query))
-            {
-                node.IsExpanded = true;
-            }
-            return node.IsVisible;
+            get => _sourceTreeViewModel.SearchText;
+            set => _sourceTreeViewModel.SearchText = value;
         }
 
 
-
-        private bool _updateFamilies = false;
-        private bool _processNestedRecursive = false;
-        private bool _purgeUnusedStyleTypes = false;
-        private string _categoryFilter = "All Categories";
 
         /// <summary>
         /// Gets or sets whether to update loaded families during queue execution.
         /// </summary>
         public bool UpdateFamilies
         {
-            get => _updateFamilies;
-            set => SetProperty(ref _updateFamilies, value);
+            get => _standardsExecutionViewModel.UpdateFamilies;
+            set => _standardsExecutionViewModel.UpdateFamilies = value;
         }
 
         /// <summary>
@@ -4055,8 +4887,8 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         /// </summary>
         public bool ProcessNestedRecursive
         {
-            get => _processNestedRecursive;
-            set => SetProperty(ref _processNestedRecursive, value);
+            get => _standardsExecutionViewModel.ProcessNestedRecursive;
+            set => _standardsExecutionViewModel.ProcessNestedRecursive = value;
         }
 
         /// <summary>
@@ -4064,8 +4896,8 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         /// </summary>
         public bool PurgeUnusedStyleTypes
         {
-            get => _purgeUnusedStyleTypes;
-            set => SetProperty(ref _purgeUnusedStyleTypes, value);
+            get => _standardsExecutionViewModel.PurgeUnusedStyleTypes;
+            set => _standardsExecutionViewModel.PurgeUnusedStyleTypes = value;
         }
 
         /// <summary>
@@ -4073,42 +4905,37 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         /// </summary>
         public string CategoryFilter
         {
-            get => _categoryFilter;
-            set => SetProperty(ref _categoryFilter, value);
+            get => _standardsExecutionViewModel.CategoryFilter;
+            set => _standardsExecutionViewModel.CategoryFilter = value;
         }
 
         /// <summary>
         /// Gets the list of available category filters.
         /// </summary>
-        public List<string> AvailableCategoryFilters { get; } = new List<string>
-        {
-            "All Categories",
-            "Annotations Only",
-            "Title Blocks Only"
-        };
+        public List<string> AvailableCategoryFilters => _standardsExecutionViewModel.AvailableCategoryFilters;
 
         public List<Document>? MockOpenDocuments { get; set; }
         public Func<SelectRevitDocumentViewModel, bool?>? ShowDocumentSelectionDialog { get; set; }
         public Func<Synthetic.Shared.UI.SingleItemSelectionViewModel<QueueItemModel>, bool?>? ShowMergeDialog { get; set; }
 
         #region Commands
-        public ICommand AddFileSourceCommand { get; }
-        public ICommand AddRevitModelCommand { get; }
-        public ICommand CloseSourceCommand { get; }
-        public ICommand EnforceCommand { get; }
-        public ICommand SaveCommand { get; }
-        public ICommand SaveAndEnforceCommand { get; }
-        public ICommand BrowseSavePathCommand { get; }
-        public ICommand PushToQueueCommand { get; }
-        public ICommand RemoveFromQueueCommand { get; }
-        public ICommand MergeQueueCommand { get; }
-        public ICommand EditCommand { get; }
-        public ICommand DiffCommand { get; }
-        public ICommand RunQueueCommand { get; }
-        public ICommand BatchFindReplaceCommand { get; }
-        public ICommand ApplyEditsCommand { get; }
-        public ICommand CancelEditsCommand { get; }
-        public ICommand ResolveConflictCommand { get; }
+        public ICommand AddFileSourceCommand => _sourceTreeViewModel.AddFileSourceCommand;
+        public ICommand AddRevitModelCommand => _sourceTreeViewModel.AddRevitModelCommand;
+        public ICommand CloseSourceCommand => _sourceTreeViewModel.CloseSourceCommand;
+        public ICommand EnforceCommand => _standardsExecutionViewModel.EnforceCommand;
+        public ICommand SaveCommand => _standardsExecutionViewModel.SaveCommand;
+        public ICommand SaveAndEnforceCommand => _standardsExecutionViewModel.SaveAndEnforceCommand;
+        public ICommand BrowseSavePathCommand => _standardsExecutionViewModel.BrowseSavePathCommand;
+        public ICommand PushToQueueCommand => _stagingQueueViewModel.PushToQueueCommand;
+        public ICommand RemoveFromQueueCommand => _stagingQueueViewModel.RemoveFromQueueCommand;
+        public ICommand MergeQueueCommand => _stagingQueueViewModel.MergeQueueCommand;
+        public ICommand EditCommand => _stagingQueueViewModel.EditCommand;
+        public ICommand DiffCommand => _stagingQueueViewModel.DiffCommand;
+        public ICommand RunQueueCommand => _standardsExecutionViewModel.RunQueueCommand;
+        public ICommand BatchFindReplaceCommand => _stagingQueueViewModel.BatchFindReplaceCommand;
+        public ICommand ApplyEditsCommand => _stagingQueueViewModel.ApplyEditsCommand;
+        public ICommand CancelEditsCommand => _stagingQueueViewModel.CancelEditsCommand;
+        public ICommand ResolveConflictCommand => _stagingQueueViewModel.ResolveConflictCommand;
         #endregion
 
         /// <summary>
@@ -4117,38 +4944,43 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         public ProjectStandardsDashboardViewModel(
             UIApplication uiapp, 
             IFileDialogService dialogService, 
-            IStandardsExportService? exportService = null, 
-            StandardsSettings? settings = null,
-            IUserPromptService? userPromptService = null,
-            IFindReplaceService? findReplaceService = null)
+            IStandardsExportService exportService, 
+            StandardsSettings? settings,
+            IUserPromptService userPromptService,
+            IFindReplaceService findReplaceService,
+            IStandardsExtractionOrchestrator orchestrator,
+            IPocoIdentityService pocoIdentityService,
+            IDiffEngine<IEnumerable<ObjectModel>, Document> diffEngine,
+            IStandardSerializationEngine serializationEngine,
+            IStandardsExecutionPipeline pipeline)
         {
-            _uiapp = uiapp;
+            _uiapp = uiapp ?? throw new ArgumentNullException(nameof(uiapp));
             _doc = uiapp.ActiveUIDocument?.Document;
-            _dialogService = dialogService;
-            _exportService = exportService ?? new StandardsExportService(new WindowsGuardrailPromptService(), dialogService);
-            _userPromptService = userPromptService ?? new WindowsUserPromptService();
-            _findReplaceService = findReplaceService ?? new FindReplaceService();
+            _dialogService = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
+            _exportService = exportService ?? throw new ArgumentNullException(nameof(exportService));
+            _userPromptService = userPromptService ?? throw new ArgumentNullException(nameof(userPromptService));
+            _findReplaceService = findReplaceService ?? throw new ArgumentNullException(nameof(findReplaceService));
+            _serializationEngine = serializationEngine ?? throw new ArgumentNullException(nameof(serializationEngine));
+            _orchestrator = orchestrator ?? throw new ArgumentNullException(nameof(orchestrator));
+            _pocoIdentityService = pocoIdentityService ?? throw new ArgumentNullException(nameof(pocoIdentityService));
+            _pipeline = pipeline ?? throw new ArgumentNullException(nameof(pipeline));
             SummaryDisplayService = new WindowsSummaryDisplayService();
             Instance = this;
 
-            AddFileSourceCommand = new RelayCommand(ExecuteAddFileSource);
-            AddRevitModelCommand = new RelayCommand(ExecuteAddRevitModel);
-            EnforceCommand = new RelayCommand(ExecuteEnforce, CanExecuteActions);
-            SaveCommand = new RelayCommand(ExecuteSave, CanExecuteActions);
-            SaveAndEnforceCommand = new RelayCommand(ExecuteSaveAndEnforce, CanExecuteActions);
-            BrowseSavePathCommand = new RelayCommand(ExecuteBrowseSavePath);
-            _actionQueue.CollectionChanged += (s, e) => { OnPropertyChanged(nameof(IsSavePathActive)); };
-            PushToQueueCommand = new RelayCommand(ExecutePushToQueue, CanExecuteActions);
-            RemoveFromQueueCommand = new RelayCommand(ExecuteRemoveFromQueue, CanExecuteRemove);
-            MergeQueueCommand = new RelayCommand(ExecuteMergeQueue, CanExecuteMergeQueue);
-            EditCommand = new RelayCommand(ExecuteEdit, CanExecuteQueueActions);
-            DiffCommand = new RelayCommand(ExecuteDiff, CanExecuteQueueActions);
-            RunQueueCommand = new RelayCommand(ExecuteRunQueue, CanExecuteQueueActions);
-            BatchFindReplaceCommand = new RelayCommand(ExecuteBatchFindReplace, CanExecuteQueueActions);
-            ApplyEditsCommand = new RelayCommand(ExecuteApplyEdits, CanExecuteQueueActions);
-            CancelEditsCommand = new RelayCommand(ExecuteCancelEdits);
-            ResolveConflictCommand = new RelayCommand(ExecuteResolveConflict, CanExecuteQueueActions);
-            CloseSourceCommand = new RelayCommand(ExecuteCloseSource, CanExecuteCloseSource);
+            _sourceTreeViewModel = new StandardsSourceTreeViewModel(
+                this,
+                uiapp,
+                uiapp?.ActiveUIDocument?.Document,
+                dialogService,
+                orchestrator,
+                serializationEngine);
+
+            _stagingQueueViewModel = new StagingQueueViewModel(this, _pocoIdentityService, diffEngine);
+            _standardsExecutionViewModel = new StandardsExecutionPipelineViewModel(this, _pipeline);
+
+            RegisterPropertyChangedHandlers();
+
+
 
             ShowDocumentSelectionDialog = vm =>
             {
@@ -4192,22 +5024,12 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                 }
             };
 
-            ActionQueueView = CollectionViewSource.GetDefaultView(ActionQueue);
-            ActionQueueView.GroupDescriptions.Add(new PropertyGroupDescription(nameof(QueueItemModel.ClassName)));
+
 
             Initialize(settings);
         }
 
-        /// <summary>
-        /// Initializes a new instance of the <see cref="ProjectStandardsDashboardViewModel"/> class with 3 parameters for reflection compatibility.
-        /// </summary>
-        public ProjectStandardsDashboardViewModel(
-            UIApplication uiapp, 
-            IFileDialogService dialogService, 
-            IStandardsExportService? exportService)
-            : this(uiapp, dialogService, exportService, null)
-        {
-        }
+
 
         /// <summary>
         /// Initializes a new instance of the <see cref="ProjectStandardsDashboardViewModel"/> class for headless testing.
@@ -4215,37 +5037,42 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         public ProjectStandardsDashboardViewModel(
             Document doc, 
             IFileDialogService dialogService, 
-            IStandardsExportService? exportService = null, 
-            StandardsSettings? settings = null,
-            IUserPromptService? userPromptService = null,
-            IFindReplaceService? findReplaceService = null)
+            IStandardsExportService exportService, 
+            StandardsSettings? settings,
+            IUserPromptService userPromptService,
+            IFindReplaceService findReplaceService,
+            IStandardsExtractionOrchestrator orchestrator,
+            IPocoIdentityService pocoIdentityService,
+            IDiffEngine<IEnumerable<ObjectModel>, Document> diffEngine,
+            IStandardSerializationEngine serializationEngine,
+            IStandardsExecutionPipeline pipeline)
         {
             _doc = doc;
-            _dialogService = dialogService;
-            _exportService = exportService ?? new StandardsExportService(new WindowsGuardrailPromptService(), dialogService);
-            _userPromptService = userPromptService ?? new WindowsUserPromptService();
-            _findReplaceService = findReplaceService ?? new FindReplaceService();
+            _dialogService = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
+            _exportService = exportService ?? throw new ArgumentNullException(nameof(exportService));
+            _userPromptService = userPromptService ?? throw new ArgumentNullException(nameof(userPromptService));
+            _findReplaceService = findReplaceService ?? throw new ArgumentNullException(nameof(findReplaceService));
+            _serializationEngine = serializationEngine ?? throw new ArgumentNullException(nameof(serializationEngine));
+            _orchestrator = orchestrator ?? throw new ArgumentNullException(nameof(orchestrator));
+            _pocoIdentityService = pocoIdentityService ?? throw new ArgumentNullException(nameof(pocoIdentityService));
+            _pipeline = pipeline ?? throw new ArgumentNullException(nameof(pipeline));
             SummaryDisplayService = new NoOpSummaryDisplayService();
             Instance = this;
 
-            AddFileSourceCommand = new RelayCommand(ExecuteAddFileSource);
-            AddRevitModelCommand = new RelayCommand(ExecuteAddRevitModel);
-            EnforceCommand = new RelayCommand(ExecuteEnforce, CanExecuteActions);
-            SaveCommand = new RelayCommand(ExecuteSave, CanExecuteActions);
-            SaveAndEnforceCommand = new RelayCommand(ExecuteSaveAndEnforce, CanExecuteActions);
-            BrowseSavePathCommand = new RelayCommand(ExecuteBrowseSavePath);
-            _actionQueue.CollectionChanged += (s, e) => { OnPropertyChanged(nameof(IsSavePathActive)); };
-            PushToQueueCommand = new RelayCommand(ExecutePushToQueue, CanExecuteActions);
-            RemoveFromQueueCommand = new RelayCommand(ExecuteRemoveFromQueue, CanExecuteRemove);
-            MergeQueueCommand = new RelayCommand(ExecuteMergeQueue, CanExecuteMergeQueue);
-            EditCommand = new RelayCommand(ExecuteEdit, CanExecuteQueueActions);
-            DiffCommand = new RelayCommand(ExecuteDiff, CanExecuteQueueActions);
-            RunQueueCommand = new RelayCommand(ExecuteRunQueue, CanExecuteQueueActions);
-            BatchFindReplaceCommand = new RelayCommand(ExecuteBatchFindReplace, CanExecuteQueueActions);
-            ApplyEditsCommand = new RelayCommand(ExecuteApplyEdits, CanExecuteQueueActions);
-            CancelEditsCommand = new RelayCommand(ExecuteCancelEdits);
-            ResolveConflictCommand = new RelayCommand(ExecuteResolveConflict, CanExecuteQueueActions);
-            CloseSourceCommand = new RelayCommand(ExecuteCloseSource, CanExecuteCloseSource);
+            _sourceTreeViewModel = new StandardsSourceTreeViewModel(
+                this,
+                null,
+                doc,
+                dialogService,
+                orchestrator,
+                serializationEngine);
+
+            _stagingQueueViewModel = new StagingQueueViewModel(this, _pocoIdentityService, diffEngine);
+            _standardsExecutionViewModel = new StandardsExecutionPipelineViewModel(this, _pipeline);
+
+            RegisterPropertyChangedHandlers();
+
+
 
             ShowDocumentSelectionDialog = vm =>
             {
@@ -4262,46 +5089,12 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                 return true;
             };
 
-            ActionQueueView = CollectionViewSource.GetDefaultView(ActionQueue);
-            ActionQueueView.GroupDescriptions.Add(new PropertyGroupDescription(nameof(QueueItemModel.ClassName)));
-
             Initialize(settings);
         }
 
-        /// <summary>
-        /// Initializes a new instance of the <see cref="ProjectStandardsDashboardViewModel"/> class with 3 parameters for reflection compatibility.
-        /// </summary>
-        public ProjectStandardsDashboardViewModel(
-            Document doc, 
-            IFileDialogService dialogService, 
-            IStandardsExportService? exportService)
-            : this(doc, dialogService, exportService, null)
-        {
-        }
 
-        /// <summary>
-        /// Compatibility constructor that adapts a legacy <see cref="IGuardrailPromptService"/> to the new export service.
-        /// </summary>
-        public ProjectStandardsDashboardViewModel(
-            UIApplication uiapp, 
-            IFileDialogService dialogService, 
-            IGuardrailPromptService? guardrailService, 
-            StandardsSettings? settings = null)
-            : this(uiapp, dialogService, new StandardsExportService(guardrailService ?? new WindowsGuardrailPromptService(), dialogService), settings)
-        {
-        }
 
-        /// <summary>
-        /// Compatibility constructor that adapts a legacy <see cref="IGuardrailPromptService"/> to the new export service.
-        /// </summary>
-        public ProjectStandardsDashboardViewModel(
-            Document doc, 
-            IFileDialogService dialogService, 
-            IGuardrailPromptService? guardrailService, 
-            StandardsSettings? settings = null)
-            : this(doc, dialogService, new StandardsExportService(guardrailService ?? new WindowsGuardrailPromptService(), dialogService), settings)
-        {
-        }
+
 
         /// <summary>
         /// Registers the external event and handler to run database transactions on the Revit API thread.
@@ -4333,7 +5126,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
 
             if (settings != null && !string.IsNullOrEmpty(settings.StandardsFilePath))
             {
-                LoadFileSource(settings.StandardsFilePath, "Default Firm Standard");
+                _sourceTreeViewModel.LoadFileSource(settings.StandardsFilePath, "Default Firm Standard");
                 // Preselect all checkboxes for the default firm standard on launch
                 if (SelectedSource != null)
                 {
@@ -4416,1550 +5209,28 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                 }
                 catch (Exception) { }
 
-                string fallbackDirectory = GetRevitLocalFileSaveLocation();
+                string fallbackDirectory = _sourceTreeViewModel.GetRevitLocalFileSaveLocation();
                 SaveFilePath = PathResolutionUtility.GetDefaultSavePath(documentTitle, isModelInCloud, isWorkshared, centralModelPathString, localPathName, fallbackDirectory);
             }
             else
             {
                 // Fallback directly to the Revit local file save location when no document is active
-                string fallbackDirectory = GetRevitLocalFileSaveLocation();
+                string fallbackDirectory = _sourceTreeViewModel.GetRevitLocalFileSaveLocation();
                 SaveFilePath = Path.Combine(fallbackDirectory, "Project Standards.json");
             }
-        }
-
-        private string GetRevitLocalFileSaveLocation()
-        {
-            string? fallbackPath = null;
-            if (_doc != null)
-            {
-                try
-                {
-                    var appProp = _doc.GetType().GetProperty("Application");
-                    var appObj = appProp?.GetValue(_doc);
-                    if (appObj != null)
-                    {
-                        var defaultPathProp = appObj.GetType().GetProperty("DefaultUserFilePath");
-                        fallbackPath = defaultPathProp?.GetValue(appObj) as string;
-                    }
-                }
-                catch (Exception) { }
-            }
-            else if (_uiapp != null)
-            {
-                try
-                {
-                    var appProp = _uiapp.GetType().GetProperty("Application");
-                    var appObj = appProp?.GetValue(_uiapp);
-                    if (appObj != null)
-                    {
-                        var defaultPathProp = appObj.GetType().GetProperty("DefaultUserFilePath");
-                        fallbackPath = defaultPathProp?.GetValue(appObj) as string;
-                    }
-                }
-                catch (Exception) { }
-            }
-
-            if (string.IsNullOrEmpty(fallbackPath) || !Directory.Exists(fallbackPath))
-            {
-                fallbackPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-            }
-
-            return fallbackPath;
-        }
-
-        /// <summary>
-        /// Loads a JSON standard file and appends it as a new source tab.
-        /// </summary>
-        public void LoadFileSource(string path, string displayName)
-        {
-            if (string.IsNullOrEmpty(path) || !File.Exists(path)) return;
-
-            try
-            {
-                string json = File.ReadAllText(path);
-                var elements = ModelsToSerialize.DeserializeByJson(json);
-                var hierarchy = StandardsHierarchyUtility.BuildHierarchy(elements);
-
-                var source = new ProjectStandardsSourceViewModel
-                {
-                    DisplayName = displayName,
-                    SourcePath = path,
-                    IsRevitSource = false
-                };
-
-                foreach (var group in hierarchy)
-                {
-                    source.SourceHierarchy.Add(group);
-                }
-
-                AvailableSources.Add(source);
-                SelectedSource = source;
-            }
-            catch (Exception)
-            {
-                // Handle I/O or deserialization errors silently per Robustness directive
-            }
-        }
-
-        private void ExecuteAddFileSource(object parameter)
-        {
-            string? path = _dialogService.OpenFileDialog("JSON files (*.json)|*.json", "Load Standards File", "");
-            if (!string.IsNullOrEmpty(path))
-            {
-                LoadFileSource(path, Path.GetFileName(path));
-            }
-        }
-
-        private void ExecuteAddRevitModel(object parameter)
-        {
-            if (_doc == null) return;
-
-            var dialogVM = new SelectRevitDocumentViewModel(_uiapp, MockOpenDocuments);
-            bool? dialogResult = ShowDocumentSelectionDialog?.Invoke(dialogVM);
-            if (dialogResult == true)
-            {
-                var selectedDocs = dialogVM.SelectedDocuments;
-                var selectedGroupings = dialogVM.SelectedFamilyGroupings;
-                var scanFamilies = dialogVM.ScanFamilies;
-                var scanNested = dialogVM.IncludeNestedFamilies;
-
-                try
-                {
-                    ProgressCoordinator.Initialize("Extracting Project Standards", "Extracting Revit standards...", selectedDocs.Count);
-
-                    foreach (var doc in selectedDocs)
-                    {
-                        if (ProgressCoordinator.IsCancelled()) break;
-
-                        string title = "Linked Revit Model";
-                        try
-                        {
-                            title = doc.Title;
-                        }
-                        catch { }
-
-                        ProgressCoordinator.UpdateProgress($"Extracting from: {title}");
-
-                        var elements = ExtractRevitElements(doc, scanFamilies, scanNested, selectedGroupings);
-                        var hierarchy = StandardsHierarchyUtility.BuildHierarchy(elements);
-
-                        var source = new ProjectStandardsSourceViewModel
-                        {
-                            DisplayName = title,
-                            SourcePath = doc.PathName ?? "ActiveDoc",
-                            IsRevitSource = true
-                        };
-
-                        foreach (var group in hierarchy)
-                        {
-                            source.SourceHierarchy.Add(group);
-                        }
-
-                        AvailableSources.Add(source);
-                        SelectedSource = source;
-                    }
-                }
-                finally
-                {
-                    ProgressCoordinator.Close();
-                }
-            }
-        }
-
-        private List<ElementModel> ExtractRevitElements(Document doc, bool scanFamilies, bool scanNestedFamilies, List<string> selectedGroupings)
-        {
-            var list = new List<ElementModel>();
-            if (doc == null) return list;
-
-            var engine = new StandardSerializationEngine();
-            var seenIds = new HashSet<ElementId>();
-
-            // First extract elements from the main document
-            ExtractElementsFromDoc(doc, engine, seenIds, list, selectedGroupings);
-
-            // Now recursively scan families if requested
-            if (scanFamilies)
-            {
-                try
-                {
-                    if (ProgressCoordinator.IsCancelled()) return list;
-
-                    var families = new FilteredElementCollector(doc)
-                        .OfClass(typeof(Family))
-                        .Cast<Family>()
-                        .ToList();
-
-                    var familiesInfo = families
-                        .Select(f => new { Name = f.Name, IsEditable = f.IsEditable })
-                        .ToList();
-
-                    foreach (var fInfo in familiesInfo)
-                    {
-                        if (ProgressCoordinator.IsCancelled()) break;
-                        if (fInfo.IsEditable)
-                        {
-                            var freshFamily = new FilteredElementCollector(doc)
-                                .OfClass(typeof(Family))
-                                .Cast<Family>()
-                                .FirstOrDefault(f => f.Name == fInfo.Name);
-
-                            if (freshFamily != null && freshFamily.IsValidObject)
-                            {
-                                ScanFamilyRecursively(doc, freshFamily, scanNestedFamilies, selectedGroupings, engine, seenIds, list);
-                            }
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Error scanning families recursively: {ex}");
-                }
-            }
-
-            return list;
-        }
-
-        private void ScanFamilyRecursively(
-            Document parentDoc,
-            Family family,
-            bool scanNested,
-            List<string> selectedGroupings,
-            StandardSerializationEngine engine,
-            HashSet<ElementId> seenIds,
-            List<ElementModel> list)
-        {
-            if (ProgressCoordinator.IsCancelled()) return;
-            if (family == null || !family.IsEditable) return;
-
-            Document familyDoc = null;
-            try
-            {
-                familyDoc = parentDoc.EditFamily(family);
-            }
-            catch (Exception)
-            {
-                return;
-            }
-
-            if (familyDoc == null) return;
-
-            try
-            {
-                ProgressCoordinator.UpdateStatus($"Scanning family: {family.Name}...");
-
-                // Extract standard elements inside the family document
-                ExtractElementsFromDoc(familyDoc, engine, seenIds, list, selectedGroupings);
-
-                // Recursively scan nested families
-                if (scanNested)
-                {
-                    var nestedFamilies = new FilteredElementCollector(familyDoc)
-                        .OfClass(typeof(Family))
-                        .Cast<Family>()
-                        .ToList();
-
-                    var nestedFamiliesInfo = nestedFamilies
-                        .Select(nf => new { Name = nf.Name, IsEditable = nf.IsEditable })
-                        .ToList();
-
-                    foreach (var nfInfo in nestedFamiliesInfo)
-                    {
-                        if (ProgressCoordinator.IsCancelled()) return;
-                        if (nfInfo.IsEditable)
-                        {
-                            var freshNested = new FilteredElementCollector(familyDoc)
-                                .OfClass(typeof(Family))
-                                .Cast<Family>()
-                                .FirstOrDefault(nf => nf.Name == nfInfo.Name);
-
-                            if (freshNested != null && freshNested.IsValidObject)
-                            {
-                                ScanFamilyRecursively(familyDoc, freshNested, scanNested, selectedGroupings, engine, seenIds, list);
-                            }
-                        }
-                    }
-                }
-            }
-            finally
-            {
-                try
-                {
-                    familyDoc.Close(false);
-                }
-                catch {}
-            }
-        }
-
-        private void ExtractElementsFromDoc(Document doc, StandardSerializationEngine engine, HashSet<ElementId> seenIds, List<ElementModel> list, List<string> selectedGroupings)
-        {
-            void TryExtract<T>(string className = null) where T : Element
-            {
-                try
-                {
-                    if (ProgressCoordinator.IsCancelled()) return;
-                    if (className != null && selectedGroupings != null && !selectedGroupings.Contains(className)) return;
-
-                    var elements = new FilteredElementCollector(doc)
-                        .OfClass(typeof(T))
-                        .ToElements();
-                    foreach (var elem in elements)
-                    {
-                        if (ProgressCoordinator.IsCancelled()) return;
-                        if (elem != null && !seenIds.Contains(elem.Id))
-                        {
-                            if (elem is Autodesk.Revit.DB.View view)
-                            {
-                                string viewClass = view.IsTemplate ? "View Templates" : "Views";
-                                if (selectedGroupings != null && !selectedGroupings.Contains(viewClass)) continue;
-                            }
-
-                            var model = engine.Dispatcher.Extract(elem, false);
-                            if (model is ElementModel elementModel)
-                            {
-                                seenIds.Add(elem.Id);
-                                list.Add(elementModel);
-                            }
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Error extracting {typeof(T).Name}: {ex}");
-                }
-            }
-
-            // Extract always-supported system standards
-            TryExtract<LinePatternElement>("Line Patterns");
-            TryExtract<FillPatternElement>("Fill Patterns");
-            TryExtract<ParameterFilterElement>("Filters");
-            TryExtract<FilledRegionType>("Filled Region Types");
-            TryExtract<ParameterElement>("Shared Parameters");
-            TryExtract<BrowserOrganization>("Browser Organizations");
-            
-            // System / Host Object Types
-            TryExtract<WallType>("Wall Types");
-            TryExtract<FloorType>("Floor Types");
-            TryExtract<RoofType>("Roof Types");
-            TryExtract<CeilingType>("Ceiling Types");
-            TryExtract<BuildingPadType>("Host Object Types");
-            TryExtract<CurtainSystemType>("Curtain System Types");
-            TryExtract<MullionType>("Mullion Types");
-            TryExtract<Autodesk.Revit.DB.Architecture.FasciaType>("Fascia Types");
-            TryExtract<Autodesk.Revit.DB.Architecture.GutterType>("Gutter Types");
-#if !REVIT2022 && !REVIT2023
-            try
-            {
-                if (!ProgressCoordinator.IsCancelled() && (selectedGroupings == null || selectedGroupings.Contains("Toposolid Types")))
-                {
-                    var toposolidType = typeof(Document).Assembly.GetType("Autodesk.Revit.DB.ToposolidType");
-                    if (toposolidType != null)
-                    {
-                        var elements = new FilteredElementCollector(doc)
-                            .OfClass(toposolidType)
-                            .ToElements();
-                        foreach (var elem in elements)
-                        {
-                            if (ProgressCoordinator.IsCancelled()) return;
-                            if (elem != null && !seenIds.Contains(elem.Id))
-                            {
-                                var model = engine.Dispatcher.Extract(elem, false);
-                                if (model is ElementModel elementModel)
-                                {
-                                    seenIds.Add(elem.Id);
-                                    list.Add(elementModel);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            catch {}
-#endif
-
-            // View Types
-            TryExtract<ViewDrafting>();
-            TryExtract<ViewSection>();
-            TryExtract<ViewPlan>();
-            TryExtract<ViewSheet>();
-            TryExtract<ViewSchedule>();
-
-            // Materials
-            TryExtract<Material>("Materials");
-
-            // Dimension & Grid & Level Types
-            TryExtract<GridType>("Grid Types");
-            TryExtract<LevelType>("Level Types");
-
-            // Annotation styles (only extract if selected)
-            TryExtract<DimensionType>("Dimension Types");
-            TryExtract<TextNoteType>("Text Note Types");
-            TryExtract<TextElementType>("Label Types");
-            TryExtract<ModelTextType>("Model Text Types");
-            TryExtract<SpotDimensionType>("Spot Dimension Types");
-
-            // Categories (from Settings)
-            if (!ProgressCoordinator.IsCancelled())
-            {
-                if (selectedGroupings == null || selectedGroupings.Contains("Categories"))
-                {
-                    foreach (Category cat in doc.Settings.Categories)
-                    {
-                        if (ProgressCoordinator.IsCancelled()) return;
-                        var model = engine.Dispatcher.Extract(cat, doc, false);
-                        if (model is CategoryModel categoryModel)
-                        {
-                            list.Add(categoryModel);
-                        }
-                    }
-                }
-            }
-
-            // Family Symbols matching selected groupings
-            if (selectedGroupings != null && selectedGroupings.Any())
-            {
-                try
-                {
-                    if (ProgressCoordinator.IsCancelled()) return;
-                    var familySymbols = new FilteredElementCollector(doc)
-                        .OfClass(typeof(FamilySymbol))
-                        .Cast<FamilySymbol>()
-                        .ToList();
-
-                    foreach (var fs in familySymbols)
-                    {
-                        if (ProgressCoordinator.IsCancelled()) return;
-                        if (fs == null || seenIds.Contains(fs.Id)) continue;
-
-                        bool include = false;
-                        var category = fs.Category;
-                        if (category == null) continue;
-
-                        long catIdVal;
-#if REVIT2022 || REVIT2023
-                        catIdVal = category.Id.IntegerValue;
-#else
-                        catIdVal = category.Id.Value;
-#endif
-
-                        if (selectedGroupings.Contains("Label Types") && category.CategoryType == CategoryType.Annotation)
-                        {
-                            include = true;
-                        }
-                        if (selectedGroupings.Contains("Title Blocks") && catIdVal == (long)BuiltInCategory.OST_TitleBlocks)
-                        {
-                            include = true;
-                        }
-                        if (selectedGroupings.Contains("Detail Items") && catIdVal == (long)BuiltInCategory.OST_DetailComponents)
-                        {
-                            include = true;
-                        }
-                        if (selectedGroupings.Contains("Profiles") && catIdVal == (long)BuiltInCategory.OST_ProfileFamilies)
-                        {
-                            include = true;
-                        }
-                        if (selectedGroupings.Contains("Element Types"))
-                        {
-                            if (category.CategoryType != CategoryType.Annotation &&
-                                catIdVal != (long)BuiltInCategory.OST_TitleBlocks &&
-                                catIdVal != (long)BuiltInCategory.OST_DetailComponents &&
-                                catIdVal != (long)BuiltInCategory.OST_ProfileFamilies)
-                            {
-                                include = true;
-                            }
-                        }
-
-                        if (include)
-                        {
-                            var model = engine.Dispatcher.Extract(fs, false);
-                            if (model is ElementModel elementModel)
-                            {
-                                seenIds.Add(fs.Id);
-                                list.Add(elementModel);
-                            }
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Error extracting family symbols: {ex}");
-                }
-            }
-        }
-
-        private bool CanExecuteCloseSource(object parameter)
-        {
-            if (parameter is ProjectStandardsSourceViewModel source)
-            {
-                return source.DisplayName != "Default Firm Standard";
-            }
-            return false;
-        }
-
-        private void ExecuteCloseSource(object parameter)
-        {
-            if (parameter is ProjectStandardsSourceViewModel source)
-            {
-                // Clear source hierarchy and recursive items to disperse memory
-                ClearSourceDataRecursive(source);
-                AvailableSources.Remove(source);
-
-                if (SelectedSource == source)
-                {
-                    SelectedSource = AvailableSources.FirstOrDefault();
-                }
-            }
-        }
-
-        private void ClearSourceDataRecursive(ProjectStandardsSourceViewModel source)
-        {
-            foreach (var group in source.SourceHierarchy)
-            {
-                ClearTreeItemRecursive(group);
-            }
-            source.SourceHierarchy.Clear();
-        }
-
-        private void ClearTreeItemRecursive(SourceTreeItemViewModel item)
-        {
-            foreach (var child in item.Children)
-            {
-                ClearTreeItemRecursive(child);
-            }
-            item.Children.Clear();
-            item.Parent = null;
         }
 
 
 
         private bool CanExecuteActions(object parameter) => SelectedSource != null;
 
-        private bool CanExecuteRemove(object parameter)
-        {
-            if (parameter is System.Collections.IList list)
-            {
-                return list.Count > 0;
-            }
-            return false;
-        }
+        private bool CanExecuteQueueActions(object parameter) => StagingQueue.Count > 0;
 
-        private bool CanExecuteQueueActions(object parameter) => ActionQueue.Count > 0;
 
-        private void ExecutePushToQueue(object parameter)
-        {
-            bool willEnforce = true;
-            bool willSave = false;
 
-            string action = parameter?.ToString() ?? "Enforce";
-            if (action.Equals("Save", StringComparison.OrdinalIgnoreCase))
-            {
-                willEnforce = false;
-                willSave = true;
-            }
-            else if (action.Equals("SaveAndEnforce", StringComparison.OrdinalIgnoreCase) || action.Equals("Save & Enforce", StringComparison.OrdinalIgnoreCase))
-            {
-                willEnforce = true;
-                willSave = true;
-            }
-            else // Default or "Enforce"
-            {
-                willEnforce = true;
-                willSave = false;
-            }
 
-            var checkedItems = GetCheckedElements();
-            if (checkedItems == null || checkedItems.Count == 0) return;
 
-            // 1. Flatten SelectedSource.SourceHierarchy to build a source pool
-            var sourceElements = new List<ElementModel>();
-            foreach (var node in SelectedSource.SourceHierarchy)
-            {
-                GetElementModelsFromHierarchy(node, sourceElements);
-            }
 
-            var sourcePool = new Dictionary<string, ElementModel>(StringComparer.OrdinalIgnoreCase);
-            foreach (var model in sourceElements)
-            {
-                if (model == null) continue;
-
-                string key = !string.IsNullOrEmpty(model.UniqueId) 
-                    ? model.UniqueId 
-                    : $"{model.Class}|{model.Name}";
-
-                if (!sourcePool.ContainsKey(key))
-                {
-                    sourcePool[key] = model;
-                }
-            }
-
-            // 2. Track already staged keys in ActionQueue (and during this run) to prevent duplicates
-            var existingKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var item in ActionQueue)
-            {
-                if (item.Model is ElementModel elem)
-                {
-                    string key = !string.IsNullOrEmpty(elem.UniqueId) ? elem.UniqueId : $"{elem.Class}|{elem.Name}";
-                    existingKeys.Add(key);
-                }
-            }
-
-            // A queue of newly staged items to scan recursively
-            var stagingQueue = new Queue<QueueItemModel>();
-
-            // First, stage explicitly checked items
-            foreach (var item in checkedItems)
-            {
-                if (item.Element == null) continue;
-
-                string key = !string.IsNullOrEmpty(item.Element.UniqueId) 
-                    ? item.Element.UniqueId 
-                    : $"{item.Element.Class}|{item.Element.Name}";
-
-                if (!existingKeys.Contains(key))
-                {
-                    var clonedPoco = item.Element.DeepClone();
-                    if (clonedPoco != null)
-                    {
-                        var queueItem = new QueueItemModel(clonedPoco, willEnforce, willSave);
-                        ActionQueue.Add(queueItem);
-                        existingKeys.Add(key);
-                        stagingQueue.Enqueue(queueItem);
-                    }
-                }
-            }
-
-            // Recursively stage dependencies
-            while (stagingQueue.Count > 0)
-            {
-                var stagedItem = stagingQueue.Dequeue();
-
-                // Scan the staged item's model for dependencies
-                var dependencies = RevitDomDependencyScanner.Scan(stagedItem.Model);
-
-                foreach (var dep in dependencies)
-                {
-                    if (dep == null) continue;
-
-                    string depKey = !string.IsNullOrEmpty(dep.UniqueId) 
-                        ? dep.UniqueId 
-                        : $"{dep.Class}|{dep.Name}";
-
-                    if (!existingKeys.Contains(depKey))
-                    {
-                        if (sourcePool.TryGetValue(depKey, out var sourcePoco))
-                        {
-                            var clonedDep = sourcePoco.DeepClone();
-                            if (clonedDep != null)
-                            {
-                                string parentName = string.Empty;
-                                if (stagedItem.Model is ElementModel em)
-                                {
-                                    parentName = em.Name;
-                                }
-
-                                clonedDep.DependencyOrigin = parentName;
-
-                                var queueItem = new QueueItemModel(clonedDep, willEnforce, willSave);
-                                queueItem.DependencyOrigin = parentName;
-                                ActionQueue.Add(queueItem);
-                                existingKeys.Add(depKey);
-                                stagingQueue.Enqueue(queueItem);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        private void ExecuteRemoveFromQueue(object parameter)
-        {
-            if (parameter is System.Collections.IList list)
-            {
-                var itemsToRemove = list.Cast<QueueItemModel>().ToList();
-                foreach (var item in itemsToRemove)
-                {
-                    ActionQueue.Remove(item);
-                }
-            }
-        }
-
-        private void ExecuteEdit(object parameter)
-        {
-            if (parameter is System.Collections.IList list)
-            {
-                SelectedQueueItems.Clear();
-                foreach (var item in list.Cast<QueueItemModel>())
-                {
-                    SelectedQueueItems.Add(item);
-                }
-
-                _originalIntents.Clear();
-                foreach (var item in SelectedQueueItems)
-                {
-                    _originalIntents[item] = new QueueItemStateBackup
-                    {
-                        WillEnforce = item.WillEnforce,
-                        WillSave = item.WillSave,
-                        IsEdited = item.IsEdited,
-                        IsDiffed = item.IsDiffed
-                    };
-                }
-
-                _activeWrappers = SelectedQueueItems.Select(q => q.GetWrapper()).ToList();
-                OnPropertyChanged(nameof(SelectedElement));
-                UpdateSelectedElementSubscription();
-                RaiseIdentityHeaderStateChanged();
-                CalculateParameterIntersection();
-                OnPropertyChanged(nameof(SelectedItemName));
-                OnPropertyChanged(nameof(SelectedItemErrorMessage));
-
-                ActiveWorkspace = WorkspaceMode.Edit;
-            }
-        }
-
-        private void ExecuteDiff(object parameter)
-        {
-            if (parameter is System.Collections.IList list)
-            {
-                SelectedQueueItems.Clear();
-                foreach (var item in list.Cast<QueueItemModel>())
-                {
-                    SelectedQueueItems.Add(item);
-                }
-
-                if (_doc != null)
-                {
-                    try
-                    {
-                        var elementPocos = SelectedQueueItems.Select(q => q.Model).OfType<ElementModel>().ToList();
-                        var clusters = StandardsDiffEngine.RunDeepScan(_doc, elementPocos);
-
-                        ActiveDiffClusters.Clear();
-                        foreach (var cluster in clusters)
-                        {
-                            ActiveDiffClusters.Add(cluster);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"Diff scan execution skipped or failed: {ex.Message}");
-                    }
-                }
-
-                ActiveWorkspace = WorkspaceMode.Diff;
-            }
-        }
-
-        private void ExecuteResolveConflict(object parameter)
-        {
-            foreach (var cluster in ActiveDiffClusters)
-            {
-                foreach (var mapping in cluster.TypeMappings)
-                {
-                    var targetName = mapping.TargetType?.Name;
-                    var queueItem = SelectedQueueItems.FirstOrDefault(q => q.Name == targetName);
-                    if (queueItem != null && queueItem.Model is ElementModel element)
-                    {
-                        foreach (var row in mapping.ParameterResolutions)
-                        {
-                            if (row.IsSourceWinning && row.Options != null && row.Options.Count > 0)
-                            {
-                                var param = element.Parameters?.FirstOrDefault(p => p.Name == row.ParameterName);
-                                if (param != null)
-                                {
-                                    param.Value = row.Options[0].DisplayText;
-                                }
-                            }
-                        }
-                        queueItem.IsDiffed = true;
-                    }
-                }
-            }
-
-            ActiveWorkspace = WorkspaceMode.Idle;
-            ActiveDiffClusters.Clear();
-        }
-
-        private void ExecuteRunQueue(object parameter)
-        {
-            if (_externalEvent != null)
-            {
-                _externalEvent.Raise();
-            }
-            else
-            {
-                RunQueueInternal();
-            }
-        }
-
-        public void RunQueueInternal()
-        {
-            if (_doc == null) return;
-
-            LastExecutionResults.Clear();
-            string? targetPath = null;
-            bool dbPhaseSucceeded = true;
-
-            // Phase 1: Revit Database writes (Revit-First)
-            var dbItems = ActionQueue.Where(item => item.WillEnforce).ToList();
-
-            var dbResults = new List<SerializationResultModel>();
-
-            if (dbItems.Count > 0)
-            {
-                try
-                {
-                    dbResults = RunRevitDbPhase(dbItems);
-                    foreach (var result in dbResults)
-                    {
-                        result.OperationTarget = "Database";
-                    }
-                    LastExecutionResults.AddRange(dbResults);
-                }
-                catch (OperationCanceledException)
-                {
-                    dbPhaseSucceeded = false;
-                    foreach (var item in dbItems)
-                    {
-                        var result = new SerializationResultModel(item.Model, "Execution cancelled by user.");
-                        result.OperationTarget = "Database";
-                        LastExecutionResults.Add(result);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    // Headless test runs may throw exceptions due to missing TransactionGroup.
-                    // We log this but do NOT set dbPhaseSucceeded = false to allow Phase 2 (File Save) to proceed.
-                    Console.WriteLine($"Revit DB Phase execution skipped or failed: {ex.Message}");
-                    foreach (var item in dbItems)
-                    {
-                        var result = new SerializationResultModel(item.Model, $"Database Write Failed: {ex.Message}", ex);
-                        result.OperationTarget = "Database";
-                        LastExecutionResults.Add(result);
-                    }
-                }
-            }
-
-            // Phase 2: File I/O (File-Second)
-            if (dbPhaseSucceeded)
-            {
-                var fileItems = ActionQueue.Where(item => item.WillSave).ToList();
-
-                if (fileItems.Count > 0)
-                {
-                    if (!string.IsNullOrEmpty(SaveFilePath))
-                    {
-                        targetPath = SaveFilePath;
-                    }
-                    else if (SelectedSource != null && !SelectedSource.IsRevitSource && !string.IsNullOrEmpty(SelectedSource.SourcePath))
-                    {
-                        targetPath = SelectedSource.SourcePath;
-                    }
-                    else
-                    {
-                        string? projectSettingsPath = GetProjectSettingsPath();
-                        if (!string.IsNullOrEmpty(projectSettingsPath))
-                        {
-                            targetPath = projectSettingsPath;
-                        }
-                    }
-
-                    var fileResults = _exportService.Export(
-                        fileItems,
-                        targetPath,
-                        dbResults,
-                        GetProtectedPaths(),
-                        out string? finalPathUsed);
-
-                    targetPath = finalPathUsed;
-                    LastExecutionResults.AddRange(fileResults);
-                }
-            }
-
-            // Build summary tracker log items from LastExecutionResults
-            var tracker = new ObservableCollection<ImportLogItem>();
-            foreach (var result in LastExecutionResults)
-            {
-                var model = result.Model;
-                string action = "Updated";
-                if (!result.Success)
-                {
-                    if (result.Action == "Alias Swap Failed")
-                    {
-                        action = "Alias Fail";
-                    }
-                    else
-                    {
-                        action = result.OperationTarget == "File" ? "Save Failed" : "Failed";
-                    }
-                }
-                else
-                {
-                    if (result.Action == "Merged Alias")
-                    {
-                        action = "Merged Alias";
-                    }
-                    else if (result.OperationTarget == "File")
-                    {
-                        action = "Saved";
-                    }
-                    else
-                    {
-                        // Find the enqueued item to determine if it was Enforced/Saved
-                        var queueItem = ActionQueue.FirstOrDefault(qi => qi.Model == model);
-                        if (queueItem != null && queueItem.WillEnforce)
-                        {
-                            action = "Created";
-                        }
-                        else
-                        {
-                            action = "Updated";
-                        }
-                    }
-                }
-
-                string name = (model is ElementModel em) ? (em.Name ?? "Unnamed") : model.GetType().Name;
-                string className = (model is ElementModel emClass) ? (emClass.Class ?? "Unknown") : model.GetType().Name;
-                if (className.Contains("."))
-                {
-                    className = className.Split('.').Last();
-                }
-
-                string message = result.Success ? "Operation completed successfully." : (result.ErrorMessage ?? "Unknown error occurred.");
-                if (!string.IsNullOrEmpty(result.Message))
-                {
-                    message = result.Message;
-                }
-                if (result.Warnings != null && result.Warnings.Count > 0)
-                {
-                    message += " Warnings: " + string.Join(", ", result.Warnings);
-                }
-
-                tracker.Add(new ImportLogItem
-                {
-                    Action = action,
-                    Class = className,
-                    ElementName = name,
-                    Message = message
-                });
-            }
-
-            // Automatically write Markdown log file next to the saved standard JSON file (if one was written)
-            if (!string.IsNullOrEmpty(targetPath) && File.Exists(targetPath))
-            {
-                try
-                {
-                    string logPath = Path.ChangeExtension(targetPath, ".log.md");
-                    var summaryVMForFile = new ImportSummaryViewModel(tracker, _dialogService);
-                    string markdown = summaryVMForFile.GenerateMarkdown();
-                    File.WriteAllText(logPath, markdown);
-                }
-                catch (Exception logEx)
-                {
-                    Console.WriteLine($"Error writing automatic Markdown log next to target path: {logEx.Message}");
-                }
-            }
-
-            Action updateUI = () =>
-            {
-                // Display the summary dialog modal
-                if (tracker.Count > 0)
-                {
-                    var summaryVM = new ImportSummaryViewModel(tracker, _dialogService);
-                    IntPtr parentHandle = _uiapp != null ? _uiapp.MainWindowHandle : IntPtr.Zero;
-                    SummaryDisplayService.ShowSummary(summaryVM, parentHandle);
-                }
-
-                // Systematic queue purging and error message hydration
-                var successfulItems = new List<QueueItemModel>();
-                foreach (var item in ActionQueue.ToList())
-                {
-                    var resultsForItem = LastExecutionResults.Where(r => r.Model == item.Model).ToList();
-                    if (resultsForItem.Count > 0 && resultsForItem.All(r => r.Success))
-                    {
-                        successfulItems.Add(item);
-                    }
-                    else
-                    {
-                        var failedResult = resultsForItem.FirstOrDefault(r => !r.Success);
-                        if (failedResult != null)
-                        {
-                            item.ErrorMessage = failedResult.ErrorMessage ?? "Execution failed.";
-                        }
-                        else
-                        {
-                            item.ErrorMessage = "Execution was not completed.";
-                        }
-                    }
-                }
-
-                foreach (var item in successfulItems)
-                {
-                    ActionQueue.Remove(item);
-                }
-
-                ActiveWorkspace = WorkspaceMode.Idle;
-            };
-
-            if (System.Windows.Application.Current != null)
-            {
-                System.Windows.Application.Current.Dispatcher.Invoke(updateUI);
-            }
-            else
-            {
-                updateUI();
-            }
-        }
-
-        private HashSet<string> GetProtectedPaths()
-        {
-            var protectedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            string? projectSettingsPath = GetProjectSettingsPath();
-            if (!string.IsNullOrEmpty(projectSettingsPath))
-            {
-                protectedPaths.Add(Path.GetFullPath(projectSettingsPath));
-            }
-
-            try
-            {
-                string? appSettingsPath = GetAppConfiguredPath();
-                if (!string.IsNullOrEmpty(appSettingsPath))
-                {
-                    protectedPaths.Add(Path.GetFullPath(appSettingsPath));
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"App configurations retrieval JIT compilation skipped: {ex.Message}");
-            }
-
-            try
-            {
-                string defaultPath = Path.Combine(Config.addinPath, "SyntheticSettings.json");
-                if (File.Exists(defaultPath))
-                {
-                    Config? defaultConfig = Config.ReadFromFile(defaultPath);
-                    if (defaultConfig != null && defaultConfig.Contains(StandardsSettings.Name))
-                    {
-                        var appSettings = defaultConfig.GetSettings<StandardsSettings>(StandardsSettings.Name);
-                        if (appSettings != null && !string.IsNullOrEmpty(appSettings.StandardsFilePath))
-                        {
-                            protectedPaths.Add(Path.GetFullPath(appSettings.StandardsFilePath));
-                        }
-                    }
-                }
-            }
-            catch { }
-
-            return protectedPaths;
-        }
-
-        private List<SerializationResultModel> RunRevitDbPhase(List<QueueItemModel> dbItems)
-        {
-            var dbResults = new List<SerializationResultModel>();
-            if (_doc == null) return dbResults;
-
-            int totalWorkItems = dbItems.Count;
-            ProgressCoordinator.Initialize("Consolidate Project Standards", "Starting standard injection...", totalWorkItems);
-
-            using (var txGroup = new TransactionGroup(_doc, "Consolidate Project Standards"))
-            {
-                txGroup.Start();
-                try
-                {
-                    if (dbItems.Count > 0)
-                    {
-                        var elementPocos = dbItems.Select(q => q.Model).OfType<ObjectModel>().ToList();
-                        var engine = new StandardSerializationEngine();
-                        var results = engine.ToRevit(elementPocos, _doc, null, ProgressCoordinator.Token).ToList();
-                        dbResults.AddRange(results);
-                    }
-
-                    if (UpdateFamilies)
-                    {
-                        var elementPocos = dbItems.Select(q => q.Model).OfType<ElementModel>().ToList();
-                        ProcessFamilyUpdates(elementPocos);
-                    }
-
-                    txGroup.Assimilate();
-                }
-                catch (Exception)
-                {
-                    txGroup.RollBack();
-                    throw;
-                }
-                finally
-                {
-                    ProgressCoordinator.Close();
-                }
-            }
-            return dbResults;
-        }
-
-        private void ProcessFamilyUpdates(List<ElementModel> standards)
-        {
-            if (_doc == null || !UpdateFamilies) return;
-
-            if (ProgressCoordinator.IsCancelled())
-            {
-                throw new OperationCanceledException();
-            }
-
-            ProgressCoordinator.UpdateStatus("Collecting families to update...");
-
-            IList<Family> allFamilies = new FilteredElementCollector(_doc)
-                .OfClass(typeof(Family))
-                .Cast<Family>()
-                .ToList();
-
-            List<Family> familiesToProcess = new List<Family>();
-            foreach (Family family in allFamilies)
-            {
-                if (family.IsEditable)
-                {
-                    if (CategoryFilter == "Annotations Only" && (family.FamilyCategory == null || family.FamilyCategory.CategoryType != CategoryType.Annotation))
-                        continue;
-#if REVIT2022 || REVIT2023
-                    if (CategoryFilter == "Title Blocks Only" && (family.FamilyCategory == null || family.FamilyCategory.Id.IntegerValue != (int)BuiltInCategory.OST_TitleBlocks))
-#else
-                    if (CategoryFilter == "Title Blocks Only" && (family.FamilyCategory == null || family.FamilyCategory.Id.Value != (long)BuiltInCategory.OST_TitleBlocks))
-#endif
-                        continue;
-
-                    familiesToProcess.Add(family);
-                }
-            }
-
-            if (ProgressCoordinator.IsCancelled())
-            {
-                throw new OperationCanceledException();
-            }
-
-            if (_doc.IsWorkshared && familiesToProcess.Count > 0)
-            {
-                ProgressCoordinator.UpdateStatus("Checking out family worksets...");
-                List<WorksetId> worksetIds = familiesToProcess
-                    .Select(f => f.WorksetId)
-                    .Distinct()
-                    .Where(id => id != WorksetId.InvalidWorksetId)
-                    .ToList();
-
-                if (worksetIds.Count > 0)
-                {
-                    WorksharingUtils.CheckoutWorksets(_doc, worksetIds);
-                }
-            }
-
-            List<string> familyNamesToProcess = familiesToProcess
-                .Select(f => f.Name)
-                .Distinct()
-                .ToList();
-
-            int familyIndex = 0;
-            foreach (string familyName in familyNamesToProcess)
-            {
-                if (ProgressCoordinator.IsCancelled())
-                {
-                    throw new OperationCanceledException();
-                }
-
-                familyIndex++;
-                ProgressCoordinator.UpdateStatus($"Updating family {familyIndex} of {familyNamesToProcess.Count}: {familyName}...");
-
-                Family? family = new FilteredElementCollector(_doc)
-                    .OfClass(typeof(Family))
-                    .Cast<Family>()
-                    .FirstOrDefault(f => f.Name == familyName);
-
-                if (family != null && family.IsValidObject)
-                {
-                    UpdateFamilyRecursively(_doc, family, standards);
-                }
-            }
-        }
-
-        private void UpdateFamilyRecursively(Document parentDoc, Family family, IEnumerable<ElementModel> standards)
-        {
-            if (ProgressCoordinator.IsCancelled())
-            {
-                throw new OperationCanceledException();
-            }
-            if (family == null || !family.IsEditable) return;
-
-            Document? familyDoc = null;
-            try
-            {
-                familyDoc = parentDoc.EditFamily(family);
-            }
-            catch (Exception)
-            {
-                return;
-            }
-
-            if (familyDoc == null) return;
-
-            parentDoc.Application.FailuresProcessing += ResolveWarnings;
-
-            try
-            {
-                if (ProcessNestedRecursive)
-                {
-                    if (ProgressCoordinator.IsCancelled())
-                    {
-                        throw new OperationCanceledException();
-                    }
-                    IList<Family> nestedFamilies = new FilteredElementCollector(familyDoc)
-                        .OfClass(typeof(Family))
-                        .Cast<Family>()
-                        .ToList();
-
-                    var nestedFamiliesInfo = nestedFamilies
-                        .Select(nf => new { Id = nf.Id, Name = nf.Name, IsEditable = nf.IsEditable })
-                        .ToList();
-
-                    foreach (var nfInfo in nestedFamiliesInfo)
-                    {
-                        if (ProgressCoordinator.IsCancelled())
-                        {
-                            throw new OperationCanceledException();
-                        }
-                        if (nfInfo.IsEditable)
-                        {
-                            Family? freshNestedFamily = new FilteredElementCollector(familyDoc)
-                                .OfClass(typeof(Family))
-                                .Cast<Family>()
-                                .FirstOrDefault(nf => nf.Name == nfInfo.Name);
-                            if (freshNestedFamily != null && freshNestedFamily.IsValidObject)
-                            {
-                                UpdateFamilyRecursively(familyDoc, freshNestedFamily, standards);
-                            }
-                        }
-                    }
-                }
-
-                if (ProgressCoordinator.IsCancelled())
-                {
-                    throw new OperationCanceledException();
-                }
-
-                foreach (ElementModel serialElement in standards)
-                {
-                    if (serialElement is ElementTypeModel etModel)
-                    {
-                        etModel.ElementType = null;
-                    }
-                    serialElement.Element = null;
-                    serialElement.Document = null;
-                }
-
-                var familyStandards = standards.Where(s =>
-                {
-                    if (s is MaterialModel) return true;
-                    if (s is ElementTypeModel etModel)
-                    {
-                        if (familyDoc.IsFamilyDocument && etModel.Class == "Autodesk.Revit.DB.SpotDimensionType")
-                        {
-                            return false;
-                        }
-                        return true;
-                    }
-                    return false;
-                }).ToList();
-
-                var engine = new StandardSerializationEngine();
-                engine.ToRevit(familyStandards, familyDoc, null, ProgressCoordinator.Token);
-
-                if (PurgeUnusedStyleTypes)
-                {
-                    if (ProgressCoordinator.IsCancelled())
-                    {
-                        throw new OperationCanceledException();
-                    }
-                    try
-                    {
-#if !REVIT2022
-                        DocumentUtil.Purge(parentDoc.Application, familyDoc);
-#endif
-                    }
-                    catch (Exception)
-                    {
-                    }
-                }
-
-                try
-                {
-                    Synthetic.Shared.RevitAPI.FamilyUtil.SetIsChanged(parentDoc, familyDoc);
-                }
-                catch (Exception)
-                {
-                }
-
-                familyDoc.LoadFamily(parentDoc, new ImportFamilyLoadOptions());
-            }
-            finally
-            {
-                parentDoc.Application.FailuresProcessing -= ResolveWarnings;
-                try
-                {
-                    familyDoc.Close(false);
-                }
-                catch (Exception)
-                {
-                }
-            }
-        }
-
-        private static void ResolveWarnings(object? sender, Autodesk.Revit.DB.Events.FailuresProcessingEventArgs e)
-        {
-            FailuresAccessor fa = e.GetFailuresAccessor();
-            IList<FailureMessageAccessor> failList = fa.GetFailureMessages();
-
-            if (failList.Count == 0)
-            {
-                e.SetProcessingResult(FailureProcessingResult.Continue);
-                return;
-            }
-
-            foreach (FailureMessageAccessor failure in failList)
-            {
-                fa.DeleteWarning(failure);
-            }
-            e.SetProcessingResult(FailureProcessingResult.ProceedWithCommit);
-        }
-
-        private string? GetProjectSettingsPath()
-        {
-            if (_settings != null)
-            {
-                return _settings.StandardsFilePath;
-            }
-            if (_doc == null) return null;
-            try
-            {
-                var settings = SettingsManager.Get<StandardsSettings>(_doc);
-                return settings?.StandardsFilePath;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Settings retrieval skipped or failed: {ex.Message}");
-                return null;
-            }
-        }
-
-        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
-        private string? GetAppConfiguredPath()
-        {
-            var appConfig = App.Configurations?.GetAppConfig();
-            if (appConfig != null && appConfig.Contains(StandardsSettings.Name))
-            {
-                var appSettings = appConfig.GetSettings<StandardsSettings>(StandardsSettings.Name);
-                return appSettings?.StandardsFilePath;
-            }
-            return null;
-        }
-
-        private void ExecuteBatchFindReplace(object parameter)
-        {
-            if (string.IsNullOrEmpty(FindText)) return;
-
-            string findText = FindText;
-            string replaceText = ReplaceText ?? string.Empty;
-            var scope = FindReplaceScope;
-            
-            bool searchNames = scope == SearchScope.ElementNames || scope == SearchScope.Both;
-            bool searchParams = scope == SearchScope.ParameterValues || scope == SearchScope.Both;
-
-            var elements = SelectedQueueItems.Select(q => q.Model).OfType<ElementModel>().ToList();
-            var modifiedElements = _findReplaceService.Execute(elements, findText, replaceText, searchNames, searchParams);
-
-            foreach (var item in SelectedQueueItems)
-            {
-                if (item.Model is ElementModel el && modifiedElements.Contains(el))
-                {
-                    item.IsEdited = true;
-                    item.RaisePropertyChanged(nameof(QueueItemModel.Name));
-                    item.RaisePropertyChanged(nameof(QueueItemModel.Model));
-                }
-            }
-
-            _activeWrappers = SelectedQueueItems.Select(q => q.GetWrapper()).ToList();
-            OnPropertyChanged(nameof(SelectedElement));
-            UpdateSelectedElementSubscription();
-            RaiseIdentityHeaderStateChanged();
-            CalculateParameterIntersection();
-            ActionQueueView?.Refresh();
-        }
-
-        private void ExecuteApplyEdits(object parameter)
-        {
-            foreach (var item in SelectedQueueItems)
-            {
-                item.IsEdited = true;
-            }
-            _activeWrappers.Clear();
-            OnPropertyChanged(nameof(SelectedElement));
-            UpdateSelectedElementSubscription();
-            RaiseIdentityHeaderStateChanged();
-            ActiveWorkspace = WorkspaceMode.Idle;
-        }
-
-        private void ExecuteCancelEdits(object parameter)
-        {
-            foreach (var item in SelectedQueueItems)
-            {
-                item.Revert();
-                if (_originalIntents.TryGetValue(item, out var backup))
-                {
-                    item.WillEnforce = backup.WillEnforce;
-                    item.WillSave = backup.WillSave;
-                    item.IsEdited = backup.IsEdited;
-                    item.IsDiffed = backup.IsDiffed;
-                }
-            }
-            _activeWrappers.Clear();
-            OnPropertyChanged(nameof(SelectedElement));
-            UpdateSelectedElementSubscription();
-            RaiseIdentityHeaderStateChanged();
-            OnPropertyChanged(nameof(SelectedItemName));
-            ActiveWorkspace = WorkspaceMode.Idle;
-        }
-
-        private void CalculateParameterIntersection()
-        {
-            foreach (var param in DisplayParameters)
-            {
-                param.PropertyChanged -= DisplayParam_PropertyChanged;
-            }
-            DisplayParameters.Clear();
-
-            if (SelectedQueueItems.Count == 0 || _activeWrappers.Count == 0)
-            {
-                return;
-            }
-
-            if (_activeWrappers.Count == 1)
-            {
-                foreach (var param in _activeWrappers[0].Parameters)
-                {
-                    param.PropertyChanged += DisplayParam_PropertyChanged;
-                    DisplayParameters.Add(param);
-                }
-                return;
-            }
-
-            // Multiple elements selected: compute parameter intersection matching Name and StorageType
-            var firstElement = _activeWrappers[0];
-            var commonParams = firstElement.Parameters
-                .Select(p => new { p.Name, p.StorageType })
-                .ToList();
-
-            for (int i = 1; i < _activeWrappers.Count; i++)
-            {
-                var currentElement = _activeWrappers[i];
-                commonParams = commonParams
-                    .Intersect(currentElement.Parameters.Select(p => new { p.Name, p.StorageType }))
-                    .ToList();
-            }
-
-            // Create display wrappers representing the intersection states
-            foreach (var common in commonParams)
-            {
-                var matchingParams = _activeWrappers
-                    .Select(w => w.Parameters.First(p => p.Name == common.Name))
-                    .ToList();
-
-                string firstVal = matchingParams[0].Value;
-                bool isMixed = matchingParams.Any(p => p.Value != firstVal || p.IsMixedValue);
-                bool isReadOnly = matchingParams.Any(p => p.IsReadOnly);
-                
-                string? guid = matchingParams[0].GUID;
-                long id = matchingParams[0].Id;
-                bool isShared = matchingParams[0].IsShared;
-
-                // Create dummy ParameterModel representing the intersection
-                var dummyModel = new ParameterModel(
-                    common.Name,
-                    isMixed ? "<Varies>" : firstVal,
-                    null, // ValueElemId matched simple
-                    common.StorageType,
-                    (int)id,
-                    guid,
-                    isShared,
-                    isReadOnly
-                );
-
-                var displayParam = new ParameterWrapperVM(dummyModel, matchingParams[0].GetModel() != null ? _activeWrappers[0].GetUpdatedModel() : null);
-                if (isMixed)
-                {
-                    displayParam.IsMixedValue = true;
-                }
-
-                displayParam.PropertyChanged += DisplayParam_PropertyChanged;
-                DisplayParameters.Add(displayParam);
-            }
-        }
-
-        private void DisplayParam_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
-        {
-            if (e.PropertyName == nameof(ParameterWrapperVM.Value) || e.PropertyName == nameof(ParameterWrapperVM.IsMixedValue))
-            {
-                var displayParam = sender as ParameterWrapperVM;
-                if (displayParam != null && !displayParam.IsMixedValue)
-                {
-                    PushBulkValue(displayParam.Name, displayParam.Value);
-                    
-                    // Mark selected items as Edited and clear errors
-                    foreach (var item in SelectedQueueItems)
-                    {
-                        item.IsEdited = true;
-                        item.ErrorMessage = null;
-                    }
-                    OnPropertyChanged(nameof(SelectedItemErrorMessage));
-                }
-            }
-        }
-
-        private void PushBulkValue(string paramName, string newValue)
-        {
-            foreach (var displayParam in DisplayParameters)
-            {
-                displayParam.PropertyChanged -= DisplayParam_PropertyChanged;
-            }
-
-            try
-            {
-                if (paramName == "Name")
-                {
-                    foreach (var wrapper in _activeWrappers)
-                    {
-                        string oldName = wrapper.Name;
-                        if (oldName != newValue)
-                        {
-                            ReplaceReferences(wrapper.GetUpdatedModel(), oldName, newValue);
-                            wrapper.Name = newValue;
-                        }
-                    }
-                }
-                else
-                {
-                    foreach (var wrapper in _activeWrappers)
-                    {
-                        var targetParam = wrapper.Parameters.FirstOrDefault(p => p.Name == paramName);
-                        if (targetParam != null && !targetParam.IsReadOnly)
-                        {
-                            targetParam.Value = newValue;
-                        }
-                    }
-                }
-            }
-            finally
-            {
-                foreach (var displayParam in DisplayParameters)
-                {
-                    displayParam.PropertyChanged += DisplayParam_PropertyChanged;
-                }
-            }
-        }
 
         public void ReplaceReferences(ObjectModel oldElement, string oldName, string newName)
         {
@@ -5969,7 +5240,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                 nameAndAliases.AddRange(oldEl.Aliases);
             }
 
-            foreach (var qItem in ActionQueue)
+            foreach (var qItem in StagingQueue)
             {
                 var el = qItem.TargetModel;
                 if (el == oldElement) continue;
@@ -6036,7 +5307,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
 
 
 
-        private List<StandardElementModel> GetCheckedElements()
+        public List<StandardElementModel> GetCheckedElements()
         {
             var list = new List<StandardElementModel>();
             if (SelectedSource == null) return list;
@@ -6058,176 +5329,12 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             return list;
         }
 
-        private void ExecuteEnforce(object parameter)
-        {
-            // Placeholder: out of scope for this slice
-        }
-
-        private void ExecuteBrowseSavePath(object parameter)
-        {
-            string? defaultFileName = "ProjectStandards.json";
-            if (!string.IsNullOrEmpty(SaveFilePath))
-            {
-                defaultFileName = System.IO.Path.GetFileName(SaveFilePath);
-            }
-            string? newPath = _dialogService.SaveFileDialog("JSON Files (*.json)|*.json", "Save Standards JSON File", defaultFileName);
-            if (!string.IsNullOrEmpty(newPath))
-            {
-                SaveFilePath = newPath;
-            }
-        }
-
-        /// <summary>
-        /// Merges a list of existing standard elements with new standard elements, identifying duplicates strictly by Class + Name.
-        /// </summary>
-        public static List<ElementModel> MergeStandardsLists(List<ElementModel> existingElements, List<ElementModel> newElements, bool overwriteDuplicates)
-        {
-            var resultDict = new Dictionary<string, ElementModel>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (var el in existingElements)
-            {
-                if (el != null && !string.IsNullOrEmpty(el.Class) && !string.IsNullOrEmpty(el.Name))
-                {
-                    string key = $"{el.Class}:{el.Name}";
-                    resultDict[key] = el;
-                }
-            }
-
-            foreach (var el in newElements)
-            {
-                if (el != null && !string.IsNullOrEmpty(el.Class) && !string.IsNullOrEmpty(el.Name))
-                {
-                    string key = $"{el.Class}:{el.Name}";
-                    if (resultDict.ContainsKey(key))
-                    {
-                        if (overwriteDuplicates)
-                        {
-                            resultDict[key] = el;
-                        }
-                    }
-                    else
-                    {
-                        resultDict[key] = el;
-                    }
-                }
-            }
-
-            return resultDict.Values.ToList();
-        }
-
-        private void ExecuteSave(object parameter)
-        {
-            // Placeholder: out of scope for this slice
-        }
-
-        private void ExecuteSaveAndEnforce(object parameter)
-        {
-            // Placeholder: out of scope for this slice
-        }
 
 
-        private bool CanExecuteMergeQueue(object parameter)
-        {
-            if (parameter is System.Collections.IList list && list.Count >= 2)
-            {
-                var items = list.Cast<QueueItemModel>().ToList();
-                
-                // Block merge if any selected item is a root/built-in category (CategoryModel with ParentCategoryName null/empty)
-                if (items.Any(e => e.Model is CategoryModel cat && string.IsNullOrEmpty(cat.ParentCategoryName)))
-                {
-                    return false;
-                }
 
-                string firstCategory = items[0].Category;
-                string firstClass = items[0].ClassName;
 
-                return items.All(e => string.Equals(e.Category, firstCategory, StringComparison.OrdinalIgnoreCase) &&
-                                     string.Equals(e.ClassName, firstClass, StringComparison.OrdinalIgnoreCase));
-            }
-            return false;
-        }
 
-        private void ExecuteMergeQueue(object parameter)
-        {
-            if (parameter is System.Collections.IList list && CanExecuteMergeQueue(parameter))
-            {
-                var selectedItems = list.Cast<QueueItemModel>().ToList();
-                var vm = new Synthetic.Shared.UI.SingleItemSelectionViewModel<QueueItemModel>(
-                    selectedItems,
-                    "Select the primary survivor element. The other selected elements will be deleted, and their names will be appended to the survivor's Aliases list.",
-                    q => q.Name)
-                {
-                    Title = "Consolidate Element Types"
-                };
-
-                bool? dialogResult = ShowMergeDialog?.Invoke(vm);
-                if (dialogResult == true)
-                {
-                    var primaryItem = vm.SelectedItem;
-                    if (primaryItem == null) return;
-
-                    var nonPrimaries = selectedItems.Where(q => q != primaryItem).ToList();
-
-                    if (primaryItem.Model is ElementModel primaryElementModel)
-                    {
-                        var currentAliases = primaryElementModel.Aliases ?? new List<string>();
-                        var aliasesList = new List<string>(currentAliases);
-
-                        foreach (var np in nonPrimaries)
-                        {
-                            if (!aliasesList.Contains(np.Name, StringComparer.OrdinalIgnoreCase))
-                            {
-                                aliasesList.Add(np.Name);
-                            }
-
-                            if (np.Model is ElementModel npElementModel && npElementModel.Aliases != null)
-                            {
-                                foreach (var npAlias in npElementModel.Aliases)
-                                {
-                                    if (!aliasesList.Contains(npAlias, StringComparer.OrdinalIgnoreCase))
-                                    {
-                                        aliasesList.Add(npAlias);
-                                    }
-                                }
-                            }
-                        }
-
-                        // Update the primary's Aliases property
-                        primaryElementModel.Aliases = aliasesList;
-                        primaryItem.IsEdited = true;
-
-                        // Merge execution actions (WillEnforce, WillSave)
-                        foreach (var np in nonPrimaries)
-                        {
-                            if (np.WillEnforce)
-                            {
-                                primaryItem.WillEnforce = true;
-                            }
-                            if (np.WillSave)
-                            {
-                                primaryItem.WillSave = true;
-                            }
-                        }
-
-                        primaryItem.RaisePropertyChanged(nameof(QueueItemModel.Model));
-
-                        // Scan all other elements in the Action Queue and replace references!
-                        ReplaceQueueReferences(nonPrimaries, primaryItem.Name);
-
-                        // Purge consumed items
-                        foreach (var np in nonPrimaries)
-                        {
-                            ActionQueue.Remove(np);
-                        }
-
-                        // Reset workspace back to idle post-merge to prevent ghost references
-                        ActiveWorkspace = WorkspaceMode.Idle;
-                    }
-                }
-            }
-        }
-
-        private void ReplaceQueueReferences(List<QueueItemModel> oldElements, string newName)
+        public void ReplaceQueueReferences(List<QueueItemModel> oldElements, string newName)
         {
             var nameAndAliases = new List<string>();
             foreach (var oldEl in oldElements)
@@ -6239,7 +5346,17 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                 }
             }
 
-            foreach (var qItem in ActionQueue)
+            void UpdateReferencedId(ElementIdModel? idModel)
+            {
+                if (idModel != null && nameAndAliases.Contains(idModel.Name, StringComparer.OrdinalIgnoreCase))
+                {
+                    idModel.Name = newName;
+                    idModel.Id = 0;
+                    idModel.UniqueId = null;
+                }
+            }
+
+            foreach (var qItem in StagingQueue)
             {
                 var el = qItem.TargetModel;
                 if (oldElements.Contains(qItem)) continue;
@@ -6259,66 +5376,72 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                 {
                     foreach (var layer in hostObj.Structure.Layers)
                     {
-                        if (layer.MaterialId != null && nameAndAliases.Contains(layer.MaterialId.Name, StringComparer.OrdinalIgnoreCase))
-                        {
-                            layer.MaterialId.Name = newName;
-                            layer.MaterialId.Id = 0;
-                            layer.MaterialId.UniqueId = null;
-                        }
+                        UpdateReferencedId(layer.MaterialId);
                     }
                 }
 
                 if (el is MaterialModel mat)
                 {
-                    if (mat.SurfaceForegroundPatternId != null && nameAndAliases.Contains(mat.SurfaceForegroundPatternId.Name, StringComparer.OrdinalIgnoreCase))
-                    {
-                        mat.SurfaceForegroundPatternId.Name = newName;
-                        mat.SurfaceForegroundPatternId.Id = 0;
-                        mat.SurfaceForegroundPatternId.UniqueId = null;
-                    }
-                    if (mat.SurfaceBackgroundPatternId != null && nameAndAliases.Contains(mat.SurfaceBackgroundPatternId.Name, StringComparer.OrdinalIgnoreCase))
-                    {
-                        mat.SurfaceBackgroundPatternId.Name = newName;
-                        mat.SurfaceBackgroundPatternId.Id = 0;
-                        mat.SurfaceBackgroundPatternId.UniqueId = null;
-                    }
-                    if (mat.CutForegroundPatternId != null && nameAndAliases.Contains(mat.CutForegroundPatternId.Name, StringComparer.OrdinalIgnoreCase))
-                    {
-                        mat.CutForegroundPatternId.Name = newName;
-                        mat.CutForegroundPatternId.Id = 0;
-                        mat.CutForegroundPatternId.UniqueId = null;
-                    }
-                    if (mat.CutBackgroundPatternId != null && nameAndAliases.Contains(mat.CutBackgroundPatternId.Name, StringComparer.OrdinalIgnoreCase))
-                    {
-                        mat.CutBackgroundPatternId.Name = newName;
-                        mat.CutBackgroundPatternId.Id = 0;
-                        mat.CutBackgroundPatternId.UniqueId = null;
-                    }
-                    if (mat.AppearanceAssetId != null && nameAndAliases.Contains(mat.AppearanceAssetId.Name, StringComparer.OrdinalIgnoreCase))
-                    {
-                        mat.AppearanceAssetId.Name = newName;
-                        mat.AppearanceAssetId.Id = 0;
-                        mat.AppearanceAssetId.UniqueId = null;
-                    }
+                    UpdateReferencedId(mat.SurfaceForegroundPatternId);
+                    UpdateReferencedId(mat.SurfaceBackgroundPatternId);
+                    UpdateReferencedId(mat.CutForegroundPatternId);
+                    UpdateReferencedId(mat.CutBackgroundPatternId);
+                    UpdateReferencedId(mat.AppearanceAssetId);
                 }
             }
         }
 
-        // Dedicated load options class to overwrite parameters and family definitions
-        private class ImportFamilyLoadOptions : IFamilyLoadOptions
+        private void RegisterPropertyChangedHandlers()
         {
-            public bool OnFamilyFound(bool familyInUse, out bool overwriteParameterValues)
-            {
-                overwriteParameterValues = true;
-                return true;
-            }
+            _sourceTreeViewModel.PropertyChanged += OnSubViewModelPropertyChanged;
+            _stagingQueueViewModel.PropertyChanged += OnSubViewModelPropertyChanged;
+            _standardsExecutionViewModel.PropertyChanged += OnSubViewModelPropertyChanged;
+        }
 
-            public bool OnSharedFamilyFound(Family sharedFamily, bool familyInUse, out FamilySource source, out bool overwriteParameterValues)
+        private void OnSubViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (sender == _sourceTreeViewModel)
             {
-                source = FamilySource.Family;
-                overwriteParameterValues = true;
-                return true;
+                if (e.PropertyName == nameof(StandardsSourceTreeViewModel.AvailableSources) ||
+                    e.PropertyName == nameof(StandardsSourceTreeViewModel.SelectedSource) ||
+                    e.PropertyName == nameof(StandardsSourceTreeViewModel.SearchText))
+                {
+                    OnPropertyChanged(e.PropertyName);
+                }
             }
+            else if (sender == _stagingQueueViewModel)
+            {
+                if (e.PropertyName == nameof(StagingQueueViewModel.StagingQueue) ||
+                    e.PropertyName == nameof(StagingQueueViewModel.StagingQueueView) ||
+                    e.PropertyName == nameof(StagingQueueViewModel.SelectedQueueItems) ||
+                    e.PropertyName == nameof(StagingQueueViewModel.SelectedNameOrCount) ||
+                    e.PropertyName == nameof(StagingQueueViewModel.SelectedDisplayClass) ||
+                    e.PropertyName == nameof(StagingQueueViewModel.SelectedAliasesString) ||
+                    e.PropertyName == nameof(StagingQueueViewModel.SelectedElement) ||
+                    e.PropertyName == nameof(StagingQueueViewModel.IsSingleElementSelected) ||
+                    e.PropertyName == nameof(StagingQueueViewModel.SelectedItemErrorMessage))
+                {
+                    OnPropertyChanged(e.PropertyName);
+                }
+            }
+            else if (sender == _standardsExecutionViewModel)
+            {
+                if (e.PropertyName == nameof(StandardsExecutionPipelineViewModel.UpdateFamilies) ||
+                    e.PropertyName == nameof(StandardsExecutionPipelineViewModel.ProcessNestedRecursive) ||
+                    e.PropertyName == nameof(StandardsExecutionPipelineViewModel.PurgeUnusedStyleTypes) ||
+                    e.PropertyName == nameof(StandardsExecutionPipelineViewModel.CategoryFilter) ||
+                    e.PropertyName == nameof(StandardsExecutionPipelineViewModel.AvailableCategoryFilters) ||
+                    e.PropertyName == nameof(StandardsExecutionPipelineViewModel.SaveFilePath) ||
+                    e.PropertyName == nameof(StandardsExecutionPipelineViewModel.IsSavePathActive))
+                {
+                    OnPropertyChanged(e.PropertyName);
+                }
+            }
+        }
+
+        public void RunQueueInternal()
+        {
+            _standardsExecutionViewModel.RunQueueInternal();
         }
     }
 
@@ -6470,7 +5593,7 @@ using Synthetic.Shared.UI;
 namespace Synthetic.Modules.StandardsManagement.ViewModels
 {
     /// <summary>
-    /// Wrapper ViewModel for deep-copied elements staged in the Action Queue.
+    /// Wrapper ViewModel for deep-copied elements staged in the Staging Queue.
     /// </summary>
     public class QueueItemModel : ViewModelBase
     {
@@ -6918,6 +6041,887 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
 }
 ```
 
+### File: StandardsManagement/ViewModels/StagingQueueViewModel.cs
+```csharp
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Linq;
+using System.Windows.Data;
+using System.Windows.Input;
+using Synthetic.Modules.RevitDOM;
+using Synthetic.Modules.StandardsManagement.Models;
+using Synthetic.Shared.UI;
+using Synthetic.Modules.MergeDuplicates.Models;
+using Synthetic.Modules.StandardsManagement.Utilities;
+using Synthetic.Modules.StandardsManagement.Engine;
+using Synthetic.Modules.DiffEngine;
+using Autodesk.Revit.DB;
+
+namespace Synthetic.Modules.StandardsManagement.ViewModels
+{
+    /// <summary>
+    /// ViewModel that manages the staging queue collection, queue manipulation commands,
+    /// and the staging elements editing/batch find-replace workflow.
+    /// </summary>
+    public class StagingQueueViewModel : ViewModelBase
+    {
+        private readonly IProjectStandardsDashboard _parent;
+        private readonly IPocoIdentityService _pocoIdentityService;
+        private readonly IDiffEngine<IEnumerable<ObjectModel>, Document> _diffEngine;
+
+        private ObservableCollection<QueueItemModel> _stagingQueue = new ObservableCollection<QueueItemModel>();
+        private ObservableCollection<QueueItemModel> _selectedQueueItems = new ObservableCollection<QueueItemModel>();
+        private ObservableCollection<ParameterWrapperVM> _displayParameters = new ObservableCollection<ParameterWrapperVM>();
+        private ObservableCollection<DuplicateClusterModel> _activeDiffClusters = new ObservableCollection<DuplicateClusterModel>();
+
+        private List<ElementTypeWrapperVM> _activeWrappers = new List<ElementTypeWrapperVM>();
+        private class QueueItemStateBackup
+        {
+            public bool WillEnforce { get; set; }
+            public bool WillSave { get; set; }
+            public bool IsEdited { get; set; }
+            public bool IsDiffed { get; set; }
+        }
+        private Dictionary<QueueItemModel, QueueItemStateBackup> _originalIntents = new Dictionary<QueueItemModel, QueueItemStateBackup>();
+
+        private string _lastSelectedName = string.Empty;
+        private ElementTypeWrapperVM? _subscribedWrapper;
+
+        private string _findText = string.Empty;
+        private string _replaceText = string.Empty;
+        private SearchScope _findReplaceScope = SearchScope.Both;
+
+        /// <summary>
+        /// Gets the staging queue collection.
+        /// </summary>
+        public ObservableCollection<QueueItemModel> StagingQueue => _stagingQueue;
+
+        /// <summary>
+        /// Gets the grouped collection view of the staging queue.
+        /// </summary>
+        public ICollectionView StagingQueueView { get; }
+
+        /// <summary>
+        /// Gets the collection of staged elements currently selected for editing/diffing.
+        /// </summary>
+        public ObservableCollection<QueueItemModel> SelectedQueueItems => _selectedQueueItems;
+
+        /// <summary>
+        /// Gets the parameters collection currently displayed in the property grid.
+        /// </summary>
+        public ObservableCollection<ParameterWrapperVM> DisplayParameters => _displayParameters;
+
+        /// <summary>
+        /// Gets the duplicate and diff clusters populated by the comparison engine.
+        /// </summary>
+        public ObservableCollection<DuplicateClusterModel> ActiveDiffClusters => _activeDiffClusters;
+
+        public ICommand PushToQueueCommand { get; }
+        public ICommand RemoveFromQueueCommand { get; }
+        public ICommand MergeQueueCommand { get; }
+        public ICommand EditCommand { get; }
+        public ICommand DiffCommand { get; }
+        public ICommand BatchFindReplaceCommand { get; }
+        public ICommand ApplyEditsCommand { get; }
+        public ICommand CancelEditsCommand { get; }
+        public ICommand ResolveConflictCommand { get; }
+
+        /// <summary>
+        /// Gets or sets the search string for batch find-and-replace edits.
+        /// </summary>
+        public string FindText
+        {
+            get => _findText;
+            set => SetProperty(ref _findText, value);
+        }
+
+        /// <summary>
+        /// Gets or sets the replacement string for batch find-and-replace edits.
+        /// </summary>
+        public string ReplaceText
+        {
+            get => _replaceText;
+            set => SetProperty(ref _replaceText, value);
+        }
+
+        /// <summary>
+        /// Gets or sets the search scope for batch find-and-replace edits.
+        /// </summary>
+        public SearchScope FindReplaceScope
+        {
+            get => _findReplaceScope;
+            set => SetProperty(ref _findReplaceScope, value);
+        }
+
+        /// <summary>
+        /// Gets the single selected element wrapper when exactly one element is selected.
+        /// </summary>
+        public ElementTypeWrapperVM? SelectedElement
+        {
+            get
+            {
+                if (_activeWrappers != null && _activeWrappers.Count == 1)
+                {
+                    return _activeWrappers[0];
+                }
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Gets whether exactly one element is currently selected.
+        /// </summary>
+        public bool IsSingleElementSelected => SelectedQueueItems.Count == 1;
+
+        /// <summary>
+        /// Gets or sets the name of the selected element, or a count description if multiple elements are selected.
+        /// </summary>
+        public string SelectedNameOrCount
+        {
+            get
+            {
+                if (SelectedQueueItems.Count == 1)
+                {
+                    return SelectedElement?.Name ?? string.Empty;
+                }
+                return SelectedQueueItems.Count > 1 ? $"Editing {SelectedQueueItems.Count} elements" : string.Empty;
+            }
+            set
+            {
+                if (SelectedQueueItems.Count == 1 && SelectedElement != null)
+                {
+                    SelectedElement.Name = value;
+                    OnPropertyChanged(nameof(SelectedNameOrCount));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets a comma-separated concatenated list of stripped classes for the selected elements.
+        /// </summary>
+        public string SelectedDisplayClass
+        {
+            get
+            {
+                if (SelectedQueueItems.Count == 0) return string.Empty;
+
+                var classes = SelectedQueueItems
+                    .Select(q => q.ClassName)
+                    .Select(c => c.StartsWith("Autodesk.Revit.DB.") ? c.Substring("Autodesk.Revit.DB.".Length) : c)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                return string.Join(", ", classes);
+            }
+        }
+
+        /// <summary>
+        /// Gets or sets the aliases string of the selected element, or &lt;Varies&gt; if multiple elements are selected.
+        /// </summary>
+        public string SelectedAliasesString
+        {
+            get
+            {
+                if (SelectedQueueItems.Count == 1)
+                {
+                    return SelectedElement?.AliasesString ?? string.Empty;
+                }
+                return SelectedQueueItems.Count > 1 ? "<Varies>" : string.Empty;
+            }
+            set
+            {
+                if (SelectedQueueItems.Count == 1 && SelectedElement != null)
+                {
+                    SelectedElement.AliasesString = value;
+                    OnPropertyChanged(nameof(SelectedAliasesString));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets or sets the name of the selected item in the queue.
+        /// </summary>
+        public string SelectedItemName
+        {
+            get
+            {
+                if (SelectedQueueItems.Count == 1)
+                {
+                    return SelectedQueueItems[0].Name;
+                }
+                return SelectedQueueItems.Count > 1 ? "<Varies>" : string.Empty;
+            }
+            set
+            {
+                if (SelectedQueueItems.Count == 1 && SelectedQueueItems[0].Name != value)
+                {
+                    string oldName = SelectedQueueItems[0].Name;
+                    _parent.ReplaceReferences(SelectedQueueItems[0].TargetModel, oldName, value);
+
+                    if (SelectedQueueItems[0].TargetModel is ElementModel el)
+                    {
+                        el.Name = value;
+                    }
+                    
+                    SelectedQueueItems[0].IsEdited = true;
+                    SelectedQueueItems[0].ErrorMessage = null;
+                    SelectedQueueItems[0].RaisePropertyChanged(nameof(QueueItemModel.Name));
+                    SelectedQueueItems[0].RaisePropertyChanged(nameof(QueueItemModel.Model));
+                    
+                    RefreshUIState(false);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets the error message of the currently selected queue item if it has an error.
+        /// </summary>
+        public string? SelectedItemErrorMessage
+        {
+            get
+            {
+                if (SelectedQueueItems.Count == 1)
+                {
+                    return SelectedQueueItems[0].ErrorMessage;
+                }
+                return null;
+            }
+        }
+
+        public StagingQueueViewModel(IProjectStandardsDashboard parent, IPocoIdentityService pocoIdentityService, IDiffEngine<IEnumerable<ObjectModel>, Document> diffEngine)
+        {
+            _parent = parent ?? throw new ArgumentNullException(nameof(parent));
+            _pocoIdentityService = pocoIdentityService ?? throw new ArgumentNullException(nameof(pocoIdentityService));
+            _diffEngine = diffEngine ?? throw new ArgumentNullException(nameof(diffEngine));
+
+            StagingQueueView = CollectionViewSource.GetDefaultView(StagingQueue);
+            StagingQueueView.GroupDescriptions.Add(new PropertyGroupDescription(nameof(QueueItemModel.ClassName)));
+
+            PushToQueueCommand = new RelayCommand(ExecutePushToQueue, CanExecuteActions);
+            RemoveFromQueueCommand = new RelayCommand(ExecuteRemoveFromQueue, CanExecuteRemove);
+            MergeQueueCommand = new RelayCommand(ExecuteMergeQueue, CanExecuteMergeQueue);
+            EditCommand = new RelayCommand(ExecuteEdit, CanExecuteQueueActions);
+            DiffCommand = new RelayCommand(ExecuteDiff, CanExecuteQueueActions);
+            BatchFindReplaceCommand = new RelayCommand(ExecuteBatchFindReplace, CanExecuteQueueActions);
+            ApplyEditsCommand = new RelayCommand(ExecuteApplyEdits, CanExecuteQueueActions);
+            CancelEditsCommand = new RelayCommand(ExecuteCancelEdits);
+            ResolveConflictCommand = new RelayCommand(ExecuteResolveConflict, CanExecuteQueueActions);
+        }
+
+        private bool CanExecuteActions(object parameter) => _parent.SelectedSource != null;
+        private bool CanExecuteQueueActions(object parameter) => StagingQueue.Count > 0;
+
+        private void ExecutePushToQueue(object parameter)
+        {
+            bool willEnforce = true;
+            bool willSave = false;
+
+            string action = parameter?.ToString() ?? "Enforce";
+            if (action.Equals("Save", StringComparison.OrdinalIgnoreCase))
+            {
+                willEnforce = false;
+                willSave = true;
+            }
+            else if (action.Equals("SaveAndEnforce", StringComparison.OrdinalIgnoreCase) || action.Equals("Save & Enforce", StringComparison.OrdinalIgnoreCase))
+            {
+                willEnforce = true;
+                willSave = true;
+            }
+            else // Default or "Enforce"
+            {
+                willEnforce = true;
+                willSave = false;
+            }
+
+            var checkedItems = _parent.GetCheckedElements();
+            if (checkedItems == null || checkedItems.Count == 0) return;
+
+            // 1. Flatten SelectedSource.SourceHierarchy to build sourceElements list
+            var sourceElements = new List<ElementModel>();
+            if (_parent.SelectedSource != null)
+            {
+                foreach (var node in _parent.SelectedSource.SourceHierarchy)
+                {
+                    _parent.GetElementModelsFromHierarchy(node, sourceElements);
+                }
+            }
+
+            // 2. Track already staged keys in StagingQueue to prevent duplicates
+            var existingKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var item in StagingQueue)
+            {
+                if (item.Model is ElementModel elem)
+                {
+                    if (!string.IsNullOrEmpty(elem.UniqueId))
+                    {
+                        existingKeys.Add(elem.UniqueId);
+                    }
+                    existingKeys.Add($"{elem.Class}|{elem.Name}");
+                }
+            }
+
+            // A queue of newly staged items to scan recursively
+            var stagingQueue = new Queue<QueueItemModel>();
+
+            // First, stage explicitly checked items
+            foreach (var item in checkedItems)
+            {
+                if (item.Element == null) continue;
+
+                string key = !string.IsNullOrEmpty(item.Element.UniqueId) 
+                    ? item.Element.UniqueId 
+                    : $"{item.Element.Class}|{item.Element.Name}";
+
+                if (!existingKeys.Contains(key))
+                {
+                    var clonedPoco = item.Element.DeepClone();
+                    if (clonedPoco != null)
+                    {
+                        var queueItem = new QueueItemModel(clonedPoco, willEnforce, willSave);
+                        StagingQueue.Add(queueItem);
+                        
+                        if (!string.IsNullOrEmpty(item.Element.UniqueId))
+                        {
+                            existingKeys.Add(item.Element.UniqueId);
+                        }
+                        existingKeys.Add($"{item.Element.Class}|{item.Element.Name}");
+                        
+                        stagingQueue.Enqueue(queueItem);
+                    }
+                }
+            }
+
+            // Recursively stage dependencies
+            while (stagingQueue.Count > 0)
+            {
+                var stagedItem = stagingQueue.Dequeue();
+
+                // Scan the staged item's model for dependencies
+                var dependencies = RevitDomDependencyScanner.Scan(stagedItem.Model);
+
+                foreach (var dep in dependencies)
+                {
+                    if (dep == null) continue;
+
+                    // Resolve the dependency using the 5-step fallback PocoIdentityService
+                    var sourcePoco = _pocoIdentityService.ResolveElement(dep, sourceElements);
+                    if (sourcePoco != null)
+                    {
+                        string depKey = !string.IsNullOrEmpty(sourcePoco.UniqueId) 
+                            ? sourcePoco.UniqueId 
+                            : $"{sourcePoco.Class}|{sourcePoco.Name}";
+
+                        if (!existingKeys.Contains(depKey))
+                        {
+                            var clonedDep = sourcePoco.DeepClone();
+                            if (clonedDep != null)
+                            {
+                                string parentName = string.Empty;
+                                if (stagedItem.Model is ElementModel em)
+                                {
+                                    parentName = em.Name;
+                                }
+
+                                clonedDep.DependencyOrigin = parentName;
+
+                                var queueItem = new QueueItemModel(clonedDep, willEnforce, willSave);
+                                queueItem.DependencyOrigin = parentName;
+                                StagingQueue.Add(queueItem);
+
+                                if (!string.IsNullOrEmpty(sourcePoco.UniqueId))
+                                {
+                                    existingKeys.Add(sourcePoco.UniqueId);
+                                }
+                                existingKeys.Add($"{sourcePoco.Class}|{sourcePoco.Name}");
+
+                                stagingQueue.Enqueue(queueItem);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        private bool CanExecuteRemove(object parameter)
+        {
+            if (parameter is System.Collections.IList list)
+            {
+                return list.Count > 0;
+            }
+            return false;
+        }
+
+        private void ExecuteRemoveFromQueue(object parameter)
+        {
+            if (parameter is System.Collections.IList list)
+            {
+                var itemsToRemove = list.Cast<QueueItemModel>().ToList();
+                foreach (var item in itemsToRemove)
+                {
+                    StagingQueue.Remove(item);
+                }
+            }
+        }
+
+        private bool CanExecuteMergeQueue(object parameter)
+        {
+            if (parameter is System.Collections.IList list && list.Count >= 2)
+            {
+                var items = list.Cast<QueueItemModel>().ToList();
+                
+                // Block merge if any selected item is a root/built-in category (CategoryModel with ParentCategoryName null/empty)
+                if (items.Any(e => e.Model is CategoryModel cat && string.IsNullOrEmpty(cat.ParentCategoryName)))
+                {
+                    return false;
+                }
+
+                string firstCategory = items[0].Category;
+                string firstClass = items[0].ClassName;
+
+                return items.All(e => string.Equals(e.Category, firstCategory, StringComparison.OrdinalIgnoreCase) &&
+                                     string.Equals(e.ClassName, firstClass, StringComparison.OrdinalIgnoreCase));
+            }
+            return false;
+        }
+
+        private void ExecuteMergeQueue(object parameter)
+        {
+            if (parameter is System.Collections.IList list && CanExecuteMergeQueue(parameter))
+            {
+                var selectedItems = list.Cast<QueueItemModel>().ToList();
+                var vm = new Synthetic.Shared.UI.SingleItemSelectionViewModel<QueueItemModel>(
+                    selectedItems,
+                    "Select the primary survivor element. The other selected elements will be deleted, and their names will be appended to the survivor's Aliases list.",
+                    q => q.Name)
+                {
+                    Title = "Consolidate Element Types"
+                };
+
+                bool? dialogResult = _parent.ShowMergeDialog?.Invoke(vm);
+                if (dialogResult == true)
+                {
+                    var primaryItem = vm.SelectedItem;
+                    if (primaryItem == null) return;
+
+                    var nonPrimaries = selectedItems.Where(q => q != primaryItem).ToList();
+
+                    if (primaryItem.Model is ElementModel primaryElementModel)
+                    {
+                        var currentAliases = primaryElementModel.Aliases ?? new List<string>();
+                        var aliasesList = new List<string>(currentAliases);
+
+                        foreach (var np in nonPrimaries)
+                        {
+                            if (!aliasesList.Contains(np.Name, StringComparer.OrdinalIgnoreCase))
+                            {
+                                aliasesList.Add(np.Name);
+                            }
+
+                            if (np.Model is ElementModel npElementModel && npElementModel.Aliases != null)
+                            {
+                                foreach (var npAlias in npElementModel.Aliases)
+                                {
+                                    if (!aliasesList.Contains(npAlias, StringComparer.OrdinalIgnoreCase))
+                                    {
+                                        aliasesList.Add(npAlias);
+                                    }
+                                }
+                            }
+                        }
+
+                        // Update the primary's Aliases property
+                        primaryElementModel.Aliases = aliasesList;
+                        primaryItem.IsEdited = true;
+
+                        // Merge execution actions (WillEnforce, WillSave)
+                        foreach (var np in nonPrimaries)
+                        {
+                            if (np.WillEnforce)
+                            {
+                                primaryItem.WillEnforce = true;
+                            }
+                            if (np.WillSave)
+                            {
+                                primaryItem.WillSave = true;
+                            }
+                        }
+
+                        primaryItem.RaisePropertyChanged(nameof(QueueItemModel.Model));
+
+                        // Scan all other elements in the Staging Queue and replace references!
+                        _parent.ReplaceQueueReferences(nonPrimaries, primaryItem.Name);
+
+                        // Purge consumed items
+                        foreach (var np in nonPrimaries)
+                        {
+                            StagingQueue.Remove(np);
+                        }
+
+                        // Reset workspace back to idle post-merge to prevent ghost references
+                        _parent.ActiveWorkspace = WorkspaceMode.Idle;
+                    }
+                }
+            }
+        }
+
+        private void ExecuteEdit(object parameter)
+        {
+            if (parameter is System.Collections.IList list)
+            {
+                SelectedQueueItems.Clear();
+                foreach (var item in list.Cast<QueueItemModel>())
+                {
+                    SelectedQueueItems.Add(item);
+                }
+
+                _originalIntents.Clear();
+                foreach (var item in SelectedQueueItems)
+                {
+                    _originalIntents[item] = new QueueItemStateBackup
+                    {
+                        WillEnforce = item.WillEnforce,
+                        WillSave = item.WillSave,
+                        IsEdited = item.IsEdited,
+                        IsDiffed = item.IsDiffed
+                    };
+                }
+
+                RefreshUIState(false);
+            }
+            _parent.ActiveWorkspace = WorkspaceMode.Edit;
+        }
+
+        private void ExecuteDiff(object parameter)
+        {
+            if (parameter is System.Collections.IList list)
+            {
+                SelectedQueueItems.Clear();
+                foreach (var item in list.Cast<QueueItemModel>())
+                {
+                    SelectedQueueItems.Add(item);
+                }
+
+                if (_parent.Document != null)
+                {
+                    try
+                    {
+                        var elementPocos = SelectedQueueItems.Select(q => q.Model).OfType<ElementModel>().ToList();
+                        var clusters = _diffEngine.Compare(elementPocos, _parent.Document);
+
+                        ActiveDiffClusters.Clear();
+                        foreach (var cluster in clusters)
+                        {
+                            ActiveDiffClusters.Add(cluster);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Diff scan execution skipped or failed: {ex.Message}");
+                    }
+                }
+
+                _parent.ActiveWorkspace = WorkspaceMode.Diff;
+            }
+        }
+
+        private void ExecuteResolveConflict(object parameter)
+        {
+            foreach (var cluster in ActiveDiffClusters)
+            {
+                foreach (var mapping in cluster.TypeMappings)
+                {
+                    var targetName = mapping.TargetType?.Name;
+                    var queueItem = SelectedQueueItems.FirstOrDefault(q => q.Name == targetName);
+                    if (queueItem != null && queueItem.Model is ElementModel element)
+                    {
+                        foreach (var row in mapping.ParameterResolutions)
+                        {
+                            if (row.IsSourceWinning && row.Options != null && row.Options.Count > 0)
+                            {
+                                var param = element.Parameters?.FirstOrDefault(p => p.Name == row.ParameterName);
+                                if (param != null)
+                                {
+                                    param.Value = row.Options[0].DisplayText;
+                                }
+                            }
+                        }
+                        queueItem.IsDiffed = true;
+                    }
+                }
+            }
+
+            _parent.ActiveWorkspace = WorkspaceMode.Idle;
+            ActiveDiffClusters.Clear();
+        }
+
+        private void ExecuteBatchFindReplace(object parameter)
+        {
+            if (string.IsNullOrEmpty(FindText)) return;
+
+            string findText = FindText;
+            string replaceText = ReplaceText ?? string.Empty;
+            var scope = FindReplaceScope;
+            
+            bool searchNames = scope == SearchScope.ElementNames || scope == SearchScope.Both;
+            bool searchParams = scope == SearchScope.ParameterValues || scope == SearchScope.Both;
+
+            var elements = SelectedQueueItems.Select(q => q.Model).OfType<ElementModel>().ToList();
+            var modifiedElements = _parent.FindReplaceService.Execute(elements, findText, replaceText, searchNames, searchParams);
+
+            foreach (var item in SelectedQueueItems)
+            {
+                if (item.Model is ElementModel el && modifiedElements.Contains(el))
+                {
+                    item.IsEdited = true;
+                    item.RaisePropertyChanged(nameof(QueueItemModel.Name));
+                    item.RaisePropertyChanged(nameof(QueueItemModel.Model));
+                }
+            }
+
+            RefreshUIState(false);
+            StagingQueueView?.Refresh();
+        }
+
+        private void ExecuteApplyEdits(object parameter)
+        {
+            foreach (var item in SelectedQueueItems)
+            {
+                item.IsEdited = true;
+            }
+            RefreshUIState(true);
+            _parent.ActiveWorkspace = WorkspaceMode.Idle;
+        }
+
+        private void ExecuteCancelEdits(object parameter)
+        {
+            foreach (var item in SelectedQueueItems)
+            {
+                item.Revert();
+                if (_originalIntents.TryGetValue(item, out var backup))
+                {
+                    item.WillEnforce = backup.WillEnforce;
+                    item.WillSave = backup.WillSave;
+                    item.IsEdited = backup.IsEdited;
+                    item.IsDiffed = backup.IsDiffed;
+                }
+            }
+            RefreshUIState(true);
+            _parent.ActiveWorkspace = WorkspaceMode.Idle;
+        }
+
+        private void RefreshUIState(bool clearWrappers = false)
+        {
+            if (clearWrappers)
+            {
+                _activeWrappers.Clear();
+                foreach (var param in DisplayParameters)
+                {
+                    param.PropertyChanged -= DisplayParam_PropertyChanged;
+                }
+                DisplayParameters.Clear();
+            }
+            else
+            {
+                _activeWrappers = SelectedQueueItems.Select(q => q.GetWrapper()).ToList();
+            }
+
+            OnPropertyChanged(nameof(SelectedElement));
+            UpdateSelectedElementSubscription();
+            RaiseIdentityHeaderStateChanged();
+
+            if (!clearWrappers)
+            {
+                CalculateParameterIntersection();
+            }
+
+            OnPropertyChanged(nameof(SelectedItemName));
+            OnPropertyChanged(nameof(SelectedItemErrorMessage));
+        }
+
+        private void UpdateSelectedElementSubscription()
+        {
+            if (_subscribedWrapper != null)
+            {
+                _subscribedWrapper.PropertyChanged -= SelectedElementWrapper_PropertyChanged;
+            }
+
+            _subscribedWrapper = SelectedElement;
+
+            if (_subscribedWrapper != null)
+            {
+                _subscribedWrapper.PropertyChanged += SelectedElementWrapper_PropertyChanged;
+                _lastSelectedName = _subscribedWrapper.Name;
+            }
+            else
+            {
+                _lastSelectedName = string.Empty;
+            }
+        }
+
+        private void SelectedElementWrapper_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (sender is ElementTypeWrapperVM wrapper && wrapper == _subscribedWrapper)
+            {
+                var queueItem = SelectedQueueItems.FirstOrDefault(q => q.Model == wrapper.GetUpdatedModel());
+                if (queueItem != null)
+                {
+                    if (e.PropertyName == nameof(ElementTypeWrapperVM.Name))
+                    {
+                        string oldName = _lastSelectedName;
+                        string newName = wrapper.Name;
+                        if (oldName != newName)
+                        {
+                            _parent.ReplaceReferences(queueItem.TargetModel, oldName, newName);
+                            _lastSelectedName = newName;
+                            
+                            queueItem.IsEdited = true;
+                            queueItem.ErrorMessage = null;
+                            queueItem.RaisePropertyChanged(nameof(QueueItemModel.Name));
+                            queueItem.RaisePropertyChanged(nameof(QueueItemModel.Model));
+                            
+                            OnPropertyChanged(nameof(SelectedItemName));
+                            OnPropertyChanged(nameof(SelectedNameOrCount));
+                        }
+                    }
+                    else if (e.PropertyName == nameof(ElementTypeWrapperVM.AliasesString))
+                    {
+                        queueItem.IsEdited = true;
+                        queueItem.ErrorMessage = null;
+                        queueItem.RaisePropertyChanged(nameof(QueueItemModel.Model));
+                        OnPropertyChanged(nameof(SelectedAliasesString));
+                    }
+                }
+            }
+        }
+
+        private void RaiseIdentityHeaderStateChanged()
+        {
+            OnPropertyChanged(nameof(IsSingleElementSelected));
+            OnPropertyChanged(nameof(SelectedNameOrCount));
+            OnPropertyChanged(nameof(SelectedDisplayClass));
+            OnPropertyChanged(nameof(SelectedAliasesString));
+        }
+
+        private void CalculateParameterIntersection()
+        {
+            foreach (var param in DisplayParameters)
+            {
+                param.PropertyChanged -= DisplayParam_PropertyChanged;
+            }
+            DisplayParameters.Clear();
+
+            if (SelectedQueueItems.Count == 0 || _activeWrappers.Count == 0)
+            {
+                return;
+            }
+
+            if (_activeWrappers.Count == 1)
+            {
+                foreach (var param in _activeWrappers[0].Parameters)
+                {
+                    param.PropertyChanged += DisplayParam_PropertyChanged;
+                    DisplayParameters.Add(param);
+                }
+                return;
+            }
+
+            // Multiple elements selected: compute parameter intersection matching Name and StorageType
+            var firstElement = _activeWrappers[0];
+            var commonParams = firstElement.Parameters
+                .Select(p => new { p.Name, p.StorageType })
+                .ToList();
+
+            for (int i = 1; i < _activeWrappers.Count; i++)
+            {
+                var currentElement = _activeWrappers[i];
+                commonParams = commonParams
+                    .Intersect(currentElement.Parameters.Select(p => new { p.Name, p.StorageType }))
+                    .ToList();
+            }
+
+            // Create display wrappers representing the intersection states
+            foreach (var common in commonParams)
+            {
+                var matchingParams = _activeWrappers
+                    .Select(w => w.Parameters.First(p => p.Name == common.Name))
+                    .ToList();
+
+                string firstVal = matchingParams[0].Value;
+                bool isMixed = matchingParams.Any(p => p.Value != firstVal || p.IsMixedValue);
+                bool isReadOnly = matchingParams.Any(p => p.IsReadOnly);
+                
+                string? guid = matchingParams[0].GUID;
+                long id = matchingParams[0].Id;
+                bool isShared = matchingParams[0].IsShared;
+
+                // Create dummy ParameterModel representing the intersection
+                var dummyModel = new ParameterModel(
+                    common.Name,
+                    isMixed ? "<Varies>" : firstVal,
+                    null, // ValueElemId matched simple
+                    common.StorageType,
+                    (int)id,
+                    guid,
+                    isShared,
+                    isReadOnly
+                );
+
+                var displayParam = new ParameterWrapperVM(dummyModel, matchingParams[0].GetModel() != null ? _activeWrappers[0].GetUpdatedModel() : null);
+                if (isMixed)
+                {
+                    displayParam.IsMixedValue = true;
+                }
+
+                displayParam.PropertyChanged += DisplayParam_PropertyChanged;
+                DisplayParameters.Add(displayParam);
+            }
+        }
+
+        private void DisplayParam_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(ParameterWrapperVM.Value) || e.PropertyName == nameof(ParameterWrapperVM.IsMixedValue))
+            {
+                if (sender is ParameterWrapperVM displayParam)
+                {
+                    string newValue = displayParam.Value;
+                    string paramName = displayParam.Name;
+
+                    // Propagate modified parameter value to all selected elements in editing wrappers
+                    foreach (var wrapper in _activeWrappers)
+                    {
+                        var targetParam = wrapper.Parameters.FirstOrDefault(p => p.Name == paramName);
+                        if (targetParam != null && !targetParam.IsReadOnly)
+                        {
+                            string oldVal = targetParam.Value;
+                            targetParam.Value = newValue;
+                            targetParam.IsMixedValue = false;
+
+                            // Cascading element ID updates for swapped values (like Pattern, Material, etc.)
+                            if (paramName.EndsWith("Id") && oldVal != newValue)
+                            {
+                                string oldName = oldVal;
+                                _parent.ReplaceReferences(wrapper.GetUpdatedModel(), oldName, newValue);
+                            }
+                        }
+                    }
+
+                    // Update UI state
+                    displayParam.IsMixedValue = false;
+                    foreach (var item in SelectedQueueItems)
+                    {
+                        item.IsEdited = true;
+                        item.ErrorMessage = null;
+                    }
+                    OnPropertyChanged(nameof(SelectedItemErrorMessage));
+                }
+            }
+        }
+    }
+}
+```
+
 ### File: StandardsManagement/ViewModels/StandardClassModel.cs
 ```csharp
 using System;
@@ -7286,6 +7290,425 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
 }
 ```
 
+### File: StandardsManagement/ViewModels/StandardsExecutionPipelineViewModel.cs
+```csharp
+﻿using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.IO;
+using System.Linq;
+using System.Windows.Input;
+using Autodesk.Revit.DB;
+using Autodesk.Revit.UI;
+using Synthetic.Modules.RevitDOM;
+using Synthetic.Modules.StandardsManagement.Engine;
+using Synthetic.Modules.StandardsManagement.Models;
+using Synthetic.Modules.StandardsManagement.Utilities;
+using Synthetic.Shared.UI;
+using Synthetic.Infrastructure.Persistence;
+using Synthetic.Core;
+using Synthetic.Settings;
+
+namespace Synthetic.Modules.StandardsManagement.ViewModels
+{
+    /// <summary>
+    /// ViewModel that manages the options configuration and final save/enforce execution workflow.
+    /// </summary>
+    public class StandardsExecutionPipelineViewModel : ViewModelBase
+    {
+        private readonly ProjectStandardsDashboardViewModel _parent;
+        private readonly IFileDialogService _dialogService;
+        private readonly IStandardsExecutionPipeline _pipeline;
+
+        private bool _updateFamilies = false;
+        private bool _processNestedRecursive = false;
+        private bool _purgeUnusedStyleTypes = false;
+        private string _categoryFilter = "All Categories";
+        private string? _saveFilePath;
+
+        /// <summary>
+        /// Gets or sets whether to update loaded families during queue execution.
+        /// </summary>
+        public bool UpdateFamilies
+        {
+            get => _updateFamilies;
+            set => SetProperty(ref _updateFamilies, value);
+        }
+
+        /// <summary>
+        /// Gets or sets whether to process nested families recursively.
+        /// </summary>
+        public bool ProcessNestedRecursive
+        {
+            get => _processNestedRecursive;
+            set => SetProperty(ref _processNestedRecursive, value);
+        }
+
+        /// <summary>
+        /// Gets or sets whether to purge unused style types in family documents.
+        /// </summary>
+        public bool PurgeUnusedStyleTypes
+        {
+            get => _purgeUnusedStyleTypes;
+            set => SetProperty(ref _purgeUnusedStyleTypes, value);
+        }
+
+        /// <summary>
+        /// Gets or sets the category filter for family updates.
+        /// </summary>
+        public string CategoryFilter
+        {
+            get => _categoryFilter;
+            set => SetProperty(ref _categoryFilter, value);
+        }
+
+        /// <summary>
+        /// Gets the list of available category filters.
+        /// </summary>
+        public List<string> AvailableCategoryFilters { get; } = new List<string>
+        {
+            "All Categories",
+            "Annotations Only",
+            "Title Blocks Only"
+        };
+
+        /// <summary>
+        /// Gets or sets the target file path for save actions.
+        /// </summary>
+        public string? SaveFilePath
+        {
+            get => _saveFilePath;
+            set
+            {
+                if (SetProperty(ref _saveFilePath, value))
+                {
+                    OnPropertyChanged(nameof(IsSavePathActive));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets whether the save path panel should be active/visible in the UI.
+        /// </summary>
+        public bool IsSavePathActive => _parent.StagingQueue.Any(item => item.WillSave);
+
+        public ICommand EnforceCommand { get; }
+        public ICommand SaveCommand { get; }
+        public ICommand SaveAndEnforceCommand { get; }
+        public ICommand BrowseSavePathCommand { get; }
+        public ICommand RunQueueCommand { get; }
+
+        public StandardsExecutionPipelineViewModel(ProjectStandardsDashboardViewModel parent, IStandardsExecutionPipeline pipeline)
+        {
+            _parent = parent ?? throw new ArgumentNullException(nameof(parent));
+            _dialogService = parent.DialogService;
+            _pipeline = pipeline ?? throw new ArgumentNullException(nameof(pipeline));
+
+            EnforceCommand = new RelayCommand(ExecuteEnforce, CanExecuteActions);
+            SaveCommand = new RelayCommand(ExecuteSave, CanExecuteActions);
+            SaveAndEnforceCommand = new RelayCommand(ExecuteSaveAndEnforce, CanExecuteActions);
+            BrowseSavePathCommand = new RelayCommand(ExecuteBrowseSavePath);
+            RunQueueCommand = new RelayCommand(ExecuteRunQueue, CanExecuteQueueActions);
+
+            _parent.StagingQueueViewModel.StagingQueue.CollectionChanged += (s, e) =>
+            {
+                OnPropertyChanged(nameof(IsSavePathActive));
+            };
+        }
+
+        private bool CanExecuteActions(object parameter) => _parent.SelectedSource != null;
+        private bool CanExecuteQueueActions(object parameter) => _parent.StagingQueue.Count > 0;
+
+        private void ExecuteEnforce(object parameter)
+        {
+            // Placeholder: out of scope for this slice
+        }
+
+        private void ExecuteSave(object parameter)
+        {
+            // Placeholder: out of scope for this slice
+        }
+
+        private void ExecuteSaveAndEnforce(object parameter)
+        {
+            // Placeholder: out of scope for this slice
+        }
+
+        private void ExecuteBrowseSavePath(object parameter)
+        {
+            string? defaultFileName = "ProjectStandards.json";
+            if (!string.IsNullOrEmpty(SaveFilePath))
+            {
+                defaultFileName = System.IO.Path.GetFileName(SaveFilePath);
+            }
+            string? newPath = _dialogService.SaveFileDialog("JSON Files (*.json)|*.json", "Save Standards JSON File", defaultFileName);
+            if (!string.IsNullOrEmpty(newPath))
+            {
+                SaveFilePath = newPath;
+            }
+        }
+
+        private void ExecuteRunQueue(object parameter)
+        {
+            if (_parent.ExternalEvent != null)
+            {
+                _parent.ExternalEvent.Raise();
+            }
+            else
+            {
+                RunQueueInternal();
+            }
+        }
+
+        public void RunQueueInternal()
+        {
+            if (_parent.Document == null) return;
+
+            _parent.LastExecutionResults.Clear();
+
+            // Map staging queue items
+            var pipelineItems = _parent.StagingQueue.Select(item => new StandardsExecutionItem(item.Model)
+            {
+                WillEnforce = item.WillEnforce,
+                WillSave = item.WillSave
+            }).ToList();
+
+            // Determine target path
+            string? targetPath = null;
+            if (!string.IsNullOrEmpty(SaveFilePath))
+            {
+                targetPath = SaveFilePath;
+            }
+            else if (_parent.SelectedSource != null && !_parent.SelectedSource.IsRevitSource && !string.IsNullOrEmpty(_parent.SelectedSource.SourcePath))
+            {
+                targetPath = _parent.SelectedSource.SourcePath;
+            }
+            else
+            {
+                string? projectSettingsPath = GetProjectSettingsPath();
+                if (!string.IsNullOrEmpty(projectSettingsPath))
+                {
+                    targetPath = projectSettingsPath;
+                }
+            }
+
+            // Initialize options
+            var options = new StandardsExecutionOptions
+            {
+                ProcessFamilies = UpdateFamilies,
+                CategoryFilter = CategoryFilter,
+                PurgeUnusedStyleTypes = PurgeUnusedStyleTypes,
+                StandardsFilePath = targetPath ?? string.Empty,
+                WriteRevitDatabase = _parent.StagingQueue.Any(i => i.WillEnforce),
+                SaveLocalFiles = _parent.StagingQueue.Any(i => i.WillSave),
+                UseTransactionGroup = true,
+                ProtectedPaths = GetProtectedPaths().ToList()
+            };
+
+            // Invoke the pipeline
+            var progressReporter = ProgressCoordinator.AsProgressReporter();
+            var result = _pipeline.Execute(_parent.Document, pipelineItems, options, progressReporter, ProgressCoordinator.Token);
+
+            // Populate LastExecutionResults
+            _parent.LastExecutionResults.AddRange(result.RawResults);
+
+            // Build summary tracker log items from LastExecutionResults
+            var tracker = new ObservableCollection<ImportLogItem>();
+            foreach (var res in _parent.LastExecutionResults)
+            {
+                var model = res.Model;
+                string action = "Updated";
+                if (!res.Success)
+                {
+                    if (res.Action == "Alias Swap Failed")
+                    {
+                        action = "Alias Fail";
+                    }
+                    else
+                    {
+                        action = res.OperationTarget == "File" ? "Save Failed" : "Failed";
+                    }
+                }
+                else
+                {
+                    if (!string.IsNullOrEmpty(res.Action))
+                    {
+                        action = res.Action;
+                    }
+                    else if (res.OperationTarget == "File")
+                    {
+                        action = "Saved";
+                    }
+                    else
+                    {
+                        // Find the enqueued item to determine if it was Enforced/Saved
+                        var queueItem = _parent.StagingQueue.FirstOrDefault(qi => qi.Model == model);
+                        if (queueItem != null && queueItem.WillEnforce)
+                        {
+                            action = "Created";
+                        }
+                        else
+                        {
+                            action = "Updated";
+                        }
+                    }
+                }
+
+                string name = (model is ElementModel em) ? (em.Name ?? "Unnamed") : model.GetType().Name;
+                string className = (model is ElementModel emClass) ? (emClass.Class ?? "Unknown") : model.GetType().Name;
+                if (className.Contains("."))
+                {
+                    className = className.Split('.').Last();
+                }
+
+                string message = res.Success ? "Operation completed successfully." : (res.ErrorMessage ?? "Unknown error occurred.");
+                if (!string.IsNullOrEmpty(res.Message))
+                {
+                    message = res.Message;
+                }
+                if (res.Warnings != null && res.Warnings.Count > 0)
+                {
+                    message += " Warnings: " + string.Join(", ", res.Warnings);
+                }
+
+                tracker.Add(new ImportLogItem
+                {
+                    Action = action,
+                    Class = className,
+                    ElementName = name,
+                    Message = message
+                });
+            }
+
+            Action updateUI = () =>
+            {
+                // Display the summary dialog modal
+                if (tracker.Count > 0 && _parent.SummaryDisplayService != null)
+                {
+                    var summaryVM = new ImportSummaryViewModel(tracker, _dialogService);
+                    IntPtr parentHandle = _parent.UIApplication != null ? _parent.UIApplication.MainWindowHandle : IntPtr.Zero;
+                    _parent.SummaryDisplayService.ShowSummary(summaryVM, parentHandle);
+                }
+
+                // Systematic queue purging and error message hydration
+                var successfulItems = new List<QueueItemModel>();
+                foreach (var item in _parent.StagingQueue.ToList())
+                {
+                    var resultsForItem = _parent.LastExecutionResults.Where(r => r.Model == item.Model).ToList();
+                    if (resultsForItem.Count > 0 && resultsForItem.All(r => r.Success))
+                    {
+                        successfulItems.Add(item);
+                    }
+                    else
+                    {
+                        var failedResult = resultsForItem.FirstOrDefault(r => !r.Success);
+                        if (failedResult != null)
+                        {
+                            item.ErrorMessage = failedResult.ErrorMessage ?? "Execution failed.";
+                        }
+                        else
+                        {
+                            item.ErrorMessage = "Execution was not completed.";
+                        }
+                    }
+                }
+
+                foreach (var item in successfulItems)
+                {
+                    _parent.StagingQueue.Remove(item);
+                }
+
+                _parent.ActiveWorkspace = WorkspaceMode.Idle;
+            };
+
+            if (System.Windows.Application.Current != null)
+            {
+                System.Windows.Application.Current.Dispatcher.Invoke(updateUI);
+            }
+            else
+            {
+                updateUI();
+            }
+        }
+
+        private HashSet<string> GetProtectedPaths()
+        {
+            var protectedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            string? projectSettingsPath = GetProjectSettingsPath();
+            if (!string.IsNullOrEmpty(projectSettingsPath))
+            {
+                protectedPaths.Add(Path.GetFullPath(projectSettingsPath));
+            }
+
+            try
+            {
+                string? appSettingsPath = GetAppConfiguredPath();
+                if (!string.IsNullOrEmpty(appSettingsPath))
+                {
+                    protectedPaths.Add(Path.GetFullPath(appSettingsPath));
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"App configurations retrieval JIT compilation skipped: {ex.Message}");
+            }
+
+            try
+            {
+                string defaultPath = Path.Combine(Config.addinPath, "SyntheticSettings.json");
+                if (File.Exists(defaultPath))
+                {
+                    Config? defaultConfig = Config.ReadFromFile(defaultPath);
+                    if (defaultConfig != null && defaultConfig.Contains(StandardsSettings.Name))
+                    {
+                        var appSettings = defaultConfig.GetSettings<StandardsSettings>(StandardsSettings.Name);
+                        if (appSettings != null && !string.IsNullOrEmpty(appSettings.StandardsFilePath))
+                        {
+                            protectedPaths.Add(Path.GetFullPath(appSettings.StandardsFilePath));
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            return protectedPaths;
+        }
+
+        private string? GetProjectSettingsPath()
+        {
+            if (_parent.Settings != null)
+            {
+                return _parent.Settings.StandardsFilePath;
+            }
+            if (_parent.Document == null) return null;
+            try
+            {
+                var settings = SettingsManager.Get<StandardsSettings>(_parent.Document);
+                return settings?.StandardsFilePath;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Settings retrieval skipped or failed: {ex.Message}");
+                return null;
+            }
+        }
+
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private string? GetAppConfiguredPath()
+        {
+            var appConfig = App.Configurations?.GetAppConfig();
+            if (appConfig != null && appConfig.Contains(StandardsSettings.Name))
+            {
+                var appSettings = appConfig.GetSettings<StandardsSettings>(StandardsSettings.Name);
+                return appSettings?.StandardsFilePath;
+            }
+            return null;
+        }
+    }
+}
+```
+
 ### File: StandardsManagement/ViewModels/StandardsReviewViewModel.cs
 ```csharp
 using System;
@@ -7530,6 +7953,578 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
 }
 ```
 
+### File: StandardsManagement/ViewModels/StandardsSourceTreeViewModel.cs
+```csharp
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.IO;
+using System.Linq;
+using System.Windows.Input;
+using Autodesk.Revit.DB;
+using Autodesk.Revit.UI;
+using Synthetic.Core;
+using Synthetic.Shared.UI;
+using Synthetic.Modules.StandardsManagement.Utilities;
+using Synthetic.Modules.StandardsManagement.Models;
+using Synthetic.Modules.StandardsManagement.Engine;
+using Synthetic.Modules.RevitDOM;
+
+namespace Synthetic.Modules.StandardsManagement.ViewModels
+{
+    /// <summary>
+    /// ViewModel that manages the standard source tabs, tree hierarchies, search filtering, and document extraction.
+    /// </summary>
+    public class StandardsSourceTreeViewModel : ViewModelBase
+    {
+        private readonly ProjectStandardsDashboardViewModel _parent;
+        private readonly UIApplication? _uiapp;
+        private readonly Document? _doc;
+        private readonly IFileDialogService _dialogService;
+        private readonly IStandardsExtractionOrchestrator _orchestrator;
+        private readonly IStandardSerializationEngine _serializationEngine;
+
+        private ObservableCollection<ProjectStandardsSourceViewModel> _availableSources = new ObservableCollection<ProjectStandardsSourceViewModel>();
+        private ProjectStandardsSourceViewModel? _selectedSource;
+        private string _searchText = string.Empty;
+
+        /// <summary>
+        /// Gets or sets the collection of loaded standard sources (tabs).
+        /// </summary>
+        public ObservableCollection<ProjectStandardsSourceViewModel> AvailableSources
+        {
+            get => _availableSources;
+            set => SetProperty(ref _availableSources, value);
+        }
+
+        /// <summary>
+        /// Gets or sets the currently active source tab.
+        /// </summary>
+        public ProjectStandardsSourceViewModel? SelectedSource
+        {
+            get => _selectedSource;
+            set => SetProperty(ref _selectedSource, value);
+        }
+
+        /// <summary>
+        /// Gets or sets the search filter text.
+        /// </summary>
+        public string SearchText
+        {
+            get => _searchText;
+            set
+            {
+                if (SetProperty(ref _searchText, value))
+                {
+                    ApplySearchFilter();
+                }
+            }
+        }
+
+        public ICommand AddFileSourceCommand { get; }
+        public ICommand AddRevitModelCommand { get; }
+        public ICommand CloseSourceCommand { get; }
+
+        public StandardsSourceTreeViewModel(
+            ProjectStandardsDashboardViewModel parent,
+            UIApplication? uiapp,
+            Document? doc,
+            IFileDialogService dialogService,
+            IStandardsExtractionOrchestrator orchestrator,
+            IStandardSerializationEngine serializationEngine)
+        {
+            _parent = parent ?? throw new ArgumentNullException(nameof(parent));
+            _uiapp = uiapp;
+            _doc = doc;
+            _dialogService = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
+            _orchestrator = orchestrator ?? throw new ArgumentNullException(nameof(orchestrator));
+            _serializationEngine = serializationEngine ?? throw new ArgumentNullException(nameof(serializationEngine));
+
+            AddFileSourceCommand = new RelayCommand(ExecuteAddFileSource);
+            AddRevitModelCommand = new RelayCommand(ExecuteAddRevitModel);
+            CloseSourceCommand = new RelayCommand(ExecuteCloseSource, CanExecuteCloseSource);
+        }
+
+        /// <summary>
+        /// Loads a JSON standard file and appends it as a new source tab.
+        /// </summary>
+        public void LoadFileSource(string path, string displayName)
+        {
+            if (string.IsNullOrEmpty(path) || !File.Exists(path)) return;
+
+            try
+            {
+                string json = File.ReadAllText(path);
+                var elements = ModelsToSerialize.DeserializeByJson(json);
+                var hierarchy = StandardsHierarchyUtility.BuildHierarchy(elements);
+
+                var source = new ProjectStandardsSourceViewModel
+                {
+                    DisplayName = displayName,
+                    SourcePath = path,
+                    IsRevitSource = false
+                };
+
+                foreach (var group in hierarchy)
+                {
+                    source.SourceHierarchy.Add(group);
+                }
+
+                AvailableSources.Add(source);
+                SelectedSource = source;
+            }
+            catch (Exception)
+            {
+                // Handle I/O or deserialization errors silently per Robustness directive
+            }
+        }
+
+        private void ExecuteAddFileSource(object parameter)
+        {
+            string? path = _dialogService.OpenFileDialog("JSON files (*.json)|*.json", "Load Standards File", "");
+            if (!string.IsNullOrEmpty(path))
+            {
+                LoadFileSource(path, Path.GetFileName(path));
+            }
+        }
+
+        private void ExecuteAddRevitModel(object parameter)
+        {
+            if (_doc == null) return;
+
+            var dialogVM = new SelectRevitDocumentViewModel(_uiapp, _parent.MockOpenDocuments);
+            bool? dialogResult = _parent.ShowDocumentSelectionDialog?.Invoke(dialogVM);
+            if (dialogResult == true)
+            {
+                var selectedDocs = dialogVM.SelectedDocuments;
+                var selectedGroupings = dialogVM.SelectedFamilyGroupings;
+                var scanFamilies = dialogVM.ScanFamilies;
+                var scanNested = dialogVM.IncludeNestedFamilies;
+
+                try
+                {
+                    ProgressCoordinator.Initialize("Extracting Project Standards", "Extracting Revit standards...", selectedDocs.Count);
+
+                    foreach (var doc in selectedDocs)
+                    {
+                        if (ProgressCoordinator.IsCancelled()) break;
+
+                        string title = "Linked Revit Model";
+                        try
+                        {
+                            title = doc.Title;
+                        }
+                        catch { }
+
+                        ProgressCoordinator.UpdateProgress($"Extracting from: {title}");
+
+                        var elements = ExtractRevitElements(doc, scanFamilies, scanNested, selectedGroupings);
+                        var hierarchy = StandardsHierarchyUtility.BuildHierarchy(elements);
+
+                        var source = new ProjectStandardsSourceViewModel
+                        {
+                            DisplayName = title,
+                            SourcePath = doc.PathName ?? "ActiveDoc",
+                            IsRevitSource = true
+                        };
+
+                        foreach (var group in hierarchy)
+                        {
+                            source.SourceHierarchy.Add(group);
+                        }
+
+                        AvailableSources.Add(source);
+                        SelectedSource = source;
+                    }
+                }
+                finally
+                {
+                    ProgressCoordinator.Close();
+                }
+            }
+        }
+
+        private class ProgressReporter : IProgress<string>
+        {
+            private readonly Action<string> _reportAction;
+            public ProgressReporter(Action<string> reportAction)
+            {
+                _reportAction = reportAction;
+            }
+            public void Report(string value)
+            {
+                _reportAction(value);
+            }
+        }
+
+        internal List<ElementModel> ExtractRevitElements(Document doc, bool scanFamilies, bool scanNestedFamilies, List<string> selectedGroupings)
+        {
+            var list = new List<ElementModel>();
+            if (doc == null) return list;
+
+            // 1. Extract categories directly since they are not Elements and don't have nested dependencies
+            if (selectedGroupings == null || selectedGroupings.Contains("Categories"))
+            {
+                var engine = _serializationEngine;
+                foreach (Category cat in doc.Settings.Categories)
+                {
+                    if (ProgressCoordinator.IsCancelled()) break;
+                    try
+                    {
+                        var model = engine.ExtractCategory(cat, doc, false);
+                        if (model is CategoryModel categoryModel)
+                        {
+                            list.Add(categoryModel);
+                        }
+                    }
+                    catch { }
+                }
+            }
+
+            // 2. Gather all other root Elements
+            var rootElements = GatherRootElements(doc, selectedGroupings);
+
+            // 3. Extract recursively using the Orchestrator
+            IProgress<string>? progress = null;
+            if (!ProgressCoordinator.SuppressUI)
+            {
+                progress = new ProgressReporter(msg => ProgressCoordinator.UpdateStatus(msg));
+            }
+
+            var extractedPocos = _orchestrator.Extract(doc, rootElements, progress, false);
+
+            foreach (var poco in extractedPocos)
+            {
+                if (poco is ElementModel elementModel)
+                {
+                    // Clone the model to construct a representation DTO without mutative side-effects on the original extracted model
+                    var representation = (ElementModel)elementModel.Clone();
+                    representation.Element = null;
+                    representation.Document = null;
+                    
+                    list.Add(representation);
+                }
+            }
+
+            return list;
+        }
+
+        private List<Element> GatherRootElements(Document doc, List<string> selectedGroupings)
+        {
+            var rootElements = new List<Element>();
+            var seenIds = new HashSet<ElementId>();
+
+            void TryGather<T>(string className = null) where T : Element
+            {
+                try
+                {
+                    if (ProgressCoordinator.IsCancelled()) return;
+                    if (className != null && selectedGroupings != null && !selectedGroupings.Contains(className)) return;
+
+                    var elements = new FilteredElementCollector(doc)
+                        .OfClass(typeof(T))
+                        .ToElements();
+                    foreach (var elem in elements)
+                    {
+                        if (ProgressCoordinator.IsCancelled()) return;
+                        if (elem != null && !seenIds.Contains(elem.Id))
+                        {
+                            if (elem is Autodesk.Revit.DB.View view)
+                            {
+                                string viewClass = view.IsTemplate ? "View Templates" : "Views";
+                                if (selectedGroupings != null && !selectedGroupings.Contains(viewClass)) continue;
+                            }
+
+                            seenIds.Add(elem.Id);
+                            rootElements.Add(elem);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error gathering {typeof(T).Name}: {ex}");
+                }
+            }
+
+            // Gather always-supported system standards
+            TryGather<LinePatternElement>("Line Patterns");
+            TryGather<FillPatternElement>("Fill Patterns");
+            TryGather<ParameterFilterElement>("Filters");
+            TryGather<FilledRegionType>("Filled Region Types");
+            TryGather<ParameterElement>("Shared Parameters");
+            TryGather<BrowserOrganization>("Browser Organizations");
+
+            // System / Host Object Types
+            TryGather<WallType>("Wall Types");
+            TryGather<FloorType>("Floor Types");
+            TryGather<RoofType>("Roof Types");
+            TryGather<CeilingType>("Ceiling Types");
+            TryGather<BuildingPadType>("Host Object Types");
+            TryGather<CurtainSystemType>("Curtain System Types");
+            TryGather<MullionType>("Mullion Types");
+            TryGather<Autodesk.Revit.DB.Architecture.FasciaType>("Fascia Types");
+            TryGather<Autodesk.Revit.DB.Architecture.GutterType>("Gutter Types");
+#if REVIT2022 || REVIT2023
+            // ToposolidType not available in older versions
+#elif REVIT2024 || REVIT2025
+            try
+            {
+                if (!ProgressCoordinator.IsCancelled() && (selectedGroupings == null || selectedGroupings.Contains("Toposolid Types")))
+                {
+                    var toposolidType = typeof(Document).Assembly.GetType("Autodesk.Revit.DB.ToposolidType");
+                    if (toposolidType != null)
+                    {
+                        var elements = new FilteredElementCollector(doc)
+                            .OfClass(toposolidType)
+                            .ToElements();
+                        foreach (var elem in elements)
+                        {
+                            if (ProgressCoordinator.IsCancelled()) return rootElements;
+                            if (elem != null && !seenIds.Contains(elem.Id))
+                            {
+                                seenIds.Add(elem.Id);
+                                rootElements.Add(elem);
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+#else
+            try
+            {
+                if (!ProgressCoordinator.IsCancelled() && (selectedGroupings == null || selectedGroupings.Contains("Toposolid Types")))
+                {
+                    var toposolidType = typeof(Document).Assembly.GetType("Autodesk.Revit.DB.ToposolidType");
+                    if (toposolidType != null)
+                    {
+                        var elements = new FilteredElementCollector(doc)
+                            .OfClass(toposolidType)
+                            .ToElements();
+                        foreach (var elem in elements)
+                        {
+                            if (ProgressCoordinator.IsCancelled()) return rootElements;
+                            if (elem != null && !seenIds.Contains(elem.Id))
+                            {
+                                seenIds.Add(elem.Id);
+                                rootElements.Add(elem);
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
+#endif
+
+            // View Types
+            TryGather<ViewDrafting>();
+            TryGather<ViewSection>();
+            TryGather<ViewPlan>();
+            TryGather<ViewSheet>();
+            TryGather<ViewSchedule>();
+
+            // Materials
+            TryGather<Material>("Materials");
+
+            // Dimension & Grid & Level Types
+            TryGather<GridType>("Grid Types");
+            TryGather<LevelType>("Level Types");
+
+            // Annotation styles (only gather if selected)
+            TryGather<DimensionType>("Dimension Types");
+            TryGather<TextNoteType>("Text Note Types");
+            TryGather<TextElementType>("Label Types");
+            TryGather<ModelTextType>("Model Text Types");
+            TryGather<SpotDimensionType>("Spot Dimension Types");
+
+            // Family Symbols matching selected groupings
+            if (selectedGroupings != null && selectedGroupings.Any())
+            {
+                try
+                {
+                    if (ProgressCoordinator.IsCancelled()) return rootElements;
+                    var familySymbols = new FilteredElementCollector(doc)
+                        .OfClass(typeof(FamilySymbol))
+                        .Cast<FamilySymbol>();
+
+                    foreach (var fs in familySymbols)
+                    {
+                        if (ProgressCoordinator.IsCancelled()) return rootElements;
+                        if (fs == null || seenIds.Contains(fs.Id)) continue;
+
+                        bool include = false;
+                        var category = fs.Category;
+                        if (category == null) continue;
+
+                        long catIdVal;
+#if REVIT2022 || REVIT2023
+                        catIdVal = category.Id.IntegerValue;
+#else
+                        catIdVal = category.Id.Value;
+#endif
+
+                        if (selectedGroupings.Contains("Label Types") && category.CategoryType == CategoryType.Annotation)
+                        {
+                            include = true;
+                        }
+                        if (selectedGroupings.Contains("Title Blocks") && catIdVal == (long)BuiltInCategory.OST_TitleBlocks)
+                        {
+                            include = true;
+                        }
+                        if (selectedGroupings.Contains("Detail Items") && catIdVal == (long)BuiltInCategory.OST_DetailComponents)
+                        {
+                            include = true;
+                        }
+                        if (selectedGroupings.Contains("Profiles") && catIdVal == (long)BuiltInCategory.OST_ProfileFamilies)
+                        {
+                            include = true;
+                        }
+                        if (selectedGroupings.Contains("Element Types"))
+                        {
+                            if (category.CategoryType != CategoryType.Annotation &&
+                                catIdVal != (long)BuiltInCategory.OST_TitleBlocks &&
+                                catIdVal != (long)BuiltInCategory.OST_DetailComponents &&
+                                catIdVal != (long)BuiltInCategory.OST_ProfileFamilies)
+                            {
+                                include = true;
+                            }
+                        }
+
+                        if (include)
+                        {
+                            seenIds.Add(fs.Id);
+                            rootElements.Add(fs);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error gathering family symbols: {ex}");
+                }
+            }
+
+            return rootElements;
+        }
+
+        private bool CanExecuteCloseSource(object parameter)
+        {
+            if (parameter is ProjectStandardsSourceViewModel source)
+            {
+                return source.DisplayName != "Default Firm Standard";
+            }
+            return false;
+        }
+
+        private void ExecuteCloseSource(object parameter)
+        {
+            if (parameter is ProjectStandardsSourceViewModel source)
+            {
+                // Clear source hierarchy and recursive items to disperse memory
+                ClearSourceDataRecursive(source);
+                AvailableSources.Remove(source);
+
+                if (SelectedSource == source)
+                {
+                    SelectedSource = AvailableSources.FirstOrDefault();
+                }
+            }
+        }
+
+        private void ClearSourceDataRecursive(ProjectStandardsSourceViewModel source)
+        {
+            foreach (var group in source.SourceHierarchy)
+            {
+                ClearTreeItemRecursive(group);
+            }
+            source.SourceHierarchy.Clear();
+        }
+
+        private void ClearTreeItemRecursive(SourceTreeItemViewModel item)
+        {
+            foreach (var child in item.Children)
+            {
+                ClearTreeItemRecursive(child);
+            }
+            item.Children.Clear();
+            item.Parent = null;
+        }
+
+        private void ApplySearchFilter()
+        {
+            foreach (var source in AvailableSources)
+            {
+                if (source != null)
+                {
+                    foreach (var group in source.SourceHierarchy)
+                    {
+                        UpdateVisibilityRecursive(group, SearchText);
+                    }
+                }
+            }
+        }
+
+        private bool UpdateVisibilityRecursive(SourceTreeItemViewModel node, string query)
+        {
+            if (string.IsNullOrEmpty(query))
+            {
+                node.IsVisible = true;
+                node.IsExpanded = node is StandardGroupModel;
+                foreach (var child in node.Children)
+                {
+                    UpdateVisibilityRecursive(child, query);
+                }
+                return true;
+            }
+
+            bool anyChildVisible = false;
+            foreach (var child in node.Children)
+            {
+                if (UpdateVisibilityRecursive(child, query))
+                {
+                    anyChildVisible = true;
+                }
+            }
+
+            bool selfMatches = node.Name != null && node.Name.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0;
+            node.IsVisible = selfMatches || anyChildVisible;
+            if (anyChildVisible && !string.IsNullOrEmpty(query))
+            {
+                node.IsExpanded = true;
+            }
+            return node.IsVisible;
+        }
+
+        internal string GetRevitLocalFileSaveLocation()
+        {
+            string? fallbackPath = null;
+            object? target = _doc ?? (object?)_uiapp;
+            
+            if (target != null)
+            {
+                try
+                {
+                    var appProp = target.GetType().GetProperty("Application");
+                    var appObj = appProp?.GetValue(target);
+                    if (appObj != null)
+                    {
+                        var defaultPathProp = appObj.GetType().GetProperty("DefaultUserFilePath");
+                        fallbackPath = defaultPathProp?.GetValue(appObj) as string;
+                    }
+                }
+                catch (Exception) { }
+            }
+
+            if (string.IsNullOrEmpty(fallbackPath) || !Directory.Exists(fallbackPath))
+            {
+                fallbackPath = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            }
+
+            return fallbackPath;
+        }
+    }
+}
+```
+
 ### File: StandardsManagement/Views/CategorySelectionControl.xaml
 ```xml
 <UserControl x:Class="Synthetic.Modules.StandardsManagement.Views.CategorySelectionControl"
@@ -7600,7 +8595,7 @@ namespace Synthetic.Modules.StandardsManagement.Views
         <TextBlock Grid.Row="0" Text="Import Process Results" FontSize="16" FontWeight="Bold" Margin="0,0,0,15" Foreground="{DynamicResource Synthetic.Brushes.TextPrimary}"/>
 
         <!-- High-level stats panel -->
-        <UniformGrid Grid.Row="1" Columns="4" Margin="0,0,0,15">
+        <UniformGrid Grid.Row="1" Columns="5" Margin="0,0,0,15">
             <!-- Created Card -->
             <Border Background="{DynamicResource Synthetic.Brushes.ControlSurface}" BorderBrush="{DynamicResource Synthetic.Brushes.BorderNormal}" BorderThickness="1" CornerRadius="4" Margin="0,0,8,0" Padding="10">
                 <StackPanel HorizontalAlignment="Center">
@@ -7614,6 +8609,14 @@ namespace Synthetic.Modules.StandardsManagement.Views
                 <StackPanel HorizontalAlignment="Center">
                     <TextBlock Text="{Binding UpdatedCount}" FontSize="24" FontWeight="Bold" Foreground="{DynamicResource Synthetic.Brushes.AccentActive}" HorizontalAlignment="Center"/>
                     <TextBlock Text="Elements Updated" FontSize="11" Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}" HorizontalAlignment="Center"/>
+                </StackPanel>
+            </Border>
+
+            <!-- Unchanged Card -->
+            <Border Background="{DynamicResource Synthetic.Brushes.ControlSurface}" BorderBrush="{DynamicResource Synthetic.Brushes.BorderNormal}" BorderThickness="1" CornerRadius="4" Margin="0,0,8,0" Padding="10">
+                <StackPanel HorizontalAlignment="Center">
+                    <TextBlock Text="{Binding UnchangedCount}" FontSize="24" FontWeight="Bold" Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}" HorizontalAlignment="Center"/>
+                    <TextBlock Text="Elements Unchanged" FontSize="11" Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}" HorizontalAlignment="Center"/>
                 </StackPanel>
             </Border>
 
@@ -7659,6 +8662,9 @@ namespace Synthetic.Modules.StandardsManagement.Views
                                             </DataTrigger>
                                             <DataTrigger Binding="{Binding Action}" Value="Failed">
                                                 <Setter Property="Foreground" Value="{DynamicResource Synthetic.Brushes.Error}"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding Action}" Value="Unchanged">
+                                                <Setter Property="Foreground" Value="{DynamicResource Synthetic.Brushes.TextSecondary}"/>
                                             </DataTrigger>
                                             <DataTrigger Binding="{Binding Action}" Value="Canceled">
                                                 <Setter Property="Foreground" Value="{DynamicResource Synthetic.Brushes.TextSecondary}"/>
@@ -8584,7 +9590,7 @@ namespace Synthetic.Modules.StandardsManagement.Views
             <ColumnDefinition Width="380" MinWidth="320"/>
             <!-- GridSplitter 1 -->
             <ColumnDefinition Width="5"/>
-            <!-- Center Pane: Action Queue -->
+            <!-- Center Pane: Staging Queue -->
             <ColumnDefinition Width="*" MinWidth="300"/>
             <!-- GridSplitter 2 -->
             <ColumnDefinition Width="5"/>
@@ -8746,7 +9752,7 @@ namespace Synthetic.Modules.StandardsManagement.Views
         <!-- Grid Splitter 1 -->
         <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="{DynamicResource Synthetic.Brushes.BorderNormal}"/>
 
-        <!-- ================= CENTER COLUMN: ACTION QUEUE PANE ================= -->
+        <!-- ================= CENTER COLUMN: STAGING QUEUE PANE ================= -->
         <Grid Grid.Column="2">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/> <!-- Title -->
@@ -8761,7 +9767,7 @@ namespace Synthetic.Modules.StandardsManagement.Views
 
             <!-- Grouped ListBox -->
             <ListBox Grid.Row="1" x:Name="QueueListBox"
-                     ItemsSource="{Binding ActionQueueView}"
+                     ItemsSource="{Binding StagingQueueView}"
                      Background="Transparent"
                      BorderBrush="{DynamicResource Synthetic.Brushes.BorderNormal}"
                      BorderThickness="1"
@@ -15118,355 +16124,6 @@ namespace Synthetic.Modules.FamilyManagement.Commands
 }
 ```
 
-### File: FamilyManagement/Commands/CmdTestAuditPurgeJournal.cs
-```csharp
-using Autodesk.Revit.DB;
-using Autodesk.Revit.UI;
-using Synthetic.Modules.FamilyManagement.Commands;
-
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using Autodesk.Revit.Attributes;
-
-using Synthetic.Shared.RevitAPI;
-using Synthetic.Modules.RevitDOM;
-using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.FamilyManagement.Utilities;
-namespace Synthetic.Modules.FamilyManagement.Commands
-{
-    /// <summary>
-    /// Availability class to ensure CmdTestAuditPurgeJournal is always available, even when no document is open.
-    /// </summary>
-    public class CmdTestAuditPurgeJournalAvailability : IExternalCommandAvailability
-    {
-        /// <summary>
-        /// Determine if the command is active.
-        /// </summary>
-        public bool IsCommandAvailable(UIApplication applicationData, CategorySet selectedCategories)
-        {
-            return true;
-        }
-    }
-
-    /// <summary>
-    /// Headless integration test command for Audit &amp; Purge.
-    /// Opens the test model, measures family file sizes before and after purging,
-    /// checks parameter override data integrity, and writes results to commandData.JournalData.
-    /// </summary>
-    [Transaction(TransactionMode.Manual)]
-    public class CmdTestAuditPurgeJournal : IExternalCommand
-    {
-        /// <summary>
-        /// Execute the headless test command.
-        /// </summary>
-        public Result Execute(
-            ExternalCommandData commandData,
-            ref string message,
-            ElementSet elements)
-        {
-            UIApplication uiapp = commandData.Application;
-            UIDocument uidoc = uiapp.ActiveUIDocument;
-            Autodesk.Revit.ApplicationServices.Application app = uiapp.Application;
-
-            string version = app.VersionNumber;
-
-            // Resolve test model path dynamically
-            string assemblyPath = System.Reflection.Assembly.GetExecutingAssembly().Location;
-            string dllDir = Path.GetDirectoryName(assemblyPath) ?? string.Empty;
-            string repoDir = Path.GetDirectoryName(dllDir) ?? string.Empty;
-            string testModelPath = Path.Combine(repoDir, "tests", "test_models", $"TestTemplate{version}.rvt");
-
-            Document? doc = null;
-            bool openedByUs = false;
-
-            try
-            {
-                if (uidoc != null && uidoc.Document != null)
-                {
-                    doc = uidoc.Document;
-                }
-                else
-                {
-                    if (!File.Exists(testModelPath))
-                    {
-                        message = $"Test model not found at path: {testModelPath}";
-                        return Result.Failed;
-                    }
-
-                    doc = app.OpenDocumentFile(testModelPath);
-                    openedByUs = true;
-                }
-
-                if (doc == null)
-                {
-                    message = "Failed to open the test model.";
-                    return Result.Failed;
-                }
-
-                app.WriteJournalComment("[TEST_AUDIT_PURGE] CmdTestAuditPurgeJournal execution started.", true);
-                app.WriteJournalComment($"[TEST_AUDIT_PURGE] Active Document: {doc.Title} (Path: {doc.PathName})", true);
-
-                // Collect editable, non-inplace families
-                IList<Family> families = new FilteredElementCollector(doc)
-                    .OfClass(typeof(Family))
-                    .Cast<Family>()
-                    .Where(f => f.IsEditable && !f.IsInPlace)
-                    .ToList();
-
-                app.WriteJournalComment($"[TEST_AUDIT_PURGE] Total editable families found: {families.Count}", true);
-
-                // Find a family instance with some Comments value, or just the first family instance
-                FamilyInstance? targetInstance = new FilteredElementCollector(doc)
-                    .OfClass(typeof(FamilyInstance))
-                    .Cast<FamilyInstance>()
-                    .FirstOrDefault(fi =>
-                    {
-                        Parameter p = fi.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS);
-                        return p != null && !string.IsNullOrEmpty(p.AsString());
-                    }) ?? new FilteredElementCollector(doc)
-                        .OfClass(typeof(FamilyInstance))
-                        .Cast<FamilyInstance>()
-                        .FirstOrDefault();
-
-                Family? targetFamily = targetInstance?.Symbol?.Family;
-                string originalParamValue = string.Empty;
-                if (targetInstance != null)
-                {
-                    Parameter p = targetInstance.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS);
-                    originalParamValue = p?.AsString() ?? string.Empty;
-                    app.WriteJournalComment($"[TEST_AUDIT_PURGE] Target instance chosen: '{targetInstance.Name}' (ID: {targetInstance.Id}), Family: '{targetFamily?.Name ?? "None"}'", true);
-                    app.WriteJournalComment($"[TEST_AUDIT_PURGE] Target initial Comments value: '{originalParamValue}'", true);
-                }
-                else
-                {
-                    app.WriteJournalComment("[TEST_AUDIT_PURGE] No family instances found in the active project.", true);
-                }
-
-                // Create temp directory for saving families
-                string tempDir = Path.Combine(Path.GetTempPath(), "RevitAuditPurgeTest");
-                if (!Directory.Exists(tempDir))
-                {
-                    Directory.CreateDirectory(tempDir);
-                }
-
-                app.WriteJournalComment($"[TEST_AUDIT_PURGE] Measuring pre-purge sizes. Temp directory: {tempDir}", true);
-
-                // Measure sizes before
-                Dictionary<string, long> sizesBefore = new Dictionary<string, long>();
-                foreach (Family family in families)
-                {
-                    string tempFilePath = Path.Combine(tempDir, family.Name + "_before.rfa");
-                    Document? familyDoc = null;
-                    try
-                    {
-                        familyDoc = doc.EditFamily(family);
-                        SaveAsOptions saveOptions = new SaveAsOptions { OverwriteExistingFile = true };
-                        familyDoc.SaveAs(tempFilePath, saveOptions);
-                        long bytes = new FileInfo(tempFilePath).Length;
-                        sizesBefore[family.Name] = bytes;
-                        app.WriteJournalComment($"[TEST_AUDIT_PURGE] Pre-purge size of family '{family.Name}': {bytes} bytes", true);
-                    }
-                    catch (Exception ex)
-                    {
-                        app.WriteJournalComment($"[TEST_AUDIT_PURGE] Warning: Failed to measure pre-purge size of family '{family.Name}': {ex.Message}", true);
-                    }
-                    finally
-                    {
-                        if (familyDoc != null)
-                        {
-                            familyDoc.Close(false);
-                            familyDoc.Dispose();
-                        }
-                    }
-                }
-
-                // Execute the Purge and safe load loop synchronously and measure sizes/parameters
-                // within a transaction group that is rolled back at the end to keep the document clean.
-                Dictionary<string, long> sizesAfter = new Dictionary<string, long>();
-                string paramValueAfter = "NOT_FOUND";
-
-                app.WriteJournalComment("[TEST_AUDIT_PURGE] Starting transaction group for Purge & Reload...", true);
-
-                using (TransactionGroup tg = new TransactionGroup(doc, "Purge and Measure"))
-                {
-                    tg.Start();
-
-                    foreach (Family family in families)
-                    {
-                        string familyName = family.Name;
-                        Document? familyDoc = null;
-                        try
-                        {
-                            app.WriteJournalComment($"[TEST_AUDIT_PURGE] Editing family '{familyName}' for purge...", true);
-                            familyDoc = doc.EditFamily(family);
-
-                            // Purge unused elements
-#if !REVIT2022
-                            bool purged = DocumentUtil.Purge(app, familyDoc);
-                            app.WriteJournalComment($"[TEST_AUDIT_PURGE] Purged unused elements in family '{familyName}'. Success: {purged}", true);
-#endif
-
-                            // Reload family back into target project document using SafeFamilyLoadOptions
-                            app.WriteJournalComment($"[TEST_AUDIT_PURGE] Reloading family '{familyName}' using SafeFamilyLoadOptions...", true);
-                            using (Transaction trans = new Transaction(doc, $"Reload Family: {familyName}"))
-                            {
-                                FailureHandlingOptions options = trans.GetFailureHandlingOptions();
-                                options.SetFailuresPreprocessor(new PurgeFailuresPreprocessor());
-                                trans.SetFailureHandlingOptions(options);
-
-                                trans.Start();
-                                familyDoc.LoadFamily(doc, new SafeFamilyLoadOptions());
-                                trans.Commit();
-                            }
-                            app.WriteJournalComment($"[TEST_AUDIT_PURGE] Reload of family '{familyName}' completed successfully.", true);
-                        }
-                        catch (Exception ex)
-                        {
-                            app.WriteJournalComment($"[TEST_AUDIT_PURGE] Error: Failed processing family '{familyName}': {ex.Message}", true);
-                        }
-                        finally
-                        {
-                            if (familyDoc != null)
-                            {
-                                familyDoc.Close(false);
-                                familyDoc.Dispose();
-                            }
-                        }
-                    }
-
-                    // Measure sizes after
-                    app.WriteJournalComment("[TEST_AUDIT_PURGE] Measuring post-purge sizes...", true);
-                    foreach (Family family in families)
-                    {
-                        if (!sizesBefore.ContainsKey(family.Name)) continue;
-
-                        string tempFilePath = Path.Combine(tempDir, family.Name + "_after.rfa");
-                        Document? familyDoc = null;
-                        try
-                        {
-                            familyDoc = doc.EditFamily(family);
-                            SaveAsOptions saveOptions = new SaveAsOptions { OverwriteExistingFile = true };
-                            familyDoc.SaveAs(tempFilePath, saveOptions);
-                            long bytes = new FileInfo(tempFilePath).Length;
-                            sizesAfter[family.Name] = bytes;
-                            long reduction = sizesBefore[family.Name] - bytes;
-                            app.WriteJournalComment($"[TEST_AUDIT_PURGE] Post-purge size of family '{family.Name}': {bytes} bytes (Reduction: {reduction} bytes)", true);
-                        }
-                        catch (Exception ex)
-                        {
-                            app.WriteJournalComment($"[TEST_AUDIT_PURGE] Warning: Failed to measure post-purge size of family '{family.Name}': {ex.Message}", true);
-                        }
-                        finally
-                        {
-                            if (familyDoc != null)
-                            {
-                                familyDoc.Close(false);
-                                familyDoc.Dispose();
-                            }
-                        }
-                    }
-
-                    // Read parameter value after reloading
-                    if (targetFamily != null)
-                    {
-                        FamilyInstance? updatedInstance = new FilteredElementCollector(doc)
-                            .OfClass(typeof(FamilyInstance))
-                            .Cast<FamilyInstance>()
-                            .FirstOrDefault(fi => fi.Symbol?.Family?.Id == targetFamily.Id);
-
-                        if (updatedInstance != null)
-                        {
-                            Parameter p = updatedInstance.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS);
-                            if (p != null)
-                            {
-                                paramValueAfter = p.AsString() ?? string.Empty;
-                            }
-                        }
-                    }
-
-                    app.WriteJournalComment($"[TEST_AUDIT_PURGE] Target final Comments value: '{paramValueAfter}'", true);
-                    app.WriteJournalComment($"[TEST_AUDIT_PURGE] Parameter preservation check: {(originalParamValue == paramValueAfter ? "PASS" : "FAIL")}", true);
-
-                    // Write results to JournalData map
-                    IDictionary<string, string> journalData = commandData.JournalData;
-                    journalData.Clear();
-
-                    if (targetFamily != null && sizesBefore.ContainsKey(targetFamily.Name) && sizesAfter.ContainsKey(targetFamily.Name))
-                    {
-                        journalData.Add("Test_Family1_SizeBefore", sizesBefore[targetFamily.Name].ToString());
-                        journalData.Add("Test_Family1_SizeAfter", sizesAfter[targetFamily.Name].ToString());
-                        journalData.Add("Test_Family1_ParamValue", paramValueAfter);
-                    }
-                    else
-                    {
-                        // Fallback to first available family if targetInstance was missing
-                        var firstFamilyName = sizesBefore.Keys.FirstOrDefault();
-                        if (firstFamilyName != null && sizesAfter.ContainsKey(firstFamilyName))
-                        {
-                            journalData.Add("Test_Family1_SizeBefore", sizesBefore[firstFamilyName].ToString());
-                            journalData.Add("Test_Family1_SizeAfter", sizesAfter[firstFamilyName].ToString());
-                            journalData.Add("Test_Family1_ParamValue", paramValueAfter);
-                        }
-                    }
-
-                    if (app.IsJournalPlaying())
-                    {
-                        app.WriteJournalComment("[TEST_AUDIT_PURGE] Rolling back transaction group (Journal playback mode)...", true);
-                        tg.RollBack();
-                    }
-                    else
-                    {
-                        app.WriteJournalComment("[TEST_AUDIT_PURGE] Committing transaction group (Manual run mode)...", true);
-                        tg.Commit();
-                    }
-                }
-
-                if (openedByUs)
-                {
-                    doc.Close(false);
-                    openedByUs = false;
-                }
-
-                if (!app.IsJournalPlaying())
-                {
-                    string targetName = targetFamily?.Name ?? sizesBefore.Keys.FirstOrDefault() ?? "N/A";
-                    string sizeBeforeStr = (targetName != "N/A" && sizesBefore.ContainsKey(targetName)) ? sizesBefore[targetName].ToString() : "N/A";
-                    string sizeAfterStr = (targetName != "N/A" && sizesAfter.ContainsKey(targetName)) ? sizesAfter[targetName].ToString() : "N/A";
-
-                    string info = $"Audit & Purge Test Completed:\n\n" +
-                                  $"Target Family: {targetName}\n" +
-                                  $"Size Before: {sizeBeforeStr} bytes\n" +
-                                  $"Size After: {sizeAfterStr} bytes\n" +
-                                  $"Param Value (Comments): {paramValueAfter}";
-                    Autodesk.Revit.UI.TaskDialog.Show("Audit & Purge Test Results", info);
-                }
-
-                app.WriteJournalComment("[TEST_AUDIT_PURGE] CmdTestAuditPurgeJournal execution completed successfully.", true);
-                return Result.Succeeded;
-            }
-            catch (Exception ex)
-            {
-                message = ex.Message;
-                if (app != null)
-                {
-                    app.WriteJournalComment($"[TEST_AUDIT_PURGE] Critical exception in CmdTestAuditPurgeJournal: {ex.Message}", true);
-                }
-                return Result.Failed;
-            }
-            finally
-            {
-                if (openedByUs && doc != null && doc.IsValidObject)
-                {
-                    doc.Close(false);
-                }
-            }
-        }
-    }
-}
-```
-
 ### File: FamilyManagement/Commands/FamiliesForceReinsert.cs
 ```csharp
 #region Namespaces
@@ -17990,7 +18647,7 @@ namespace Synthetic.Modules.RevitDOM
         /// </summary>
         public ElementIdModel ()
         {
-            this.IsTemplate = true;
+            this.IsTemplate = false;
         }
 
         /// <summary>
@@ -18255,7 +18912,7 @@ namespace Synthetic.Modules.RevitDOM
         public ElementModel()
         {
             this.ElementId = new ElementIdModel();
-            this.IsTemplate = true;
+            this.IsTemplate = false;
         }
 
         #endregion
@@ -18352,9 +19009,14 @@ namespace Synthetic.Modules.RevitDOM
             model.ElementType = elemType;
         }
 
+        public static Element GetRevitElem(this ElementModel model, Document doc, IIdentityService identityService)
+        {
+            return identityService.ResolveElement(model.ElementId, doc);
+        }
+
         public static Element GetRevitElem(this ElementModel model, Document doc)
         {
-            return new RevitIdentityService().ResolveElement(model.ElementId, doc);
+            return model.GetRevitElem(doc, new RevitIdentityService());
         }
 
         public static List<Element> GetAliasElements_Revit(this ElementModel model, Document doc)
@@ -19468,17 +20130,7 @@ namespace Synthetic.Modules.RevitDOM
         /// </summary>
         public static ElementId ResolveFillPatternId(ElementIdModel? patternModel, Document? document)
         {
-            if (patternModel == null) return ElementId.InvalidElementId;
-            if (patternModel.Id == -1 || patternModel.Id == 0) return ElementId.InvalidElementId;
-            if (document != null)
-            {
-                var elem = new RevitIdentityService().ResolveElement(patternModel, document);
-                if (elem is FillPatternElement fpe)
-                {
-                    return fpe.Id;
-                }
-            }
-            return patternModel.ToElementId();
+            return ResolveFillPatternId(patternModel, document, new RevitIdentityService());
         }
 
         /// <summary>
@@ -19513,26 +20165,7 @@ namespace Synthetic.Modules.RevitDOM
         /// </summary>
         public static ElementId ResolveLinePatternId(ElementIdModel? patternModel, Document? document)
         {
-            if (patternModel == null) return ElementId.InvalidElementId;
-            long solidIdVal;
-#if REVIT2022 || REVIT2023
-            solidIdVal = LinePatternElement.GetSolidPatternId().IntegerValue;
-#else
-            solidIdVal = LinePatternElement.GetSolidPatternId().Value;
-#endif
-            if (patternModel.Id == solidIdVal || string.Equals(patternModel.Name, "Solid", StringComparison.OrdinalIgnoreCase))
-            {
-                return LinePatternElement.GetSolidPatternId();
-            }
-            if (document != null)
-            {
-                var elem = new RevitIdentityService().ResolveElement(patternModel, document);
-                if (elem is LinePatternElement lpe)
-                {
-                    return lpe.Id;
-                }
-            }
-            return patternModel.ToElementId();
+            return ResolveLinePatternId(patternModel, document, new RevitIdentityService());
         }
     }
 }
@@ -20003,6 +20636,57 @@ namespace Synthetic.Modules.RevitDOM
 
             return 8; // Fallback for other ObjectModels
         }
+    }
+}
+```
+
+### File: RevitDOM/IPocoIdentityService.cs
+```csharp
+using System.Collections.Generic;
+
+namespace Synthetic.Modules.RevitDOM
+{
+    /// <summary>
+    /// Service contract for resolving relationships and dependencies between ObjectModels (POCOs)
+    /// without relying on the active Revit Document or native element IDs.
+    /// </summary>
+    public interface IPocoIdentityService
+    {
+        /// <summary>
+        /// Resolves a single ElementIdModel reference to its matching ElementModel from a candidate pool.
+        /// </summary>
+        /// <param name="model">The dependency element reference to resolve.</param>
+        /// <param name="pool">The pool of candidate element models.</param>
+        /// <returns>The resolved ElementModel, or null if no match was found.</returns>
+        ElementModel? ResolveElement(ElementIdModel model, IEnumerable<ElementModel> pool);
+
+        /// <summary>
+        /// Resolves a collection of ElementIdModel references to their matching ElementModels.
+        /// </summary>
+        /// <param name="models">The collection of dependency references to resolve.</param>
+        /// <param name="pool">The pool of candidate element models.</param>
+        /// <returns>A collection of successfully resolved ElementModel instances.</returns>
+        IEnumerable<ElementModel> ResolveElements(IEnumerable<ElementIdModel> models, IEnumerable<ElementModel> pool);
+    }
+}
+```
+
+### File: RevitDOM/IStandardSerializationEngine.cs
+```csharp
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using Autodesk.Revit.DB;
+using Synthetic.Modules.MergeDuplicates.Models;
+
+namespace Synthetic.Modules.RevitDOM
+{
+    public interface IStandardSerializationEngine
+    {
+        IEnumerable<ObjectModel> ByRevit(IEnumerable<Element> elements, Document doc, bool isTemplate, IProgress<string>? progress = null, CancellationToken cancellationToken = default);
+        IEnumerable<DuplicateClusterModel> Analyze(IEnumerable<ObjectModel> models, Document doc, IProgress<string>? progress = null, CancellationToken cancellationToken = default);
+        IEnumerable<SerializationResultModel> ToRevit(IEnumerable<ObjectModel> models, Document doc, IProgress<string>? progress = null, CancellationToken cancellationToken = default, IFailuresPreprocessor? failuresPreprocessor = null);
+        ObjectModel? ExtractCategory(Category category, Document doc, bool isTemplate);
     }
 }
 ```
@@ -20798,6 +21482,11 @@ namespace Synthetic.Modules.RevitDOM
         public ThermalAssetModel? ThermalAsset { get; set; }
 
         /// <summary>
+        /// Gets or sets the shading color of the material.
+        /// </summary>
+        public ColorModel? Color { get; set; }
+
+        /// <summary>
         /// Gets or sets the cut foreground pattern color.
         /// </summary>
         public ColorModel? CutForegroundPatternColor { get; set; }
@@ -20912,6 +21601,7 @@ namespace Synthetic.Modules.RevitDOM
             if (model == null) throw new ArgumentNullException(nameof(model));
 
             // Extract explicit color properties
+            model.Color = revitElement.Color?.ToModel();
             model.CutForegroundPatternColor = revitElement.CutForegroundPatternColor?.ToModel();
             model.CutBackgroundPatternColor = revitElement.CutBackgroundPatternColor?.ToModel();
             model.SurfaceForegroundPatternColor = revitElement.SurfaceForegroundPatternColor?.ToModel();
@@ -20948,6 +21638,10 @@ namespace Synthetic.Modules.RevitDOM
             }
 
             // Map and assign explicit color properties
+            if (model.Color != null)
+            {
+                revitElement.Color = model.Color.ToColor();
+            }
             if (model.CutForegroundPatternColor != null)
             {
                 revitElement.CutForegroundPatternColor = model.CutForegroundPatternColor.ToColor();
@@ -22841,22 +23535,7 @@ namespace Synthetic.Modules.RevitDOM
 
         private static bool ModifyElementIdParameter(Parameter param, ElementIdModel valModel, Document doc)
         {
-            if (valModel == null || 
-                string.IsNullOrEmpty(valModel.Name) || 
-                valModel.Name == "<None>" || 
-                valModel.Name == "<By Category>" || 
-                valModel.Name == "Solid")
-            {
-                return param.Set(ElementId.InvalidElementId);
-            }
-
-            Element elem = new RevitIdentityService().ResolveElement(valModel, doc);
-            if (elem != null)
-            {
-                return param.Set(elem.Id);
-            }
-
-            return false;
+            return ModifyElementIdParameter(param, valModel, doc, new RevitIdentityService());
         }
     }
 }
@@ -23603,6 +24282,124 @@ namespace Synthetic.Modules.RevitDOM
 
 ```
 
+### File: RevitDOM/PocoIdentityService.cs
+```csharp
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+namespace Synthetic.Modules.RevitDOM
+{
+    /// <summary>
+    /// Implements IPocoIdentityService by executing a 5-step fallback identity resolution strategy
+    /// over pure in-memory ObjectModel collections.
+    /// </summary>
+    public class PocoIdentityService : IPocoIdentityService
+    {
+        /// <inheritdoc />
+        public ElementModel? ResolveElement(ElementIdModel model, IEnumerable<ElementModel> pool)
+        {
+            if (model == null || pool == null) return null;
+
+            // Step 1: UniqueId search
+            if (!string.IsNullOrEmpty(model.UniqueId))
+            {
+                var match = pool.FirstOrDefault(p => string.Equals(p.UniqueId, model.UniqueId, StringComparison.OrdinalIgnoreCase));
+                if (match != null)
+                {
+                    // Step 3: Type Guard verification
+                    if (VerifyType(match, model.Class))
+                    {
+                        return match;
+                    }
+                }
+            }
+
+            // Step 2: Id (integer) search
+            if (model.Id != 0)
+            {
+                var match = pool.FirstOrDefault(p => p.Id == model.Id);
+                if (match != null)
+                {
+                    // Step 3: Type Guard verification
+                    if (VerifyType(match, model.Class))
+                    {
+                        return match;
+                    }
+                }
+            }
+
+            // Step 4: Name match (within expected Revit Class)
+            if (!string.IsNullOrEmpty(model.Name) && !string.IsNullOrEmpty(model.Class))
+            {
+                var match = pool.FirstOrDefault(p => 
+                    string.Equals(p.Name, model.Name, StringComparison.OrdinalIgnoreCase) && 
+                    VerifyType(p, model.Class));
+                if (match != null) return match;
+            }
+
+            // Step 5: Alias match (within expected Revit Class)
+            if (model.Aliases != null && model.Aliases.Count > 0 && !string.IsNullOrEmpty(model.Class))
+            {
+                foreach (var alias in model.Aliases)
+                {
+                    if (string.IsNullOrEmpty(alias)) continue;
+
+                    // 5a. Check if candidate's Name matches the alias
+                    var match = pool.FirstOrDefault(p => 
+                        string.Equals(p.Name, alias, StringComparison.OrdinalIgnoreCase) && 
+                        VerifyType(p, model.Class));
+                    if (match != null) return match;
+
+                    // 5b. Check if candidate's Aliases contain the alias
+                    var aliasMatch = pool.FirstOrDefault(p => 
+                        p.Aliases != null && 
+                        p.Aliases.Any(a => string.Equals(a, alias, StringComparison.OrdinalIgnoreCase)) && 
+                        VerifyType(p, model.Class));
+                    if (aliasMatch != null) return aliasMatch;
+                }
+            }
+
+            // Fallback alias match: check if the candidate POCO's aliases contain the target model's Name
+            if (!string.IsNullOrEmpty(model.Name) && !string.IsNullOrEmpty(model.Class))
+            {
+                var match = pool.FirstOrDefault(p => 
+                    p.Aliases != null && 
+                    p.Aliases.Any(a => string.Equals(a, model.Name, StringComparison.OrdinalIgnoreCase)) && 
+                    VerifyType(p, model.Class));
+                if (match != null) return match;
+            }
+
+            return null;
+        }
+
+        /// <inheritdoc />
+        public IEnumerable<ElementModel> ResolveElements(IEnumerable<ElementIdModel> models, IEnumerable<ElementModel> pool)
+        {
+            if (models == null || pool == null) yield break;
+
+            foreach (var model in models)
+            {
+                var resolved = ResolveElement(model, pool);
+                if (resolved != null)
+                {
+                    yield return resolved;
+                }
+            }
+        }
+
+        private bool VerifyType(ElementModel poco, string expectedClass)
+        {
+            if (string.IsNullOrEmpty(expectedClass)) return true;
+            if (string.IsNullOrEmpty(poco.Class)) return true;
+
+            // Strict class matching: exact string comparison of the class name, ignoring case.
+            return string.Equals(poco.Class, expectedClass, StringComparison.OrdinalIgnoreCase);
+        }
+    }
+}
+```
+
 ### File: RevitDOM/RevitDomDependencyScanner.cs
 ```csharp
 using System;
@@ -24347,6 +25144,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading;
+using Newtonsoft.Json;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Architecture;
 using Synthetic.Modules.MergeDuplicates.Models;
@@ -24358,7 +25156,7 @@ namespace Synthetic.Modules.RevitDOM
     /// The public interface and entry point for the RevitDOM serialization and transaction engine.
     /// Exposes methods to extract Revit elements to pure models, analyze differences, and write models back to Revit.
     /// </summary>
-    public class StandardSerializationEngine
+    public class StandardSerializationEngine : IStandardSerializationEngine
     {
         private readonly IIdentityService _identityService;
         private readonly ModelDispatcher _dispatcher;
@@ -24451,6 +25249,11 @@ namespace Synthetic.Modules.RevitDOM
         internal ModelDispatcher Dispatcher => _dispatcher;
 
         /// <summary>
+        /// Gets the internal identity service instance.
+        /// </summary>
+        internal IIdentityService IdentityService => _identityService;
+
+        /// <summary>
         /// Extracts Revit elements into pure ObjectModel state containers.
         /// </summary>
         /// <param name="elements">The elements to extract.</param>
@@ -24500,25 +25303,6 @@ namespace Synthetic.Modules.RevitDOM
         /// <param name="progress">Optional progress reporting delegate.</param>
         /// <param name="cancellationToken">Optional cancellation token.</param>
         /// <returns>A collection of duplicate cluster models containing diff details.</returns>
-        private static readonly HashSet<Type> _unsupportedInFamilyDoc = new HashSet<Type>
-        {
-            typeof(Autodesk.Revit.DB.WallType),
-            typeof(Autodesk.Revit.DB.FloorType),
-            typeof(Autodesk.Revit.DB.RoofType),
-            typeof(Autodesk.Revit.DB.CeilingType),
-            typeof(Autodesk.Revit.DB.BuildingPadType),
-            typeof(Autodesk.Revit.DB.MullionType),
-            typeof(Autodesk.Revit.DB.CurtainSystemType),
-            typeof(Autodesk.Revit.DB.ViewFamilyType),
-            typeof(Autodesk.Revit.DB.Architecture.FasciaType),
-            typeof(Autodesk.Revit.DB.Architecture.GutterType),
-            typeof(Autodesk.Revit.DB.Architecture.StairsType),
-            typeof(Autodesk.Revit.DB.Architecture.RailingType),
-            typeof(Autodesk.Revit.DB.Architecture.TopRailType),
-            typeof(Autodesk.Revit.DB.Architecture.HandRailType),
-            typeof(Autodesk.Revit.DB.Mechanical.DuctSystemType),
-            typeof(Autodesk.Revit.DB.Plumbing.PipingSystemType)
-        };
 
         public IEnumerable<DuplicateClusterModel> Analyze(
             IEnumerable<ObjectModel> models,
@@ -24526,287 +25310,8 @@ namespace Synthetic.Modules.RevitDOM
             IProgress<string>? progress = null,
             CancellationToken cancellationToken = default)
         {
-            if (models == null) throw new ArgumentNullException(nameof(models));
-            if (doc == null) throw new ArgumentNullException(nameof(doc));
-
-            var clusters = new List<DuplicateClusterModel>();
-            bool isFamily = doc.IsFamilyDocument;
-            long fakeIdCounter = -1000;
-
-            progress?.Report("Grouping incoming models by Category...");
-
-            var elementModels = models.OfType<ElementModel>();
-            var modelsByCategory = elementModels
-                .Where(m =>
-                {
-                    if (string.IsNullOrEmpty(m.Class)) return false;
-                    Type? incomingType = Select.RevitClassByString(m.Class);
-                    if (isFamily && incomingType != null && _unsupportedInFamilyDoc.Contains(incomingType))
-                    {
-                        return false; // Skip unsupported types in family document
-                    }
-                    return true;
-                })
-                .GroupBy(m => m.Category ?? "Unknown Category", StringComparer.OrdinalIgnoreCase);
-
-            foreach (var categoryGroup in modelsByCategory)
-            {
-                if (cancellationToken.IsCancellationRequested)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                }
-
-                string categoryName = categoryGroup.Key;
-                progress?.Report($"Comparing category: {categoryName}...");
-
-                var cluster = new DuplicateClusterModel
-                {
-                    ClusterName = $"{categoryName}: Standards Comparison"
-                };
-
-                foreach (var incomingModel in categoryGroup)
-                {
-                    if (cancellationToken.IsCancellationRequested)
-                    {
-                        cancellationToken.ThrowIfCancellationRequested();
-                    }
-
-                    if (string.IsNullOrEmpty(incomingModel.Class)) continue;
-                    Type? elemClass = Select.RevitClassByString(incomingModel.Class);
-                    if (elemClass == null) continue;
-
-                    Element? liveElement = Select.ElementByNameClass(incomingModel.Name, elemClass, doc);
-                    if (liveElement != null)
-                    {
-                        string? liveCategoryName = liveElement.Category?.Name;
-                        string incomingCategoryName = incomingModel.Category;
-                        bool categoryMatches = string.IsNullOrEmpty(incomingCategoryName) || 
-                                              string.IsNullOrEmpty(liveCategoryName) || 
-                                              string.Equals(liveCategoryName, incomingCategoryName, StringComparison.OrdinalIgnoreCase);
-                        if (!categoryMatches)
-                        {
-                            liveElement = null; // Mismatch on category, skip
-                        }
-                    }
-
-                    if (liveElement == null) continue; // No match found, skip
-
-                    // Generate unique fake target ID for this standard element
-#if REVIT2022 || REVIT2023
-                    ElementId fakeTargetId = new ElementId((int)(fakeIdCounter--));
-#else
-                    ElementId fakeTargetId = new ElementId(fakeIdCounter--);
-#endif
-
-                    // Standard/POCO wrapper
-                    var targetType = new DuplicateTypeModel
-                    {
-                        RevitTypeId = fakeTargetId,
-                        Name = incomingModel.Name,
-                        Parameters = new Dictionary<string, string>()
-                    };
-
-                    // Live/Existing wrapper
-                    var sourceType = new DuplicateTypeModel
-                    {
-                        RevitTypeId = liveElement.Id,
-                        Name = liveElement.Name,
-                        Parameters = new Dictionary<string, string>()
-                    };
-
-                    var mapping = new TypeMappingModel
-                    {
-                        SourceType = sourceType,
-                        TargetType = targetType,
-                        RecommendedAction = RecommendedAction.Merge
-                    };
-
-                    // Compare parameters
-                    if (incomingModel.Parameters != null)
-                    {
-                        foreach (var paramModel in incomingModel.Parameters)
-                        {
-                            if (string.IsNullOrEmpty(paramModel.Name)) continue;
-
-                            Parameter? p = GetLiveParameter(liveElement, paramModel);
-                            string srcStorage = p != null ? p.StorageType.ToString() : (paramModel.StorageType ?? "String");
-                            string srcVal = p != null ? GetParameterValueWithoutPrefix(p) : string.Empty;
-
-                            string tgtStorage = paramModel.StorageType ?? "String";
-                            string tgtVal = GetJsonParameterValue(doc, paramModel, _identityService);
-
-                            bool isSchemaMismatch = (srcStorage != tgtStorage);
-                            bool hasConflict = (srcVal != tgtVal);
-
-                            sourceType.Parameters[paramModel.Name] = $"{srcStorage}:{srcVal}";
-                            targetType.Parameters[paramModel.Name] = $"{tgtStorage}:{tgtVal}";
-
-                            if (hasConflict || isSchemaMismatch)
-                            {
-                                var row = new ParameterDiffRowModel
-                                {
-                                    ParameterName = paramModel.Name,
-                                    IsSchemaMismatch = isSchemaMismatch,
-                                    HasConflict = hasConflict,
-                                    WinningValueElementId = fakeTargetId,
-                                    IsInjectEnabled = (p == null)
-                                };
-
-                                row.Values[liveElement.Id] = srcVal;
-                                row.Values[fakeTargetId] = tgtVal;
-
-                                row.ValueList = new List<string> { srcVal, tgtVal };
-
-                                row.Options = new List<ParameterValueOption>
-                                {
-                                    new ParameterValueOption { ElementId = liveElement.Id, DisplayText = srcVal },
-                                    new ParameterValueOption { ElementId = fakeTargetId, DisplayText = tgtVal }
-                                };
-
-                                mapping.ParameterResolutions.Add(row);
-                            }
-                        }
-                    }
-
-                    if (mapping.ParameterResolutions.Count > 0)
-                    {
-                        var targetItem = cluster.Items.FirstOrDefault(item => item.IsPrimary);
-                        if (targetItem == null)
-                        {
-                            targetItem = new DuplicateItemModel
-                            {
-                                RevitElementId = ElementId.InvalidElementId,
-                                ItemName = $"{incomingModel.Name} (Standard)",
-                                CategoryName = categoryName,
-                                IsPrimary = true,
-                                IsIncludedForMerge = true,
-                                IsLoadableFamily = (liveElement is Family)
-                            };
-                            targetItem.Types.Add(targetType);
-                            cluster.Items.Add(targetItem);
-                        }
-                        else
-                        {
-                            targetItem.Types.Add(targetType);
-                        }
-
-                        var sourceItem = new DuplicateItemModel
-                        {
-                            RevitElementId = liveElement.Id,
-                            ItemName = liveElement.Name,
-                            CategoryName = categoryName,
-                            IsPrimary = false,
-                            IsIncludedForMerge = true,
-                            IsLoadableFamily = (liveElement is Family)
-                        };
-                        sourceItem.Types.Add(sourceType);
-                        cluster.Items.Add(sourceItem);
-
-                        mapping.SourceFamily = sourceItem;
-                        mapping.TargetFamily = targetItem;
-
-                        cluster.TypeMappings.Add(mapping);
-                    }
-                }
-
-                if (cluster.TypeMappings.Count > 0)
-                {
-                    clusters.Add(cluster);
-                }
-            }
-
-            int conflictCount = clusters.Sum(c => c.TypeMappings.Sum(m => m.ParameterResolutions.Count));
-            // [AG2_TEST_START: StandardsDiffEngineTotalConflictsQA]
-            // REVERT_METHOD: To remove, safely delete this entire block.
-            Console.WriteLine($"Jrn.Directive \"SyntheticQA\", \"StandardsDiffEngine_TotalConflictsDetected: [{conflictCount}]\"");
-            // [AG2_TEST_END: StandardsDiffEngineTotalConflictsQA]
-
-            return clusters;
-        }
-
-        private static Parameter? GetLiveParameter(Element elem, ParameterModel paramModel)
-        {
-            Parameter? param = null;
-            if (paramModel.IsShared && !string.IsNullOrEmpty(paramModel.GUID))
-            {
-                try
-                {
-                    param = elem.get_Parameter(new Guid(paramModel.GUID));
-                }
-                catch {}
-            }
-            if (param == null && paramModel.Id < 0)
-            {
-                try
-                {
-                    param = elem.get_Parameter((BuiltInParameter)paramModel.Id);
-                }
-                catch {}
-            }
-            if (param == null)
-            {
-                param = elem.LookupParameter(paramModel.Name);
-            }
-            return param;
-        }
-
-        private static string GetParameterValueWithoutPrefix(Parameter p)
-        {
-            if (p == null) return string.Empty;
-            switch (p.StorageType)
-            {
-                case StorageType.Double:
-                    return p.AsDouble().ToString();
-                case StorageType.Integer:
-                    return p.AsInteger().ToString();
-                case StorageType.String:
-                    return p.AsString() ?? string.Empty;
-                case StorageType.ElementId:
-                    ElementId id = p.AsElementId();
-                    if (id != null)
-                    {
-#if REVIT2022 || REVIT2023
-                        return id.IntegerValue.ToString();
-#else
-                        return id.Value.ToString();
-#endif
-                    }
-                    break;
-            }
-            return string.Empty;
-        }
-
-        private static string GetJsonParameterValue(Document doc, ParameterModel paramModel, IIdentityService identityService)
-        {
-            if (paramModel.StorageType == "ElementId")
-            {
-                ElementId targetId = ElementId.InvalidElementId;
-                if (paramModel.ValueElemId != null)
-                {
-                    if (paramModel.ValueElemId.Name == "Solid")
-                    {
-                        targetId = LinePatternElement.GetSolidPatternId();
-                    }
-                    else
-                    {
-                        Element? resolvedElem = identityService.ResolveElement(paramModel.ValueElemId, doc);
-                        if (resolvedElem != null)
-                        {
-                            targetId = resolvedElem.Id;
-                        }
-                    }
-                }
-                if (targetId != null)
-                {
-#if REVIT2022 || REVIT2023
-                    return targetId.IntegerValue.ToString();
-#else
-                    return targetId.Value.ToString();
-#endif
-                }
-                return string.Empty;
-            }
-            return paramModel.Value ?? string.Empty;
+            var diffEngine = new Synthetic.Modules.DiffEngine.PocoToRevitDiffEngine(_identityService);
+            return diffEngine.Compare(models, doc, progress, cancellationToken);
         }
 
         /// <summary>
@@ -24821,7 +25326,8 @@ namespace Synthetic.Modules.RevitDOM
             IEnumerable<ObjectModel> models,
             Document doc,
             IProgress<string>? progress = null,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            IFailuresPreprocessor? failuresPreprocessor = null)
         {
             if (models == null) throw new ArgumentNullException(nameof(models));
             if (doc == null) throw new ArgumentNullException(nameof(doc));
@@ -24848,105 +25354,94 @@ namespace Synthetic.Modules.RevitDOM
                         string modelName = (model is ElementModel em) ? em.Name : model.GetType().Name;
                         progress?.Report($"Importing {modelName}...");
 
-                        using (var tx = new Transaction(doc, $"Import {modelName}"))
+                        var translator = _dispatcher.GetTranslatorByModelType(model.GetType());
+                        if (translator == null)
                         {
-                            tx.Start();
-                            try
+                            results.Add(new SerializationResultModel(model, $"No translator registered for model type: {model.GetType().Name}"));
+                            continue;
+                        }
+
+                        if (model is ElementModel elementModel)
+                        {
+                            SerializationResultModel.ClearWarnings();
+                            var identityModel = elementModel.ElementId;
+
+                            // Preserve aliases list before it gets cleared by identity model updates
+                            var aliases = elementModel.Aliases != null ? new List<string>(elementModel.Aliases) : null;
+
+                            // Resolve the primary element using a clean identity model copy without aliases
+                            // to prevent resolving the primary element to its own alias elements.
+                            var resolveIdentity = new ElementIdModel
                             {
-                                var translator = _dispatcher.GetTranslatorByModelType(model.GetType());
-                                if (translator == null)
+                                Id = identityModel.Id,
+                                Name = identityModel.Name,
+                                Class = identityModel.Class,
+                                Category = identityModel.Category,
+                                UniqueId = identityModel.UniqueId,
+                                IsTemplate = identityModel.IsTemplate
+                            };
+                            var element = _identityService.ResolveElement(resolveIdentity, doc);
+
+                            bool isUnchanged = false;
+                            if (element != null)
+                            {
+                                isUnchanged = IsElementSameAsModel(elementModel, element, doc);
+                            }
+
+                            if (isUnchanged)
+                            {
+                                BindResultingElementToModel(element, elementModel, doc, aliases, modelsWithAliases);
+
+                                results.Add(new SerializationResultModel(model, identityModel)
                                 {
-                                    throw new NotSupportedException($"No translator registered for model type: {model.GetType().Name}");
-                                }
-
-                                ElementIdModel? identityModel = null;
-                                if (model is ElementModel elementModel)
+                                    Action = "Unchanged",
+                                    Message = "Object is identical to the target model. Edit skipped."
+                                });
+                            }
+                            else
+                            {
+                                using (var tx = new Transaction(doc, $"Import {modelName}"))
                                 {
-                                    SerializationResultModel.ClearWarnings();
-                                    identityModel = elementModel.ElementId;
-
-                                    // Preserve aliases list before it gets cleared by identity model updates
-                                    var aliases = elementModel.Aliases != null ? new List<string>(elementModel.Aliases) : null;
-
-                                    // Resolve the primary element using a clean identity model copy without aliases
-                                    // to prevent resolving the primary element to its own alias elements.
-                                    var resolveIdentity = new ElementIdModel
+                                    if (failuresPreprocessor != null)
                                     {
-                                        Id = identityModel.Id,
-                                        Name = identityModel.Name,
-                                        Class = identityModel.Class,
-                                        Category = identityModel.Category,
-                                        UniqueId = identityModel.UniqueId,
-                                        IsTemplate = identityModel.IsTemplate
-                                    };
-                                    var element = _identityService.ResolveElement(resolveIdentity, doc);
-                                    
-                                    // Inject specific properties and handle creation
-                                    var resultingElement = translator.InjectSpecifics(elementModel, element, doc);
-                                    if (resultingElement == null)
-                                    {
-                                        throw new InvalidOperationException($"Element '{modelName}' could not be resolved or created.");
+                                        FailureHandlingOptions options = tx.GetFailureHandlingOptions();
+                                        options.SetFailuresPreprocessor(failuresPreprocessor);
+                                        tx.SetFailureHandlingOptions(options);
                                     }
-
-                                    ElementId primaryId = ElementId.InvalidElementId;
-                                    if (resultingElement is Element revitElement)
+                                    tx.Start();
+                                    try
                                     {
-                                        // Inject standard base parameters
-                                        ParameterEngine.InjectParameters(elementModel, revitElement, _identityService);
-
-                                        // Update model bindings
-                                        elementModel.Element = revitElement;
-                                        elementModel.ElementId = _identityService.ToModel(revitElement.Id, doc);
-                                        primaryId = revitElement.Id;
-                                    }
-                                    else if (resultingElement is Autodesk.Revit.DB.Category revitCategory)
-                                    {
-                                        // Update model bindings
-                                        elementModel.Element = revitCategory;
-                                        elementModel.ElementId = _identityService.ToModel(revitCategory.Id, doc);
-                                        primaryId = revitCategory.Id;
-
-                                        if (elementModel is CategoryModel categoryModel)
+                                        // Inject specific properties and handle creation
+                                        var resultingElement = translator.InjectSpecifics(elementModel, element, doc);
+                                        if (resultingElement == null)
                                         {
-                                            categoryModel.RevitCategory = revitCategory;
-#if REVIT2022 || REVIT2023
-                                            categoryModel.CategoryId.Id = revitCategory.Id.IntegerValue;
-#else
-                                            categoryModel.CategoryId.Id = revitCategory.Id.Value;
-#endif
-                                            categoryModel.CategoryId.Name = revitCategory.Name;
+                                            throw new InvalidOperationException($"Element '{modelName}' could not be resolved or created.");
                                         }
-                                    }
-                                    else
-                                    {
-                                        throw new InvalidOperationException($"Resulting object '{resultingElement.GetType().Name}' is neither a Revit Element nor a Category.");
-                                    }
 
-                                    // Restore aliases list on the elementModel so it is not lost
-                                    if (aliases != null)
-                                    {
-                                        elementModel.Aliases = aliases;
+                                        if (resultingElement is Element revitElement)
+                                        {
+                                            // Inject standard base parameters
+                                            ParameterEngine.InjectParameters(elementModel, revitElement, _identityService);
+                                        }
+
+                                        BindResultingElementToModel(resultingElement, elementModel, doc, aliases, modelsWithAliases);
+
+                                        tx.Commit();
+                                        
+                                        string actionStr = (element == null) ? "Created" : "Updated";
+                                        results.Add(new SerializationResultModel(model, identityModel) { Action = actionStr });
                                     }
-
-                                    tx.Commit();
-                                    results.Add(new SerializationResultModel(model, identityModel));
-
-                                    // Queue for alias processing if successful and aliases exist
-                                    if (aliases != null && aliases.Count > 0 && primaryId != ElementId.InvalidElementId)
+                                    catch (Exception ex)
                                     {
-                                        modelsWithAliases.Add((primaryId, elementModel));
+                                        tx.RollBack();
+                                        results.Add(new SerializationResultModel(model, ex.Message, ex));
                                     }
                                 }
-                                else
-                                {
-                                    throw new InvalidOperationException("Model must inherit from ElementModel to be imported.");
-                                }
                             }
-                            catch (Exception ex)
-                            {
-                                tx.RollBack();
-                                results.Add(new SerializationResultModel(model, ex.Message, ex));
-                            }
+                        }
+                        else
+                        {
+                            results.Add(new SerializationResultModel(model, "Model must inherit from ElementModel to be imported."));
                         }
                     }
 
@@ -25039,6 +25534,164 @@ namespace Synthetic.Modules.RevitDOM
             }
 
             return results;
+        }
+        private class IgnoreIdContractResolver : Newtonsoft.Json.Serialization.DefaultContractResolver
+        {
+            protected override IList<Newtonsoft.Json.Serialization.JsonProperty> CreateProperties(Type type, Newtonsoft.Json.MemberSerialization memberSerialization)
+            {
+                IList<Newtonsoft.Json.Serialization.JsonProperty> properties = base.CreateProperties(type, memberSerialization);
+                
+                properties = properties.Where(p =>
+                {
+                    bool isIdOrUniqueId = p.PropertyName == "Id" || p.PropertyName == "UniqueId";
+                    bool isTargetType = typeof(ElementIdModel).IsAssignableFrom(type) || 
+                                       typeof(ElementModel).IsAssignableFrom(type);
+                    return !(isIdOrUniqueId && isTargetType);
+                }).ToList();
+
+                return properties;
+            }
+        }
+
+        private bool IsElementSameAsModel(ElementModel incomingModel, Element liveElement, Document doc)
+        {
+            // 1. Extract the live element into an ElementModel to compare translator-specific properties
+            try
+            {
+                var liveModel = _dispatcher.Extract(liveElement, isTemplate: true) as ElementModel;
+                if (liveModel == null) return false;
+
+                // Clone both models to avoid modifying the original structures
+                var incomingClone = (ElementModel)incomingModel.Clone();
+                var liveClone = (ElementModel)liveModel.Clone();
+
+                // Clear metadata/ignored fields on both clones
+                ClearMetadataForComparison(incomingClone);
+                ClearMetadataForComparison(liveClone);
+
+                // Compare JSON representations of the non-parameter properties
+                var settings = new JsonSerializerSettings
+                {
+                    ContractResolver = new IgnoreIdContractResolver(),
+                    Formatting = Formatting.None
+                };
+                string json1 = JsonConvert.SerializeObject(incomingClone, settings);
+                string json2 = JsonConvert.SerializeObject(liveClone, settings);
+
+                if (json1 != json2)
+                {
+                    return false;
+                }
+            }
+            catch (Exception)
+            {
+                // Fallback to false if extraction/serialization errors out to be safe
+                return false;
+            }
+
+            // 2. Compare parameters
+            if (incomingModel.Parameters != null)
+            {
+                foreach (var paramModel in incomingModel.Parameters)
+                {
+                    if (string.IsNullOrEmpty(paramModel.Name)) continue;
+                    if (paramModel.IsReadOnly) continue;
+
+                    Parameter? p = Synthetic.Modules.DiffEngine.PocoToRevitDiffEngine.GetLiveParameter(liveElement, paramModel);
+                    if (p == null)
+                    {
+                        // Check if incoming parameter specifies a non-empty target value
+                        bool hasTargetValue = (paramModel.Value != null) ||
+                                             (paramModel.ValueElemId != null &&
+                                              (!string.IsNullOrEmpty(paramModel.ValueElemId.Name) ||
+                                               !string.IsNullOrEmpty(paramModel.ValueElemId.UniqueId) ||
+                                               paramModel.ValueElemId.Id != 0));
+                        if (hasTargetValue)
+                        {
+                            return false;
+                        }
+                        continue;
+                    }
+
+                    string srcStorage = p.StorageType.ToString();
+                    string srcVal = Synthetic.Modules.DiffEngine.PocoToRevitDiffEngine.GetParameterValueWithoutPrefix(p);
+
+                    string tgtStorage = paramModel.StorageType ?? "String";
+                    string tgtVal = Synthetic.Modules.DiffEngine.PocoToRevitDiffEngine.GetJsonParameterValue(doc, paramModel, _identityService);
+
+                    bool isSchemaMismatch = (srcStorage != tgtStorage);
+                    bool hasConflict = (srcVal != tgtVal);
+
+                    if (isSchemaMismatch || hasConflict)
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        private void ClearMetadataForComparison(ElementModel model)
+        {
+            if (model == null) return;
+            model.Parameters = null;
+            model.Element = null;
+            model.Document = null;
+            model.DependencyOrigin = null;
+        }
+
+        private ElementId BindResultingElementToModel(object resultingElement, ElementModel elementModel, Document doc, List<string>? aliases, List<(ElementId PrimaryId, ElementModel Model)> modelsWithAliases)
+        {
+            ElementId primaryId = ElementId.InvalidElementId;
+            if (resultingElement is Element revitElement)
+            {
+                elementModel.Element = revitElement;
+                elementModel.ElementId = _identityService.ToModel(revitElement.Id, doc);
+                primaryId = revitElement.Id;
+            }
+            else if (resultingElement is Autodesk.Revit.DB.Category revitCategory)
+            {
+                elementModel.Element = revitCategory;
+                elementModel.ElementId = _identityService.ToModel(revitCategory.Id, doc);
+                primaryId = revitCategory.Id;
+
+                if (elementModel is CategoryModel categoryModel)
+                {
+                    categoryModel.RevitCategory = revitCategory;
+#if REVIT2022 || REVIT2023
+                    categoryModel.CategoryId.Id = revitCategory.Id.IntegerValue;
+#else
+                    categoryModel.CategoryId.Id = revitCategory.Id.Value;
+#endif
+                    categoryModel.CategoryId.Name = revitCategory.Name;
+                }
+            }
+            else
+            {
+                throw new InvalidOperationException($"Resulting object '{resultingElement.GetType().Name}' is neither a Revit Element nor a Category.");
+            }
+
+            // Restore aliases list on the elementModel so it is not lost
+            if (aliases != null)
+            {
+                elementModel.Aliases = aliases;
+            }
+
+            // Queue for alias processing if successful and aliases exist
+            if (aliases != null && aliases.Count > 0 && primaryId != ElementId.InvalidElementId)
+            {
+                modelsWithAliases.Add((primaryId, elementModel));
+            }
+
+            return primaryId;
+        }
+
+        public ObjectModel? ExtractCategory(Autodesk.Revit.DB.Category category, Document doc, bool isTemplate)
+        {
+            if (category == null) throw new ArgumentNullException(nameof(category));
+            if (doc == null) throw new ArgumentNullException(nameof(doc));
+            return _dispatcher.Extract(category, doc, isTemplate);
         }
     }
 }

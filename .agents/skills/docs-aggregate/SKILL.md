@@ -16,7 +16,7 @@ python .agents/skills/docs-aggregate/scripts/aggregate.py
 
 ## 2. Configuration Structure
 
-The aggregation is driven by `aggregate_config.json` (located in `Revit API Synthetic v2 Support/auth/`). It maps specific source directories to target markdown files:
+The aggregation is driven by `aggregate_config.json` (located in `Revit API Synthetic v2/auth/`). It maps specific source directories to target markdown files:
 
 ```json
 {

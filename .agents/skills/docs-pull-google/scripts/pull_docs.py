@@ -46,7 +46,7 @@ def get_auth_paths():
     workspace_dir = find_workspace_root()
     projects_dir = os.path.dirname(workspace_dir)
 
-    auth_dir = os.path.join(projects_dir, "Revit API Synthetic v2 Support", "auth")
+    auth_dir = os.path.join(workspace_dir, "auth")
     client_secret_path = os.path.join(auth_dir, "client_secret.json")
     token_path = os.path.join(auth_dir, "token_pull.json")
     default_config_path = os.path.join(auth_dir, "pull_config.json")

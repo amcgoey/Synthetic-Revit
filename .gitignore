@@ -346,3 +346,5 @@ docs/development_briefs/
 scratch/
 .scratch/
 
+# Google API Credentials and configuration folder
+auth/

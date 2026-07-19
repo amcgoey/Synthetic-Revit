@@ -37,7 +37,7 @@ Although the script is isolated to `cloud/` subdirectories, as an extra layer of
 Because the Google Doc client uses the interactive OAuth readonly flow:
 
 * **Token Check:** Before running the pull command, check if a valid Google token exists at:
-  `Revit API Synthetic v2 Support/auth/token_pull.json`
+  `Revit API Synthetic v2/auth/token_pull.json`
 * **OAuth Interactive Browser Fail-Safe:** If `token_pull.json` is missing or expired, do **not** run the script headlessly.
 * **User Redirection Prompt:** Instruct the user to run the authentication flow manually in their terminal. Print this exact message:
 

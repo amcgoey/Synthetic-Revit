@@ -71,7 +71,7 @@ def get_default_paths():
     workspace_dir = find_workspace_root()
     projects_dir = os.path.dirname(workspace_dir)
     config_path = os.path.join(
-        projects_dir, "Revit API Synthetic v2 Support", "auth", "aggregate_config.json"
+        workspace_dir, "auth", "aggregate_config.json"
     )
     return projects_dir, config_path
 
