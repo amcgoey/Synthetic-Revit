@@ -2,7 +2,8 @@
 using System.Collections.Generic;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.MergeDuplicates.Models;
+using Synthetic.RevitDOM.Operations.Merge;
+using Synthetic.RevitDOM.Models;
 using Synthetic.Modules.MergeDuplicates.ViewModels;
 
 namespace SyntheticTests.Modules.StandardsManagement
@@ -24,8 +25,8 @@ namespace SyntheticTests.Modules.StandardsManagement
                 IsApproved = true
             };
 
-            var elementId1 = new ElementId(101);
-            var elementId2 = new ElementId(102);
+            var elementId1 = new ElementIdModel { Id = 101 };
+            var elementId2 = new ElementIdModel { Id = 102 };
 
             // Add options for source and target values
             row.Options.Add(new ParameterValueOption { ElementId = elementId1, DisplayText = "1" });

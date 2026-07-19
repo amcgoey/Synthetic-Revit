@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.MergeDuplicates.Models;
+using Synthetic.RevitDOM.Operations.Merge;
 
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;

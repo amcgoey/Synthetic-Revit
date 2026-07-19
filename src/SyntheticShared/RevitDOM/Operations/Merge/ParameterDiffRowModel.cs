@@ -2,16 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
-using Autodesk.Revit.DB;
 using Newtonsoft.Json;
-
 using Synthetic.RevitDOM.Models;
-using Synthetic.RevitDOM.Translation;
-using Synthetic.RevitDOM.Operations;
-using Synthetic.RevitDOM;
-using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Shared.RevitAPI;
-namespace Synthetic.Modules.MergeDuplicates.Models
+
+namespace Synthetic.RevitDOM.Operations.Merge
 {
     /// <summary>
     /// Represents a specific value option for a parameter.
@@ -21,7 +15,7 @@ namespace Synthetic.Modules.MergeDuplicates.Models
         /// <summary>
         /// Gets or sets the ElementId of the option.
         /// </summary>
-        public ElementId? ElementId { get; set; }
+        public ElementIdModel? ElementId { get; set; }
 
         /// <summary>
         /// Gets or sets the display text for the option.
@@ -35,9 +29,9 @@ namespace Synthetic.Modules.MergeDuplicates.Models
     public class ParameterDiffRowModel : ObjectModel, INotifyPropertyChanged
     {
         private string _parameterName = string.Empty;
-        private Dictionary<ElementId, string> _values;
+        private Dictionary<ElementIdModel, string> _values;
         private bool _isSchemaMismatch;
-        private ElementId _winningValueElementId;
+        private ElementIdModel _winningValueElementId;
         private bool _isApproved = true;
 
         /// <summary>
@@ -59,8 +53,8 @@ namespace Synthetic.Modules.MergeDuplicates.Models
         /// </summary>
         public ParameterDiffRowModel()
         {
-            _winningValueElementId = ElementId.InvalidElementId;
-            _values = new Dictionary<ElementId, string>();
+            _winningValueElementId = new ElementIdModel { Id = -1 };
+            _values = new Dictionary<ElementIdModel, string>();
             _valueList = new List<string>();
             _options = new List<ParameterValueOption>();
         }
@@ -77,7 +71,7 @@ namespace Synthetic.Modules.MergeDuplicates.Models
         /// <summary>
         /// Maps the type/symbol ElementId to the parameter value string.
         /// </summary>
-        public Dictionary<ElementId, string> Values
+        public Dictionary<ElementIdModel, string> Values
         {
             get => _values;
             set => SetProperty(ref _values, value);
@@ -95,7 +89,7 @@ namespace Synthetic.Modules.MergeDuplicates.Models
         /// <summary>
         /// The ElementId of the type whose parameter value should win during merge.
         /// </summary>
-        public ElementId WinningValueElementId
+        public ElementIdModel WinningValueElementId
         {
             get => _winningValueElementId;
             set
@@ -119,7 +113,7 @@ namespace Synthetic.Modules.MergeDuplicates.Models
             {
                 if (value && Options != null && Options.Count > 0)
                 {
-                    WinningValueElementId = Options[0].ElementId ?? ElementId.InvalidElementId;
+                    WinningValueElementId = Options[0].ElementId ?? new ElementIdModel { Id = -1 };
                 }
             }
         }
@@ -135,7 +129,7 @@ namespace Synthetic.Modules.MergeDuplicates.Models
             {
                 if (value && Options != null && Options.Count > 1)
                 {
-                    WinningValueElementId = Options[1].ElementId ?? ElementId.InvalidElementId;
+                    WinningValueElementId = Options[1].ElementId ?? new ElementIdModel { Id = -1 };
                 }
             }
         }

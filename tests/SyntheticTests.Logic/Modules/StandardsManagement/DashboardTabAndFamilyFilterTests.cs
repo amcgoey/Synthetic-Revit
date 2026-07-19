@@ -5,7 +5,7 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.MergeDuplicates.Models;
+using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.Settings;
 using Synthetic.Shared.UI;
 using Synthetic.RevitDOM.Models;

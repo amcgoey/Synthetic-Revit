@@ -11,7 +11,7 @@ using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.Models;
 using Synthetic.Shared.UI;
-using Synthetic.Modules.MergeDuplicates.Models;
+using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.Modules.StandardsManagement.Utilities;
 using Synthetic.Modules.StandardsManagement.Engine;
 using Synthetic.RevitDOM.Operations.Diffing;

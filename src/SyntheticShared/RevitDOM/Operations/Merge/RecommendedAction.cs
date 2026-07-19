@@ -1,12 +1,6 @@
 using System;
-using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Shared.RevitAPI;
-using Synthetic.RevitDOM.Models;
-using Synthetic.RevitDOM.Translation;
-using Synthetic.RevitDOM.Operations;
-using Synthetic.RevitDOM;
 
-namespace Synthetic.Modules.MergeDuplicates.Models
+namespace Synthetic.RevitDOM.Operations.Merge
 {
     /// <summary>
     /// Indicates the recommended resolution action for a duplicate type mapping.

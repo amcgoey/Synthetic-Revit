@@ -20,7 +20,7 @@ using Synthetic.Shared.UI;
 using Synthetic.Modules.MergeDuplicates.Handlers;
 using Synthetic.Modules.MergeDuplicates.Engine;
 using Synthetic.Modules.MergeDuplicates.Views;
-using Synthetic.Modules.MergeDuplicates.Models;
+using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 namespace Synthetic.Modules.MergeDuplicates.ViewModels
@@ -510,7 +510,7 @@ namespace Synthetic.Modules.MergeDuplicates.ViewModels
                                     {
                                         var typeModel = new DuplicateTypeModel
                                         {
-                                            RevitTypeId = symbol.Id,
+                                            RevitTypeId = symbol.Id.ToModel(Document!),
                                             Name = symbol.Name,
                                             Parameters = new Dictionary<string, string>()
                                         };
@@ -531,7 +531,7 @@ namespace Synthetic.Modules.MergeDuplicates.ViewModels
                         {
                             var typeModel = new DuplicateTypeModel
                             {
-                                RevitTypeId = elem.Id,
+                                RevitTypeId = elem.Id.ToModel(Document!),
                                 Name = elem.Name,
                                 Parameters = new Dictionary<string, string>()
                             };

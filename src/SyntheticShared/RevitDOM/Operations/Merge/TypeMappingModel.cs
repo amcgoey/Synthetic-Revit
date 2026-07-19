@@ -3,15 +3,9 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
-
 using Synthetic.RevitDOM.Models;
-using Synthetic.RevitDOM.Translation;
-using Synthetic.RevitDOM.Operations;
-using Synthetic.RevitDOM;
-using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Shared.RevitAPI;
-using Synthetic.RevitDOM.Operations.Merge;
-namespace Synthetic.Modules.MergeDuplicates.Models
+
+namespace Synthetic.RevitDOM.Operations.Merge
 {
     /// <summary>
     /// Manages the resolution state between two duplicate types.

@@ -12,7 +12,7 @@ using Synthetic.Settings;
 using Synthetic.Infrastructure.Persistence;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Modules.StandardsManagement.Utilities;
-using Synthetic.Modules.MergeDuplicates.Models;
+using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.Modules.StandardsManagement.Engine;
 using SyntheticTests.Modules.RevitDOM;
 using Synthetic.Shared.UI;
@@ -660,8 +660,8 @@ namespace SyntheticTests.Modules.StandardsManagement
                 TargetType = targetType
             };
 
-            var sourceId = new ElementId(101);
-            var targetId = new ElementId(102);
+            var sourceId = new ElementIdModel { Id = 101 };
+            var targetId = new ElementIdModel { Id = 102 };
 
             var diffRow = new ParameterDiffRowModel
             {

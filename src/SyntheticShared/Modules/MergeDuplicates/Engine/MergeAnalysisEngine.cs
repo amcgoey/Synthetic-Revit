@@ -13,7 +13,7 @@ using Synthetic.RevitDOM;
 using Synthetic.Infrastructure.Serialization;
 using Synthetic.Modules.MergeDuplicates.Handlers;
 using Synthetic.Modules.MergeDuplicates.Engine;
-using Synthetic.Modules.MergeDuplicates.Models;
+using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Shared.RevitAPI;
@@ -369,7 +369,7 @@ namespace Synthetic.Modules.MergeDuplicates.Engine
                                         {
                                             var typeModel = new DuplicateTypeModel
                                             {
-                                                RevitTypeId = symbol.Id,
+                                                RevitTypeId = symbol.Id.ToModel(doc),
                                                 Name = symbol.Name,
                                                 Parameters = new Dictionary<string, string>()
                                             };
@@ -390,7 +390,7 @@ namespace Synthetic.Modules.MergeDuplicates.Engine
                             {
                                 var typeModel = new DuplicateTypeModel
                                 {
-                                    RevitTypeId = gType.Id,
+                                    RevitTypeId = gType.Id.ToModel(doc),
                                     Name = gType.Name,
                                     Parameters = new Dictionary<string, string>()
                                 };
@@ -408,7 +408,7 @@ namespace Synthetic.Modules.MergeDuplicates.Engine
                             {
                                 var typeModel = new DuplicateTypeModel
                                 {
-                                    RevitTypeId = aType.Id,
+                                    RevitTypeId = aType.Id.ToModel(doc),
                                     Name = aType.Name,
                                     Parameters = new Dictionary<string, string>()
                                 };
@@ -426,7 +426,7 @@ namespace Synthetic.Modules.MergeDuplicates.Engine
                             {
                                 var typeModel = new DuplicateTypeModel
                                 {
-                                    RevitTypeId = eType.Id,
+                                    RevitTypeId = eType.Id.ToModel(doc),
                                     Name = eType.Name,
                                     Parameters = new Dictionary<string, string>()
                                 };

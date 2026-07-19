@@ -17,7 +17,7 @@ using Synthetic.Infrastructure.Serialization;
 using Synthetic.Shared.UI;
 using Synthetic.Modules.MergeDuplicates.Handlers;
 using Synthetic.Modules.MergeDuplicates.ViewModels;
-using Synthetic.Modules.MergeDuplicates.Models;
+using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Shared.RevitAPI;
@@ -242,7 +242,7 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                                                         {
                                                             if (mapping.RecommendedAction == RecommendedAction.Exclude) continue;
                                                             if (mapping.SourceType == null) continue;
-                                                            FamilySymbol? sourceSymbol = doc.GetElement(mapping.SourceType.RevitTypeId) as FamilySymbol;
+                                                            FamilySymbol? sourceSymbol = doc.GetElement(mapping.SourceType.RevitTypeId.ToElementId()) as FamilySymbol;
                                                             if (sourceSymbol != null)
                                                             {
                                                                 Parameter sourceParam = sourceSymbol.LookupParameter(paramName);
@@ -286,11 +286,11 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                                     if (mapping.RecommendedAction == RecommendedAction.Exclude) continue;
                                     if (mapping.SourceType == null || mapping.TargetType == null) continue;
 
-                                    ElementId resolvedTargetTypeId = mapping.TargetType.RevitTypeId;
+                                    ElementId resolvedTargetTypeId = mapping.TargetType.RevitTypeId.ToElementId();
 
                                     if (mapping.RecommendedAction == RecommendedAction.Migrate && primElement is Family)
                                     {
-                                        ElementType? targetTypeElement = doc.GetElement(mapping.TargetType.RevitTypeId) as ElementType;
+                                        ElementType? targetTypeElement = doc.GetElement(mapping.TargetType.RevitTypeId.ToElementId()) as ElementType;
                                         if (targetTypeElement != null)
                                         {
                                             string targetName = mapping.MigrateRenameText;
@@ -358,7 +358,7 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                                                     resolvedTargetTypeId = duplicatedType.Id;
 
                                                     // Copy all parameters from source type to the duplicated type
-                                                    Element sourceSymbol = doc.GetElement(mapping.SourceType.RevitTypeId);
+                                                    Element sourceSymbol = doc.GetElement(mapping.SourceType.RevitTypeId.ToElementId());
                                                     if (sourceSymbol != null)
                                                     {
                                                         foreach (Parameter sourceParam in sourceSymbol.Parameters)
@@ -382,7 +382,7 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                                     {
                                         foreach (var row in mapping.ParameterResolutions)
                                         {
-                                            Element winningElement = doc.GetElement(row.WinningValueElementId);
+                                            Element winningElement = doc.GetElement(row.WinningValueElementId.ToElementId());
                                             if (winningElement != null)
                                             {
                                                 Parameter winningParam = winningElement.LookupParameter(row.ParameterName);
@@ -395,7 +395,7 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                                         }
                                     }
 
-                                    typeMap[mapping.SourceType.RevitTypeId] = resolvedTargetTypeId;
+                                    typeMap[mapping.SourceType.RevitTypeId.ToElementId()] = resolvedTargetTypeId;
                                 }
 
                                 // 3. Swap Instances
@@ -504,7 +504,7 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                                 bool allTypesMergedOrMigrated = true;
                                 foreach (var t in dupItem.Types)
                                 {
-                                    var mapping = cluster.TypeMappings.FirstOrDefault(m => m.SourceType != null && m.SourceType.RevitTypeId == t.RevitTypeId);
+                                    var mapping = cluster.TypeMappings.FirstOrDefault(m => m.SourceType != null && m.SourceType.RevitTypeId.ToElementId() == t.RevitTypeId.ToElementId());
                                     if (mapping != null && mapping.RecommendedAction == RecommendedAction.Exclude)
                                     {
                                         allTypesMergedOrMigrated = false;
@@ -530,12 +530,12 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                                     {
                                         foreach (var t in dupItem.Types)
                                         {
-                                            var mapping = cluster.TypeMappings.FirstOrDefault(m => m.SourceType != null && m.SourceType.RevitTypeId == t.RevitTypeId);
+                                            var mapping = cluster.TypeMappings.FirstOrDefault(m => m.SourceType != null && m.SourceType.RevitTypeId.ToElementId() == t.RevitTypeId.ToElementId());
                                             if (mapping != null && mapping.RecommendedAction != RecommendedAction.Exclude)
                                             {
                                                 try
                                                 {
-                                                    doc.Delete(t.RevitTypeId);
+                                                    doc.Delete(t.RevitTypeId.ToElementId());
                                                     purgedCount++;
                                                 }
                                                 catch (Exception)

@@ -12,7 +12,7 @@ using Synthetic.RevitDOM;
 using Synthetic.Infrastructure.Serialization;
 
 using Synthetic.Shared.UI;
-using Synthetic.Modules.MergeDuplicates.Models;
+using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.Shared.RevitAPI;
 namespace Synthetic.Modules.StandardsManagement.ViewModels
 {
@@ -131,7 +131,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                         if (mapping.ParameterResolutions == null) continue;
 
                         if (mapping.SourceType == null) continue;
-                        Element? liveElement = _doc.GetElement(mapping.SourceType.RevitTypeId);
+                        Element? liveElement = _doc.GetElement(mapping.SourceType.RevitTypeId.ToElementId());
                         if (liveElement == null)
                         {
                             skippedCount += mapping.ParameterResolutions.Count;
