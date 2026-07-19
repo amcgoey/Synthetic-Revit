@@ -6,7 +6,7 @@ using System.Threading;
 using Newtonsoft.Json;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Architecture;
-using Synthetic.Modules.MergeDuplicates.Models;
+using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.Shared.RevitAPI;
 
 using Synthetic.RevitDOM.Models;

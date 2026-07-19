@@ -161,12 +161,12 @@
     <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\StandardsExecutionItem.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\StandardsExecutionOptions.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\StandardsExecutionResult.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Models\DuplicateItemModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Models\DuplicateClusterModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Models\DuplicateTypeModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Models\RecommendedAction.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Models\TypeMappingModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Models\ParameterDiffRowModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Merge\DuplicateItemModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Merge\DuplicateClusterModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Merge\DuplicateTypeModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Merge\RecommendedAction.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Merge\TypeMappingModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Merge\ParameterDiffRowModel.cs" />
   </ItemGroup>
   <ItemGroup>
     <Folder Include="$(MSBuildThisFileDirectory)Views\" />

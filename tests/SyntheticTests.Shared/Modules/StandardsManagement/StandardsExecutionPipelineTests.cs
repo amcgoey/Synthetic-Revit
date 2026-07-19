@@ -14,7 +14,7 @@ using Synthetic.RevitDOM.Operations.Standards;
 using Synthetic.RevitDOM.Operations.Standards;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Shared.UI;
-using Synthetic.Modules.MergeDuplicates.Models;
+using Synthetic.RevitDOM.Operations.Merge;
 
 namespace SyntheticTests.Modules.StandardsManagement
 {

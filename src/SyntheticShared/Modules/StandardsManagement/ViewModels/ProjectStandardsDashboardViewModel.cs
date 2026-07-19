@@ -8,8 +8,7 @@ using System.Windows.Data;
 using System.Windows.Input;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
-using Synthetic.Modules.MergeDuplicates.Models;
-using Synthetic.RevitDOM.Operations.Standards;
+using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.RevitDOM.Operations.Standards;
 using Synthetic.Core;
 

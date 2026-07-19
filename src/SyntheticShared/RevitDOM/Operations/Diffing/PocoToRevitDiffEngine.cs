@@ -3,7 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.MergeDuplicates.Models;
+using Synthetic.RevitDOM.Operations.Merge;
+using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
@@ -139,7 +140,7 @@ namespace Synthetic.RevitDOM.Operations.Diffing
                     // Standard/POCO wrapper
                     var targetType = new DuplicateTypeModel
                     {
-                        RevitTypeId = fakeTargetId,
+                        RevitTypeId = fakeTargetId.ToModel(target, false),
                         Name = incomingModel.Name,
                         Parameters = new Dictionary<string, string>()
                     };
@@ -147,7 +148,7 @@ namespace Synthetic.RevitDOM.Operations.Diffing
                     // Live/Existing wrapper
                     var sourceType = new DuplicateTypeModel
                     {
-                        RevitTypeId = liveElement.Id,
+                        RevitTypeId = liveElement.Id.ToModel(target, false),
                         Name = liveElement.Name,
                         Parameters = new Dictionary<string, string>()
                     };
@@ -186,19 +187,19 @@ namespace Synthetic.RevitDOM.Operations.Diffing
                                     ParameterName = paramModel.Name,
                                     IsSchemaMismatch = isSchemaMismatch,
                                     HasConflict = hasConflict,
-                                    WinningValueElementId = fakeTargetId,
+                                    WinningValueElementId = fakeTargetId.ToModel(target, false),
                                     IsInjectEnabled = (p == null)
                                 };
 
-                                row.Values[liveElement.Id] = srcVal;
-                                row.Values[fakeTargetId] = tgtVal;
+                                row.Values[liveElement.Id.ToModel(target, false)] = srcVal;
+                                row.Values[fakeTargetId.ToModel(target, false)] = tgtVal;
 
                                 row.ValueList = new List<string> { srcVal, tgtVal };
 
                                 row.Options = new List<ParameterValueOption>
                                 {
-                                    new ParameterValueOption { ElementId = liveElement.Id, DisplayText = srcVal },
-                                    new ParameterValueOption { ElementId = fakeTargetId, DisplayText = tgtVal }
+                                    new ParameterValueOption { ElementId = liveElement.Id.ToModel(target, false), DisplayText = srcVal },
+                                    new ParameterValueOption { ElementId = fakeTargetId.ToModel(target, false), DisplayText = tgtVal }
                                 };
 
                                 mapping.ParameterResolutions.Add(row);
@@ -213,7 +214,7 @@ namespace Synthetic.RevitDOM.Operations.Diffing
                         {
                             targetItem = new DuplicateItemModel
                             {
-                                RevitElementId = ElementId.InvalidElementId,
+                                RevitElementId = ElementId.InvalidElementId.ToModel(target, false),
                                 ItemName = $"{incomingModel.Name} (Standard)",
                                 CategoryName = categoryName,
                                 IsPrimary = true,
@@ -230,7 +231,7 @@ namespace Synthetic.RevitDOM.Operations.Diffing
 
                         var sourceItem = new DuplicateItemModel
                         {
-                            RevitElementId = liveElement.Id,
+                            RevitElementId = liveElement.Id.ToModel(target, false),
                             ItemName = liveElement.Name,
                             CategoryName = categoryName,
                             IsPrimary = false,

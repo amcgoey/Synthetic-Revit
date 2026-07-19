@@ -3,29 +3,29 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
-using Autodesk.Revit.DB;
 
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Shared.RevitAPI;
-namespace Synthetic.Modules.MergeDuplicates.Models
+using Synthetic.RevitDOM.Operations.Merge;
+
+namespace Synthetic.RevitDOM.Operations.Merge
 {
     /// <summary>
     /// Represents the parent container (e.g., the Family or parent element) for duplicates.
     /// </summary>
     public class DuplicateItemModel : ObjectModel, INotifyPropertyChanged
     {
-        private ElementId? _revitElementId;
+        private ElementIdModel? _revitElementId;
         private string _itemName = string.Empty;
         private string _categoryName = string.Empty;
         private ObservableCollection<DuplicateTypeModel> _types;
         private bool _isPrimary;
         private bool _isIncludedForMerge = true;
-        private BoundingBoxXYZ? _boundingBox;
-        private XYZ? _origin;
+        private BoundingBoxXYZModel? _boundingBox;
+        private XYZModel? _origin;
 
         // Compatibility fields
         private Dictionary<string, string> _parameters;
@@ -43,7 +43,7 @@ namespace Synthetic.Modules.MergeDuplicates.Models
         /// <summary>
         /// The Revit ElementId of this parent item.
         /// </summary>
-        public ElementId? RevitElementId
+        public ElementIdModel? RevitElementId
         {
             get => _revitElementId;
             set => SetProperty(ref _revitElementId, value);
@@ -108,7 +108,7 @@ namespace Synthetic.Modules.MergeDuplicates.Models
         /// <summary>
         /// Geometric bounding box representation.
         /// </summary>
-        public BoundingBoxXYZ? BoundingBox
+        public BoundingBoxXYZModel? BoundingBox
         {
             get => _boundingBox;
             set => SetProperty(ref _boundingBox, value);
@@ -117,7 +117,7 @@ namespace Synthetic.Modules.MergeDuplicates.Models
         /// <summary>
         /// Geometric origin point (corresponds to Location).
         /// </summary>
-        public XYZ? Origin
+        public XYZModel? Origin
         {
             get => _origin;
             set => SetProperty(ref _origin, value);
@@ -128,7 +128,7 @@ namespace Synthetic.Modules.MergeDuplicates.Models
         /// <summary>
         /// Compatibility wrapper for Location mapping to Origin.
         /// </summary>
-        public XYZ? Location
+        public XYZModel? Location
         {
             get => _origin;
             set => SetProperty(ref _origin, value);

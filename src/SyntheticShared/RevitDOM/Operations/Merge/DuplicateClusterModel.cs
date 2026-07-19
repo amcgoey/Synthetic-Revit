@@ -4,15 +4,9 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
-using Autodesk.Revit.DB;
-
 using Synthetic.RevitDOM.Models;
-using Synthetic.RevitDOM.Translation;
-using Synthetic.RevitDOM.Operations;
-using Synthetic.RevitDOM;
-using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Shared.RevitAPI;
-namespace Synthetic.Modules.MergeDuplicates.Models
+
+namespace Synthetic.RevitDOM.Operations.Merge
 {
     /// <summary>
     /// Model representing a cluster of duplicate elements.
@@ -88,12 +82,12 @@ namespace Synthetic.Modules.MergeDuplicates.Models
             set => SetProperty(ref _isBlocked, value);
         }
 
-        private Dictionary<string, ElementId> _parameterResolutions = new Dictionary<string, ElementId>();
+        private Dictionary<string, ElementIdModel> _parameterResolutions = new Dictionary<string, ElementIdModel>();
 
         /// <summary>
         /// Gets or sets the dictionary of parameter resolutions (which element's parameter value wins).
         /// </summary>
-        public Dictionary<string, ElementId> ParameterResolutions
+        public Dictionary<string, ElementIdModel> ParameterResolutions
         {
             get => _parameterResolutions;
             set => SetProperty(ref _parameterResolutions, value);

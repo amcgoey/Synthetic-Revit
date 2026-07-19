@@ -2,22 +2,16 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
-using Autodesk.Revit.DB;
-
 using Synthetic.RevitDOM.Models;
-using Synthetic.RevitDOM.Translation;
-using Synthetic.RevitDOM.Operations;
-using Synthetic.RevitDOM;
-using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Shared.RevitAPI;
-namespace Synthetic.Modules.MergeDuplicates.Models
+
+namespace Synthetic.RevitDOM.Operations.Merge
 {
     /// <summary>
     /// Represents a specific duplicate FamilySymbol, GroupType, or AssemblyType.
     /// </summary>
     public class DuplicateTypeModel : ObjectModel, INotifyPropertyChanged
     {
-        private ElementId _revitTypeId = ElementId.InvalidElementId;
+        private ElementIdModel _revitTypeId = new ElementIdModel { Id = -1 };
         private string _name = string.Empty;
         private Dictionary<string, string> _parameters;
 
@@ -32,7 +26,7 @@ namespace Synthetic.Modules.MergeDuplicates.Models
         /// <summary>
         /// The Revit ElementId of this type.
         /// </summary>
-        public ElementId RevitTypeId
+        public ElementIdModel RevitTypeId
         {
             get => _revitTypeId;
             set => SetProperty(ref _revitTypeId, value);

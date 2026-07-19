@@ -17,7 +17,7 @@ using Synthetic.Infrastructure.IO;
 
 using Synthetic.Shared.UI;
 using Synthetic.Modules.MergeDuplicates.Engine;
-using Synthetic.Modules.MergeDuplicates.Models;
+using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 namespace Synthetic.Modules.MergeDuplicates.ViewModels
 {
@@ -250,7 +250,7 @@ namespace Synthetic.Modules.MergeDuplicates.ViewModels
             if (Cluster != null)
             {
                 Cluster.IsBlocked = false;
-                Cluster.ParameterResolutions = new Dictionary<string, ElementId>();
+                Cluster.ParameterResolutions = new Dictionary<string, ElementIdModel>();
                 foreach (var mapping in Cluster.TypeMappings)
                 {
                     if (mapping.ParameterResolutions != null)

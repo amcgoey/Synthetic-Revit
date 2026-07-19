@@ -9,7 +9,7 @@ using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
 using Synthetic.RevitDOM.Operations.Standards;
-using Synthetic.Modules.MergeDuplicates.Models;
+using Synthetic.RevitDOM.Operations.Merge;
 
 namespace SyntheticTests
 {
@@ -108,10 +108,10 @@ namespace SyntheticTests
                 Assert.IsTrue(clusters.Count > 0, "A conflict cluster should be returned.");
 
                 // Find the cluster matching our element type
-                var cluster = clusters.FirstOrDefault(c => c.TypeMappings.Any(m => m.SourceType != null && m.SourceType.RevitTypeId == context.TextNoteType.Id));
+                var cluster = clusters.FirstOrDefault(c => c.TypeMappings.Any(m => m.SourceType != null && m.SourceType.RevitTypeId.ToElementId() == context.TextNoteType.Id));
                 Assert.IsNotNull(cluster, "Should find a cluster matching the tested TextNoteType.");
 
-                var mapping = cluster!.TypeMappings.FirstOrDefault(m => m.SourceType != null && m.SourceType.RevitTypeId == context.TextNoteType.Id);
+                var mapping = cluster!.TypeMappings.FirstOrDefault(m => m.SourceType != null && m.SourceType.RevitTypeId.ToElementId() == context.TextNoteType.Id);
                 Assert.IsNotNull(mapping, "Should find a type mapping for the tested TextNoteType.");
 
                 var conflictRow = mapping!.ParameterResolutions.FirstOrDefault(r => r.ParameterName == context.TargetParam.Name);
