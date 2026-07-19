@@ -30,14 +30,13 @@
   </ItemGroup>
 
   <!-- Compile mock RevitAPI and RevitAPIUI projects and copy them to output directory post-build -->
-  <Target Name="CopyMockRevitAPI" AfterTargets="Build">
+    <Target Name="CopyMockRevitAPI" AfterTargets="Build">
     <MSBuild Projects="..\RevitAPIMock\RevitAPIMock.csproj" Targets="Build" Properties="Configuration=$(Configuration);Platform=$(Platform)" />
-    <Copy SourceFiles="..\RevitAPIMock\bin\x64\$(Configuration)\net8.0-windows8.0\RevitAPI.dll" DestinationFolder="$(TargetDir)" OverwriteReadOnlyFiles="true" SkipUnchangedFiles="false" Condition="Exists('..\RevitAPIMock\bin\x64\$(Configuration)\net8.0-windows8.0\RevitAPI.dll')" />
-    <Copy SourceFiles="..\RevitAPIMock\bin\$(Configuration)\net8.0-windows8.0\RevitAPI.dll" DestinationFolder="$(TargetDir)" OverwriteReadOnlyFiles="true" SkipUnchangedFiles="false" Condition="!Exists('..\RevitAPIMock\bin\x64\$(Configuration)\net8.0-windows8.0\RevitAPI.dll')" />
+    <Copy SourceFiles="C:\Users\amcgoey\AppData\Local\Temp\bin\RevitAPIMock\net8.0-windows8.0\RevitAPI.dll" DestinationFolder="$(TargetDir)" OverwriteReadOnlyFiles="true" SkipUnchangedFiles="false" />
 
     <MSBuild Projects="..\RevitAPIUIMock\RevitAPIUIMock.csproj" Targets="Build" Properties="Configuration=$(Configuration);Platform=$(Platform)" />
-    <Copy SourceFiles="..\RevitAPIUIMock\bin\x64\$(Configuration)\net8.0-windows8.0\RevitAPIUI.dll" DestinationFolder="$(TargetDir)" OverwriteReadOnlyFiles="true" SkipUnchangedFiles="false" Condition="Exists('..\RevitAPIUIMock\bin\x64\$(Configuration)\net8.0-windows8.0\RevitAPIUI.dll')" />
-    <Copy SourceFiles="..\RevitAPIUIMock\bin\$(Configuration)\net8.0-windows8.0\RevitAPIUI.dll" DestinationFolder="$(TargetDir)" OverwriteReadOnlyFiles="true" SkipUnchangedFiles="false" Condition="!Exists('..\RevitAPIUIMock\bin\x64\$(Configuration)\net8.0-windows8.0\RevitAPIUI.dll')" />
+    <Copy SourceFiles="C:\Users\amcgoey\AppData\Local\Temp\bin\RevitAPIUIMock\net8.0-windows8.0\RevitAPIUI.dll" DestinationFolder="$(TargetDir)" OverwriteReadOnlyFiles="true" SkipUnchangedFiles="false" />
   </Target>
 
 </Project>
+

@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using Autodesk.Revit.DB;
 using Synthetic.Modules.MergeDuplicates.Models;
+using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
@@ -213,7 +214,7 @@ namespace Synthetic.RevitDOM.Operations.Diffing
                         {
                             targetItem = new DuplicateItemModel
                             {
-                                RevitElementId = ElementId.InvalidElementId,
+                                RevitElementId = ElementId.InvalidElementId.ToModel(target, false),
                                 ItemName = $"{incomingModel.Name} (Standard)",
                                 CategoryName = categoryName,
                                 IsPrimary = true,
@@ -230,7 +231,7 @@ namespace Synthetic.RevitDOM.Operations.Diffing
 
                         var sourceItem = new DuplicateItemModel
                         {
-                            RevitElementId = liveElement.Id,
+                            RevitElementId = liveElement.Id.ToModel(target, false),
                             ItemName = liveElement.Name,
                             CategoryName = categoryName,
                             IsPrimary = false,

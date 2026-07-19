@@ -12,6 +12,7 @@ using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Shared.RevitAPI;
+using Synthetic.RevitDOM.Operations.Merge;
 namespace Synthetic.Modules.MergeDuplicates.Models
 {
     /// <summary>
