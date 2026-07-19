@@ -4,7 +4,7 @@ using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
 
-namespace Synthetic.Modules.StandardsManagement.Utilities
+namespace Synthetic.RevitDOM.Operations.Standards
 {
     /// <summary>
     /// Contract for the Find & Replace execution service.

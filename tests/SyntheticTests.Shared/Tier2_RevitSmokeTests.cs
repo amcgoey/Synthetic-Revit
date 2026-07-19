@@ -44,10 +44,10 @@ namespace SyntheticTests
             var guardrail = new SyntheticTests.Modules.StandardsManagement.FakeGuardrailPromptService();
             var userPromptService = new SyntheticTests.Modules.StandardsManagement.FakeUserPromptService();
 
-            var exportServiceType = Type.GetType($"Synthetic.Modules.StandardsManagement.Utilities.StandardsExportService{suffix}");
+            var exportServiceType = Type.GetType($"Synthetic.RevitDOM.Operations.Standards.StandardsExportService{suffix}");
             var exportService = Activator.CreateInstance(exportServiceType, guardrail, fakeDialog);
 
-            var findReplaceType = Type.GetType($"Synthetic.Modules.StandardsManagement.Utilities.FindReplaceService{suffix}");
+            var findReplaceType = Type.GetType($"Synthetic.RevitDOM.Operations.Standards.FindReplaceService{suffix}");
             var findReplaceService = Activator.CreateInstance(findReplaceType);
 
             var serializationEngineType = Type.GetType($"Synthetic.Modules.RevitDOM.StandardSerializationEngine{suffix}");
@@ -56,7 +56,7 @@ namespace SyntheticTests
             var revitIdentityType = Type.GetType($"Synthetic.Modules.RevitDOM.RevitIdentityService{suffix}");
             var revitIdentity = Activator.CreateInstance(revitIdentityType);
 
-            var orchestratorType = Type.GetType($"Synthetic.Modules.StandardsManagement.Engine.StandardsExtractionOrchestrator{suffix}");
+            var orchestratorType = Type.GetType($"Synthetic.RevitDOM.Operations.Standards.StandardsExtractionOrchestrator{suffix}");
             var orchestrator = Activator.CreateInstance(orchestratorType, revitIdentity, serializationEngine);
 
             var pocoIdentityType = Type.GetType($"Synthetic.Modules.RevitDOM.PocoIdentityService{suffix}");
@@ -65,10 +65,10 @@ namespace SyntheticTests
             var diffEngineType = Type.GetType($"Synthetic.RevitDOM.Operations.Diffing.PocoToRevitDiffEngine{suffix}");
             var diffEngine = Activator.CreateInstance(diffEngineType, revitIdentity);
 
-            var revitFamilyEnforcerType = Type.GetType($"Synthetic.Modules.StandardsManagement.Engine.RevitFamilyEnforcer{suffix}");
+            var revitFamilyEnforcerType = Type.GetType($"Synthetic.RevitDOM.Operations.Standards.RevitFamilyEnforcer{suffix}");
             var revitFamilyEnforcer = Activator.CreateInstance(revitFamilyEnforcerType, serializationEngine);
 
-            var pipelineType = Type.GetType($"Synthetic.Modules.StandardsManagement.Engine.StandardsExecutionPipeline{suffix}");
+            var pipelineType = Type.GetType($"Synthetic.RevitDOM.Operations.Standards.StandardsExecutionPipeline{suffix}");
             var pipeline = Activator.CreateInstance(pipelineType, serializationEngine, exportService, revitFamilyEnforcer);
 
             var vm = Activator.CreateInstance(vmType, 

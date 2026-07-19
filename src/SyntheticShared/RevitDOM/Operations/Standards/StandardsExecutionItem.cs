@@ -4,7 +4,7 @@ using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
 
-namespace Synthetic.Modules.StandardsManagement.Models
+namespace Synthetic.RevitDOM.Operations.Standards
 {
     public class StandardsExecutionItem
     {

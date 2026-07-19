@@ -6,9 +6,9 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
-using Synthetic.Modules.StandardsManagement.Models;
+using Synthetic.RevitDOM.Operations.Standards;
 
-namespace Synthetic.Modules.StandardsManagement.Engine
+namespace Synthetic.RevitDOM.Operations.Standards
 {
     public interface IFamilyEnforcer
     {

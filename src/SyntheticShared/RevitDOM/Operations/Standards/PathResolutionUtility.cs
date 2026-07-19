@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 
-namespace Synthetic.Modules.StandardsManagement.Utilities
+namespace Synthetic.RevitDOM.Operations.Standards
 {
     /// <summary>
     /// Pure C# utility for calculating standard JSON save paths based on document state.

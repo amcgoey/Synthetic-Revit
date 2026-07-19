@@ -1,4 +1,4 @@
-namespace Synthetic.Modules.StandardsManagement.Models
+namespace Synthetic.RevitDOM.Operations.Standards
 {
     public class StandardsExecutionOptions
     {

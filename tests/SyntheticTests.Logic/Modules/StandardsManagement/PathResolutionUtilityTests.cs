@@ -1,7 +1,7 @@
 ﻿using System;
 using System.IO;
 using NUnit.Framework;
-using Synthetic.Modules.StandardsManagement.Utilities;
+using Synthetic.RevitDOM.Operations.Standards;
 
 namespace SyntheticTests.Modules.StandardsManagement
 {

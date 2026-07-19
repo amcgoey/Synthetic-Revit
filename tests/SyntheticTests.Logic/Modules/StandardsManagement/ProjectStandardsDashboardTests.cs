@@ -11,9 +11,9 @@ using Synthetic.RevitDOM;
 using Synthetic.Settings;
 using Synthetic.Infrastructure.Persistence;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.StandardsManagement.Utilities;
+using Synthetic.RevitDOM.Operations.Standards;
 using Synthetic.Modules.MergeDuplicates.Models;
-using Synthetic.Modules.StandardsManagement.Engine;
+using Synthetic.RevitDOM.Operations.Standards;
 using SyntheticTests.Modules.RevitDOM;
 using Synthetic.Shared.UI;
 

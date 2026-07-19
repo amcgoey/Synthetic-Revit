@@ -11,11 +11,11 @@ using Synthetic.RevitDOM;
 using Synthetic.Infrastructure.Serialization;
 using Synthetic.Modules.MergeDuplicates.Handlers;
 using Synthetic.Modules.MergeDuplicates.Models;
-using Synthetic.Modules.StandardsManagement.Engine;
+using Synthetic.RevitDOM.Operations.Standards;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Shared.RevitAPI;
 
-namespace Synthetic.Modules.StandardsManagement.Engine
+namespace Synthetic.RevitDOM.Operations.Standards
 {
     /// <summary>
     /// Pre-execution analysis engine that compares incoming deserialized JSON standard models

@@ -2,10 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.StandardsManagement.Models;
+using Synthetic.RevitDOM.Operations.Standards;
 using Synthetic.Shared.UI;
 
-namespace Synthetic.Modules.StandardsManagement.Engine
+namespace Synthetic.RevitDOM.Operations.Standards
 {
     public interface IStandardsExecutionPipeline
     {

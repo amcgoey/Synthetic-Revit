@@ -6,12 +6,12 @@ using Autodesk.Revit.UI;
 using Synthetic.Shared.UI;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Modules.StandardsManagement.Views;
-using Synthetic.Modules.StandardsManagement.Utilities;
+using Synthetic.RevitDOM.Operations.Standards;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
-using Synthetic.Modules.StandardsManagement.Engine;
+using Synthetic.RevitDOM.Operations.Standards;
 using Synthetic.RevitDOM.Operations.Diffing;
 
 namespace Synthetic.Modules.StandardsManagement.Commands

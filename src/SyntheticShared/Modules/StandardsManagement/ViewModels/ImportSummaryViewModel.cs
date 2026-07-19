@@ -8,8 +8,8 @@ using Synthetic.RevitDOM;
 using Synthetic.Infrastructure.Serialization;
 
 using Synthetic.Shared.UI;
-using Synthetic.Modules.StandardsManagement.Models;
-using Synthetic.Modules.StandardsManagement.Utilities;
+using Synthetic.RevitDOM.Operations.Standards;
+using Synthetic.RevitDOM.Operations.Standards;
 
 namespace Synthetic.Modules.StandardsManagement.ViewModels
 {

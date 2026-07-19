@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using Synthetic.Modules.StandardsManagement.Models;
+using Synthetic.RevitDOM.Operations.Standards;
 
-namespace Synthetic.Modules.StandardsManagement.Utilities
+namespace Synthetic.RevitDOM.Operations.Standards
 {
     /// <summary>
     /// Utility class for generating standards reports.

@@ -12,8 +12,8 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
-using Synthetic.Modules.StandardsManagement.Utilities;
-using Synthetic.Modules.StandardsManagement.Engine;
+using Synthetic.RevitDOM.Operations.Standards;
+using Synthetic.RevitDOM.Operations.Standards;
 
 namespace SyntheticTests.Modules.StandardsManagement
 {
@@ -139,7 +139,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             File.WriteAllText(tempJsonFile, @"{
                 ""Materials"": {
                     ""Concrete"": {
-                        ""$type"": ""Synthetic.Modules.StandardsManagement.Models.MaterialModel, SyntheticShared"",
+                        ""$type"": ""Synthetic.RevitDOM.Operations.Standards.MaterialModel, SyntheticShared"",
                         ""Name"": ""Concrete"",
                         ""Class"": ""Autodesk.Revit.DB.Material"",
                         ""UniqueId"": ""abc-123""

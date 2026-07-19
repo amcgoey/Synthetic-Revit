@@ -7,7 +7,7 @@ using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
 
-namespace Synthetic.Modules.StandardsManagement.Engine
+namespace Synthetic.RevitDOM.Operations.Standards
 {
     /// <summary>
     /// Service responsible for managing the recursive extraction and dependency harvesting of Revit standards.

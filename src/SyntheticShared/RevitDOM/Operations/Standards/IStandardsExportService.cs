@@ -5,7 +5,7 @@ using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 
-namespace Synthetic.Modules.StandardsManagement.Utilities
+namespace Synthetic.RevitDOM.Operations.Standards
 {
     /// <summary>
     /// Interface for executing Phase 2 file persistence and managing overwrite guardrails.

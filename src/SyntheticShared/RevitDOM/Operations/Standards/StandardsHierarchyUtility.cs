@@ -8,7 +8,7 @@ using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 
-namespace Synthetic.Modules.StandardsManagement.Utilities
+namespace Synthetic.RevitDOM.Operations.Standards
 {
     /// <summary>
     /// Stateless utility for building, sorting, and mapping the Revit standards hierarchy taxonomy.

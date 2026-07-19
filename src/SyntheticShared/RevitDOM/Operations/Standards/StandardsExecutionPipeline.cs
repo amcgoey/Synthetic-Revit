@@ -8,13 +8,13 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
-using Synthetic.Modules.StandardsManagement.Models;
-using Synthetic.Modules.StandardsManagement.Utilities;
+using Synthetic.RevitDOM.Operations.Standards;
+using Synthetic.RevitDOM.Operations.Standards;
 using Synthetic.Shared.RevitAPI;
 using Synthetic.Shared.UI;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 
-namespace Synthetic.Modules.StandardsManagement.Engine
+namespace Synthetic.RevitDOM.Operations.Standards
 {
     public class StandardsExecutionPipeline : IStandardsExecutionPipeline
     {

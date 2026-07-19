@@ -3,7 +3,7 @@ using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-namespace Synthetic.Modules.StandardsManagement.Models
+namespace Synthetic.RevitDOM.Operations.Standards
 {
     /// <summary>
     /// Represents an entry in the import log, tracking actions taken on Revit elements.

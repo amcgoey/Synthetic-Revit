@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace Synthetic.Modules.StandardsManagement.Models
+namespace Synthetic.RevitDOM.Operations.Standards
 {
     public class StandardsExecutionResult
     {

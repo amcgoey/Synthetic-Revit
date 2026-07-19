@@ -9,8 +9,8 @@ using System.Windows.Input;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using Synthetic.Modules.MergeDuplicates.Models;
-using Synthetic.Modules.StandardsManagement.Engine;
-using Synthetic.Modules.StandardsManagement.Models;
+using Synthetic.RevitDOM.Operations.Standards;
+using Synthetic.RevitDOM.Operations.Standards;
 using Synthetic.Core;
 
 using Synthetic.Shared.UI;
@@ -21,7 +21,7 @@ using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
 using Synthetic.Settings;
 using Synthetic.Infrastructure.Persistence;
-using Synthetic.Modules.StandardsManagement.Utilities;
+using Synthetic.RevitDOM.Operations.Standards;
 using Synthetic.RevitDOM.Operations.Diffing;
 
 namespace Synthetic.Modules.StandardsManagement.ViewModels
