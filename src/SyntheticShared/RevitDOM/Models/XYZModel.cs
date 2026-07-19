@@ -24,6 +24,33 @@ namespace Synthetic.RevitDOM.Models
             Z = z;
         }
 
+        public static XYZModel operator +(XYZModel a, XYZModel b)
+        {
+            if (a == null && b == null) return new XYZModel(0, 0, 0);
+            if (a == null) return b;
+            if (b == null) return a;
+            return new XYZModel(a.X + b.X, a.Y + b.Y, a.Z + b.Z);
+        }
+
+        public static XYZModel operator -(XYZModel a, XYZModel b)
+        {
+            if (a == null && b == null) return new XYZModel(0, 0, 0);
+            if (a == null) return new XYZModel(-b.X, -b.Y, -b.Z);
+            if (b == null) return a;
+            return new XYZModel(a.X - b.X, a.Y - b.Y, a.Z - b.Z);
+        }
+
+        public static XYZModel operator *(XYZModel a, double scalar)
+        {
+            if (a == null) return new XYZModel(0, 0, 0);
+            return new XYZModel(a.X * scalar, a.Y * scalar, a.Z * scalar);
+        }
+
+        public double GetLength()
+        {
+            return System.Math.Sqrt(X * X + Y * Y + Z * Z);
+        }
+
         public static XYZModel? ByJSON(string JSON)
         {
             return JsonConvert.DeserializeObject<XYZModel>(JSON);

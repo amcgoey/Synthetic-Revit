@@ -335,7 +335,7 @@ namespace SyntheticTests
                     Assert.IsNotNull(targetCluster, "MergeAnalysisEngine should detect the duplicate cluster.");
 
                     // 5. Run Deep Scan
-                    MergeAnalysisEngine.RunDeepScan(doc, targetCluster, token);
+                    MergeAnalysisEngine.RunDeepScan(targetCluster, token);
                     Assert.IsFalse(targetCluster.HasSchemaMismatch, "Should not have schema mismatch.");
                     Assert.IsFalse(targetCluster.HasOriginMismatch, "Should not have origin mismatch.");
 
@@ -457,7 +457,7 @@ namespace SyntheticTests
                     var targetCluster = clusters.FirstOrDefault(c => c.ClusterName.Contains(sourceFamily.Name));
                     Assert.IsNotNull(targetCluster, "MergeAnalysisEngine should detect the duplicate cluster.");
 
-                    MergeAnalysisEngine.RunDeepScan(doc, targetCluster, token);
+                    MergeAnalysisEngine.RunDeepScan(targetCluster, token);
 
                     // 5. Assert
                     Assert.IsTrue(targetCluster.HasSchemaMismatch, "Deep scan should detect schema mismatch because of injected parameter.");
@@ -538,7 +538,7 @@ namespace SyntheticTests
                     Assert.IsNotNull(targetCluster, "MergeAnalysisEngine should detect the duplicate cluster.");
 
                     // 5. Deep Scan & Recommendations
-                    MergeAnalysisEngine.RunDeepScan(doc, targetCluster, token);
+                    MergeAnalysisEngine.RunDeepScan(targetCluster, token);
                     MergeAnalysisEngine.GenerateRecommendations(targetCluster);
 
                     // 6. Locate conflict row & designate winner
@@ -662,7 +662,7 @@ namespace SyntheticTests
                     var targetCluster = clusters.FirstOrDefault(c => c.ClusterName.Contains("TestGroup"));
                     Assert.IsNotNull(targetCluster, "MergeAnalysisEngine should detect the duplicate group cluster.");
 
-                    MergeAnalysisEngine.RunDeepScan(doc, targetCluster, token);
+                    MergeAnalysisEngine.RunDeepScan(targetCluster, token);
                     Assert.IsFalse(targetCluster.HasSchemaMismatch, "Should not have schema mismatch.");
                     Assert.IsFalse(targetCluster.HasOriginMismatch, "Should not have origin mismatch.");
 
@@ -794,7 +794,7 @@ namespace SyntheticTests
                     var targetCluster = clusters.FirstOrDefault(c => c.ClusterName.Contains("TestGroupParam"));
                     Assert.IsNotNull(targetCluster, "MergeAnalysisEngine should detect the duplicate group cluster.");
 
-                    MergeAnalysisEngine.RunDeepScan(doc, targetCluster, token);
+                    MergeAnalysisEngine.RunDeepScan(targetCluster, token);
                     MergeAnalysisEngine.GenerateRecommendations(targetCluster);
 
                     var primaryItem = targetCluster.Items.FirstOrDefault(i => i.RevitElementId.ToElementId() == sourceGroupType.Id);

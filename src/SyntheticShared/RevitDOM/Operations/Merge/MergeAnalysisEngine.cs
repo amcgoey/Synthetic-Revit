@@ -255,74 +255,7 @@ namespace Synthetic.RevitDOM.Operations.Merge
                         foreach (var elem in baseGroup)
                         {
                             token.ThrowIfCancellationRequested();
-
-                            // Create DuplicateItemModel
-                            var item = new DuplicateItemModel
-                            {
-                                RevitElementId = elem.ElementId,
-                                ItemName = elem.Name,
-                                CategoryName = categoryName,
-                                IsPrimary = false,
-                                IsIncludedForMerge = true,
-                                IsLoadableFamily = (elem.Class == "Autodesk.Revit.DB.Family" || elem.Class == "Autodesk.Revit.DB.FamilySymbol")
-                            };
-
-                            item.InstanceCount = elem.InstanceCount;
-                            item.Location = elem.Location;
-                            item.BoundingBox = elem.BoundingBox;
-
-                            // Populate parameters (legacy dict)
-                            item.Parameters = new Dictionary<string, string>();
-                            foreach (var p in elem.Parameters)
-                            {
-                                if (!string.IsNullOrEmpty(p.Name) && !item.Parameters.ContainsKey(p.Name))
-                                {
-                                    item.Parameters[p.Name] = p.StorageType;
-                                }
-                            }
-
-                            // Populate Nested Collection of Types
-                            if (elem.NestedTypes != null && elem.NestedTypes.Count > 0)
-                            {
-                                foreach (var nestedType in elem.NestedTypes)
-                                {
-                                    var typeModel = new DuplicateTypeModel
-                                    {
-                                        RevitTypeId = nestedType.ElementId,
-                                        Name = nestedType.Name,
-                                        Parameters = new Dictionary<string, string>()
-                                    };
-                                    foreach (var p in nestedType.Parameters)
-                                    {
-                                        if (!string.IsNullOrEmpty(p.Name) && !typeModel.Parameters.ContainsKey(p.Name))
-                                        {
-                                            if (IsIdentityParameter(p.Name)) continue;
-                                            typeModel.Parameters[p.Name] = GetParameterValueString(p);
-                                        }
-                                    }
-                                    item.Types.Add(typeModel);
-                                }
-                            }
-                            else
-                            {
-                                // Fallback: add the element itself as the single type
-                                var typeModel = new DuplicateTypeModel
-                                {
-                                    RevitTypeId = elem.ElementId,
-                                    Name = elem.Name,
-                                    Parameters = new Dictionary<string, string>()
-                                };
-                                foreach (var p in elem.Parameters)
-                                {
-                                    if (!string.IsNullOrEmpty(p.Name) && !typeModel.Parameters.ContainsKey(p.Name))
-                                    {
-                                        if (IsIdentityParameter(p.Name)) continue;
-                                        typeModel.Parameters[p.Name] = GetParameterValueString(p);
-                                    }
-                                }
-                                item.Types.Add(typeModel);
-                            }
-
+                            var item = CreateItemFromModel(elem, categoryName);
                             items.Add(item);
                         }
 
@@ -363,7 +296,81 @@ namespace Synthetic.RevitDOM.Operations.Merge
             return $"{p.StorageType}:{valueString}";
         }
 
-        private static ElementModel ConvertToPoco(Document doc, Element elem)
+        /// <summary>
+        /// Creates a DuplicateItemModel from an ElementModel.
+        /// </summary>
+        public static DuplicateItemModel CreateItemFromModel(ElementModel elem, string categoryName)
+        {
+            var item = new DuplicateItemModel
+            {
+                RevitElementId = elem.ElementId,
+                ItemName = elem.Name,
+                CategoryName = categoryName,
+                IsPrimary = false,
+                IsIncludedForMerge = true,
+                IsLoadableFamily = (elem.Class == "Autodesk.Revit.DB.Family" || elem.Class == "Autodesk.Revit.DB.FamilySymbol")
+            };
+
+            item.InstanceCount = elem.InstanceCount;
+            item.Location = elem.Location;
+            item.BoundingBox = elem.BoundingBox;
+
+            // Populate parameters (legacy dict)
+            item.Parameters = new Dictionary<string, string>();
+            foreach (var p in elem.Parameters)
+            {
+                if (!string.IsNullOrEmpty(p.Name) && !item.Parameters.ContainsKey(p.Name))
+                {
+                    item.Parameters[p.Name] = p.StorageType;
+                }
+            }
+
+            // Populate Nested Collection of Types
+            if (elem.NestedTypes != null && elem.NestedTypes.Count > 0)
+            {
+                foreach (var nestedType in elem.NestedTypes)
+                {
+                    var typeModel = new DuplicateTypeModel
+                    {
+                        RevitTypeId = nestedType.ElementId,
+                        Name = nestedType.Name,
+                        Parameters = new Dictionary<string, string>()
+                    };
+                    foreach (var p in nestedType.Parameters)
+                    {
+                        if (!string.IsNullOrEmpty(p.Name) && !typeModel.Parameters.ContainsKey(p.Name))
+                        {
+                            if (IsIdentityParameter(p.Name)) continue;
+                            typeModel.Parameters[p.Name] = GetParameterValueString(p);
+                        }
+                    }
+                    item.Types.Add(typeModel);
+                }
+            }
+            else
+            {
+                // Fallback: add the element itself as the single type
+                var typeModel = new DuplicateTypeModel
+                {
+                    RevitTypeId = elem.ElementId,
+                    Name = elem.Name,
+                    Parameters = new Dictionary<string, string>()
+                };
+                foreach (var p in elem.Parameters)
+                {
+                    if (!string.IsNullOrEmpty(p.Name) && !typeModel.Parameters.ContainsKey(p.Name))
+                    {
+                        if (IsIdentityParameter(p.Name)) continue;
+                        typeModel.Parameters[p.Name] = GetParameterValueString(p);
+                    }
+                }
+                item.Types.Add(typeModel);
+            }
+
+            return item;
+        }
+
+        public static ElementModel ConvertToPoco(Document doc, Element elem)
         {
             var model = elem.ToModel(false);
             
@@ -592,10 +599,9 @@ namespace Synthetic.RevitDOM.Operations.Merge
         /// <summary>
         /// Performs a deep comparison of the schemas and geometry in the given duplicate cluster.
         /// </summary>
-        /// <param name="doc">The active Revit document.</param>
         /// <param name="cluster">The duplicate cluster model to analyze.</param>
         /// <param name="token">A cancellation token to monitor for cancellation requests.</param>
-        public static void RunDeepScan(Document doc, DuplicateClusterModel cluster, CancellationToken token)
+        public static void RunDeepScan(DuplicateClusterModel cluster, CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
 
@@ -654,19 +660,18 @@ namespace Synthetic.RevitDOM.Operations.Merge
                 var currentBBox = currentItem.BoundingBox;
                 var currentLoc = currentItem.Location;
 
-                if (firstBBox != null && currentBBox != null && firstLoc != null && currentLoc != null)
+                if (firstBBox != null && currentBBox != null && firstLoc != null && currentLoc != null &&
+                    firstBBox.Max != null && firstBBox.Min != null &&
+                    currentBBox.Max != null && currentBBox.Min != null)
                 {
-                    // Compare Bounding Box size (rotation-independent)
-                    XYZ nativeFirstMax = firstBBox.Max.ToNative()!;
-                    XYZ nativeFirstMin = firstBBox.Min.ToNative()!;
-                    XYZ nativeCurrentMax = currentBBox.Max.ToNative()!;
-                    XYZ nativeCurrentMin = currentBBox.Min.ToNative()!;
-                    XYZ nativeFirstLoc = firstLoc.ToNative()!;
-                    XYZ nativeCurrentLoc = currentLoc.ToNative()!;
+                    XYZModel firstMax = firstBBox.Max;
+                    XYZModel firstMin = firstBBox.Min;
+                    XYZModel currentMax = currentBBox.Max;
+                    XYZModel currentMin = currentBBox.Min;
 
                     // Compare Bounding Box size (rotation-independent)
-                    XYZ firstSize = nativeFirstMax - nativeFirstMin;
-                    XYZ currentSize = nativeCurrentMax - nativeCurrentMin;
+                    XYZModel firstSize = firstMax - firstMin;
+                    XYZModel currentSize = currentMax - currentMin;
 
                     if (Math.Abs(firstSize.X - currentSize.X) > 1e-3 ||
                         Math.Abs(firstSize.Y - currentSize.Y) > 1e-3 ||
@@ -677,11 +682,11 @@ namespace Synthetic.RevitDOM.Operations.Merge
                     }
 
                     // Compare Origin relative to Bounding Box center
-                    XYZ firstCenter = (nativeFirstMax + nativeFirstMin) * 0.5;
-                    XYZ currentCenter = (nativeCurrentMax + nativeCurrentMin) * 0.5;
+                    XYZModel firstCenter = (firstMax + firstMin) * 0.5;
+                    XYZModel currentCenter = (currentMax + currentMin) * 0.5;
 
-                    XYZ firstOffset = nativeFirstLoc - firstCenter;
-                    XYZ currentOffset = nativeCurrentLoc - currentCenter;
+                    XYZModel firstOffset = firstLoc - firstCenter;
+                    XYZModel currentOffset = currentLoc - currentCenter;
 
                     if (Math.Abs(firstOffset.GetLength() - currentOffset.GetLength()) > 1e-3)
                     {
@@ -878,16 +883,28 @@ namespace Synthetic.RevitDOM.Operations.Merge
                 }
 
                 bool isSchemaMismatch = false;
-                if (srcRaw == null || tgtRaw == null)
+                bool isInjectEnabled = false;
+
+                if (srcRaw != null && tgtRaw != null)
                 {
-                    isSchemaMismatch = true;
+                    if (srcStorage != null && tgtStorage != null && srcStorage != tgtStorage)
+                    {
+                        isSchemaMismatch = true;
+                        isInjectEnabled = true;
+                    }
                 }
-                else if (srcStorage != null && tgtStorage != null && srcStorage != tgtStorage)
+                else if (srcRaw != null) // tgtRaw == null
                 {
-                    isSchemaMismatch = true;
+                    isSchemaMismatch = false;
+                    isInjectEnabled = true;
+                }
+                else if (tgtRaw != null) // srcRaw == null
+                {
+                    isSchemaMismatch = false;
+                    isInjectEnabled = false;
                 }
 
-                bool hasConflict = (srcVal != tgtVal) && !isSchemaMismatch;
+                bool hasConflict = (srcRaw != null && tgtRaw != null) && (srcVal != tgtVal) && !isSchemaMismatch;
 
                 var row = new ParameterDiffRowModel
                 {
@@ -895,7 +912,7 @@ namespace Synthetic.RevitDOM.Operations.Merge
                     IsSchemaMismatch = isSchemaMismatch,
                     HasConflict = hasConflict,
                     WinningValueElementId = (mapping.RecommendedAction == RecommendedAction.Merge) ? tgtType.RevitTypeId : srcType.RevitTypeId,
-                    IsInjectEnabled = isSchemaMismatch
+                    IsInjectEnabled = isInjectEnabled
                 };
 
                 row.Values[srcType.RevitTypeId] = srcVal ?? string.Empty;

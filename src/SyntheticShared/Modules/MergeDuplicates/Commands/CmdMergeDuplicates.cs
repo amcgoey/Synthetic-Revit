@@ -54,7 +54,7 @@ namespace Synthetic.Modules.MergeDuplicates.Commands
                 // Run deep scan and generate recommendations for all discovered clusters
                 foreach (var cluster in clusters)
                 {
-                    MergeAnalysisEngine.RunDeepScan(doc, cluster, CancellationToken.None);
+                    MergeAnalysisEngine.RunDeepScan(cluster, CancellationToken.None);
                     MergeAnalysisEngine.GenerateRecommendations(cluster);
                 }
 

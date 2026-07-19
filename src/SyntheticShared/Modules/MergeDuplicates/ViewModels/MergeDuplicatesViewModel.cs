@@ -202,7 +202,7 @@ namespace Synthetic.Modules.MergeDuplicates.ViewModels
             if (parameter is DuplicateClusterModel cluster)
             {
                 // Run deep scan to ensure current state is up-to-date
-                MergeAnalysisEngine.RunDeepScan(Document, cluster, System.Threading.CancellationToken.None);
+                MergeAnalysisEngine.RunDeepScan(cluster, System.Threading.CancellationToken.None);
 
                 // Run GenerateRecommendations to analyze parameter conflicts
                 MergeAnalysisEngine.GenerateRecommendations(cluster);
@@ -324,11 +324,8 @@ namespace Synthetic.Modules.MergeDuplicates.ViewModels
             }
 
             // Run deep scan on both affected clusters
-            if (Document != null)
-            {
-                MergeAnalysisEngine.RunDeepScan(Document!, sourceCluster, System.Threading.CancellationToken.None);
-                MergeAnalysisEngine.RunDeepScan(Document!, targetCluster, System.Threading.CancellationToken.None);
-            }
+            MergeAnalysisEngine.RunDeepScan(sourceCluster, System.Threading.CancellationToken.None);
+            MergeAnalysisEngine.RunDeepScan(targetCluster, System.Threading.CancellationToken.None);
 
             // If source cluster now has 1 or fewer items, remove it from list
             if (sourceCluster.Items.Count <= 1)
@@ -344,7 +341,7 @@ namespace Synthetic.Modules.MergeDuplicates.ViewModels
             {
                 if (cluster.TypeMappings == null || cluster.TypeMappings.Count == 0)
                 {
-                    MergeAnalysisEngine.RunDeepScan(Document, cluster, System.Threading.CancellationToken.None);
+                    MergeAnalysisEngine.RunDeepScan(cluster, System.Threading.CancellationToken.None);
                     MergeAnalysisEngine.GenerateRecommendations(cluster);
                 }
 
@@ -487,70 +484,15 @@ namespace Synthetic.Modules.MergeDuplicates.ViewModels
                         var elem = Document!.GetElement(id);
                         if (elem == null) continue;
 
-                        // Create DuplicateItemModel for the selected element
-                        var item = new DuplicateItemModel
-                        {
-                            RevitElementId = elem.Id.ToModel(Document, false),
-                            ItemName = elem.Name,
-                            CategoryName = categoryName!,
-                            IsPrimary = false,
-                            IsIncludedForMerge = true
-                        };
-
-                        // Populate nested types
-                        if (elem is Family family)
-                        {
-                            var symbolIds = family.GetFamilySymbolIds();
-                            if (symbolIds != null)
-                            {
-                                foreach (var sId in symbolIds)
-                                {
-                                    var symbol = Document!.GetElement(sId) as FamilySymbol;
-                                    if (symbol != null)
-                                    {
-                                        var typeModel = new DuplicateTypeModel
-                                        {
-                                            RevitTypeId = symbol.Id.ToModel(Document!),
-                                            Name = symbol.Name,
-                                            Parameters = new Dictionary<string, string>()
-                                        };
-                                        foreach (Parameter p in symbol.Parameters)
-                                        {
-                                            if (p.Definition != null && !typeModel.Parameters.ContainsKey(p.Definition.Name))
-                                            {
-                                                if (MergeAnalysisEngine.IsIdentityParameter(p.Definition.Name)) continue;
-                                                typeModel.Parameters[p.Definition.Name] = MergeAnalysisEngine.GetParameterValueString(p, Document!);
-                                            }
-                                        }
-                                        item.Types.Add(typeModel);
-                                    }
-                                }
-                            }
-                        }
-                        else
-                        {
-                            var typeModel = new DuplicateTypeModel
-                            {
-                                RevitTypeId = elem.Id.ToModel(Document!),
-                                Name = elem.Name,
-                                Parameters = new Dictionary<string, string>()
-                            };
-                            foreach (Parameter p in elem.Parameters)
-                            {
-                                if (p.Definition != null && !typeModel.Parameters.ContainsKey(p.Definition.Name))
-                                {
-                                    if (MergeAnalysisEngine.IsIdentityParameter(p.Definition.Name)) continue;
-                                    typeModel.Parameters[p.Definition.Name] = MergeAnalysisEngine.GetParameterValueString(p, Document!);
-                                }
-                            }
-                            item.Types.Add(typeModel);
-                        }
+                        // Convert to POCO first and use the shared engine to create the item model
+                        var elementModel = MergeAnalysisEngine.ConvertToPoco(Document!, elem);
+                        var item = MergeAnalysisEngine.CreateItemFromModel(elementModel, categoryName!);
 
                         cluster.Items.Add(item);
                     }
 
                     // Run deep scan and regenerate recommendations on updated cluster
-                    MergeAnalysisEngine.RunDeepScan(Document!, cluster, System.Threading.CancellationToken.None);
+                    MergeAnalysisEngine.RunDeepScan(cluster, System.Threading.CancellationToken.None);
                     MergeAnalysisEngine.GenerateRecommendations(cluster);
                     cluster.IsBlocked = false; // Reset block status so they can attempt queueing again
                 }
