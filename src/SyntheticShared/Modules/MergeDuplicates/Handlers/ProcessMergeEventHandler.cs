@@ -136,6 +136,17 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
             if (currentQueue == null || currentQueue.QueuedClusters.Count == 0) return;
 
             Document? doc = app.ActiveUIDocument?.Document;
+            if (doc == null && app.Application.Documents != null)
+            {
+                foreach (Document openDoc in app.Application.Documents)
+                {
+                    if (!openDoc.IsFamilyDocument)
+                    {
+                        doc = openDoc;
+                        break;
+                    }
+                }
+            }
             if (doc == null) return;
 
             // 1. Disable UI during processing to prevent concurrent modifications
@@ -515,10 +526,16 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                                         doc.Delete(dupItem.RevitElementId);
                                         purgedCount++;
                                     }
-                                    catch (Exception)
-                                    {
-                                        // Silently handle deletion error
-                                    }
+                                     catch (Exception ex)
+                                     {
+                                         try
+                                         {
+                                             System.IO.File.WriteAllText(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "synthetic_test_error.txt"), ex.ToString());
+                                         }
+                                         catch {}
+                                         report.ExecutionSuccessStatus = false;
+                                         report.ErrorMessage = "Family deletion failed: " + ex.Message + " | " + ex.StackTrace;
+                                     }
                                 }
                                 else
                                 {
@@ -773,3 +790,6 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
         }
     }
 }
+
+
+

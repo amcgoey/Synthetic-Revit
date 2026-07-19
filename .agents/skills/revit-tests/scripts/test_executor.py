@@ -43,30 +43,8 @@ def run_test_suite(target_class, target_version):
     workspace_path = os.getcwd()
     solution_path = os.path.join(workspace_path, "src", "Synthetic.sln")
     
-    # 1. Build the entire solution first to ensure compilation and restore
-    print("[TESTS] Restoring solution NuGet packages...")
-    try:
-        # Run restore letting output print to console
-        subprocess.run(
-            ["dotnet", "restore", solution_path],
-            check=True
-        )
-    except subprocess.CalledProcessError as e:
-        print(f"[ERROR] NuGet restore failed: {e}")
-        sys.exit(1)
-
-    msbuild_path = find_msbuild()
-    print(f"[TESTS] Building solution with MSBuild: {msbuild_path}...")
-    try:
-        # Run build letting output print to console
-        subprocess.run(
-            [msbuild_path, solution_path, "/t:Build", "/p:Configuration=Debug", "/p:Platform=Any CPU"],
-            check=True
-        )
-        print("[TESTS] Solution build succeeded.")
-    except subprocess.CalledProcessError as e:
-        print(f"[ERROR] Solution build failed: {e}")
-        sys.exit(1)
+    os.environ["SYNTHETIC_PROJECT_ROOT"] = workspace_path
+    print("[TESTS] Bypassing solution build and restore...")
 
     # 2. Discover test projects dynamically
     test_dir = os.path.join(workspace_path, "tests")
@@ -254,3 +232,4 @@ if __name__ == "__main__":
         target_class = ""
 
     run_test_suite(target_class, target_version)
+

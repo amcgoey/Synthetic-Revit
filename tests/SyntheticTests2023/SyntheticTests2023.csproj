@@ -55,4 +55,11 @@
     
     <Exec Command="&quot;$(SignToolExe)&quot; sign /n &quot;Synthetic&quot; /fd SHA256 /a &quot;$(TargetPath)&quot;" IgnoreExitCode="true" />
   </Target>
+
+  <ItemGroup>
+    <Reference Include="PresentationCore" />
+    <Reference Include="PresentationFramework" />
+    <Reference Include="WindowsBase" />
+    <Reference Include="System.Xaml" />
+  </ItemGroup>
 </Project>

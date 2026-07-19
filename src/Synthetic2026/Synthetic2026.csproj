@@ -32,7 +32,7 @@
 
   <ItemGroup>
     <Reference Include="eTransmitForRevitDB">
-      <HintPath>..\..\..\..\..\..\..\Program Files\Autodesk\eTransmit for Revit 2026\eTransmitForRevitDB.dll</HintPath>
+      <HintPath>C:\Program Files\Autodesk\eTransmit for Revit 2026\eTransmitForRevitDB.dll</HintPath>
       <Private>False</Private>
     </Reference>
   </ItemGroup>
@@ -119,3 +119,4 @@
     <Exec Command="&quot;$(SignToolExe)&quot; sign /n &quot;Synthetic&quot; /fd SHA256 /a &quot;$(TargetPath)&quot;" IgnoreExitCode="true" />
   </Target>
 </Project>
+

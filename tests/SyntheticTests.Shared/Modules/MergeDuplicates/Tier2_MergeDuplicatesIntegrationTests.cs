@@ -1,0 +1,554 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using NUnit.Framework;
+using Autodesk.Revit.UI;
+using Autodesk.Revit.DB;
+
+using Synthetic.Modules.MergeDuplicates.Handlers;
+using Synthetic.Modules.MergeDuplicates.ViewModels;
+using Synthetic.Modules.MergeDuplicates.Models;
+using Synthetic.Modules.MergeDuplicates.Engine;
+
+namespace SyntheticTests
+{
+    [TestFixture]
+    public class Tier2_MergeDuplicatesIntegrationTests
+    {
+        private UIApplication? _uiapp;
+
+        [OneTimeSetUp]
+        public void Setup(UIApplication uiapp)
+        {
+            _uiapp = uiapp;
+            string errPath = Path.Combine(Path.GetTempPath(), "synthetic_test_error.txt");
+            if (File.Exists(errPath))
+            {
+                File.Delete(errPath);
+            }
+        }
+
+        #region Helper Methods
+
+        private static string GetProjectRoot()
+        {
+            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            string addinPath = Path.Combine(appData, "Autodesk", "Revit", "Addins", "2026", "Synthetic2026.addin");
+            if (File.Exists(addinPath))
+            {
+                string content = File.ReadAllText(addinPath);
+                var match = System.Text.RegularExpressions.Regex.Match(content, @"<Assembly>(.*?)\\output\\Synthetic\\Synthetic2026\.dll", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                if (match.Success)
+                {
+                    string root = match.Groups[1].Value;
+                    if (Directory.Exists(root))
+                    {
+                        return root;
+                    }
+                }
+            }
+
+            string envPath = Environment.GetEnvironmentVariable("SYNTHETIC_PROJECT_ROOT");
+            if (!string.IsNullOrEmpty(envPath) && Directory.Exists(envPath))
+            {
+                return envPath;
+            }
+
+            string dir = TestContext.CurrentContext.TestDirectory;
+            while (dir != null && !Directory.Exists(Path.Combine(dir, "tests")))
+            {
+                dir = Path.GetDirectoryName(dir);
+            }
+            return dir ?? TestContext.CurrentContext.TestDirectory;
+        }
+
+        private Document OpenTestTemplate(Autodesk.Revit.ApplicationServices.Application app)
+        {
+            string projectRoot = GetProjectRoot();
+            string testModelName = "TestTemplate" + app.VersionNumber + ".rvt";
+            string modelPathStr = Path.Combine(projectRoot, "tests", "test_models", testModelName);
+            if (!File.Exists(modelPathStr))
+            {
+                throw new FileNotFoundException("Test template model not found: " + modelPathStr);
+            }
+
+            ModelPath modelPath = ModelPathUtils.ConvertUserVisiblePathToModelPath(modelPathStr);
+            OpenOptions openOptions = new OpenOptions
+            {
+                DetachFromCentralOption = DetachFromCentralOption.DetachAndDiscardWorksets
+            };
+            return app.OpenDocumentFile(modelPath, openOptions);
+        }
+
+        private Family DuplicateFamily(Document doc, Family sourceFamily, string suffix, out string tempPath)
+        {
+            Document famDoc = doc.EditFamily(sourceFamily);
+            if (famDoc == null)
+            {
+                throw new InvalidOperationException("EditFamily returned null.");
+            }
+
+            try
+            {
+                string tempDir = Path.GetTempPath();
+                string newName = sourceFamily.Name + suffix;
+                tempPath = Path.Combine(tempDir, newName + ".rfa");
+
+                if (File.Exists(tempPath))
+                {
+                    File.Delete(tempPath);
+                }
+
+                famDoc.SaveAs(tempPath);
+            }
+            finally
+            {
+                famDoc.Close(false);
+            }
+
+            // Load duplicate family back in a transaction on doc
+            Family duplicatedFamily;
+            using (Transaction t = new Transaction(doc, "Load Duplicate Family"))
+            {
+                t.Start();
+                bool loaded = doc.LoadFamily(tempPath, new ProcessMergeFamilyLoadOptions(), out duplicatedFamily);
+                if (!loaded || duplicatedFamily == null)
+                {
+                    throw new InvalidOperationException("Failed to load duplicated family.");
+                }
+                t.Commit();
+            }
+
+            return duplicatedFamily;
+        }
+
+        private FamilyInstance PlaceInstance(Document doc, FamilySymbol symbol)
+        {
+            if (!symbol.IsActive)
+            {
+                symbol.Activate();
+            }
+
+            Category cat = symbol.Category;
+            if (cat != null && cat.Id == new ElementId(BuiltInCategory.OST_TitleBlocks))
+            {
+                ViewSheet sheet = ViewSheet.Create(doc, ElementId.InvalidElementId);
+                return doc.Create.NewFamilyInstance(XYZ.Zero, symbol, sheet);
+            }
+
+            // Check if it's a detail component or annotation
+            if (symbol.Family.FamilyCategory.CategoryType == CategoryType.Annotation ||
+                symbol.Family.FamilyCategory.Id == new ElementId(BuiltInCategory.OST_DetailComponents))
+            {
+                FilteredElementCollector viewCollector = new FilteredElementCollector(doc);
+                ViewFamilyType? draftingViewType = viewCollector
+                    .OfClass(typeof(ViewFamilyType))
+                    .Cast<ViewFamilyType>()
+                    .FirstOrDefault(vt => vt.ViewFamily == ViewFamily.Drafting);
+
+                ViewDrafting draftingView;
+                if (draftingViewType != null)
+                {
+                    draftingView = ViewDrafting.Create(doc, draftingViewType.Id);
+                }
+                else
+                {
+                    draftingView = ViewDrafting.Create(doc, ElementId.InvalidElementId);
+                }
+                return doc.Create.NewFamilyInstance(XYZ.Zero, symbol, draftingView);
+            }
+
+            // Fallback for 3D model elements
+            Level level = new FilteredElementCollector(doc)
+                .OfClass(typeof(Level))
+                .Cast<Level>()
+                .FirstOrDefault();
+            if (level == null)
+            {
+                level = Level.Create(doc, 0.0);
+            }
+            return doc.Create.NewFamilyInstance(XYZ.Zero, symbol, level, Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
+        }
+
+        private static bool InjectParameterToFamilyDynamic(FamilyManager famManager, string paramName)
+        {
+            object? paramGroup = null;
+            object? paramType = null;
+
+            Type? groupTypeIdType = typeof(ElementId).Assembly.GetType("Autodesk.Revit.DB.GroupTypeId");
+            if (groupTypeIdType != null)
+            {
+                paramGroup = groupTypeIdType.GetProperty("Data")?.GetValue(null);
+                paramType = typeof(ElementId).Assembly.GetType("Autodesk.Revit.DB.SpecTypeId+String")?.GetProperty("Text")?.GetValue(null);
+            }
+            else
+            {
+                paramGroup = Enum.Parse(typeof(ElementId).Assembly.GetType("Autodesk.Revit.DB.BuiltInParameterGroup")!, "PG_DATA");
+                paramType = Enum.Parse(typeof(ElementId).Assembly.GetType("Autodesk.Revit.DB.ParameterType")!, "Text");
+            }
+
+            if (famManager == null)
+            {
+                Console.WriteLine("[ERROR] FamilyManager is null.");
+                return false;
+            }
+            if (paramGroup == null)
+            {
+                Console.WriteLine("[ERROR] paramGroup is null.");
+                return false;
+            }
+            if (paramType == null)
+            {
+                Console.WriteLine("[ERROR] paramType is null.");
+                return false;
+            }
+
+            System.Reflection.MethodInfo? addParamMethod = null;
+            if (groupTypeIdType != null)
+            {
+                addParamMethod = famManager.GetType().GetMethods()
+                    .FirstOrDefault(m => m.Name == "AddParameter" && 
+                                         m.GetParameters().Length == 4 && 
+                                         m.GetParameters()[1].ParameterType.Name.Contains("ForgeTypeId") &&
+                                         m.GetParameters()[2].ParameterType.Name.Contains("ForgeTypeId"));
+            }
+            else
+            {
+                addParamMethod = famManager.GetType().GetMethods()
+                    .FirstOrDefault(m => m.Name == "AddParameter" && 
+                                         m.GetParameters().Length == 4 && 
+                                         m.GetParameters()[1].ParameterType.Name.Contains("BuiltInParameterGroup") &&
+                                         m.GetParameters()[2].ParameterType.Name.Contains("ParameterType"));
+            }
+
+            if (addParamMethod != null)
+            {
+                try
+                {
+                    addParamMethod.Invoke(famManager, new object[] { paramName, paramGroup, paramType, false });
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[ERROR] AddParameter invoke failed: {ex.Message}");
+                    if (ex.InnerException != null)
+                    {
+                        Console.WriteLine($"[INNER EXCEPTION] {ex.InnerException.Message}\n{ex.InnerException.StackTrace}");
+                    }
+                    return false;
+                }
+            }
+            else
+            {
+                Console.WriteLine("[ERROR] AddParameter method with 4 arguments not found.");
+            }
+            return false;
+        }
+
+        #endregion
+
+        #region Integration Tests
+
+        [Test]
+        public void Test_MergeDuplicates_SuccessfulMerge()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            Document doc = OpenTestTemplate(app);
+
+            string tempPath = string.Empty;
+
+            try
+            {
+                // 1. Locate editable, loadable family
+                Family? sourceFamily = new FilteredElementCollector(doc)
+                    .OfClass(typeof(Family))
+                    .Cast<Family>()
+                    .FirstOrDefault(f => f.IsEditable && !f.IsInPlace);
+                Assert.IsNotNull(sourceFamily, "Could not find a loadable, editable family in the document.");
+
+                // 2. Duplicate the family (suffix "1" ensures duplicate base name match)
+                Family duplicatedFamily = DuplicateFamily(doc, sourceFamily, "1", out tempPath);
+                ElementId duplicateFamilyId = duplicatedFamily.Id;
+
+                // 3. Place family instance of the duplicate family symbol
+                FamilySymbol sourceSymbol = (FamilySymbol)doc.GetElement(sourceFamily.GetFamilySymbolIds().First());
+                FamilySymbol duplicateSymbol = (FamilySymbol)doc.GetElement(duplicatedFamily.GetFamilySymbolIds().First());
+
+                FamilyInstance instance;
+                using (Transaction t = new Transaction(doc, "Place Duplicate Family Instance"))
+                {
+                    t.Start();
+                    instance = PlaceInstance(doc, duplicateSymbol);
+                    t.Commit();
+                }
+
+                Assert.IsNotNull(instance, "Failed to place family instance.");
+                Assert.AreEqual(duplicateSymbol.Id, instance.GetTypeId(), "Placed instance should initially point to duplicate symbol.");
+
+                using (var tg = new TransactionGroup(doc, "Merge Duplicates Integration Test"))
+                {
+                    tg.Start();
+
+                    // 4. Run Fast Scan
+                    var token = CancellationToken.None;
+                    var clusters = MergeAnalysisEngine.RunFastScan(doc, token);
+                    var targetCluster = clusters.FirstOrDefault(c => c.ClusterName.Contains(sourceFamily.Name));
+                    Assert.IsNotNull(targetCluster, "MergeAnalysisEngine should detect the duplicate cluster.");
+
+                    // 5. Run Deep Scan
+                    MergeAnalysisEngine.RunDeepScan(doc, targetCluster, token);
+                    Assert.IsFalse(targetCluster.HasSchemaMismatch, "Should not have schema mismatch.");
+                    Assert.IsFalse(targetCluster.HasOriginMismatch, "Should not have origin mismatch.");
+
+                    // 6. Generate Recommendations
+                    MergeAnalysisEngine.GenerateRecommendations(targetCluster);
+
+                    // Set primary item and ensure duplicate is included for merge
+                    var primaryItem = targetCluster.Items.FirstOrDefault(i => i.RevitElementId == sourceFamily.Id);
+                    Assert.IsNotNull(primaryItem, "Primary item should exist in cluster.");
+                    targetCluster.UpdatePrimaryItem(primaryItem);
+
+                    var duplicateItem = targetCluster.Items.FirstOrDefault(i => i.RevitElementId == duplicatedFamily.Id);
+                    Assert.IsNotNull(duplicateItem, "Duplicate item should exist in cluster.");
+                    duplicateItem.IsIncludedForMerge = true;
+
+                    // 7. Execute Merge
+                    var queueVM = new MergeQueueViewModel();
+                    queueVM.QueuedClusters.Add(targetCluster);
+
+                    var handler = new ProcessMergeEventHandler();
+                    handler.QueueRequest(queueVM, null, null, token);
+                    handler.Execute(_uiapp);
+
+                    // 8. Assertions
+                    // Verify duplicate family was deleted/purged
+                    var deletedFamily = doc.GetElement(duplicateFamilyId);
+                    if (deletedFamily != null)
+                    {
+                        Assert.Fail($"Duplicate family should be deleted. Deletion error: {(File.Exists(Path.Combine(Path.GetTempPath(), "synthetic_test_error.txt")) ? File.ReadAllText(Path.Combine(Path.GetTempPath(), "synthetic_test_error.txt")) : "No log file found.")}");
+                    }
+
+                    // Verify instance is redirected to the primary family symbol
+                    Assert.AreEqual(sourceSymbol.Id, instance.GetTypeId(), "Family instance should be redirected to the primary family symbol.");
+
+                    tg.RollBack();
+                }
+            }
+            finally
+            {
+                doc.Close(false);
+
+                if (!string.IsNullOrEmpty(tempPath) && File.Exists(tempPath))
+                {
+                    try
+                    {
+                        File.Delete(tempPath);
+                    }
+                    catch { }
+                }
+            }
+        }
+
+        [Test]
+        public void Test_MergeDuplicates_DetectsSchemaMismatch()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            Document doc = OpenTestTemplate(app);
+
+            string tempPath = string.Empty;
+
+            try
+            {
+                // 1. Locate editable, loadable family
+                Family? sourceFamily = new FilteredElementCollector(doc)
+                    .OfClass(typeof(Family))
+                    .Cast<Family>()
+                    .FirstOrDefault(f => f.IsEditable && !f.IsInPlace);
+                Assert.IsNotNull(sourceFamily, "Could not find a loadable, editable family in the document.");
+
+                // 2. Duplicate the family (suffix "2" ensures duplicate base name match)
+                Family duplicatedFamily = DuplicateFamily(doc, sourceFamily, "2", out tempPath);
+
+                // 3. Edit duplicated family and inject custom parameter
+                Document famDoc = doc.EditFamily(duplicatedFamily);
+                Assert.IsNotNull(famDoc, "EditFamily returned null.");
+
+                try
+                {
+                    using (Transaction t = new Transaction(famDoc, "Add Parameter to Duplicate Family"))
+                    {
+                        t.Start();
+                        bool added = InjectParameterToFamilyDynamic(famDoc.FamilyManager, "Schema_Mismatch_Test_Param");
+                        Assert.IsTrue(added, "Should successfully inject parameter into family.");
+                        t.Commit();
+                    }
+
+                    SaveAsOptions saveOptions = new SaveAsOptions { OverwriteExistingFile = true };
+                    famDoc.SaveAs(tempPath, saveOptions);
+                }
+                finally
+                {
+                    famDoc.Close(false);
+                }
+
+                // Load the updated family from disk back into doc
+                using (Transaction t = new Transaction(doc, "Reload Modified Family"))
+                {
+                    t.Start();
+                    doc.LoadFamily(tempPath, new ProcessMergeFamilyLoadOptions(), out duplicatedFamily);
+                    t.Commit();
+                }
+
+                using (var tg = new TransactionGroup(doc, "Schema Mismatch Test"))
+                {
+                    tg.Start();
+
+                    // 4. Run Scan & Analyze
+                    var token = CancellationToken.None;
+                    var clusters = MergeAnalysisEngine.RunFastScan(doc, token);
+                    var targetCluster = clusters.FirstOrDefault(c => c.ClusterName.Contains(sourceFamily.Name));
+                    Assert.IsNotNull(targetCluster, "MergeAnalysisEngine should detect the duplicate cluster.");
+
+                    MergeAnalysisEngine.RunDeepScan(doc, targetCluster, token);
+
+                    // 5. Assert
+                    Assert.IsTrue(targetCluster.HasSchemaMismatch, "Deep scan should detect schema mismatch because of injected parameter.");
+
+                    tg.RollBack();
+                }
+            }
+            finally
+            {
+                doc.Close(false);
+
+                if (!string.IsNullOrEmpty(tempPath) && File.Exists(tempPath))
+                {
+                    try
+                    {
+                        File.Delete(tempPath);
+                    }
+                    catch { }
+                }
+            }
+        }
+
+        [Test]
+        public void Test_MergeDuplicates_ResolvesParameterConflicts()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            Document doc = OpenTestTemplate(app);
+
+            string tempPath = string.Empty;
+
+            try
+            {
+                // 1. Locate editable, loadable family
+                Family? sourceFamily = new FilteredElementCollector(doc)
+                    .OfClass(typeof(Family))
+                    .Cast<Family>()
+                    .FirstOrDefault(f => f.IsEditable && !f.IsInPlace);
+                Assert.IsNotNull(sourceFamily, "Could not find a loadable, editable family in the document.");
+
+                // 2. Duplicate the family (suffix "3" ensures duplicate base name match)
+                Family duplicatedFamily = DuplicateFamily(doc, sourceFamily, "3", out tempPath);
+                ElementId duplicateFamilyId = duplicatedFamily.Id;
+
+                FamilySymbol sourceSymbol = (FamilySymbol)doc.GetElement(sourceFamily.GetFamilySymbolIds().First());
+                FamilySymbol duplicateSymbol = (FamilySymbol)doc.GetElement(duplicatedFamily.GetFamilySymbolIds().First());
+
+                // Place duplicate instance
+                FamilyInstance instance;
+                using (Transaction t = new Transaction(doc, "Place Instance and Set Parameters"))
+                {
+                    t.Start();
+                    instance = PlaceInstance(doc, duplicateSymbol);
+
+                    // 3. Set conflicting parameter values on the Description parameter (Type parameter)
+                    sourceSymbol.get_Parameter(BuiltInParameter.ALL_MODEL_DESCRIPTION).Set("Primary Value");
+                    duplicateSymbol.get_Parameter(BuiltInParameter.ALL_MODEL_DESCRIPTION).Set("Duplicate Value");
+
+                    t.Commit();
+                }
+
+                using (var tg = new TransactionGroup(doc, "Parameter Conflict Resolution Test"))
+                {
+                    tg.Start();
+
+                    // 4. Run Scan
+                    var token = CancellationToken.None;
+                    var clusters = MergeAnalysisEngine.RunFastScan(doc, token);
+                    var targetCluster = clusters.FirstOrDefault(c => c.ClusterName.Contains(sourceFamily.Name));
+                    Assert.IsNotNull(targetCluster, "MergeAnalysisEngine should detect the duplicate cluster.");
+
+                    // 5. Deep Scan & Recommendations
+                    MergeAnalysisEngine.RunDeepScan(doc, targetCluster, token);
+                    MergeAnalysisEngine.GenerateRecommendations(targetCluster);
+
+                    // 6. Locate conflict row & designate winner
+                    var primaryItem = targetCluster.Items.FirstOrDefault(i => i.RevitElementId == sourceFamily.Id);
+                    Assert.IsNotNull(primaryItem);
+                    targetCluster.UpdatePrimaryItem(primaryItem);
+
+                    var duplicateItem = targetCluster.Items.FirstOrDefault(i => i.RevitElementId == duplicatedFamily.Id);
+                    Assert.IsNotNull(duplicateItem);
+                    duplicateItem.IsIncludedForMerge = true;
+
+                    var mapping = targetCluster.TypeMappings.First();
+                    var descRow = mapping.ParameterResolutions.FirstOrDefault(r => r.ParameterName.Equals("Description", StringComparison.OrdinalIgnoreCase));
+                    Assert.IsNotNull(descRow, "Should find Description parameter row.");
+                    Assert.IsTrue(descRow.HasConflict, "Should detect parameter value conflict.");
+
+                    // Designate duplicate symbol's parameter value as the winner
+                    descRow.WinningValueElementId = duplicateSymbol.Id;
+
+                    // 7. Execute Merge
+                    var queueVM = new MergeQueueViewModel();
+                    queueVM.QueuedClusters.Add(targetCluster);
+
+                    var handler = new ProcessMergeEventHandler();
+                    handler.QueueRequest(queueVM, null, null, token);
+                    handler.Execute(_uiapp);
+
+                    // 8. Assertions
+                    // Verify duplicate family was deleted/purged
+                    var deletedFamily = doc.GetElement(duplicateFamilyId);
+                    if (deletedFamily != null)
+                    {
+                        Assert.Fail($"Duplicate family should be deleted. Deletion error: {(File.Exists(Path.Combine(Path.GetTempPath(), "synthetic_test_error.txt")) ? File.ReadAllText(Path.Combine(Path.GetTempPath(), "synthetic_test_error.txt")) : "No log file found.")}");
+                    }
+
+                    // Verify winning parameter value was copied to primary symbol
+                    string finalValue = sourceSymbol.get_Parameter(BuiltInParameter.ALL_MODEL_DESCRIPTION).AsString();
+                    Assert.AreEqual("Duplicate Value", finalValue, "Primary family symbol's Description parameter should retain the designated winning value.");
+
+                    tg.RollBack();
+                }
+            }
+            finally
+            {
+                doc.Close(false);
+
+                if (!string.IsNullOrEmpty(tempPath) && File.Exists(tempPath))
+                {
+                    try
+                    {
+                        File.Delete(tempPath);
+                    }
+                    catch { }
+                }
+            }
+        }
+
+        #endregion
+    }
+}
+
+
+
+
+

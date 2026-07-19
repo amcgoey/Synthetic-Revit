@@ -1,0 +1,9 @@
+<Project>
+  <PropertyGroup>
+    <GenerateMSBuildEditorConfigFile>false</GenerateMSBuildEditorConfigFile>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(MSBuildProjectName)' != 'RevitAPIMock' And '$(MSBuildProjectName)' != 'RevitAPIUIMock'">
+    <BaseIntermediateOutputPath>C:\Users\amcgoey\AppData\Local\Temp\obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
+    <OutputPath>C:\Users\amcgoey\AppData\Local\Temp\bin\$(MSBuildProjectName)\</OutputPath>
+  </PropertyGroup>
+</Project>
