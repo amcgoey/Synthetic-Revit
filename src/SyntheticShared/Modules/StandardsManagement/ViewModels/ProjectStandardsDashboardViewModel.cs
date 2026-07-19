@@ -411,13 +411,10 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                 orchestrator,
                 serializationEngine);
 
-            _sourceTreeViewModel.PropertyChanged += OnSourceTreePropertyChanged;
-
             _stagingQueueViewModel = new StagingQueueViewModel(this, _pocoIdentityService, diffEngine);
-            _stagingQueueViewModel.PropertyChanged += OnStagingQueuePropertyChanged;
-
             _standardsExecutionViewModel = new StandardsExecutionPipelineViewModel(this, _pipeline);
-            _standardsExecutionViewModel.PropertyChanged += OnStandardsExecutionPropertyChanged;
+
+            RegisterPropertyChangedHandlers();
 
 
 
@@ -506,13 +503,10 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                 orchestrator,
                 serializationEngine);
 
-            _sourceTreeViewModel.PropertyChanged += OnSourceTreePropertyChanged;
-
             _stagingQueueViewModel = new StagingQueueViewModel(this, _pocoIdentityService, diffEngine);
-            _stagingQueueViewModel.PropertyChanged += OnStagingQueuePropertyChanged;
-
             _standardsExecutionViewModel = new StandardsExecutionPipelineViewModel(this, _pipeline);
-            _standardsExecutionViewModel.PropertyChanged += OnStandardsExecutionPropertyChanged;
+
+            RegisterPropertyChangedHandlers();
 
 
 
@@ -788,6 +782,16 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                 }
             }
 
+            void UpdateReferencedId(ElementIdModel? idModel)
+            {
+                if (idModel != null && nameAndAliases.Contains(idModel.Name, StringComparer.OrdinalIgnoreCase))
+                {
+                    idModel.Name = newName;
+                    idModel.Id = 0;
+                    idModel.UniqueId = null;
+                }
+            }
+
             foreach (var qItem in StagingQueue)
             {
                 var el = qItem.TargetModel;
@@ -808,87 +812,66 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                 {
                     foreach (var layer in hostObj.Structure.Layers)
                     {
-                        if (layer.MaterialId != null && nameAndAliases.Contains(layer.MaterialId.Name, StringComparer.OrdinalIgnoreCase))
-                        {
-                            layer.MaterialId.Name = newName;
-                            layer.MaterialId.Id = 0;
-                            layer.MaterialId.UniqueId = null;
-                        }
+                        UpdateReferencedId(layer.MaterialId);
                     }
                 }
 
                 if (el is MaterialModel mat)
                 {
-                    if (mat.SurfaceForegroundPatternId != null && nameAndAliases.Contains(mat.SurfaceForegroundPatternId.Name, StringComparer.OrdinalIgnoreCase))
-                    {
-                        mat.SurfaceForegroundPatternId.Name = newName;
-                        mat.SurfaceForegroundPatternId.Id = 0;
-                        mat.SurfaceForegroundPatternId.UniqueId = null;
-                    }
-                    if (mat.SurfaceBackgroundPatternId != null && nameAndAliases.Contains(mat.SurfaceBackgroundPatternId.Name, StringComparer.OrdinalIgnoreCase))
-                    {
-                        mat.SurfaceBackgroundPatternId.Name = newName;
-                        mat.SurfaceBackgroundPatternId.Id = 0;
-                        mat.SurfaceBackgroundPatternId.UniqueId = null;
-                    }
-                    if (mat.CutForegroundPatternId != null && nameAndAliases.Contains(mat.CutForegroundPatternId.Name, StringComparer.OrdinalIgnoreCase))
-                    {
-                        mat.CutForegroundPatternId.Name = newName;
-                        mat.CutForegroundPatternId.Id = 0;
-                        mat.CutForegroundPatternId.UniqueId = null;
-                    }
-                    if (mat.CutBackgroundPatternId != null && nameAndAliases.Contains(mat.CutBackgroundPatternId.Name, StringComparer.OrdinalIgnoreCase))
-                    {
-                        mat.CutBackgroundPatternId.Name = newName;
-                        mat.CutBackgroundPatternId.Id = 0;
-                        mat.CutBackgroundPatternId.UniqueId = null;
-                    }
-                    if (mat.AppearanceAssetId != null && nameAndAliases.Contains(mat.AppearanceAssetId.Name, StringComparer.OrdinalIgnoreCase))
-                    {
-                        mat.AppearanceAssetId.Name = newName;
-                        mat.AppearanceAssetId.Id = 0;
-                    }
+                    UpdateReferencedId(mat.SurfaceForegroundPatternId);
+                    UpdateReferencedId(mat.SurfaceBackgroundPatternId);
+                    UpdateReferencedId(mat.CutForegroundPatternId);
+                    UpdateReferencedId(mat.CutBackgroundPatternId);
+                    UpdateReferencedId(mat.AppearanceAssetId);
                 }
             }
         }
 
-        private void OnSourceTreePropertyChanged(object? sender, PropertyChangedEventArgs e)
+        private void RegisterPropertyChangedHandlers()
         {
-            if (e.PropertyName == nameof(StandardsSourceTreeViewModel.AvailableSources) ||
-                e.PropertyName == nameof(StandardsSourceTreeViewModel.SelectedSource) ||
-                e.PropertyName == nameof(StandardsSourceTreeViewModel.SearchText))
-            {
-                OnPropertyChanged(e.PropertyName);
-            }
+            _sourceTreeViewModel.PropertyChanged += OnSubViewModelPropertyChanged;
+            _stagingQueueViewModel.PropertyChanged += OnSubViewModelPropertyChanged;
+            _standardsExecutionViewModel.PropertyChanged += OnSubViewModelPropertyChanged;
         }
 
-        private void OnStagingQueuePropertyChanged(object? sender, PropertyChangedEventArgs e)
+        private void OnSubViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
-            if (e.PropertyName == nameof(StagingQueueViewModel.StagingQueue) ||
-                e.PropertyName == nameof(StagingQueueViewModel.StagingQueueView) ||
-                e.PropertyName == nameof(StagingQueueViewModel.SelectedQueueItems) ||
-                e.PropertyName == nameof(StagingQueueViewModel.SelectedNameOrCount) ||
-                e.PropertyName == nameof(StagingQueueViewModel.SelectedDisplayClass) ||
-                e.PropertyName == nameof(StagingQueueViewModel.SelectedAliasesString) ||
-                e.PropertyName == nameof(StagingQueueViewModel.SelectedElement) ||
-                e.PropertyName == nameof(StagingQueueViewModel.IsSingleElementSelected) ||
-                e.PropertyName == nameof(StagingQueueViewModel.SelectedItemErrorMessage))
+            if (sender == _sourceTreeViewModel)
             {
-                OnPropertyChanged(e.PropertyName);
+                if (e.PropertyName == nameof(StandardsSourceTreeViewModel.AvailableSources) ||
+                    e.PropertyName == nameof(StandardsSourceTreeViewModel.SelectedSource) ||
+                    e.PropertyName == nameof(StandardsSourceTreeViewModel.SearchText))
+                {
+                    OnPropertyChanged(e.PropertyName);
+                }
             }
-        }
-
-        private void OnStandardsExecutionPropertyChanged(object? sender, PropertyChangedEventArgs e)
-        {
-            if (e.PropertyName == nameof(StandardsExecutionPipelineViewModel.UpdateFamilies) ||
-                e.PropertyName == nameof(StandardsExecutionPipelineViewModel.ProcessNestedRecursive) ||
-                e.PropertyName == nameof(StandardsExecutionPipelineViewModel.PurgeUnusedStyleTypes) ||
-                e.PropertyName == nameof(StandardsExecutionPipelineViewModel.CategoryFilter) ||
-                e.PropertyName == nameof(StandardsExecutionPipelineViewModel.AvailableCategoryFilters) ||
-                e.PropertyName == nameof(StandardsExecutionPipelineViewModel.SaveFilePath) ||
-                e.PropertyName == nameof(StandardsExecutionPipelineViewModel.IsSavePathActive))
+            else if (sender == _stagingQueueViewModel)
             {
-                OnPropertyChanged(e.PropertyName);
+                if (e.PropertyName == nameof(StagingQueueViewModel.StagingQueue) ||
+                    e.PropertyName == nameof(StagingQueueViewModel.StagingQueueView) ||
+                    e.PropertyName == nameof(StagingQueueViewModel.SelectedQueueItems) ||
+                    e.PropertyName == nameof(StagingQueueViewModel.SelectedNameOrCount) ||
+                    e.PropertyName == nameof(StagingQueueViewModel.SelectedDisplayClass) ||
+                    e.PropertyName == nameof(StagingQueueViewModel.SelectedAliasesString) ||
+                    e.PropertyName == nameof(StagingQueueViewModel.SelectedElement) ||
+                    e.PropertyName == nameof(StagingQueueViewModel.IsSingleElementSelected) ||
+                    e.PropertyName == nameof(StagingQueueViewModel.SelectedItemErrorMessage))
+                {
+                    OnPropertyChanged(e.PropertyName);
+                }
+            }
+            else if (sender == _standardsExecutionViewModel)
+            {
+                if (e.PropertyName == nameof(StandardsExecutionPipelineViewModel.UpdateFamilies) ||
+                    e.PropertyName == nameof(StandardsExecutionPipelineViewModel.ProcessNestedRecursive) ||
+                    e.PropertyName == nameof(StandardsExecutionPipelineViewModel.PurgeUnusedStyleTypes) ||
+                    e.PropertyName == nameof(StandardsExecutionPipelineViewModel.CategoryFilter) ||
+                    e.PropertyName == nameof(StandardsExecutionPipelineViewModel.AvailableCategoryFilters) ||
+                    e.PropertyName == nameof(StandardsExecutionPipelineViewModel.SaveFilePath) ||
+                    e.PropertyName == nameof(StandardsExecutionPipelineViewModel.IsSavePathActive))
+                {
+                    OnPropertyChanged(e.PropertyName);
+                }
             }
         }
 

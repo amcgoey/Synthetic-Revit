@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Linq;
 using NUnit.Framework;
@@ -1342,6 +1342,89 @@ namespace SyntheticTests.Modules.StandardsManagement
             Assert.IsNotNull(orchestratorField);
             var orchestratorObj = orchestratorField!.GetValue(vm);
             Assert.AreSame(fakeOrchestrator, orchestratorObj);
+        }
+
+        [Test]
+        public void VerifyReplaceQueueReferences_UpdatesPatternAndAppearanceAssetIds()
+        {
+            // Arrange
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService);
+
+            // 1. Create the old element to be replaced
+            var oldPoco = new ElementModel { Name = "OldAsset", Class = "Autodesk.Revit.DB.AppearanceAssetElement" };
+            var oldItem = new QueueItemModel(oldPoco, true, true);
+
+            // 2. Create a Material in the staging queue that references "OldAsset"
+            var matPoco = new MaterialModel
+            {
+                Name = "TestMaterial",
+                AppearanceAssetId = new ElementIdModel
+                {
+                    Name = "OldAsset",
+                    Id = 12345,
+                    UniqueId = "SomeUniqueId-Asset"
+                },
+                SurfaceForegroundPatternId = new ElementIdModel
+                {
+                    Name = "OldAsset",
+                    Id = 67890,
+                    UniqueId = "SomeUniqueId-Pattern"
+                }
+            };
+            var matItem = new QueueItemModel(matPoco, true, true);
+            vm.StagingQueue.Add(matItem);
+
+            // Act
+            vm.ReplaceQueueReferences(new List<QueueItemModel> { oldItem }, "NewAsset");
+
+            // Assert
+            var updatedMat = (MaterialModel)matItem.TargetModel;
+            
+            // Verify AppearanceAssetId was updated
+            Assert.IsNotNull(updatedMat.AppearanceAssetId);
+            Assert.AreEqual("NewAsset", updatedMat.AppearanceAssetId!.Name);
+            Assert.AreEqual(0, updatedMat.AppearanceAssetId.Id);
+            Assert.IsNull(updatedMat.AppearanceAssetId.UniqueId, "AppearanceAssetId.UniqueId should be null after replacement.");
+
+            // Verify SurfaceForegroundPatternId was updated
+            Assert.IsNotNull(updatedMat.SurfaceForegroundPatternId);
+            Assert.AreEqual("NewAsset", updatedMat.SurfaceForegroundPatternId!.Name);
+            Assert.AreEqual(0, updatedMat.SurfaceForegroundPatternId.Id);
+            Assert.IsNull(updatedMat.SurfaceForegroundPatternId.UniqueId, "SurfaceForegroundPatternId.UniqueId should be null after replacement.");
+        }
+
+        [Test]
+        public void VerifyPropertyChangedForwarding_FromSubViewModels()
+        {
+            // Arrange
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService);
+            var receivedProperties = new List<string>();
+            vm.PropertyChanged += (sender, e) =>
+            {
+                if (e.PropertyName != null)
+                {
+                    receivedProperties.Add(e.PropertyName);
+                }
+            };
+
+            var onPropertyChangedMethod = typeof(ViewModelBase)
+                .GetMethod("OnPropertyChanged", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            Assert.IsNotNull(onPropertyChangedMethod);
+
+            // Act - Trigger PropertyChanged on each sub-VM via reflection
+            // 1. SourceTreeViewModel
+            onPropertyChangedMethod!.Invoke(vm.SourceTreeViewModel, new object[] { nameof(StandardsSourceTreeViewModel.SearchText) });
+
+            // 2. StagingQueueViewModel
+            onPropertyChangedMethod!.Invoke(vm.StagingQueueViewModel, new object[] { nameof(StagingQueueViewModel.SelectedAliasesString) });
+
+            // 3. StandardsExecutionPipelineViewModel
+            onPropertyChangedMethod!.Invoke(vm.StandardsExecutionPipelineViewModel, new object[] { nameof(StandardsExecutionPipelineViewModel.SaveFilePath) });
+
+            // Assert
+            Assert.Contains(nameof(StandardsSourceTreeViewModel.SearchText), receivedProperties);
+            Assert.Contains(nameof(StagingQueueViewModel.SelectedAliasesString), receivedProperties);
+            Assert.Contains(nameof(StandardsExecutionPipelineViewModel.SaveFilePath), receivedProperties);
         }
     }
 

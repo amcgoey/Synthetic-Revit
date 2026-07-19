@@ -1,4 +1,4 @@
-﻿<Window x:Class="Synthetic.Modules.StandardsManagement.Views.ProjectStandardsDashboardWindow"
+<Window x:Class="Synthetic.Modules.StandardsManagement.Views.ProjectStandardsDashboardWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="clr-namespace:Synthetic.Modules.StandardsManagement.ViewModels"
@@ -427,7 +427,7 @@
             <ColumnDefinition Width="380" MinWidth="320"/>
             <!-- GridSplitter 1 -->
             <ColumnDefinition Width="5"/>
-            <!-- Center Pane: Action Queue -->
+            <!-- Center Pane: Staging Queue -->
             <ColumnDefinition Width="*" MinWidth="300"/>
             <!-- GridSplitter 2 -->
             <ColumnDefinition Width="5"/>
@@ -589,7 +589,7 @@
         <!-- Grid Splitter 1 -->
         <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="{DynamicResource Synthetic.Brushes.BorderNormal}"/>
 
-        <!-- ================= CENTER COLUMN: ACTION QUEUE PANE ================= -->
+        <!-- ================= CENTER COLUMN: STAGING QUEUE PANE ================= -->
         <Grid Grid.Column="2">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/> <!-- Title -->
