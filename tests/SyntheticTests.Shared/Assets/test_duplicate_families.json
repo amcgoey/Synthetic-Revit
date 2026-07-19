@@ -1,0 +1,1022 @@
+[
+  {
+    "Class": "Autodesk.Revit.DB.FamilySymbol",
+    "Category": "Detail Items",
+    "Name": "Running Section",
+    "Aliases": null,
+    "Id": 57160,
+    "UniqueId": "a224fd61-a7d8-41e1-9849-c951ac9a3c4e-0000df48",
+    "Parameters": [
+      {
+        "Name": "Keynote",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1140422,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Type IFC Predefined Type",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1019017,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Export Type to IFC As",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1019015,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Export Type to IFC",
+        "Value": "0",
+        "ValueElemId": null,
+        "StorageType": "Integer",
+        "Id": -1019013,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Type IfcGUID",
+        "Value": "2Y9FrXfzX1uPX9oL6ickC6",
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1019001,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Model",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010109,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Manufacturer",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010108,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Type Comments",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010105,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "URL",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010104,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Description",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010103,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Assembly Code",
+        "Value": "",
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1002500,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Type Mark",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1001405,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Cost",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "Double",
+        "Id": -1001205,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Joint Thickness",
+        "Value": "0.033854166666666664",
+        "ValueElemId": null,
+        "StorageType": "Double",
+        "Id": 57068,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Width/Length",
+        "Value": "0.3020833333333333",
+        "ValueElemId": null,
+        "StorageType": "Double",
+        "Id": 57069,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Height/Length",
+        "Value": "0.22135416666666666",
+        "ValueElemId": null,
+        "StorageType": "Double",
+        "Id": 57070,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      }
+    ]
+  },
+  {
+    "Class": "Autodesk.Revit.DB.FamilySymbol",
+    "Category": "Detail Items",
+    "Name": "Soldier & Plan",
+    "Aliases": null,
+    "Id": 68775,
+    "UniqueId": "f4c0f890-15df-4fb9-9dfd-db0bec3562e0-00010ca7",
+    "Parameters": [
+      {
+        "Name": "Keynote",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1140422,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Type IFC Predefined Type",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1019017,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Export Type to IFC As",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1019015,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Export Type to IFC",
+        "Value": "0",
+        "ValueElemId": null,
+        "StorageType": "Integer",
+        "Id": -1019013,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Type IfcGUID",
+        "Value": "3qmFYG5TzFkPtzsmliD6v7",
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1019001,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Model",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010109,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Manufacturer",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010108,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Type Comments",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010105,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "URL",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010104,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Description",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010103,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Assembly Code",
+        "Value": "",
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1002500,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Type Mark",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1001405,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Cost",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "Double",
+        "Id": -1001205,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Joint Thickness",
+        "Value": "0.033854166666666664",
+        "ValueElemId": null,
+        "StorageType": "Double",
+        "Id": 57068,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Width/Length",
+        "Value": "0.3020833333333333",
+        "ValueElemId": null,
+        "StorageType": "Double",
+        "Id": 57069,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Height/Length",
+        "Value": "0.6666666666666666",
+        "ValueElemId": null,
+        "StorageType": "Double",
+        "Id": 57070,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      }
+    ]
+  },
+  {
+    "Class": "Autodesk.Revit.DB.FamilySymbol",
+    "Category": "Detail Items",
+    "Name": "Rowlock",
+    "Aliases": null,
+    "Id": 68777,
+    "UniqueId": "f4c0f890-15df-4fb9-9dfd-db0bec3562e0-00010ca9",
+    "Parameters": [
+      {
+        "Name": "Keynote",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1140422,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Type IFC Predefined Type",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1019017,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Export Type to IFC As",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1019015,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Export Type to IFC",
+        "Value": "0",
+        "ValueElemId": null,
+        "StorageType": "Integer",
+        "Id": -1019013,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Type IfcGUID",
+        "Value": "3qmFYG5TzFkPtzsmliD6v9",
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1019001,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Model",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010109,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Manufacturer",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010108,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Type Comments",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010105,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "URL",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010104,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Description",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010103,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Assembly Code",
+        "Value": "",
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1002500,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Type Mark",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1001405,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Cost",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "Double",
+        "Id": -1001205,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Joint Thickness",
+        "Value": "0.033854166666666664",
+        "ValueElemId": null,
+        "StorageType": "Double",
+        "Id": 57068,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Width/Length",
+        "Value": "0.6354166666666666",
+        "ValueElemId": null,
+        "StorageType": "Double",
+        "Id": 57069,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Height/Length",
+        "Value": "0.3333333333333333",
+        "ValueElemId": null,
+        "StorageType": "Double",
+        "Id": 57070,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      }
+    ]
+  },
+  {
+    "Class": "Autodesk.Revit.DB.FamilySymbol",
+    "Category": "Detail Items",
+    "Name": "Running Section",
+    "Aliases": null,
+    "Id": 1391999,
+    "UniqueId": "02dfd4d9-f83d-431a-9405-bd691c4009a2-00153d7f",
+    "Parameters": [
+      {
+        "Name": "Keynote",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1140422,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Type IFC Predefined Type",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1019017,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Export Type to IFC As",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1019015,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Export Type to IFC",
+        "Value": "0",
+        "ValueElemId": null,
+        "StorageType": "Integer",
+        "Id": -1019013,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Type IfcGUID",
+        "Value": "02tzJP_3r36fG5lMaSLJJT",
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1019001,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Model",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010109,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Manufacturer",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010108,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Type Comments",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010105,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "URL",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010104,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Description",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010103,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Assembly Code",
+        "Value": "",
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1002500,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Type Mark",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1001405,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Cost",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "Double",
+        "Id": -1001205,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Joint Thickness",
+        "Value": "0.033854166666666664",
+        "ValueElemId": null,
+        "StorageType": "Double",
+        "Id": 1391977,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Width/Length",
+        "Value": "0.3020833333333333",
+        "ValueElemId": null,
+        "StorageType": "Double",
+        "Id": 1391978,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Height/Length",
+        "Value": "0.22135416666666666",
+        "ValueElemId": null,
+        "StorageType": "Double",
+        "Id": 1391979,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      }
+    ]
+  },
+  {
+    "Class": "Autodesk.Revit.DB.FamilySymbol",
+    "Category": "Detail Items",
+    "Name": "Soldier & Plan",
+    "Aliases": null,
+    "Id": 1392001,
+    "UniqueId": "02dfd4d9-f83d-431a-9405-bd691c4009a2-00153d81",
+    "Parameters": [
+      {
+        "Name": "Keynote",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1140422,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Type IFC Predefined Type",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1019017,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Export Type to IFC As",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1019015,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Export Type to IFC",
+        "Value": "0",
+        "ValueElemId": null,
+        "StorageType": "Integer",
+        "Id": -1019013,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Type IfcGUID",
+        "Value": "02tzJP_3r36fG5lMaSLJGZ",
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1019001,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Model",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010109,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Manufacturer",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010108,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Type Comments",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010105,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "URL",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010104,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Description",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010103,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Assembly Code",
+        "Value": "",
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1002500,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Type Mark",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1001405,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Cost",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "Double",
+        "Id": -1001205,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Joint Thickness",
+        "Value": "0.033854166666666664",
+        "ValueElemId": null,
+        "StorageType": "Double",
+        "Id": 1391977,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Width/Length",
+        "Value": "0.3020833333333333",
+        "ValueElemId": null,
+        "StorageType": "Double",
+        "Id": 1391978,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Height/Length",
+        "Value": "0.6666666666666666",
+        "ValueElemId": null,
+        "StorageType": "Double",
+        "Id": 1391979,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      }
+    ]
+  },
+  {
+    "Class": "Autodesk.Revit.DB.FamilySymbol",
+    "Category": "Detail Items",
+    "Name": "Rowlock",
+    "Aliases": null,
+    "Id": 1392003,
+    "UniqueId": "02dfd4d9-f83d-431a-9405-bd691c4009a2-00153d83",
+    "Parameters": [
+      {
+        "Name": "Keynote",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1140422,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Type IFC Predefined Type",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1019017,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Export Type to IFC As",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1019015,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Export Type to IFC",
+        "Value": "0",
+        "ValueElemId": null,
+        "StorageType": "Integer",
+        "Id": -1019013,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Type IfcGUID",
+        "Value": "02tzJP_3r36fG5lMaSLJGX",
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1019001,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Model",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010109,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Manufacturer",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010108,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Type Comments",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010105,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "URL",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010104,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Description",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010103,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Assembly Code",
+        "Value": "",
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1002500,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Type Mark",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1001405,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Cost",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "Double",
+        "Id": -1001205,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Joint Thickness",
+        "Value": "0.033854166666666664",
+        "ValueElemId": null,
+        "StorageType": "Double",
+        "Id": 1391977,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Width/Length",
+        "Value": "0.6354166666666666",
+        "ValueElemId": null,
+        "StorageType": "Double",
+        "Id": 1391978,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Height/Length",
+        "Value": "0.3333333333333333",
+        "ValueElemId": null,
+        "StorageType": "Double",
+        "Id": 1391979,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      }
+    ]
+  }
+]

@@ -6,6 +6,7 @@ using System.Threading;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
+using Newtonsoft.Json;
 
 using Synthetic.Modules.MergeDuplicates.Handlers;
 using Synthetic.Modules.MergeDuplicates.ViewModels;
@@ -248,6 +249,25 @@ namespace SyntheticTests
             return false;
         }
 
+        private static void ExportPocoSnapshot(IEnumerable<Element> elements, string fileName)
+        {
+            string projectRoot = GetProjectRoot();
+            string assetsDir = Path.Combine(projectRoot, "tests", "SyntheticTests.Shared", "Assets");
+            if (!Directory.Exists(assetsDir))
+            {
+                Directory.CreateDirectory(assetsDir);
+            }
+
+            var models = elements
+                .Where(el => el != null)
+                .Select(el => el.ToModel(false))
+                .ToList();
+
+            string json = JsonConvert.SerializeObject(models, Formatting.Indented);
+            string filePath = Path.Combine(assetsDir, fileName);
+            File.WriteAllText(filePath, json);
+        }
+
         #endregion
 
         #region Integration Tests
@@ -292,6 +312,13 @@ namespace SyntheticTests
                 using (var tg = new TransactionGroup(doc, "Merge Duplicates Integration Test"))
                 {
                     tg.Start();
+
+                    // Export the duplicate family symbols
+                    var familySymbols = sourceFamily.GetFamilySymbolIds()
+                        .Concat(duplicatedFamily.GetFamilySymbolIds())
+                        .Select(id => doc.GetElement(id))
+                        .ToList();
+                    ExportPocoSnapshot(familySymbols, "test_duplicate_families.json");
 
                     // 4. Run Fast Scan
                     var token = CancellationToken.None;
@@ -601,6 +628,10 @@ namespace SyntheticTests
                 using (var tg = new TransactionGroup(doc, "Merge Group Duplicates Integration Test"))
                 {
                     tg.Start();
+
+                    // Export the duplicate group types
+                    var groupTypes = new List<Element> { sourceGroupType, duplicateGroupType };
+                    ExportPocoSnapshot(groupTypes, "test_duplicate_groups.json");
 
                     var token = CancellationToken.None;
                     var clusters = MergeAnalysisEngine.RunFastScan(doc, token);

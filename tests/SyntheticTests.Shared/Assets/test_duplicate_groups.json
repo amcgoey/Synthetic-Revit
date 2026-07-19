@@ -1,0 +1,302 @@
+[
+  {
+    "Class": "Autodesk.Revit.DB.GroupType",
+    "Category": "Model Groups",
+    "Name": "TestGroup",
+    "Aliases": null,
+    "Id": 1391734,
+    "UniqueId": "a30eff79-8cbd-496e-bf00-d17acf5e1965-00153c76",
+    "Parameters": [
+      {
+        "Name": "Type Image",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "ElementId",
+        "Id": -1152384,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Keynote",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1140422,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Type IFC Predefined Type",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1019017,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Export Type to IFC As",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1019015,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Export Type to IFC",
+        "Value": "0",
+        "ValueElemId": null,
+        "StorageType": "Integer",
+        "Id": -1019013,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Type IfcGUID",
+        "Value": "2Z3lzvZBr9Rhy0qNhFIoKJ",
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1019001,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Model",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010109,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Manufacturer",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010108,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Type Comments",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010105,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "URL",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010104,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Description",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010103,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Assembly Code",
+        "Value": "",
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1002500,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Type Mark",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1001405,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Cost",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "Double",
+        "Id": -1001205,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      }
+    ]
+  },
+  {
+    "Class": "Autodesk.Revit.DB.GroupType",
+    "Category": "Model Groups",
+    "Name": "TestGroup1",
+    "Aliases": null,
+    "Id": 1391740,
+    "UniqueId": "a30eff79-8cbd-496e-bf00-d17acf5e1965-00153c7c",
+    "Parameters": [
+      {
+        "Name": "Type Image",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "ElementId",
+        "Id": -1152384,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Keynote",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1140422,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Type IFC Predefined Type",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1019017,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Export Type to IFC As",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1019015,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Export Type to IFC",
+        "Value": "0",
+        "ValueElemId": null,
+        "StorageType": "Integer",
+        "Id": -1019013,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Type IfcGUID",
+        "Value": "2Z3lzvZBr9Rhy0qNhFIoKP",
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1019001,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Model",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010109,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Manufacturer",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010108,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Type Comments",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010105,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "URL",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010104,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Description",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1010103,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Assembly Code",
+        "Value": "",
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1002500,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Type Mark",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "String",
+        "Id": -1001405,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      },
+      {
+        "Name": "Cost",
+        "Value": null,
+        "ValueElemId": null,
+        "StorageType": "Double",
+        "Id": -1001205,
+        "GUID": null,
+        "IsShared": false,
+        "IsReadOnly": false
+      }
+    ]
+  }
+]

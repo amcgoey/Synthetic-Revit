@@ -340,7 +340,7 @@ namespace Synthetic.RevitDOM.Models
             }
             if (revitElement is ElementType elemType)
             {
-                return elemType.ToModel(isTemplate);
+                return Synthetic.RevitDOM.Translation.RevitDomExtensions.ToModel(elemType, isTemplate);
             }
             if (revitElement is FillPatternElement fillPatternElement)
             {
