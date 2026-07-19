@@ -185,5 +185,24 @@ namespace SyntheticTests.Modules.StandardsManagement
             Assert.Contains("Mock Title Block", names);
             Assert.False(names.Contains("Mock Detail Component"), "Detail Components should be excluded.");
         }
+
+        [Test]
+        public void ExtractRevitElements_WhenToposolidTypesSelected_ExtractsCorrectly()
+        {
+            // Arrange
+            var toposolidType = (ToposolidType)Activator.CreateInstance(typeof(ToposolidType), true)!;
+            toposolidType.Name = "Mock Toposolid Type";
+            toposolidType.GetType().GetProperty("Id")?.SetValue(toposolidType, new ElementId(601));
+            ((dynamic)_doc).AddElement(toposolidType, toposolidType.Id);
+
+            // Act: Select only "Toposolid Types"
+            var selectedGroupings = new List<string> { "Toposolid Types" };
+            var result = InvokeExtract(selectedGroupings);
+
+            // Assert
+            Assert.IsNotNull(result);
+            var names = result.Select(r => r.Name).ToList();
+            Assert.Contains("Mock Toposolid Type", names);
+        }
     }
 }

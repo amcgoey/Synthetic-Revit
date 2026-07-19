@@ -309,6 +309,30 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             TryGather<Autodesk.Revit.DB.Architecture.GutterType>("Gutter Types");
 #if REVIT2022 || REVIT2023
             // ToposolidType not available in older versions
+#elif REVIT2024 || REVIT2025
+            try
+            {
+                if (!ProgressCoordinator.IsCancelled() && (selectedGroupings == null || selectedGroupings.Contains("Toposolid Types")))
+                {
+                    var toposolidType = typeof(Document).Assembly.GetType("Autodesk.Revit.DB.ToposolidType");
+                    if (toposolidType != null)
+                    {
+                        var elements = new FilteredElementCollector(doc)
+                            .OfClass(toposolidType)
+                            .ToElements();
+                        foreach (var elem in elements)
+                        {
+                            if (ProgressCoordinator.IsCancelled()) return rootElements;
+                            if (elem != null && !seenIds.Contains(elem.Id))
+                            {
+                                seenIds.Add(elem.Id);
+                                rootElements.Add(elem);
+                            }
+                        }
+                    }
+                }
+            }
+            catch { }
 #else
             try
             {
