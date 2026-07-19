@@ -3,7 +3,10 @@ using Autodesk.Revit.DB.ExtensibleStorage;
 
 using Synthetic.Infrastructure.Persistence;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 namespace Synthetic.Infrastructure.Persistence{
     /// <summary>
     /// Schema definition for storing settings modules as serialized JSON string payloads inside Revit extensible storage.

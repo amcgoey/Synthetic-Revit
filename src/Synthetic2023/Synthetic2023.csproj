@@ -58,11 +58,11 @@
       <Private>False</Private>
     </Reference>
     <Reference Include="eTransmitForRevit">
-      <HintPath>..\..\..\..\..\..\..\Program Files\Autodesk\eTransmit for Revit 2023\eTransmitForRevit.dll</HintPath>
+      <HintPath>C:\Program Files\Autodesk\eTransmit for Revit 2023\eTransmitForRevit.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="eTransmitForRevitDB">
-      <HintPath>..\..\..\..\..\..\..\Program Files\Autodesk\eTransmit for Revit 2023\eTransmitForRevitDB.dll</HintPath>
+      <HintPath>C:\Program Files\Autodesk\eTransmit for Revit 2023\eTransmitForRevitDB.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="Microsoft.CSharp" />

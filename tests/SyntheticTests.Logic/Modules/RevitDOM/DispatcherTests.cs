@@ -2,7 +2,10 @@ using System;
 using System.Collections.Generic;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests.Modules.RevitDOM
 {

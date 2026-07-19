@@ -6,7 +6,10 @@ using System.Windows.Input;
 using Newtonsoft.Json;
 using Autodesk.Revit.DB;
 
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Infrastructure.Serialization;
 
 using Synthetic.Shared.RevitAPI;

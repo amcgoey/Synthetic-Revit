@@ -11,7 +11,10 @@ using Synthetic.Shared.UI;
 using Synthetic.Modules.StandardsManagement.Utilities;
 using Synthetic.Modules.StandardsManagement.Models;
 using Synthetic.Modules.StandardsManagement.Engine;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace Synthetic.Modules.StandardsManagement.ViewModels
 {

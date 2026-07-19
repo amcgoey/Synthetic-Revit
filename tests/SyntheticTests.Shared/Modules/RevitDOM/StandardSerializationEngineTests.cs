@@ -5,7 +5,10 @@ using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
 using System.Threading;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {

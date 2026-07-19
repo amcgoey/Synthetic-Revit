@@ -6,7 +6,10 @@ using Autodesk.Revit.DB.ExtensibleStorage;
 
 using Synthetic.Infrastructure.Persistence;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 namespace Synthetic.Infrastructure.Persistence{
     /// <summary>
     /// Utility class to find and purge legacy settings storage schemas from the Revit document database.

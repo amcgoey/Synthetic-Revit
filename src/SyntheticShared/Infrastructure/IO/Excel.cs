@@ -6,7 +6,10 @@ using System.Text;
 using ExcelMS = Microsoft.Office.Interop.Excel;
 
 using Synthetic.Infrastructure.IO;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 namespace Synthetic.Infrastructure.IO{
     /// <summary>

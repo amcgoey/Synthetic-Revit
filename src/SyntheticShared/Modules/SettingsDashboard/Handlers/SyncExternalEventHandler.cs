@@ -6,7 +6,10 @@ using Newtonsoft.Json;
 using Synthetic.Settings;
 using Synthetic.Infrastructure.Persistence;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.SettingsDashboard.Handlers;
 
 namespace Synthetic.Modules.SettingsDashboard.Handlers

@@ -2,7 +2,10 @@ using System;
 using NUnit.Framework;
 using Newtonsoft.Json.Linq;
 using Synthetic.Infrastructure.Serialization;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests.Modules.RevitDOM
 {

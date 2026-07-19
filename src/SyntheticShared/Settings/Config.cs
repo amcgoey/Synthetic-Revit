@@ -8,7 +8,10 @@ using Autodesk.Revit.DB;
 
 using Synthetic.Settings;
 using Synthetic.Modules.DetailItemFactory.Settings;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Shared.RevitAPI;
 namespace Synthetic.Settings

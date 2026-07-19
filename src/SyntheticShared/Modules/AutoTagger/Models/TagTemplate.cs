@@ -7,7 +7,10 @@ using Synthetic.Modules.AutoTagger.Repositories;
 using System;
 using Autodesk.Revit.DB;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Shared.RevitAPI;
 
 namespace Synthetic.Modules.AutoTagger.Models

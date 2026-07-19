@@ -11,7 +11,10 @@ using Synthetic.Shared.UI;
 using Synthetic.Core;
 
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace Synthetic.Modules.DetailItemFactory.Views
 {

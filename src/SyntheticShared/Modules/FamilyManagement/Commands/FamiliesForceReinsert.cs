@@ -21,7 +21,10 @@ using Autodesk.Revit.DB.Events;
 
 using Synthetic.Shared.RevitAPI;
 using SFamilyUtil = Synthetic.Shared.RevitAPI.FamilyUtil;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 
 #endregion

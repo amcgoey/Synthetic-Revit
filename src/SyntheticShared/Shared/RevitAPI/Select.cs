@@ -9,7 +9,10 @@ using RevitDoc = Autodesk.Revit.DB.Document;
 using RevitFECollector = Autodesk.Revit.DB.FilteredElementCollector;
 using RevitElem = Autodesk.Revit.DB.Element;
 using Synthetic.Modules.MergeDuplicates.Handlers;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 
 //using SynthCollect = Synthetic.Collector;

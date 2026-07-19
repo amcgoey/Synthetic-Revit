@@ -4,7 +4,10 @@ using System.Linq;
 using System.Threading;
 using Autodesk.Revit.DB;
 using Synthetic.Modules.MergeDuplicates.Models;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Shared.RevitAPI;
 
 namespace Synthetic.Modules.DiffEngine

@@ -14,7 +14,10 @@ using revitMaterial = Autodesk.Revit.DB.Material;
 using Autodesk.Revit.DB.Visual;
 using Autodesk.Revit.DB;
 using System.Globalization;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Infrastructure.IO;
 
