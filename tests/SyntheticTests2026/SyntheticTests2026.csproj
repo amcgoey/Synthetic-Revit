@@ -2,8 +2,8 @@
 
   <PropertyGroup>
     <TargetFramework>net8.0-windows8.0</TargetFramework>
-    <BaseIntermediateOutputPath>C:\Users\amcgoey\AppData\Local\Temp\obj\SyntheticTests2026_ff610c80\</BaseIntermediateOutputPath>
-    <OutputPath>C:\Users\amcgoey\AppData\Local\Temp\bin\SyntheticTests2026_ff610c80\</OutputPath>
+    <BaseIntermediateOutputPath>$(LocalAppData)\Temp\obj\SyntheticTests2026_ff610c80\</BaseIntermediateOutputPath>
+    <OutputPath>$(LocalAppData)\Temp\bin\SyntheticTests2026_ff610c80\</OutputPath>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <Platforms>x64</Platforms>

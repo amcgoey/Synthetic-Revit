@@ -33,10 +33,10 @@
   <!-- Compile mock RevitAPI and RevitAPIUI projects and copy them to output directory post-build -->
     <Target Name="CopyMockRevitAPI" AfterTargets="Build">
     <MSBuild Projects="..\RevitAPIMock\RevitAPIMock.csproj" Targets="Build" Properties="Configuration=$(Configuration);Platform=$(Platform)" />
-    <Copy SourceFiles="C:\Users\amcgoey\AppData\Local\Temp\bin\RevitAPIMock\net8.0-windows8.0\RevitAPI.dll" DestinationFolder="$(TargetDir)" OverwriteReadOnlyFiles="true" SkipUnchangedFiles="false" />
+    <Copy SourceFiles="$(LocalAppData)\Temp\bin\RevitAPIMock\net8.0-windows8.0\RevitAPI.dll" DestinationFolder="$(TargetDir)" OverwriteReadOnlyFiles="true" SkipUnchangedFiles="false" />
 
     <MSBuild Projects="..\RevitAPIUIMock\RevitAPIUIMock.csproj" Targets="Build" Properties="Configuration=$(Configuration);Platform=$(Platform)" />
-    <Copy SourceFiles="C:\Users\amcgoey\AppData\Local\Temp\bin\RevitAPIUIMock\net8.0-windows8.0\RevitAPIUI.dll" DestinationFolder="$(TargetDir)" OverwriteReadOnlyFiles="true" SkipUnchangedFiles="false" />
+    <Copy SourceFiles="$(LocalAppData)\Temp\bin\RevitAPIUIMock\net8.0-windows8.0\RevitAPIUI.dll" DestinationFolder="$(TargetDir)" OverwriteReadOnlyFiles="true" SkipUnchangedFiles="false" />
   </Target>
 
 </Project>

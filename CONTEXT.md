@@ -69,7 +69,7 @@ _Avoid_: Action Queue.
 
 **Duplicate Merging**:
 The process of identifying duplicate Revit elements (such as families, groups, or assemblies) using POCO-based matching rules, mapping aliases to their standard POCO counterparts, and performing an alias swap to redirect references and delete the redundant elements.
-_Avoid_: Duplicate deletion, element merging, MergeDuplicates.
+_Avoid_: Duplicate deletion, element merging.
 
 **Alias Swapping**:
 The operation that scans a Revit document to redirect all parameter and style references pointing to an aliased element ID over to a target standard element ID.
