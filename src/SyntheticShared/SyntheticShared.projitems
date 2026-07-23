@@ -52,6 +52,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\OverrideGraphicSettingsModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ParameterFilterElementModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ParameterModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ParameterDefinitionSpec.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\PlanViewRangeModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\SerializationResultModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\StructuralAssetModel.cs" />
