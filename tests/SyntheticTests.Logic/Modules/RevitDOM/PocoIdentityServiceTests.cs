@@ -119,5 +119,22 @@ namespace SyntheticTests.Logic.Modules.RevitDOM
             Assert.IsTrue(results.Any(r => r.Name == "Structural Concrete"));
             Assert.IsTrue(results.Any(r => r.Name == "Exterior - 12\" Concrete"));
         }
+
+        [Test]
+        public void AreSameIdentity_Overloads_WorkCorrectly()
+        {
+            var service = new PocoIdentityService();
+
+            var idModel1 = new ElementIdModel { UniqueId = "UID-999", Name = "Column1", Class = "Autodesk.Revit.DB.FamilyInstance" };
+            var idModel2 = new ElementIdModel { UniqueId = "uid-999", Name = "Column1_Alt", Class = "Autodesk.Revit.DB.FamilyInstance" };
+
+            var elemModel1 = new ElementModel { ElementId = idModel1 };
+            var elemModel2 = new ElementModel { ElementId = idModel2 };
+
+            Assert.IsTrue(service.AreSameIdentity(idModel1, idModel2), "AreSameIdentity(ElementIdModel, ElementIdModel) overload should return true.");
+            Assert.IsTrue(service.AreSameIdentity(elemModel1, elemModel2), "AreSameIdentity(ElementModel, ElementModel) overload should return true.");
+            Assert.IsTrue(service.AreSameIdentity(idModel1, elemModel2), "AreSameIdentity(ElementIdModel, ElementModel) overload should return true.");
+            Assert.IsTrue(service.AreSameIdentity(elemModel1, idModel2), "AreSameIdentity(ElementModel, ElementIdModel) overload should return true.");
+        }
     }
 }

@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
@@ -27,5 +27,25 @@ namespace Synthetic.RevitDOM.Translation
         /// <param name="pool">The pool of candidate element models.</param>
         /// <returns>A collection of successfully resolved ElementModel instances.</returns>
         IEnumerable<ElementModel> ResolveElements(IEnumerable<ElementIdModel> models, IEnumerable<ElementModel> pool);
+
+        /// <summary>
+        /// Determines whether two <see cref="ElementIdModel"/> instances represent the same BIM identity.
+        /// </summary>
+        bool AreSameIdentity(ElementIdModel? a, ElementIdModel? b);
+
+        /// <summary>
+        /// Determines whether two <see cref="ElementModel"/> instances represent the same BIM identity.
+        /// </summary>
+        bool AreSameIdentity(ElementModel? a, ElementModel? b);
+
+        /// <summary>
+        /// Determines whether an <see cref="ElementIdModel"/> reference and an <see cref="ElementModel"/> represent the same BIM identity.
+        /// </summary>
+        bool AreSameIdentity(ElementIdModel? a, ElementModel? b);
+
+        /// <summary>
+        /// Determines whether an <see cref="ElementModel"/> and an <see cref="ElementIdModel"/> reference represent the same BIM identity.
+        /// </summary>
+        bool AreSameIdentity(ElementModel? a, ElementIdModel? b);
     }
 }
