@@ -147,7 +147,7 @@ namespace Synthetic.RevitDOM.Operations.Merge
             else if (element is AssemblyInstance assemblyInstance)
             {
                 var typeElementId = assemblyInstance.GetTypeId();
-                if (typeElementId != null && typeId != ElementId.InvalidElementId)
+                if (typeElementId != null && typeElementId != ElementId.InvalidElementId)
                 {
                     var typeElement = doc.GetElement(typeElementId) as AssemblyType;
                     if (typeElement != null)
@@ -177,7 +177,7 @@ namespace Synthetic.RevitDOM.Operations.Merge
             if (element is Family) return element;
             if (element is GroupType) return element;
             if (element is AssemblyType) return element;
-            if (element is FamilySymbol symbol) return symbol.Family;
+            if (element is FamilySymbol patternFamilySymbol) return patternFamilySymbol.Family;
             if (element is ElementType elementType) return elementType;
 
             // 2. Instance checks (typically selected in Canvas)
@@ -186,8 +186,8 @@ namespace Synthetic.RevitDOM.Operations.Merge
                 var symbolId = familyInstance.GetTypeId();
                 if (symbolId != null && symbolId != ElementId.InvalidElementId)
                 {
-                    var symbol = doc.GetElement(symbolId) as FamilySymbol;
-                    return symbol?.Family;
+                    var familySymbolObj = doc.GetElement(symbolId) as FamilySymbol;
+                    return familySymbolObj?.Family;
                 }
             }
             if (element is Autodesk.Revit.DB.Group group)
@@ -197,7 +197,7 @@ namespace Synthetic.RevitDOM.Operations.Merge
             if (element is AssemblyInstance assemblyInstance)
             {
                 var typeElementId = assemblyInstance.GetTypeId();
-                if (typeElementId != null && typeId != ElementId.InvalidElementId)
+                if (typeElementId != null && typeElementId != ElementId.InvalidElementId)
                 {
                     return doc.GetElement(typeElementId) as AssemblyType;
                 }
@@ -205,7 +205,7 @@ namespace Synthetic.RevitDOM.Operations.Merge
 
             // 3. Fallback using GetTypeId() for other instance elements
             var elementTypeElementId = element.GetTypeId();
-            if (elementTypeElementId != null && elemTypeId != ElementId.InvalidElementId)
+            if (elementTypeElementId != null && elementTypeElementId != ElementId.InvalidElementId)
             {
                 var typeElement = doc.GetElement(elementTypeElementId);
                 if (typeElement is FamilySymbol familySymbol) return familySymbol.Family;
@@ -650,24 +650,24 @@ namespace Synthetic.RevitDOM.Operations.Merge
             // 2. Compare physical origins / bounding boxes of instances
             bool originMismatch = false;
             var firstItem = cluster.Items[0];
-            var firstBBox = firstItem.BoundingBox;
-            var firstLoc = firstItem.Location;
+            var firstBoundingBox = firstItem.BoundingBox;
+            var firstLocation = firstItem.Location;
 
             for (int itemIndex = 1; itemIndex < cluster.Items.Count; itemIndex++)
             {
                 token.ThrowIfCancellationRequested();
                 var currentItem = cluster.Items[itemIndex];
-                var currentBBox = currentItem.BoundingBox;
-                var currentLoc = currentItem.Location;
+                var currentBoundingBox = currentItem.BoundingBox;
+                var currentLocation = currentItem.Location;
 
-                if (firstBBox != null && currentBBox != null && firstLoc != null && currentLoc != null &&
-                    firstBBox.Max != null && firstBBox.Min != null &&
-                    currentBBox.Max != null && currentBBox.Min != null)
+                if (firstBoundingBox != null && currentBoundingBox != null && firstLocation != null && currentLocation != null &&
+                    firstBoundingBox.Max != null && firstBoundingBox.Min != null &&
+                    currentBoundingBox.Max != null && currentBoundingBox.Min != null)
                 {
-                    XYZModel firstMax = firstBBox.Max;
-                    XYZModel firstMin = firstBBox.Min;
-                    XYZModel currentMax = currentBBox.Max;
-                    XYZModel currentMin = currentBBox.Min;
+                    XYZModel firstMax = firstBoundingBox.Max;
+                    XYZModel firstMin = firstBoundingBox.Min;
+                    XYZModel currentMax = currentBoundingBox.Max;
+                    XYZModel currentMin = currentBoundingBox.Min;
 
                     // Compare Bounding Box size (rotation-independent)
                     XYZModel firstSize = firstMax - firstMin;
@@ -685,8 +685,8 @@ namespace Synthetic.RevitDOM.Operations.Merge
                     XYZModel firstCenter = (firstMax + firstMin) * 0.5;
                     XYZModel currentCenter = (currentMax + currentMin) * 0.5;
 
-                    XYZModel firstOffset = firstLoc - firstCenter;
-                    XYZModel currentOffset = currentLoc - currentCenter;
+                    XYZModel firstOffset = firstLocation - firstCenter;
+                    XYZModel currentOffset = currentLocation - currentCenter;
 
                     if (Math.Abs(firstOffset.GetLength() - currentOffset.GetLength()) > 1e-3)
                     {
@@ -694,7 +694,7 @@ namespace Synthetic.RevitDOM.Operations.Merge
                         break;
                     }
                 }
-                else if ((firstBBox == null) != (currentBBox == null))
+                else if ((firstBoundingBox == null) != (currentBoundingBox == null))
                 {
                     // One has instances and the other doesn't
                     originMismatch = true;
@@ -764,12 +764,12 @@ namespace Synthetic.RevitDOM.Operations.Merge
                     // Set mapping.TargetType to the first type in the list that matches the base name.
                     // If no base names match, fallback to setting mapping.TargetType to AvailablePrimaryTypes.FirstOrDefault().
                     DuplicateTypeModel? matchedTarget = null;
-                    string srcBaseName = GetBaseName(sourceType.Name);
+                    string sourceBaseName = GetBaseName(sourceType.Name);
                     if (primaryTypes != null)
                     {
                         foreach (var availableType in mapping.AvailablePrimaryTypes)
                         {
-                            if (GetBaseName(availableType.Name).Equals(srcBaseName, StringComparison.OrdinalIgnoreCase))
+                            if (GetBaseName(availableType.Name).Equals(sourceBaseName, StringComparison.OrdinalIgnoreCase))
                             {
                                 matchedTarget = availableType;
                                 break;
