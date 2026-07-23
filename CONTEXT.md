@@ -74,3 +74,12 @@ _Avoid_: Duplicate deletion, element merging.
 **Alias Swapping**:
 The operation that scans a Revit document to redirect all parameter and style references pointing to an aliased element ID over to a target standard element ID.
 _Avoid_: Reference swapping, ID redirecting.
+
+**Identity Comparison**:
+The process of determining whether two Revit elements, POCO models, or `ElementIdModel` references represent the same underlying BIM entity using the 5-step fallback strategy (`UniqueId` -> `Id` -> `Class`/`Category` + `Name` -> `Aliases`), independent of document or session boundaries.
+_Avoid_: Direct ID comparison, reference checking.
+
+**Deep Diff Comparison**:
+The process of comparing internal parameter values, storage types, graphic overrides, and schema definitions between two elements that have already been matched as sharing the same **Identity Comparison**.
+_Avoid_: Identity check, POCO comparison.
+
