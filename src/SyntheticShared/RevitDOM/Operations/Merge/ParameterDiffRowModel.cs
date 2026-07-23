@@ -108,9 +108,16 @@ namespace Synthetic.RevitDOM.Operations.Merge
 
         private void SetOptionWinning(int index, bool value)
         {
-            if (value && Options != null && Options.Count > index && Options[index].ElementId != null)
+            if (value)
             {
-                WinningValueElementId = Options[index].ElementId;
+                if (Options != null && Options.Count > index && Options[index].ElementId != null)
+                {
+                    WinningValueElementId = Options[index].ElementId;
+                }
+            }
+            else if (IsOptionWinning(index))
+            {
+                WinningValueElementId = null;
             }
         }
 
@@ -135,27 +142,15 @@ namespace Synthetic.RevitDOM.Operations.Merge
         }
 
         /// <summary>
-        /// Safely retrieves the parameter value associated with the specified <see cref="ElementIdModel"/> key,
-        /// using value-equality fallback search if standard dictionary lookup fails.
-        /// Prevents <see cref="KeyNotFoundException"/> when queried with distinct <see cref="ElementIdModel"/> instances.
+        /// Safely retrieves the parameter value associated with the specified <see cref="ElementIdModel"/> key.
         /// </summary>
         /// <param name="elementId">The element ID key to query.</param>
         /// <returns>The parameter value string, or empty string if not found.</returns>
         public string GetValueForElement(ElementIdModel? elementId)
         {
-            if (elementId == null || _values == null) return string.Empty;
-            if (_values.TryGetValue(elementId, out string? value))
+            if (elementId != null && _values != null && _values.TryGetValue(elementId, out string? value))
             {
                 return value ?? string.Empty;
-            }
-
-            // Fallback: value equality search across dictionary keys
-            foreach (var kvp in _values)
-            {
-                if (kvp.Key == elementId || (kvp.Key != null && kvp.Key.Equals(elementId)))
-                {
-                    return kvp.Value ?? string.Empty;
-                }
             }
 
             return string.Empty;
