@@ -83,3 +83,12 @@ _Avoid_: Direct ID comparison, reference checking.
 The process of comparing internal parameter values, storage types, graphic overrides, and schema definitions between two elements that have already been matched as sharing the same **Identity Comparison**.
 _Avoid_: Identity check, POCO comparison.
 
+**Revit Merge Data Collector**:
+The Revit-connected collector service responsible for querying the active Revit document via FilteredElementCollector to harvest duplicate candidate elements and convert them into pure ElementModel POCOs for headless duplicate analysis.
+_Avoid_: Revit merge scanner, document merge collector.
+
+**Parameter Definition Spec**:
+A cohesive value object encapsulating the parameter group and parameter spec/type definitions, providing unified metadata for parameter injection and schema validation across Revit versions.
+_Avoid_: Parameter group/type tuple, paramGroup object.
+
+
