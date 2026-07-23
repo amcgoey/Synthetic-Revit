@@ -134,19 +134,21 @@ namespace Synthetic.RevitDOM.Models
             if (ReferenceEquals(other, null)) return false;
             if (ReferenceEquals(this, other)) return true;
 
-            // Step 3: Type/Class Guard verification
-            // If both specify a non-empty Class and they differ, they represent different types.
-            if (!string.IsNullOrEmpty(this.Class) &&
-                !string.IsNullOrEmpty(other.Class) &&
-                !string.Equals(this.Class, other.Class, StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-
             // Step 1: UniqueId match
             if (!string.IsNullOrEmpty(this.UniqueId) && !string.IsNullOrEmpty(other.UniqueId))
             {
-                return string.Equals(this.UniqueId, other.UniqueId, StringComparison.OrdinalIgnoreCase);
+                if (!string.Equals(this.UniqueId, other.UniqueId, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+
+                if (!string.IsNullOrEmpty(this.Class) &&
+                    !string.IsNullOrEmpty(other.Class) &&
+                    !string.Equals(this.Class, other.Class, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+                return true;
             }
 
             // Step 2: Id integer match (preserving built-in negative IDs, e.g. -2000100)
@@ -154,6 +156,12 @@ namespace Synthetic.RevitDOM.Models
             {
                 if (this.Id != 0 && this.Id != -1)
                 {
+                    if (!string.IsNullOrEmpty(this.Class) &&
+                        !string.IsNullOrEmpty(other.Class) &&
+                        !string.Equals(this.Class, other.Class, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return false;
+                    }
                     return true;
                 }
 
@@ -163,8 +171,23 @@ namespace Synthetic.RevitDOM.Models
 
                 if (thisIsEmpty && otherIsEmpty)
                 {
+                    if (!string.IsNullOrEmpty(this.Class) &&
+                        !string.IsNullOrEmpty(other.Class) &&
+                        !string.Equals(this.Class, other.Class, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return false;
+                    }
                     return true;
                 }
+            }
+
+            // Step 3: Type/Class Guard verification
+            // If both specify a non-empty Class and they differ, they represent different types.
+            if (!string.IsNullOrEmpty(this.Class) &&
+                !string.IsNullOrEmpty(other.Class) &&
+                !string.Equals(this.Class, other.Class, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
             }
 
             // Step 4: Name + Class/Category match (case-insensitive)
@@ -225,37 +248,56 @@ namespace Synthetic.RevitDOM.Models
         }
 
         /// <summary>
-        /// Computes a hash code using the fallback priority strategy (UniqueId -> Id -> Name -> Class)
-        /// to strictly enforce a.Equals(b) => a.GetHashCode() == b.GetHashCode().
+        /// Computes a hash code using normalized Name + Class/Category when Name is populated,
+        /// falling back to UniqueId/Id when Name is empty.
         /// </summary>
         public override int GetHashCode()
         {
             unchecked
             {
                 int hash = 17;
+                string normClass = Class?.Trim() ?? string.Empty;
+
+                if (!string.IsNullOrWhiteSpace(Name))
+                {
+                    string normName = Name.Trim();
+                    string normCategory = Category?.Trim() ?? string.Empty;
+                    hash = hash * 31 + StringComparer.OrdinalIgnoreCase.GetHashCode(normName);
+                    if (!string.IsNullOrEmpty(normClass))
+                    {
+                        hash = hash * 31 + StringComparer.OrdinalIgnoreCase.GetHashCode(normClass);
+                    }
+                    if (!string.IsNullOrEmpty(normCategory))
+                    {
+                        hash = hash * 31 + StringComparer.OrdinalIgnoreCase.GetHashCode(normCategory);
+                    }
+                    return hash;
+                }
 
                 if (!string.IsNullOrWhiteSpace(UniqueId))
                 {
-                    hash = hash * 31 + StringComparer.OrdinalIgnoreCase.GetHashCode(UniqueId.Trim());
+                    string normUniqueId = UniqueId.Trim();
+                    hash = hash * 31 + StringComparer.OrdinalIgnoreCase.GetHashCode(normUniqueId);
+                    if (!string.IsNullOrEmpty(normClass))
+                    {
+                        hash = hash * 31 + StringComparer.OrdinalIgnoreCase.GetHashCode(normClass);
+                    }
                     return hash;
                 }
 
                 if (Id != 0)
                 {
                     hash = hash * 31 + Id.GetHashCode();
+                    if (!string.IsNullOrEmpty(normClass))
+                    {
+                        hash = hash * 31 + StringComparer.OrdinalIgnoreCase.GetHashCode(normClass);
+                    }
                     return hash;
                 }
 
-                if (!string.IsNullOrWhiteSpace(Name))
+                if (!string.IsNullOrEmpty(normClass))
                 {
-                    hash = hash * 31 + StringComparer.OrdinalIgnoreCase.GetHashCode(Name.Trim());
-                    return hash;
-                }
-
-                if (!string.IsNullOrWhiteSpace(Class))
-                {
-                    hash = hash * 31 + StringComparer.OrdinalIgnoreCase.GetHashCode(Class.Trim());
-                    return hash;
+                    hash = hash * 31 + StringComparer.OrdinalIgnoreCase.GetHashCode(normClass);
                 }
 
                 return hash;

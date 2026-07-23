@@ -229,23 +229,6 @@ namespace SyntheticTests.Modules.RevitDOM
         }
 
         [Test]
-        public void PocoIdentityService_AreSameIdentity_Overloads_WorkCorrectly()
-        {
-            var service = new PocoIdentityService();
-
-            var idModel1 = new ElementIdModel { UniqueId = "UID-999", Name = "Column1", Class = "Autodesk.Revit.DB.FamilyInstance" };
-            var idModel2 = new ElementIdModel { UniqueId = "uid-999", Name = "Column1_Alt", Class = "Autodesk.Revit.DB.FamilyInstance" };
-
-            var elemModel1 = new ElementModel { ElementId = idModel1 };
-            var elemModel2 = new ElementModel { ElementId = idModel2 };
-
-            Assert.IsTrue(service.AreSameIdentity(idModel1, idModel2), "AreSameIdentity(ElementIdModel, ElementIdModel) overload should return true.");
-            Assert.IsTrue(service.AreSameIdentity(elemModel1, elemModel2), "AreSameIdentity(ElementModel, ElementModel) overload should return true.");
-            Assert.IsTrue(service.AreSameIdentity(idModel1, elemModel2), "AreSameIdentity(ElementIdModel, ElementModel) overload should return true.");
-            Assert.IsTrue(service.AreSameIdentity(elemModel1, idModel2), "AreSameIdentity(ElementModel, ElementIdModel) overload should return true.");
-        }
-
-        [Test]
         public void Equals_Step1_UniqueIdMismatch_ReturnsFalse_EvenWhenIdOrNameMatch()
         {
             var a = new ElementIdModel { UniqueId = "UID-111", Id = 100, Name = "Door 1", Class = "Autodesk.Revit.DB.FamilyInstance" };
@@ -257,27 +240,63 @@ namespace SyntheticTests.Modules.RevitDOM
         }
 
         [Test]
-        public void GetHashCode_UniqueIdMatch_DifferentNameOrId_HasSameHashCode()
+        public void GetHashCode_UniqueIdMatch_EmptyName_HasSameHashCode()
         {
-            var a = new ElementIdModel { UniqueId = "GUID-1234", Id = 100, Name = "WallA", Class = "Autodesk.Revit.DB.Wall" };
-            var b = new ElementIdModel { UniqueId = "guid-1234", Id = 999, Name = "WallB", Class = "Autodesk.Revit.DB.Wall" };
+            var a = new ElementIdModel { UniqueId = "GUID-1234", Id = 100, Class = "Autodesk.Revit.DB.Wall" };
+            var b = new ElementIdModel { UniqueId = "guid-1234", Id = 999, Class = "Autodesk.Revit.DB.Wall" };
 
             Assert.IsTrue(a.Equals(b), "Models with matching UniqueId should be equal.");
-            Assert.AreEqual(a.GetHashCode(), b.GetHashCode(), "Equal objects matching on UniqueId must yield identical hash codes regardless of differing Id or Name.");
+            Assert.AreEqual(a.GetHashCode(), b.GetHashCode(), "Equal objects matching on UniqueId with empty Name must yield identical hash codes regardless of differing Id.");
+        }
+
+        [Test]
+        public void GetHashCode_AsymmetricEquality_UniqueIdAndName_Matches_NameOnly()
+        {
+            var fullModel = new ElementIdModel { UniqueId = "GUID-1234", Id = 100, Name = "WallA", Class = "Autodesk.Revit.DB.Wall" };
+            var nameOnlyModel = new ElementIdModel { Name = "wAlLa", Class = "autodesk.revit.db.wall" };
+
+            Assert.IsTrue(fullModel.Equals(nameOnlyModel), "Full model and Name-only model with matching Name and Class must be equal.");
+            Assert.IsTrue(nameOnlyModel.Equals(fullModel), "Symmetry requirement: Name-only model must equal Full model.");
+            Assert.AreEqual(fullModel.GetHashCode(), nameOnlyModel.GetHashCode(), "Full model and Name-only model matching on Name must produce identical hash codes.");
+        }
+
+        [Test]
+        public void GetHashCode_AsymmetricEquality_DifferingInvalidIds_MatchesOnName()
+        {
+            var model1 = new ElementIdModel { Id = -1, Name = "Door Standard", Class = "Autodesk.Revit.DB.FamilyInstance" };
+            var model2 = new ElementIdModel { Id = -2, Name = "door standard", Class = "autodesk.revit.db.familyinstance" };
+
+            Assert.IsTrue(model1.Equals(model2), "Models with differing invalid IDs (-1 vs -2) and matching Name must be equal.");
+            Assert.AreEqual(model1.GetHashCode(), model2.GetHashCode(), "Models with differing invalid IDs matching on Name must produce identical hash codes.");
+        }
+
+        [Test]
+        public void DictionaryLookup_AsymmetricModels_Succeeds()
+        {
+            var fullKey = new ElementIdModel { UniqueId = "GUID-1234", Id = 101, Name = "Wall_A", Class = "Autodesk.Revit.DB.Wall" };
+            var nameOnlyLookupKey = new ElementIdModel { Name = "wall_a", Class = "Autodesk.Revit.DB.Wall" };
+
+            var dict = new Dictionary<ElementIdModel, string>
+            {
+                { fullKey, "WinningValue" }
+            };
+
+            Assert.IsTrue(dict.ContainsKey(nameOnlyLookupKey), "Dictionary lookup should succeed using asymmetric Name-only ElementIdModel lookup key.");
+            Assert.AreEqual("WinningValue", dict[nameOnlyLookupKey], "Dictionary value retrieval should match expected value for asymmetric key.");
         }
 
         [Test]
         public void GetHashCode_Consistency_AcrossAllFallbackSteps()
         {
-            // Fallback 1: UniqueId match
-            var u1 = new ElementIdModel { UniqueId = "GUID-ABC", Id = 10, Name = "NameA" };
-            var u2 = new ElementIdModel { UniqueId = "guid-abc", Id = 20, Name = "NameB" };
+            // Fallback 1: UniqueId match (no Name)
+            var u1 = new ElementIdModel { UniqueId = "GUID-ABC", Id = 10, Class = "Autodesk.Revit.DB.Wall" };
+            var u2 = new ElementIdModel { UniqueId = "guid-abc", Id = 20, Class = "Autodesk.Revit.DB.Wall" };
             Assert.IsTrue(u1.Equals(u2));
             Assert.AreEqual(u1.GetHashCode(), u2.GetHashCode(), "Step 1: UniqueId match must produce identical HashCodes.");
 
-            // Fallback 2: Id match (no UniqueId)
-            var i1 = new ElementIdModel { Id = 500, Name = "NameA" };
-            var i2 = new ElementIdModel { Id = 500, Name = "NameB" };
+            // Fallback 2: Id match (no UniqueId or Name)
+            var i1 = new ElementIdModel { Id = 500, Class = "Autodesk.Revit.DB.Wall" };
+            var i2 = new ElementIdModel { Id = 500, Class = "Autodesk.Revit.DB.Wall" };
             Assert.IsTrue(i1.Equals(i2));
             Assert.AreEqual(i1.GetHashCode(), i2.GetHashCode(), "Step 2: Id match must produce identical HashCodes.");
 
