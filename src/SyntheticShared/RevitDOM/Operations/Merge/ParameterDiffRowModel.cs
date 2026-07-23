@@ -94,11 +94,10 @@ namespace Synthetic.RevitDOM.Operations.Merge
             get => _winningValueElementId;
             set
             {
-                if (SetProperty(ref _winningValueElementId, value))
-                {
-                    OnPropertyChanged(nameof(IsSourceWinning));
-                    OnPropertyChanged(nameof(IsTargetWinning));
-                }
+                SetProperty(ref _winningValueElementId, value);
+                OnPropertyChanged(nameof(IsSourceWinning));
+                OnPropertyChanged(nameof(IsTargetWinning));
+                OnPropertyChanged(nameof(WinningValue));
             }
         }
 
@@ -108,12 +107,12 @@ namespace Synthetic.RevitDOM.Operations.Merge
         [JsonIgnore]
         public bool IsSourceWinning
         {
-            get => Options != null && Options.Count > 0 && WinningValueElementId == Options[0].ElementId;
+            get => Options != null && Options.Count > 0 && Options[0].ElementId != null && WinningValueElementId != null && WinningValueElementId == Options[0].ElementId;
             set
             {
-                if (value && Options != null && Options.Count > 0)
+                if (value && Options != null && Options.Count > 0 && Options[0].ElementId != null)
                 {
-                    WinningValueElementId = Options[0].ElementId ?? new ElementIdModel { Id = -1 };
+                    WinningValueElementId = Options[0].ElementId;
                 }
             }
         }
@@ -124,15 +123,48 @@ namespace Synthetic.RevitDOM.Operations.Merge
         [JsonIgnore]
         public bool IsTargetWinning
         {
-            get => Options != null && Options.Count > 1 && WinningValueElementId == Options[1].ElementId;
+            get => Options != null && Options.Count > 1 && Options[1].ElementId != null && WinningValueElementId != null && WinningValueElementId == Options[1].ElementId;
             set
             {
-                if (value && Options != null && Options.Count > 1)
+                if (value && Options != null && Options.Count > 1 && Options[1].ElementId != null)
                 {
-                    WinningValueElementId = Options[1].ElementId ?? new ElementIdModel { Id = -1 };
+                    WinningValueElementId = Options[1].ElementId;
                 }
             }
         }
+
+        /// <summary>
+        /// Safely retrieves the parameter value associated with the specified <see cref="ElementIdModel"/> key,
+        /// using value-equality fallback search if standard dictionary lookup fails.
+        /// Prevents <see cref="KeyNotFoundException"/> when queried with distinct <see cref="ElementIdModel"/> instances.
+        /// </summary>
+        /// <param name="elementId">The element ID key to query.</param>
+        /// <returns>The parameter value string, or empty string if not found.</returns>
+        public string GetValueForElement(ElementIdModel? elementId)
+        {
+            if (elementId == null || _values == null) return string.Empty;
+            if (_values.TryGetValue(elementId, out string? value))
+            {
+                return value ?? string.Empty;
+            }
+
+            // Fallback: value equality search across dictionary keys
+            foreach (var kvp in _values)
+            {
+                if (kvp.Key == elementId || (kvp.Key != null && kvp.Key.Equals(elementId)))
+                {
+                    return kvp.Value ?? string.Empty;
+                }
+            }
+
+            return string.Empty;
+        }
+
+        /// <summary>
+        /// Gets the parameter value associated with the current <see cref="WinningValueElementId"/>.
+        /// </summary>
+        [JsonIgnore]
+        public string WinningValue => GetValueForElement(WinningValueElementId);
 
         private bool _injectParameter;
 
@@ -173,7 +205,15 @@ namespace Synthetic.RevitDOM.Operations.Merge
         public List<ParameterValueOption> Options
         {
             get => _options;
-            set => SetProperty(ref _options, value);
+            set
+            {
+                if (SetProperty(ref _options, value))
+                {
+                    OnPropertyChanged(nameof(IsSourceWinning));
+                    OnPropertyChanged(nameof(IsTargetWinning));
+                    OnPropertyChanged(nameof(WinningValue));
+                }
+            }
         }
 
         /// <summary>

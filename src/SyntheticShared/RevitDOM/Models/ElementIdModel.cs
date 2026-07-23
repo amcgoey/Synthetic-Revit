@@ -248,8 +248,8 @@ namespace Synthetic.RevitDOM.Models
         }
 
         /// <summary>
-        /// Computes a hash code using normalized Name + Class/Category when Name is populated,
-        /// falling back to UniqueId/Id when Name is empty.
+        /// Computes a hash code aligned with the identity resolution strategy in <see cref="Equals(ElementIdModel?)"/>.
+        /// Prioritizes Name, then UniqueId, valid integer Id, Aliases, and Class.
         /// </summary>
         public override int GetHashCode()
         {
@@ -285,7 +285,7 @@ namespace Synthetic.RevitDOM.Models
                     return hash;
                 }
 
-                if (Id != 0)
+                if (Id != 0 && Id != -1)
                 {
                     hash = hash * 31 + Id.GetHashCode();
                     if (!string.IsNullOrEmpty(normClass))
@@ -293,6 +293,18 @@ namespace Synthetic.RevitDOM.Models
                         hash = hash * 31 + StringComparer.OrdinalIgnoreCase.GetHashCode(normClass);
                     }
                     return hash;
+                }
+
+                if (Aliases != null && Aliases.Count > 0)
+                {
+                    foreach (var alias in Aliases)
+                    {
+                        if (!string.IsNullOrWhiteSpace(alias))
+                        {
+                            hash = hash * 31 + StringComparer.OrdinalIgnoreCase.GetHashCode(alias.Trim());
+                            break;
+                        }
+                    }
                 }
 
                 if (!string.IsNullOrEmpty(normClass))
