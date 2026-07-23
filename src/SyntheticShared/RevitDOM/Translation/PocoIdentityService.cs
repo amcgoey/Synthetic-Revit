@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -104,6 +104,38 @@ namespace Synthetic.RevitDOM.Translation
                     yield return resolved;
                 }
             }
+        }
+
+        /// <inheritdoc />
+        public bool AreSameIdentity(ElementIdModel? a, ElementIdModel? b)
+        {
+            if (ReferenceEquals(a, b)) return true;
+            if (a == null || b == null) return false;
+            return a.Equals(b);
+        }
+
+        /// <inheritdoc />
+        public bool AreSameIdentity(ElementModel? a, ElementModel? b)
+        {
+            if (ReferenceEquals(a, b)) return true;
+            if (a == null || b == null) return false;
+            return AreSameIdentity(a.ElementId, b.ElementId);
+        }
+
+        /// <inheritdoc />
+        public bool AreSameIdentity(ElementIdModel? a, ElementModel? b)
+        {
+            if (a == null && b == null) return true;
+            if (a == null || b == null) return false;
+            return AreSameIdentity(a, b.ElementId);
+        }
+
+        /// <inheritdoc />
+        public bool AreSameIdentity(ElementModel? a, ElementIdModel? b)
+        {
+            if (a == null && b == null) return true;
+            if (a == null || b == null) return false;
+            return AreSameIdentity(a.ElementId, b);
         }
 
         private bool VerifyType(ElementModel poco, string expectedClass)

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Newtonsoft.Json;
 using Autodesk.Revit.DB;
@@ -13,7 +13,7 @@ namespace Synthetic.RevitDOM.Models
     /// Model that acts as a wrapper for Revit ElementIds to facilitate JSON serialization.
     /// Supports resolving element instances by UniqueId, Id, Name, or Aliases.
     /// </summary>
-    public class ElementIdModel : ObjectModel
+    public class ElementIdModel : ObjectModel, IEquatable<ElementIdModel>
     {
         #region Public Properties
 
@@ -111,6 +111,195 @@ namespace Synthetic.RevitDOM.Models
             this.Class = Class;
             this.Category = Category;
             this.IsTemplate = false;
+        }
+
+        #endregion
+        #region Equality and Hashing
+
+        /// <summary>
+        /// Determines whether the specified object is equal to the current <see cref="ElementIdModel"/>
+        /// using the 5-step fallback identity strategy.
+        /// </summary>
+        public override bool Equals(object? obj)
+        {
+            return Equals(obj as ElementIdModel);
+        }
+
+        /// <summary>
+        /// Indicates whether the current <see cref="ElementIdModel"/> is equal to another <see cref="ElementIdModel"/>
+        /// using the 5-step fallback identity strategy (UniqueId -> Id -> Class Guard -> Name + Class/Category -> Aliases).
+        /// </summary>
+        public bool Equals(ElementIdModel? other)
+        {
+            if (ReferenceEquals(other, null)) return false;
+            if (ReferenceEquals(this, other)) return true;
+
+            // Step 3: Type/Class Guard verification
+            // If both specify a non-empty Class and they differ, they represent different types.
+            if (!string.IsNullOrEmpty(this.Class) &&
+                !string.IsNullOrEmpty(other.Class) &&
+                !string.Equals(this.Class, other.Class, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            // Step 1: UniqueId match
+            if (!string.IsNullOrEmpty(this.UniqueId) && !string.IsNullOrEmpty(other.UniqueId))
+            {
+                if (string.Equals(this.UniqueId, other.UniqueId, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            // Step 2: Id integer match (preserving built-in negative IDs, e.g. -2000100)
+            if (this.Id == other.Id)
+            {
+                if (this.Id != 0 && this.Id != -1)
+                {
+                    return true;
+                }
+
+                // If Id is 0 or -1 (default / invalid element ID), match only if both models are default/invalid empty models.
+                bool thisIsEmpty = string.IsNullOrEmpty(this.UniqueId) && string.IsNullOrEmpty(this.Name) && (this.Aliases == null || this.Aliases.Count == 0);
+                bool otherIsEmpty = string.IsNullOrEmpty(other.UniqueId) && string.IsNullOrEmpty(other.Name) && (other.Aliases == null || other.Aliases.Count == 0);
+
+                if (thisIsEmpty && otherIsEmpty)
+                {
+                    return true;
+                }
+            }
+
+            // Step 4: Name + Class/Category match (case-insensitive)
+            if (!string.IsNullOrEmpty(this.Name) && !string.IsNullOrEmpty(other.Name))
+            {
+                if (string.Equals(this.Name, other.Name, StringComparison.OrdinalIgnoreCase))
+                {
+                    // If both specify a Category, they must match
+                    if (!string.IsNullOrEmpty(this.Category) &&
+                        !string.IsNullOrEmpty(other.Category) &&
+                        !string.Equals(this.Category, other.Category, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return false;
+                    }
+                    return true;
+                }
+            }
+
+            // Step 5: Aliases match / Name vs Aliases cross-match (case-insensitive)
+            if (!string.IsNullOrEmpty(this.Name) && other.Aliases != null && other.Aliases.Count > 0)
+            {
+                foreach (var alias in other.Aliases)
+                {
+                    if (!string.IsNullOrEmpty(alias) && string.Equals(this.Name, alias, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            if (!string.IsNullOrEmpty(other.Name) && this.Aliases != null && this.Aliases.Count > 0)
+            {
+                foreach (var alias in this.Aliases)
+                {
+                    if (!string.IsNullOrEmpty(alias) && string.Equals(other.Name, alias, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            if (this.Aliases != null && this.Aliases.Count > 0 && other.Aliases != null && other.Aliases.Count > 0)
+            {
+                foreach (var aliasA in this.Aliases)
+                {
+                    if (string.IsNullOrEmpty(aliasA)) continue;
+                    foreach (var aliasB in other.Aliases)
+                    {
+                        if (!string.IsNullOrEmpty(aliasB) && string.Equals(aliasA, aliasB, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Computes a hash code using normalized Name + Class/Category when Name is populated,
+        /// falling back to UniqueId/Id when Name is empty.
+        /// </summary>
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                int hash = 17;
+                string normClass = Class?.Trim() ?? string.Empty;
+
+                if (!string.IsNullOrWhiteSpace(Name))
+                {
+                    string normName = Name.Trim();
+                    string normCategory = Category?.Trim() ?? string.Empty;
+                    hash = hash * 31 + StringComparer.OrdinalIgnoreCase.GetHashCode(normName);
+                    if (!string.IsNullOrEmpty(normClass))
+                    {
+                        hash = hash * 31 + StringComparer.OrdinalIgnoreCase.GetHashCode(normClass);
+                    }
+                    if (!string.IsNullOrEmpty(normCategory))
+                    {
+                        hash = hash * 31 + StringComparer.OrdinalIgnoreCase.GetHashCode(normCategory);
+                    }
+                    return hash;
+                }
+
+                if (!string.IsNullOrWhiteSpace(UniqueId))
+                {
+                    string normUniqueId = UniqueId.Trim();
+                    hash = hash * 31 + StringComparer.OrdinalIgnoreCase.GetHashCode(normUniqueId);
+                    if (!string.IsNullOrEmpty(normClass))
+                    {
+                        hash = hash * 31 + StringComparer.OrdinalIgnoreCase.GetHashCode(normClass);
+                    }
+                    return hash;
+                }
+
+                if (Id != 0)
+                {
+                    hash = hash * 31 + Id.GetHashCode();
+                    if (!string.IsNullOrEmpty(normClass))
+                    {
+                        hash = hash * 31 + StringComparer.OrdinalIgnoreCase.GetHashCode(normClass);
+                    }
+                    return hash;
+                }
+
+                if (!string.IsNullOrEmpty(normClass))
+                {
+                    hash = hash * 31 + StringComparer.OrdinalIgnoreCase.GetHashCode(normClass);
+                }
+
+                return hash;
+            }
+        }
+
+        /// <summary>
+        /// Determines whether two <see cref="ElementIdModel"/> instances are equal.
+        /// </summary>
+        public static bool operator ==(ElementIdModel? left, ElementIdModel? right)
+        {
+            if (ReferenceEquals(left, right)) return true;
+            if (ReferenceEquals(left, null) || ReferenceEquals(right, null)) return false;
+            return left.Equals(right);
+        }
+
+        /// <summary>
+        /// Determines whether two <see cref="ElementIdModel"/> instances are not equal.
+        /// </summary>
+        public static bool operator !=(ElementIdModel? left, ElementIdModel? right)
+        {
+            return !(left == right);
         }
 
         #endregion

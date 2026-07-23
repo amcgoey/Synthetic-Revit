@@ -1,4 +1,5 @@
-using System;
+﻿using System;
+using System.Collections.Generic;
 using NUnit.Framework;
 using Newtonsoft.Json.Linq;
 using Synthetic.Infrastructure.Serialization;
@@ -115,5 +116,135 @@ namespace SyntheticTests.Modules.RevitDOM
             Assert.IsNotNull(roundTrip, "Round-trip deserialized object should not be null.");
             Assert.AreEqual(-2000100, roundTrip!.Id, "Deserialized ID should match original negative ID.");
         }
+
+        #region 5-Step Identity Resolution & Equality Tests
+
+        [Test]
+        public void Equals_Step1_UniqueIdMatch_ReturnsTrue()
+        {
+            var a = new ElementIdModel { UniqueId = "GUID-1234", Id = 100, Name = "WallA", Class = "Autodesk.Revit.DB.Wall" };
+            var b = new ElementIdModel { UniqueId = "guid-1234", Id = 999, Name = "WallB", Class = "Autodesk.Revit.DB.Wall" };
+
+            Assert.IsTrue(a.Equals(b), "Step 1: Matching UniqueId (case-insensitive) should equate models regardless of different Id or Name.");
+            Assert.IsTrue(a == b, "Operator == should match Equals result.");
+            Assert.IsFalse(a != b, "Operator != should be false for equal models.");
+        }
+
+        [Test]
+        public void Equals_Step2_PositiveAndBuiltInNegativeIds_ReturnsTrue()
+        {
+            var pos1 = new ElementIdModel { Id = 54321, Class = "Autodesk.Revit.DB.Wall" };
+            var pos2 = new ElementIdModel { Id = 54321, Class = "Autodesk.Revit.DB.Wall" };
+            Assert.IsTrue(pos1.Equals(pos2), "Step 2: Identical positive IDs should equate models.");
+
+            var builtIn1 = new ElementIdModel { Id = -2000100, Class = "Autodesk.Revit.DB.Category" };
+            var builtIn2 = new ElementIdModel { Id = -2000100, Class = "Autodesk.Revit.DB.Category" };
+            Assert.IsTrue(builtIn1.Equals(builtIn2), "Step 2: Preserved built-in negative IDs should equate models.");
+        }
+
+        [Test]
+        public void Equals_Step2_DefaultInvalidModels_HandledCorrectly()
+        {
+            var invalid1 = new ElementIdModel { Id = -1 };
+            var invalid2 = new ElementIdModel { Id = -1 };
+            Assert.IsTrue(invalid1.Equals(invalid2), "Two default invalid models with no UniqueId/Name should be equal.");
+
+            var invalidNamed1 = new ElementIdModel { Id = -1, Name = "Wall 1", Class = "Autodesk.Revit.DB.Wall" };
+            var invalidNamed2 = new ElementIdModel { Id = -1, Name = "Door 1", Class = "Autodesk.Revit.DB.Wall" };
+            Assert.IsFalse(invalidNamed1.Equals(invalidNamed2), "Models with Id = -1 but different names must not falsely match on Step 2.");
+        }
+
+        [Test]
+        public void Equals_Step3_ClassTypeGuard_PreventsMismatch()
+        {
+            var wall = new ElementIdModel { Id = 100, Name = "Standard", Class = "Autodesk.Revit.DB.Wall" };
+            var floor = new ElementIdModel { Id = 100, Name = "Standard", Class = "Autodesk.Revit.DB.Floor" };
+
+            Assert.IsFalse(wall.Equals(floor), "Step 3 Type Guard: Different Class types must prevent equality despite identical Id or Name.");
+        }
+
+        [Test]
+        public void Equals_Step4_NameAndCategory_CaseInsensitiveMatch()
+        {
+            var a = new ElementIdModel { Name = "Generic Wall", Class = "Autodesk.Revit.DB.Wall", Category = "Walls" };
+            var b = new ElementIdModel { Name = "generic wall", Class = "autodesk.revit.db.wall", Category = "walls" };
+
+            Assert.IsTrue(a.Equals(b), "Step 4: Matching Name, Class, and Category (case-insensitive) should equate models.");
+
+            var c = new ElementIdModel { Name = "Generic Wall", Class = "Autodesk.Revit.DB.Wall", Category = "Doors" };
+            Assert.IsFalse(a.Equals(c), "Step 4: Mismatched Category should prevent equality.");
+        }
+
+        [Test]
+        public void Equals_Step5_AliasesCrossMatch_ReturnsTrue()
+        {
+            var main = new ElementIdModel
+            {
+                Name = "Wall_Standard_v2",
+                Class = "Autodesk.Revit.DB.Wall",
+                Aliases = new List<string> { "Wall_Standard_v1", "Legacy_Wall" }
+            };
+
+            var legacy = new ElementIdModel
+            {
+                Name = "Wall_Standard_v1",
+                Class = "Autodesk.Revit.DB.Wall"
+            };
+
+            Assert.IsTrue(main.Equals(legacy), "Step 5: Main model alias matching secondary model name should return true.");
+            Assert.IsTrue(legacy.Equals(main), "Step 5: Symmetry requirement - secondary model matching main model alias.");
+
+            var bothAliased = new ElementIdModel
+            {
+                Name = "New_Wall_Name",
+                Class = "Autodesk.Revit.DB.Wall",
+                Aliases = new List<string> { "Legacy_Wall" }
+            };
+            Assert.IsTrue(main.Equals(bothAliased), "Step 5: Intersecting aliases should match.");
+        }
+
+        [Test]
+        public void GetHashCode_Consistency_SameForEqualObjects()
+        {
+            var a = new ElementIdModel { Name = "Generic Wall", Class = "Autodesk.Revit.DB.Wall", Category = "Walls", Id = 100 };
+            var b = new ElementIdModel { Name = "GENERIC WALL", Class = "autodesk.revit.db.wall", Category = "WALLS", Id = 999 };
+
+            Assert.IsTrue(a.Equals(b), "Models should be equal.");
+            Assert.AreEqual(a.GetHashCode(), b.GetHashCode(), "Equal objects must yield identical hash codes regardless of casing.");
+        }
+
+        [Test]
+        public void DictionaryLookup_ElementIdModel_Succeeds()
+        {
+            var key1 = new ElementIdModel { Name = "Wall_A", Class = "Autodesk.Revit.DB.Wall", Id = 101 };
+            var key2 = new ElementIdModel { Name = "wall_a", Class = "Autodesk.Revit.DB.Wall", Id = 202 };
+
+            var dict = new Dictionary<ElementIdModel, string>
+            {
+                { key1, "WinningValue" }
+            };
+
+            Assert.IsTrue(dict.ContainsKey(key2), "Dictionary lookup should succeed for value-equal ElementIdModel instance.");
+            Assert.AreEqual("WinningValue", dict[key2], "Dictionary value retrieval should match expected value.");
+        }
+
+        [Test]
+        public void PocoIdentityService_AreSameIdentity_Overloads_WorkCorrectly()
+        {
+            var service = new PocoIdentityService();
+
+            var idModel1 = new ElementIdModel { UniqueId = "UID-999", Name = "Column1", Class = "Autodesk.Revit.DB.FamilyInstance" };
+            var idModel2 = new ElementIdModel { UniqueId = "uid-999", Name = "Column1_Alt", Class = "Autodesk.Revit.DB.FamilyInstance" };
+
+            var elemModel1 = new ElementModel { ElementId = idModel1 };
+            var elemModel2 = new ElementModel { ElementId = idModel2 };
+
+            Assert.IsTrue(service.AreSameIdentity(idModel1, idModel2), "AreSameIdentity(ElementIdModel, ElementIdModel) overload should return true.");
+            Assert.IsTrue(service.AreSameIdentity(elemModel1, elemModel2), "AreSameIdentity(ElementModel, ElementModel) overload should return true.");
+            Assert.IsTrue(service.AreSameIdentity(idModel1, elemModel2), "AreSameIdentity(ElementIdModel, ElementModel) overload should return true.");
+            Assert.IsTrue(service.AreSameIdentity(elemModel1, idModel2), "AreSameIdentity(ElementModel, ElementIdModel) overload should return true.");
+        }
+
+        #endregion
     }
 }
