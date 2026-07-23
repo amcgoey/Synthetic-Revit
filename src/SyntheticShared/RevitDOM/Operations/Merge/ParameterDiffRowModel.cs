@@ -101,20 +101,27 @@ namespace Synthetic.RevitDOM.Operations.Merge
             }
         }
 
+        private bool IsOptionWinning(int index)
+        {
+            return Options != null && Options.Count > index && Options[index].ElementId != null && WinningValueElementId != null && WinningValueElementId == Options[index].ElementId;
+        }
+
+        private void SetOptionWinning(int index, bool value)
+        {
+            if (value && Options != null && Options.Count > index && Options[index].ElementId != null)
+            {
+                WinningValueElementId = Options[index].ElementId;
+            }
+        }
+
         /// <summary>
         /// Gets or sets whether the source value is selected as the winning value.
         /// </summary>
         [JsonIgnore]
         public bool IsSourceWinning
         {
-            get => Options != null && Options.Count > 0 && Options[0].ElementId != null && WinningValueElementId != null && WinningValueElementId == Options[0].ElementId;
-            set
-            {
-                if (value && Options != null && Options.Count > 0 && Options[0].ElementId != null)
-                {
-                    WinningValueElementId = Options[0].ElementId;
-                }
-            }
+            get => IsOptionWinning(0);
+            set => SetOptionWinning(0, value);
         }
 
         /// <summary>
@@ -123,14 +130,8 @@ namespace Synthetic.RevitDOM.Operations.Merge
         [JsonIgnore]
         public bool IsTargetWinning
         {
-            get => Options != null && Options.Count > 1 && Options[1].ElementId != null && WinningValueElementId != null && WinningValueElementId == Options[1].ElementId;
-            set
-            {
-                if (value && Options != null && Options.Count > 1 && Options[1].ElementId != null)
-                {
-                    WinningValueElementId = Options[1].ElementId;
-                }
-            }
+            get => IsOptionWinning(1);
+            set => SetOptionWinning(1, value);
         }
 
         /// <summary>
@@ -164,7 +165,17 @@ namespace Synthetic.RevitDOM.Operations.Merge
         /// Gets the parameter value associated with the current <see cref="WinningValueElementId"/>.
         /// </summary>
         [JsonIgnore]
-        public string WinningValue => GetValueForElement(WinningValueElementId);
+        public string? WinningValue
+        {
+            get
+            {
+                if (WinningValueElementId != null && _values != null && _values.TryGetValue(WinningValueElementId, out string? value))
+                {
+                    return value;
+                }
+                return null;
+            }
+        }
 
         private bool _injectParameter;
 
