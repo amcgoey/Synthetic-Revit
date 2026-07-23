@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using NUnit.Framework;
 using Newtonsoft.Json.Linq;
@@ -207,7 +207,7 @@ namespace SyntheticTests.Modules.RevitDOM
         public void GetHashCode_Consistency_SameForEqualObjects()
         {
             var a = new ElementIdModel { Name = "Generic Wall", Class = "Autodesk.Revit.DB.Wall", Category = "Walls", Id = 100 };
-            var b = new ElementIdModel { Name = "GENERIC WALL", Class = "autodesk.revit.db.wall", Category = "WALLS", Id = 999 };
+            var b = new ElementIdModel { Name = "GENERIC WALL", Class = "autodesk.revit.db.wall", Category = "WALLS", Id = 100 };
 
             Assert.IsTrue(a.Equals(b), "Models should be equal.");
             Assert.AreEqual(a.GetHashCode(), b.GetHashCode(), "Equal objects must yield identical hash codes regardless of casing.");
@@ -217,7 +217,7 @@ namespace SyntheticTests.Modules.RevitDOM
         public void DictionaryLookup_ElementIdModel_Succeeds()
         {
             var key1 = new ElementIdModel { Name = "Wall_A", Class = "Autodesk.Revit.DB.Wall", Id = 101 };
-            var key2 = new ElementIdModel { Name = "wall_a", Class = "Autodesk.Revit.DB.Wall", Id = 202 };
+            var key2 = new ElementIdModel { Name = "wall_a", Class = "Autodesk.Revit.DB.Wall", Id = 101 };
 
             var dict = new Dictionary<ElementIdModel, string>
             {
@@ -243,6 +243,55 @@ namespace SyntheticTests.Modules.RevitDOM
             Assert.IsTrue(service.AreSameIdentity(elemModel1, elemModel2), "AreSameIdentity(ElementModel, ElementModel) overload should return true.");
             Assert.IsTrue(service.AreSameIdentity(idModel1, elemModel2), "AreSameIdentity(ElementIdModel, ElementModel) overload should return true.");
             Assert.IsTrue(service.AreSameIdentity(elemModel1, idModel2), "AreSameIdentity(ElementModel, ElementIdModel) overload should return true.");
+        }
+
+        [Test]
+        public void Equals_Step1_UniqueIdMismatch_ReturnsFalse_EvenWhenIdOrNameMatch()
+        {
+            var a = new ElementIdModel { UniqueId = "UID-111", Id = 100, Name = "Door 1", Class = "Autodesk.Revit.DB.FamilyInstance" };
+            var b = new ElementIdModel { UniqueId = "UID-222", Id = 100, Name = "Door 1", Class = "Autodesk.Revit.DB.FamilyInstance" };
+
+            Assert.IsFalse(a.Equals(b), "Mismatched UniqueIds must return false immediately and not fall through to Id or Name.");
+            Assert.IsFalse(a == b, "Operator == should return false for mismatched UniqueIds.");
+            Assert.IsTrue(a != b, "Operator != should return true for mismatched UniqueIds.");
+        }
+
+        [Test]
+        public void GetHashCode_UniqueIdMatch_DifferentNameOrId_HasSameHashCode()
+        {
+            var a = new ElementIdModel { UniqueId = "GUID-1234", Id = 100, Name = "WallA", Class = "Autodesk.Revit.DB.Wall" };
+            var b = new ElementIdModel { UniqueId = "guid-1234", Id = 999, Name = "WallB", Class = "Autodesk.Revit.DB.Wall" };
+
+            Assert.IsTrue(a.Equals(b), "Models with matching UniqueId should be equal.");
+            Assert.AreEqual(a.GetHashCode(), b.GetHashCode(), "Equal objects matching on UniqueId must yield identical hash codes regardless of differing Id or Name.");
+        }
+
+        [Test]
+        public void GetHashCode_Consistency_AcrossAllFallbackSteps()
+        {
+            // Fallback 1: UniqueId match
+            var u1 = new ElementIdModel { UniqueId = "GUID-ABC", Id = 10, Name = "NameA" };
+            var u2 = new ElementIdModel { UniqueId = "guid-abc", Id = 20, Name = "NameB" };
+            Assert.IsTrue(u1.Equals(u2));
+            Assert.AreEqual(u1.GetHashCode(), u2.GetHashCode(), "Step 1: UniqueId match must produce identical HashCodes.");
+
+            // Fallback 2: Id match (no UniqueId)
+            var i1 = new ElementIdModel { Id = 500, Name = "NameA" };
+            var i2 = new ElementIdModel { Id = 500, Name = "NameB" };
+            Assert.IsTrue(i1.Equals(i2));
+            Assert.AreEqual(i1.GetHashCode(), i2.GetHashCode(), "Step 2: Id match must produce identical HashCodes.");
+
+            // Fallback 4: Name match (no UniqueId or Id)
+            var n1 = new ElementIdModel { Name = "Shared Wall", Category = "Walls" };
+            var n2 = new ElementIdModel { Name = "shared wall", Category = "walls" };
+            Assert.IsTrue(n1.Equals(n2));
+            Assert.AreEqual(n1.GetHashCode(), n2.GetHashCode(), "Step 4: Name match must produce identical HashCodes.");
+
+            // Fallback: Default/Empty models
+            var d1 = new ElementIdModel();
+            var d2 = new ElementIdModel();
+            Assert.IsTrue(d1.Equals(d2));
+            Assert.AreEqual(d1.GetHashCode(), d2.GetHashCode(), "Default empty models must produce identical HashCodes.");
         }
 
         #endregion
