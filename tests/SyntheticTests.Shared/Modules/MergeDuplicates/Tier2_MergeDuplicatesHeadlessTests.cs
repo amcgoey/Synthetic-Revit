@@ -380,5 +380,118 @@ namespace SyntheticTests
             var groupMapping = groupCluster.TypeMappings.First();
             Assert.AreEqual(RecommendedAction.Merge, groupMapping.RecommendedAction, "Groups should default to Merge even if names differ.");
         }
+
+        [Test]
+        public void Test_BoundingBoxXYZModel_GetSize_CalculatesDimensionsCorrectly()
+        {
+            var validBBox = new BoundingBoxXYZModel
+            {
+                Min = new XYZModel(-10.0, -5.0, 0.0),
+                Max = new XYZModel(10.0, 15.0, 30.0)
+            };
+
+            var size = validBBox.GetSize();
+            Assert.IsNotNull(size);
+            Assert.AreEqual(20.0, size!.X, 1e-6);
+            Assert.AreEqual(20.0, size.Y, 1e-6);
+            Assert.AreEqual(30.0, size.Z, 1e-6);
+
+            var nullBBox = new BoundingBoxXYZModel
+            {
+                Min = null,
+                Max = new XYZModel(10.0, 10.0, 10.0)
+            };
+            Assert.IsNull(nullBBox.GetSize(), "GetSize should return null when Min is null.");
+
+            var invalidBBox = new BoundingBoxXYZModel
+            {
+                Min = new XYZModel(double.NaN, 0, 0),
+                Max = new XYZModel(10.0, 10.0, 10.0)
+            };
+            Assert.IsNull(invalidBBox.GetSize(), "GetSize should return null when Min contains NaN.");
+        }
+
+        [Test]
+        public void Test_BoundingBoxXYZModel_GetCenter_CalculatesCenterCorrectly()
+        {
+            var validBBox = new BoundingBoxXYZModel
+            {
+                Min = new XYZModel(-10.0, -20.0, 0.0),
+                Max = new XYZModel(10.0, 20.0, 100.0)
+            };
+
+            var center = validBBox.GetCenter();
+            Assert.IsNotNull(center);
+            Assert.AreEqual(0.0, center!.X, 1e-6);
+            Assert.AreEqual(0.0, center.Y, 1e-6);
+            Assert.AreEqual(50.0, center.Z, 1e-6);
+
+            var nullBBox = new BoundingBoxXYZModel();
+            Assert.IsNull(nullBBox.GetCenter(), "GetCenter should return null when Min and Max are unassigned.");
+        }
+
+        [Test]
+        public void Test_BoundingBoxXYZModel_IsValid_ReturnsCorrectStatus()
+        {
+            var valid = new BoundingBoxXYZModel
+            {
+                Min = new XYZModel(0, 0, 0),
+                Max = new XYZModel(1, 1, 1)
+            };
+            Assert.IsTrue(valid.IsValid);
+
+            var nullMin = new BoundingBoxXYZModel
+            {
+                Min = null,
+                Max = new XYZModel(1, 1, 1)
+            };
+            Assert.IsFalse(nullMin.IsValid);
+
+            var nanVal = new BoundingBoxXYZModel
+            {
+                Min = new XYZModel(0, 0, double.NaN),
+                Max = new XYZModel(1, 1, 1)
+            };
+            Assert.IsFalse(nanVal.IsValid);
+
+            var infVal = new BoundingBoxXYZModel
+            {
+                Min = new XYZModel(0, 0, 0),
+                Max = new XYZModel(1, double.PositiveInfinity, 1)
+            };
+            Assert.IsFalse(infVal.IsValid);
+        }
+
+        [Test]
+        public void Test_XYZModel_IsOffsetEqual_EvaluatesTolerancesAndNullsCorrectly()
+        {
+            var vecA = new XYZModel(3.0, 4.0, 0.0); // length = 5.0
+            var vecB = new XYZModel(0.0, 5.0, 0.0); // length = 5.0, but different spatial displacement
+            var vecC = new XYZModel(3.0, 4.0, 0.0005); // spatial displacement within tolerance 1e-3
+
+            Assert.IsFalse(XYZModel.IsOffsetEqual(vecA, vecB, 1e-3), "Vectors pointing in different directions should not be offset equal.");
+            Assert.IsTrue(XYZModel.IsOffsetEqual(vecA, vecC, 1e-3), "Slightly differing vectors within tolerance should be equal.");
+
+            var vecD = new XYZModel(10.0, 0.0, 0.0); // length = 10.0
+            Assert.IsFalse(XYZModel.IsOffsetEqual(vecA, vecD, 1e-3), "Vectors with different lengths should not be offset equal.");
+
+            // Null cases
+            Assert.IsTrue(XYZModel.IsOffsetEqual(null, null), "Two null vectors should be equal.");
+            Assert.IsFalse(XYZModel.IsOffsetEqual(vecA, null), "Vector compared to null should be false.");
+            Assert.IsFalse(XYZModel.IsOffsetEqual(null, vecB), "Null compared to vector should be false.");
+
+            // NaN / Infinity cases
+            var nanVec = new XYZModel(double.NaN, 0, 0);
+            Assert.IsFalse(XYZModel.IsOffsetEqual(vecA, nanVec), "Comparison with NaN vector should return false.");
+        }
+
+        [Test]
+        public void Test_XYZModel_IsValid_DetectsNaNAndInfinity()
+        {
+            Assert.IsTrue(new XYZModel(1.0, 2.0, 3.0).IsValid);
+            Assert.IsFalse(new XYZModel(double.NaN, 2.0, 3.0).IsValid);
+            Assert.IsFalse(new XYZModel(1.0, double.NegativeInfinity, 3.0).IsValid);
+            Assert.IsFalse(new XYZModel(1.0, 2.0, double.PositiveInfinity).IsValid);
+        }
     }
 }

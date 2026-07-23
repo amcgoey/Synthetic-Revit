@@ -51,6 +51,20 @@ namespace Synthetic.RevitDOM.Models
             return System.Math.Sqrt(X * X + Y * Y + Z * Z);
         }
 
+        public bool IsValid => !double.IsNaN(X) && !double.IsInfinity(X) &&
+                               !double.IsNaN(Y) && !double.IsInfinity(Y) &&
+                               !double.IsNaN(Z) && !double.IsInfinity(Z);
+
+        public static bool IsOffsetEqual(XYZModel? a, XYZModel? b, double tolerance = 1e-3)
+        {
+            if (a == null && b == null) return true;
+            if (a == null || b == null) return false;
+            if (!a.IsValid || !b.IsValid) return false;
+            return System.Math.Abs(a.X - b.X) <= tolerance &&
+                   System.Math.Abs(a.Y - b.Y) <= tolerance &&
+                   System.Math.Abs(a.Z - b.Z) <= tolerance;
+        }
+
         public static XYZModel? ByJSON(string JSON)
         {
             return JsonConvert.DeserializeObject<XYZModel>(JSON);
