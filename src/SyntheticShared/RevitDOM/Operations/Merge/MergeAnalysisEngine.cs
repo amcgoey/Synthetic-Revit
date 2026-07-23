@@ -660,20 +660,14 @@ namespace Synthetic.RevitDOM.Operations.Merge
                 var currentBBox = currentItem.BoundingBox;
                 var currentLoc = currentItem.Location;
 
-                if (firstBBox != null && currentBBox != null && firstLoc != null && currentLoc != null &&
-                    firstBBox.Max != null && firstBBox.Min != null &&
-                    currentBBox.Max != null && currentBBox.Min != null)
+                if (firstBBox != null && currentBBox != null && firstBBox.IsValid && currentBBox.IsValid &&
+                    firstLoc != null && currentLoc != null)
                 {
-                    XYZModel firstMax = firstBBox.Max;
-                    XYZModel firstMin = firstBBox.Min;
-                    XYZModel currentMax = currentBBox.Max;
-                    XYZModel currentMin = currentBBox.Min;
+                    XYZModel? firstSize = firstBBox.GetSize();
+                    XYZModel? currentSize = currentBBox.GetSize();
 
-                    // Compare Bounding Box size (rotation-independent)
-                    XYZModel firstSize = firstMax - firstMin;
-                    XYZModel currentSize = currentMax - currentMin;
-
-                    if (Math.Abs(firstSize.X - currentSize.X) > 1e-3 ||
+                    if (firstSize == null || currentSize == null ||
+                        Math.Abs(firstSize.X - currentSize.X) > 1e-3 ||
                         Math.Abs(firstSize.Y - currentSize.Y) > 1e-3 ||
                         Math.Abs(firstSize.Z - currentSize.Z) > 1e-3)
                     {
@@ -682,13 +676,13 @@ namespace Synthetic.RevitDOM.Operations.Merge
                     }
 
                     // Compare Origin relative to Bounding Box center
-                    XYZModel firstCenter = (firstMax + firstMin) * 0.5;
-                    XYZModel currentCenter = (currentMax + currentMin) * 0.5;
+                    XYZModel? firstCenter = firstBBox.GetCenter();
+                    XYZModel? currentCenter = currentBBox.GetCenter();
 
-                    XYZModel firstOffset = firstLoc - firstCenter;
-                    XYZModel currentOffset = currentLoc - currentCenter;
+                    XYZModel? firstOffset = (firstCenter != null) ? firstLoc - firstCenter : null;
+                    XYZModel? currentOffset = (currentCenter != null) ? currentLoc - currentCenter : null;
 
-                    if (Math.Abs(firstOffset.GetLength() - currentOffset.GetLength()) > 1e-3)
+                    if (!XYZModel.IsOffsetEqual(firstOffset, currentOffset, 1e-3))
                     {
                         originMismatch = true;
                         break;

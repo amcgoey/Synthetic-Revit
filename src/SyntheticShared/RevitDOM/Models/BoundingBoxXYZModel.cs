@@ -17,6 +17,20 @@ namespace Synthetic.RevitDOM.Models
 
         public BoundingBoxXYZModel() : base() { }
 
+        public bool IsValid => Min != null && Max != null && Min.IsValid && Max.IsValid;
+
+        public XYZModel? GetSize()
+        {
+            if (!IsValid) return null;
+            return Max! - Min!;
+        }
+
+        public XYZModel? GetCenter()
+        {
+            if (!IsValid) return null;
+            return (Min! + Max!) * 0.5;
+        }
+
         public static BoundingBoxXYZModel? ByJSON(string JSON)
         {
             return JsonConvert.DeserializeObject<BoundingBoxXYZModel>(JSON);
