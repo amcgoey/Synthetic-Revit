@@ -58,12 +58,12 @@ namespace Synthetic.RevitDOM.Operations.Merge
                     valueString = parameter.AsString() ?? string.Empty;
                     break;
                 case StorageType.ElementId:
-                    ElementId id = parameter.AsElementId();
-                    if (id != null && id != ElementId.InvalidElementId)
+                    ElementId elementId = parameter.AsElementId();
+                    if (elementId != null && elementId != ElementId.InvalidElementId)
                     {
                         if (doc != null)
                         {
-                            Element element = doc.GetElement(id);
+                            Element element = doc.GetElement(elementId);
                             if (element != null)
                             {
                                 valueString = element.Name;
@@ -71,18 +71,18 @@ namespace Synthetic.RevitDOM.Operations.Merge
                             else
                             {
 #if REVIT2022 || REVIT2023
-                                valueString = id.IntegerValue.ToString();
+                                valueString = elementId.IntegerValue.ToString();
 #else
-                                valueString = id.Value.ToString();
+                                valueString = elementId.Value.ToString();
 #endif
                             }
                         }
                         else
                         {
 #if REVIT2022 || REVIT2023
-                            valueString = id.IntegerValue.ToString();
+                            valueString = elementId.IntegerValue.ToString();
 #else
-                            valueString = id.Value.ToString();
+                            valueString = elementId.Value.ToString();
 #endif
                         }
                     }
@@ -146,10 +146,10 @@ namespace Synthetic.RevitDOM.Operations.Merge
             }
             else if (element is AssemblyInstance assemblyInstance)
             {
-                var typeId = assemblyInstance.GetTypeId();
-                if (typeId != null && typeId != ElementId.InvalidElementId)
+                var typeElementId = assemblyInstance.GetTypeId();
+                if (typeElementId != null && typeId != ElementId.InvalidElementId)
                 {
-                    var typeElement = doc.GetElement(typeId) as AssemblyType;
+                    var typeElement = doc.GetElement(typeElementId) as AssemblyType;
                     if (typeElement != null)
                     {
                         return typeElement.Category?.Name ?? "Assemblies";
@@ -167,10 +167,10 @@ namespace Synthetic.RevitDOM.Operations.Merge
         /// <param name="doc">The active Revit document.</param>
         /// <param name="id">The ElementId to resolve.</param>
         /// <returns>The resolved target element, or null if not found.</returns>
-        public static Element? GetTargetElement(Document doc, ElementId id)
+        public static Element? GetTargetElement(Document doc, ElementId elementId)
         {
-            if (id == null || id == ElementId.InvalidElementId) return null;
-            Element element = doc.GetElement(id);
+            if (elementId == null || elementId == ElementId.InvalidElementId) return null;
+            Element element = doc.GetElement(elementId);
             if (element == null) return null;
 
             // 1. Direct checks (typically selected in Project Browser or direct types)
@@ -184,7 +184,7 @@ namespace Synthetic.RevitDOM.Operations.Merge
             if (element is FamilyInstance familyInstance)
             {
                 var symbolId = familyInstance.GetTypeId();
-                if (symbolId != null && symId != ElementId.InvalidElementId)
+                if (symbolId != null && symbolId != ElementId.InvalidElementId)
                 {
                     var symbol = doc.GetElement(symbolId) as FamilySymbol;
                     return symbol?.Family;
@@ -196,22 +196,22 @@ namespace Synthetic.RevitDOM.Operations.Merge
             }
             if (element is AssemblyInstance assemblyInstance)
             {
-                var typeId = assemblyInstance.GetTypeId();
-                if (typeId != null && typeId != ElementId.InvalidElementId)
+                var typeElementId = assemblyInstance.GetTypeId();
+                if (typeElementId != null && typeId != ElementId.InvalidElementId)
                 {
-                    return doc.GetElement(typeId) as AssemblyType;
+                    return doc.GetElement(typeElementId) as AssemblyType;
                 }
             }
 
             // 3. Fallback using GetTypeId() for other instance elements
-            var elemTypeId = element.GetTypeId();
-            if (elemTypeId != null && elemTypeId != ElementId.InvalidElementId)
+            var elementTypeElementId = element.GetTypeId();
+            if (elementTypeElementId != null && elemTypeId != ElementId.InvalidElementId)
             {
-                var typeElement = doc.GetElement(elemTypeId);
+                var typeElement = doc.GetElement(elementTypeElementId);
                 if (typeElement is FamilySymbol familySymbol) return familySymbol.Family;
-                if (typeElem is GroupType groupType) return groupType;
-                if (typeElem is AssemblyType assemblyType) return assemblyType;
-                if (typeElem is ElementType elementType2) return elementType2;
+                if (typeElement is GroupType groupType) return groupType;
+                if (typeElement is AssemblyType assemblyType) return assemblyType;
+                if (typeElement is ElementType elementType2) return elementType2;
             }
 
             return null;
@@ -384,7 +384,7 @@ namespace Synthetic.RevitDOM.Operations.Merge
                     var symbolIdSet = new HashSet<ElementId>(symbolIds);
                     var familyInstances = new FilteredElementCollector(doc)
                         .OfClass(typeof(FamilyInstance))
-                        .Where(instance => symbolIdSet.Contains(inst.GetTypeId()))
+                        .Where(instance => symbolIdSet.Contains(instance.GetTypeId()))
                         .ToList();
                     instances.AddRange(familyInstances);
                 }
@@ -511,13 +511,13 @@ namespace Synthetic.RevitDOM.Operations.Merge
             var selectedCategories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var selectedBaseNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var id in selectedIds)
+            foreach (var elementId in selectedIds)
             {
                 token.ThrowIfCancellationRequested();
-                var originalElement = doc.GetElement(id);
-                if (originalElem == null) continue;
+                var originalElement = doc.GetElement(elementId);
+                if (originalElement == null) continue;
 
-                var target = GetTargetElement(doc, id);
+                var target = GetTargetElement(doc, elementId);
                 if (target == null) continue;
 
                 string categoryName = GetElementCategoryName(doc, originalElement);
@@ -560,10 +560,10 @@ namespace Synthetic.RevitDOM.Operations.Merge
             }
 
             // Collect generic ElementTypes matching selection parameters (e.g. WallType)
-            foreach (var id in selectedIds)
+            foreach (var elementId in selectedIds)
             {
                 token.ThrowIfCancellationRequested();
-                var target = GetTargetElement(doc, id);
+                var target = GetTargetElement(doc, elementId);
                 if (target == null) continue;
 
                 if (target is ElementType && !(target is GroupType) && !(target is AssemblyType) && !(target is FamilySymbol))
@@ -767,11 +767,11 @@ namespace Synthetic.RevitDOM.Operations.Merge
                     string srcBaseName = GetBaseName(sourceType.Name);
                     if (primaryTypes != null)
                     {
-                        foreach (var availType in mapping.AvailablePrimaryTypes)
+                        foreach (var availableType in mapping.AvailablePrimaryTypes)
                         {
-                            if (GetBaseName(availType.Name).Equals(srcBaseName, StringComparison.OrdinalIgnoreCase))
+                            if (GetBaseName(availableType.Name).Equals(srcBaseName, StringComparison.OrdinalIgnoreCase))
                             {
-                                matchedTarget = availType;
+                                matchedTarget = availableType;
                                 break;
                             }
                         }
@@ -831,7 +831,7 @@ namespace Synthetic.RevitDOM.Operations.Merge
 
                     var row = new ParameterDiffRowModel
                     {
-                        ParameterName = paramName,
+                        ParameterName = parameterName,
                         IsSchemaMismatch = false,
                         HasConflict = false,
                         WinningValueElementId = sourceType.RevitTypeId,
@@ -852,13 +852,13 @@ namespace Synthetic.RevitDOM.Operations.Merge
             }
 
             // Union of parameter names between source and target type to show all parameters
-            var allParamNames = sourceType.Parameters.Keys.Union(targetType.Parameters.Keys).ToList();
-            foreach (var paramName in allParamNames)
+            var allParameterNames = sourceType.Parameters.Keys.Union(targetType.Parameters.Keys).ToList();
+            foreach (var parameterName in allParameterNames)
             {
                 string? sourceRaw = null;
                 string? targetRaw = null;
-                sourceType.Parameters.TryGetValue(paramName, out sourceRaw);
-                targetType.Parameters.TryGetValue(paramName, out targetRaw);
+                sourceType.Parameters.TryGetValue(parameterName, out sourceRaw);
+                targetType.Parameters.TryGetValue(parameterName, out targetRaw);
 
                 string? sourceStorageType = null, sourceValueString = null;
                 if (!string.IsNullOrEmpty(sourceRaw))
@@ -908,7 +908,7 @@ namespace Synthetic.RevitDOM.Operations.Merge
 
                 var row = new ParameterDiffRowModel
                 {
-                    ParameterName = paramName,
+                    ParameterName = parameterName,
                     IsSchemaMismatch = isSchemaMismatch,
                     HasConflict = hasConflict,
                     WinningValueElementId = (mapping.RecommendedAction == RecommendedAction.Merge) ? targetType.RevitTypeId : sourceType.RevitTypeId,
