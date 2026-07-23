@@ -602,11 +602,83 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                     break;
             }
         }
-        private static ParameterDefinitionSpec GetDefaultGroupAndType() { return ParameterDefinitionSpec.CreateDefault(); } private static ParameterDefinitionSpec GetParamGroupAndTypeFromSource(Parameter sourceParam) { return ParameterDefinitionSpec.FromParameter(sourceParam); } private static bool InjectParameterToFamily(FamilyManager famManager, string paramName, ParameterDefinitionSpec spec)
+                private static ParameterDefinitionSpec GetDefaultGroupAndType()
+        {
+            return ParameterDefinitionSpec.CreateDefault();
+        }
+
+        private static ParameterDefinitionSpec GetParamGroupAndTypeFromSource(Parameter sourceParam)
+        {
+            if (sourceParam == null) return GetDefaultGroupAndType();
+
+            object? group = null;
+            object? specType = null;
+
+            Definition def = sourceParam.Definition;
+            if (def != null)
+            {
+#if REVIT2022 || REVIT2023
+                group = def.ParameterGroup;
+                specType = def.ParameterType;
+#else
+                // Default baseline: Revit 2024+
+                group = def.GetGroupTypeId();
+                specType = def.GetDataType();
+#endif
+
+                // Reflection fallbacks for cross-version / mock execution contexts
+                if (group == null)
+                {
+                    var groupProp = def.GetType().GetProperty("ParameterGroup");
+                    if (groupProp != null)
+                    {
+                        group = groupProp.GetValue(def);
+                    }
+                    else
+                    {
+                        var groupMethod = def.GetType().GetMethod("GetGroupTypeId");
+                        if (groupMethod != null)
+                        {
+                            group = groupMethod.Invoke(def, null);
+                        }
+                    }
+                }
+
+                if (specType == null)
+                {
+                    var typeProp = def.GetType().GetProperty("ParameterType");
+                    if (typeProp != null)
+                    {
+                        specType = typeProp.GetValue(def);
+                    }
+                    else
+                    {
+                        var typeMethod = def.GetType().GetMethod("GetDataType");
+                        if (typeMethod != null)
+                        {
+                            specType = typeMethod.Invoke(def, null);
+                        }
+                    }
+                }
+            }
+
+            if (group == null || specType == null)
+            {
+                var defaultSpec = GetDefaultGroupAndType();
+                group ??= defaultSpec.Group;
+                specType ??= defaultSpec.SpecType;
+            }
+
+            return new ParameterDefinitionSpec(group, specType);
+        }
+
+        private static bool InjectParameterToFamily(FamilyManager famManager, string paramName, ParameterDefinitionSpec spec)
         {
             if (famManager == null || spec == null || spec.Group == null || spec.SpecType == null) return false;
+
             var addParamMethod = famManager.GetType().GetMethods()
                 .FirstOrDefault(m => m.Name == "AddParameter" && m.GetParameters().Length == 4);
+
             if (addParamMethod != null)
             {
                 try
@@ -621,6 +693,7 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
             }
             return false;
         }
+
         private void ExportStep6ResultsSummary(List<MergeExecutionReport> summaries)
         {
             try

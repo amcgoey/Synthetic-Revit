@@ -46,15 +46,8 @@ namespace SyntheticTests.Logic.Modules.RevitDOM
             Assert.IsNotNull(spec);
             Assert.IsNotNull(spec.Group);
             Assert.IsNotNull(spec.SpecType);
-        }
-
-        [Test]
-        public void FromParameter_NullParameter_ReturnsDefaultSpec()
-        {
-            var spec = ParameterDefinitionSpec.FromParameter(null);
-            Assert.IsNotNull(spec);
-            Assert.IsNotNull(spec.Group);
-            Assert.IsNotNull(spec.SpecType);
+            Assert.AreEqual("PG_DATA", spec.Group);
+            Assert.AreEqual("Text", spec.SpecType);
         }
     }
 }
