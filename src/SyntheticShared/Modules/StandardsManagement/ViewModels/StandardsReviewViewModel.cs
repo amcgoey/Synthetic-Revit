@@ -148,7 +148,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                             }
 
                             string paramName = row.ParameterName;
-                            string winningValue = row.Values[row.WinningValueElementId];
+                            string? winningValue = row.WinningValue;
 
                             // Retrieve specific parameter by name
                             Parameter p = liveElement.LookupParameter(paramName);

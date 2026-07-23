@@ -94,11 +94,30 @@ namespace Synthetic.RevitDOM.Operations.Merge
             get => _winningValueElementId;
             set
             {
-                if (SetProperty(ref _winningValueElementId, value))
+                SetProperty(ref _winningValueElementId, value);
+                OnPropertyChanged(nameof(IsSourceWinning));
+                OnPropertyChanged(nameof(IsTargetWinning));
+                OnPropertyChanged(nameof(WinningValue));
+            }
+        }
+
+        private bool IsOptionWinning(int index)
+        {
+            return Options != null && Options.Count > index && Options[index].ElementId != null && WinningValueElementId != null && WinningValueElementId == Options[index].ElementId;
+        }
+
+        private void SetOptionWinning(int index, bool value)
+        {
+            if (value)
+            {
+                if (Options != null && Options.Count > index && Options[index].ElementId != null)
                 {
-                    OnPropertyChanged(nameof(IsSourceWinning));
-                    OnPropertyChanged(nameof(IsTargetWinning));
+                    WinningValueElementId = Options[index].ElementId;
                 }
+            }
+            else if (IsOptionWinning(index))
+            {
+                WinningValueElementId = null;
             }
         }
 
@@ -108,14 +127,8 @@ namespace Synthetic.RevitDOM.Operations.Merge
         [JsonIgnore]
         public bool IsSourceWinning
         {
-            get => Options != null && Options.Count > 0 && WinningValueElementId == Options[0].ElementId;
-            set
-            {
-                if (value && Options != null && Options.Count > 0)
-                {
-                    WinningValueElementId = Options[0].ElementId ?? new ElementIdModel { Id = -1 };
-                }
-            }
+            get => IsOptionWinning(0);
+            set => SetOptionWinning(0, value);
         }
 
         /// <summary>
@@ -124,13 +137,38 @@ namespace Synthetic.RevitDOM.Operations.Merge
         [JsonIgnore]
         public bool IsTargetWinning
         {
-            get => Options != null && Options.Count > 1 && WinningValueElementId == Options[1].ElementId;
-            set
+            get => IsOptionWinning(1);
+            set => SetOptionWinning(1, value);
+        }
+
+        /// <summary>
+        /// Safely retrieves the parameter value associated with the specified <see cref="ElementIdModel"/> key.
+        /// </summary>
+        /// <param name="elementId">The element ID key to query.</param>
+        /// <returns>The parameter value string, or empty string if not found.</returns>
+        public string GetValueForElement(ElementIdModel? elementId)
+        {
+            if (elementId != null && _values != null && _values.TryGetValue(elementId, out string? value))
             {
-                if (value && Options != null && Options.Count > 1)
+                return value ?? string.Empty;
+            }
+
+            return string.Empty;
+        }
+
+        /// <summary>
+        /// Gets the parameter value associated with the current <see cref="WinningValueElementId"/>.
+        /// </summary>
+        [JsonIgnore]
+        public string? WinningValue
+        {
+            get
+            {
+                if (WinningValueElementId != null && _values != null && _values.TryGetValue(WinningValueElementId, out string? value))
                 {
-                    WinningValueElementId = Options[1].ElementId ?? new ElementIdModel { Id = -1 };
+                    return value;
                 }
+                return null;
             }
         }
 
@@ -173,7 +211,15 @@ namespace Synthetic.RevitDOM.Operations.Merge
         public List<ParameterValueOption> Options
         {
             get => _options;
-            set => SetProperty(ref _options, value);
+            set
+            {
+                if (SetProperty(ref _options, value))
+                {
+                    OnPropertyChanged(nameof(IsSourceWinning));
+                    OnPropertyChanged(nameof(IsTargetWinning));
+                    OnPropertyChanged(nameof(WinningValue));
+                }
+            }
         }
 
         /// <summary>
