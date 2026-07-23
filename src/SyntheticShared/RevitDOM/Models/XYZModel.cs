@@ -60,7 +60,9 @@ namespace Synthetic.RevitDOM.Models
             if (a == null && b == null) return true;
             if (a == null || b == null) return false;
             if (!a.IsValid || !b.IsValid) return false;
-            return System.Math.Abs(a.GetLength() - b.GetLength()) <= tolerance;
+            return System.Math.Abs(a.X - b.X) <= tolerance &&
+                   System.Math.Abs(a.Y - b.Y) <= tolerance &&
+                   System.Math.Abs(a.Z - b.Z) <= tolerance;
         }
 
         public static XYZModel? ByJSON(string JSON)

@@ -466,11 +466,11 @@ namespace SyntheticTests
         public void Test_XYZModel_IsOffsetEqual_EvaluatesTolerancesAndNullsCorrectly()
         {
             var vecA = new XYZModel(3.0, 4.0, 0.0); // length = 5.0
-            var vecB = new XYZModel(0.0, 5.0, 0.0); // length = 5.0
-            var vecC = new XYZModel(3.0, 4.0, 0.002); // length ~5.0000004 vs 5.0004 -> diff within tolerance 1e-2
+            var vecB = new XYZModel(0.0, 5.0, 0.0); // length = 5.0, but different spatial displacement
+            var vecC = new XYZModel(3.0, 4.0, 0.0005); // spatial displacement within tolerance 1e-3
 
-            Assert.IsTrue(XYZModel.IsOffsetEqual(vecA, vecB, 1e-3), "Vectors with equal length should be offset equal.");
-            Assert.IsTrue(XYZModel.IsOffsetEqual(vecA, vecC, 1e-2), "Slightly differing vectors within tolerance should be equal.");
+            Assert.IsFalse(XYZModel.IsOffsetEqual(vecA, vecB, 1e-3), "Vectors pointing in different directions should not be offset equal.");
+            Assert.IsTrue(XYZModel.IsOffsetEqual(vecA, vecC, 1e-3), "Slightly differing vectors within tolerance should be equal.");
 
             var vecD = new XYZModel(10.0, 0.0, 0.0); // length = 10.0
             Assert.IsFalse(XYZModel.IsOffsetEqual(vecA, vecD, 1e-3), "Vectors with different lengths should not be offset equal.");
