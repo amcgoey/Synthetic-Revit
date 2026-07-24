@@ -2121,7 +2121,10 @@ using NUnit.Framework;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Synthetic.Infrastructure.Serialization;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests.Modules.RevitDOM
 {
@@ -2183,7 +2186,10 @@ using System;
 using NUnit.Framework;
 using Newtonsoft.Json.Linq;
 using Synthetic.Infrastructure.Serialization;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests.Modules.RevitDOM
 {
@@ -2279,7 +2285,10 @@ using System;
 using System.Collections.Generic;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests.Modules.RevitDOM
 {
@@ -2496,10 +2505,14 @@ namespace SyntheticTests.Modules.RevitDOM
 ### File: tests/SyntheticTests.Logic/Modules/RevitDOM/ElementIdModelTests.cs
 ```csharp
 using System;
+using System.Collections.Generic;
 using NUnit.Framework;
 using Newtonsoft.Json.Linq;
 using Synthetic.Infrastructure.Serialization;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests.Modules.RevitDOM
 {
@@ -2609,6 +2622,204 @@ namespace SyntheticTests.Modules.RevitDOM
             Assert.IsNotNull(roundTrip, "Round-trip deserialized object should not be null.");
             Assert.AreEqual(-2000100, roundTrip!.Id, "Deserialized ID should match original negative ID.");
         }
+
+        #region 5-Step Identity Resolution & Equality Tests
+
+        [Test]
+        public void Equals_Step1_UniqueIdMatch_ReturnsTrue()
+        {
+            var a = new ElementIdModel { UniqueId = "GUID-1234", Id = 100, Name = "WallA", Class = "Autodesk.Revit.DB.Wall" };
+            var b = new ElementIdModel { UniqueId = "guid-1234", Id = 999, Name = "WallB", Class = "Autodesk.Revit.DB.Wall" };
+
+            Assert.IsTrue(a.Equals(b), "Step 1: Matching UniqueId (case-insensitive) should equate models regardless of different Id or Name.");
+            Assert.IsTrue(a == b, "Operator == should match Equals result.");
+            Assert.IsFalse(a != b, "Operator != should be false for equal models.");
+        }
+
+        [Test]
+        public void Equals_Step2_PositiveAndBuiltInNegativeIds_ReturnsTrue()
+        {
+            var pos1 = new ElementIdModel { Id = 54321, Class = "Autodesk.Revit.DB.Wall" };
+            var pos2 = new ElementIdModel { Id = 54321, Class = "Autodesk.Revit.DB.Wall" };
+            Assert.IsTrue(pos1.Equals(pos2), "Step 2: Identical positive IDs should equate models.");
+
+            var builtIn1 = new ElementIdModel { Id = -2000100, Class = "Autodesk.Revit.DB.Category" };
+            var builtIn2 = new ElementIdModel { Id = -2000100, Class = "Autodesk.Revit.DB.Category" };
+            Assert.IsTrue(builtIn1.Equals(builtIn2), "Step 2: Preserved built-in negative IDs should equate models.");
+        }
+
+        [Test]
+        public void Equals_Step2_DefaultInvalidModels_HandledCorrectly()
+        {
+            var invalid1 = new ElementIdModel { Id = -1 };
+            var invalid2 = new ElementIdModel { Id = -1 };
+            Assert.IsTrue(invalid1.Equals(invalid2), "Two default invalid models with no UniqueId/Name should be equal.");
+
+            var invalidNamed1 = new ElementIdModel { Id = -1, Name = "Wall 1", Class = "Autodesk.Revit.DB.Wall" };
+            var invalidNamed2 = new ElementIdModel { Id = -1, Name = "Door 1", Class = "Autodesk.Revit.DB.Wall" };
+            Assert.IsFalse(invalidNamed1.Equals(invalidNamed2), "Models with Id = -1 but different names must not falsely match on Step 2.");
+        }
+
+        [Test]
+        public void Equals_Step3_ClassTypeGuard_PreventsMismatch()
+        {
+            var wall = new ElementIdModel { Id = 100, Name = "Standard", Class = "Autodesk.Revit.DB.Wall" };
+            var floor = new ElementIdModel { Id = 100, Name = "Standard", Class = "Autodesk.Revit.DB.Floor" };
+
+            Assert.IsFalse(wall.Equals(floor), "Step 3 Type Guard: Different Class types must prevent equality despite identical Id or Name.");
+        }
+
+        [Test]
+        public void Equals_Step4_NameAndCategory_CaseInsensitiveMatch()
+        {
+            var a = new ElementIdModel { Name = "Generic Wall", Class = "Autodesk.Revit.DB.Wall", Category = "Walls" };
+            var b = new ElementIdModel { Name = "generic wall", Class = "autodesk.revit.db.wall", Category = "walls" };
+
+            Assert.IsTrue(a.Equals(b), "Step 4: Matching Name, Class, and Category (case-insensitive) should equate models.");
+
+            var c = new ElementIdModel { Name = "Generic Wall", Class = "Autodesk.Revit.DB.Wall", Category = "Doors" };
+            Assert.IsFalse(a.Equals(c), "Step 4: Mismatched Category should prevent equality.");
+        }
+
+        [Test]
+        public void Equals_Step5_AliasesCrossMatch_ReturnsTrue()
+        {
+            var main = new ElementIdModel
+            {
+                Name = "Wall_Standard_v2",
+                Class = "Autodesk.Revit.DB.Wall",
+                Aliases = new List<string> { "Wall_Standard_v1", "Legacy_Wall" }
+            };
+
+            var legacy = new ElementIdModel
+            {
+                Name = "Wall_Standard_v1",
+                Class = "Autodesk.Revit.DB.Wall"
+            };
+
+            Assert.IsTrue(main.Equals(legacy), "Step 5: Main model alias matching secondary model name should return true.");
+            Assert.IsTrue(legacy.Equals(main), "Step 5: Symmetry requirement - secondary model matching main model alias.");
+
+            var bothAliased = new ElementIdModel
+            {
+                Name = "New_Wall_Name",
+                Class = "Autodesk.Revit.DB.Wall",
+                Aliases = new List<string> { "Legacy_Wall" }
+            };
+            Assert.IsTrue(main.Equals(bothAliased), "Step 5: Intersecting aliases should match.");
+        }
+
+        [Test]
+        public void GetHashCode_Consistency_SameForEqualObjects()
+        {
+            var a = new ElementIdModel { Name = "Generic Wall", Class = "Autodesk.Revit.DB.Wall", Category = "Walls", Id = 100 };
+            var b = new ElementIdModel { Name = "GENERIC WALL", Class = "autodesk.revit.db.wall", Category = "WALLS", Id = 100 };
+
+            Assert.IsTrue(a.Equals(b), "Models should be equal.");
+            Assert.AreEqual(a.GetHashCode(), b.GetHashCode(), "Equal objects must yield identical hash codes regardless of casing.");
+        }
+
+        [Test]
+        public void DictionaryLookup_ElementIdModel_Succeeds()
+        {
+            var key1 = new ElementIdModel { Name = "Wall_A", Class = "Autodesk.Revit.DB.Wall", Id = 101 };
+            var key2 = new ElementIdModel { Name = "wall_a", Class = "Autodesk.Revit.DB.Wall", Id = 101 };
+
+            var dict = new Dictionary<ElementIdModel, string>
+            {
+                { key1, "WinningValue" }
+            };
+
+            Assert.IsTrue(dict.ContainsKey(key2), "Dictionary lookup should succeed for value-equal ElementIdModel instance.");
+            Assert.AreEqual("WinningValue", dict[key2], "Dictionary value retrieval should match expected value.");
+        }
+
+        [Test]
+        public void Equals_Step1_UniqueIdMismatch_ReturnsFalse_EvenWhenIdOrNameMatch()
+        {
+            var a = new ElementIdModel { UniqueId = "UID-111", Id = 100, Name = "Door 1", Class = "Autodesk.Revit.DB.FamilyInstance" };
+            var b = new ElementIdModel { UniqueId = "UID-222", Id = 100, Name = "Door 1", Class = "Autodesk.Revit.DB.FamilyInstance" };
+
+            Assert.IsFalse(a.Equals(b), "Mismatched UniqueIds must return false immediately and not fall through to Id or Name.");
+            Assert.IsFalse(a == b, "Operator == should return false for mismatched UniqueIds.");
+            Assert.IsTrue(a != b, "Operator != should return true for mismatched UniqueIds.");
+        }
+
+        [Test]
+        public void GetHashCode_UniqueIdMatch_EmptyName_HasSameHashCode()
+        {
+            var a = new ElementIdModel { UniqueId = "GUID-1234", Id = 100, Class = "Autodesk.Revit.DB.Wall" };
+            var b = new ElementIdModel { UniqueId = "guid-1234", Id = 999, Class = "Autodesk.Revit.DB.Wall" };
+
+            Assert.IsTrue(a.Equals(b), "Models with matching UniqueId should be equal.");
+            Assert.AreEqual(a.GetHashCode(), b.GetHashCode(), "Equal objects matching on UniqueId with empty Name must yield identical hash codes regardless of differing Id.");
+        }
+
+        [Test]
+        public void GetHashCode_AsymmetricEquality_UniqueIdAndName_Matches_NameOnly()
+        {
+            var fullModel = new ElementIdModel { UniqueId = "GUID-1234", Id = 100, Name = "WallA", Class = "Autodesk.Revit.DB.Wall" };
+            var nameOnlyModel = new ElementIdModel { Name = "wAlLa", Class = "autodesk.revit.db.wall" };
+
+            Assert.IsTrue(fullModel.Equals(nameOnlyModel), "Full model and Name-only model with matching Name and Class must be equal.");
+            Assert.IsTrue(nameOnlyModel.Equals(fullModel), "Symmetry requirement: Name-only model must equal Full model.");
+            Assert.AreEqual(fullModel.GetHashCode(), nameOnlyModel.GetHashCode(), "Full model and Name-only model matching on Name must produce identical hash codes.");
+        }
+
+        [Test]
+        public void GetHashCode_AsymmetricEquality_DifferingInvalidIds_MatchesOnName()
+        {
+            var model1 = new ElementIdModel { Id = -1, Name = "Door Standard", Class = "Autodesk.Revit.DB.FamilyInstance" };
+            var model2 = new ElementIdModel { Id = -2, Name = "door standard", Class = "autodesk.revit.db.familyinstance" };
+
+            Assert.IsTrue(model1.Equals(model2), "Models with differing invalid IDs (-1 vs -2) and matching Name must be equal.");
+            Assert.AreEqual(model1.GetHashCode(), model2.GetHashCode(), "Models with differing invalid IDs matching on Name must produce identical hash codes.");
+        }
+
+        [Test]
+        public void DictionaryLookup_AsymmetricModels_Succeeds()
+        {
+            var fullKey = new ElementIdModel { UniqueId = "GUID-1234", Id = 101, Name = "Wall_A", Class = "Autodesk.Revit.DB.Wall" };
+            var nameOnlyLookupKey = new ElementIdModel { Name = "wall_a", Class = "Autodesk.Revit.DB.Wall" };
+
+            var dict = new Dictionary<ElementIdModel, string>
+            {
+                { fullKey, "WinningValue" }
+            };
+
+            Assert.IsTrue(dict.ContainsKey(nameOnlyLookupKey), "Dictionary lookup should succeed using asymmetric Name-only ElementIdModel lookup key.");
+            Assert.AreEqual("WinningValue", dict[nameOnlyLookupKey], "Dictionary value retrieval should match expected value for asymmetric key.");
+        }
+
+        [Test]
+        public void GetHashCode_Consistency_AcrossAllFallbackSteps()
+        {
+            // Fallback 1: UniqueId match (no Name)
+            var u1 = new ElementIdModel { UniqueId = "GUID-ABC", Id = 10, Class = "Autodesk.Revit.DB.Wall" };
+            var u2 = new ElementIdModel { UniqueId = "guid-abc", Id = 20, Class = "Autodesk.Revit.DB.Wall" };
+            Assert.IsTrue(u1.Equals(u2));
+            Assert.AreEqual(u1.GetHashCode(), u2.GetHashCode(), "Step 1: UniqueId match must produce identical HashCodes.");
+
+            // Fallback 2: Id match (no UniqueId or Name)
+            var i1 = new ElementIdModel { Id = 500, Class = "Autodesk.Revit.DB.Wall" };
+            var i2 = new ElementIdModel { Id = 500, Class = "Autodesk.Revit.DB.Wall" };
+            Assert.IsTrue(i1.Equals(i2));
+            Assert.AreEqual(i1.GetHashCode(), i2.GetHashCode(), "Step 2: Id match must produce identical HashCodes.");
+
+            // Fallback 4: Name match (no UniqueId or Id)
+            var n1 = new ElementIdModel { Name = "Shared Wall", Category = "Walls" };
+            var n2 = new ElementIdModel { Name = "shared wall", Category = "walls" };
+            Assert.IsTrue(n1.Equals(n2));
+            Assert.AreEqual(n1.GetHashCode(), n2.GetHashCode(), "Step 4: Name match must produce identical HashCodes.");
+
+            // Fallback: Default/Empty models
+            var d1 = new ElementIdModel();
+            var d2 = new ElementIdModel();
+            Assert.IsTrue(d1.Equals(d2));
+            Assert.AreEqual(d1.GetHashCode(), d2.GetHashCode(), "Default empty models must produce identical HashCodes.");
+        }
+
+        #endregion
     }
 }
 ```
@@ -2620,7 +2831,10 @@ using NUnit.Framework;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Synthetic.Infrastructure.Serialization;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Shared;
 
 namespace SyntheticTests.Modules.RevitDOM
@@ -2689,7 +2903,10 @@ namespace SyntheticTests.Modules.RevitDOM
 using System;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests.Modules.RevitDOM
 {
@@ -2807,7 +3024,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests.Modules.RevitDOM
 {
@@ -2889,13 +3109,73 @@ namespace SyntheticTests.Modules.RevitDOM
 }
 ```
 
+### File: tests/SyntheticTests.Logic/Modules/RevitDOM/ParameterDefinitionSpecTests.cs
+```csharp
+using System;
+using NUnit.Framework;
+using Synthetic.RevitDOM.Models;
+
+namespace SyntheticTests.Logic.Modules.RevitDOM
+{
+    [TestFixture]
+    public class ParameterDefinitionSpecTests
+    {
+        [Test]
+        public void Constructor_Default_InitializesPropertiesToNull()
+        {
+            var spec = new ParameterDefinitionSpec();
+            Assert.IsNull(spec.Group);
+            Assert.IsNull(spec.SpecType);
+            Assert.IsNull(spec.ParameterGroup);
+            Assert.IsNull(spec.ParameterType);
+        }
+
+        [Test]
+        public void Constructor_WithArguments_SetsPropertiesAndAliases()
+        {
+            var groupObj = "PG_DATA";
+            var typeObj = "Text";
+            var spec = new ParameterDefinitionSpec(groupObj, typeObj);
+            Assert.AreEqual(groupObj, spec.Group);
+            Assert.AreEqual(typeObj, spec.SpecType);
+            Assert.AreEqual(groupObj, spec.ParameterGroup);
+            Assert.AreEqual(typeObj, spec.ParameterType);
+        }
+
+        [Test]
+        public void AliasProperties_MutateUnderlyingState()
+        {
+            var spec = new ParameterDefinitionSpec();
+            spec.ParameterGroup = "PG_IDENTITY";
+            spec.ParameterType = "Integer";
+            Assert.AreEqual("PG_IDENTITY", spec.Group);
+            Assert.AreEqual("Integer", spec.SpecType);
+        }
+
+        [Test]
+        public void CreateDefault_ReturnsNonNullSpecWithDefaults()
+        {
+            var spec = ParameterDefinitionSpec.CreateDefault();
+            Assert.IsNotNull(spec);
+            Assert.IsNotNull(spec.Group);
+            Assert.IsNotNull(spec.SpecType);
+            Assert.AreEqual("PG_DATA", spec.Group);
+            Assert.AreEqual("Text", spec.SpecType);
+        }
+    }
+}
+```
+
 ### File: tests/SyntheticTests.Logic/Modules/RevitDOM/PocoIdentityServiceTests.cs
 ```csharp
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests.Logic.Modules.RevitDOM
 {
@@ -3009,6 +3289,23 @@ namespace SyntheticTests.Logic.Modules.RevitDOM
             Assert.IsTrue(results.Any(r => r.Name == "Structural Concrete"));
             Assert.IsTrue(results.Any(r => r.Name == "Exterior - 12\" Concrete"));
         }
+
+        [Test]
+        public void AreSameIdentity_Overloads_WorkCorrectly()
+        {
+            var service = new PocoIdentityService();
+
+            var idModel1 = new ElementIdModel { UniqueId = "UID-999", Name = "Column1", Class = "Autodesk.Revit.DB.FamilyInstance" };
+            var idModel2 = new ElementIdModel { UniqueId = "uid-999", Name = "Column1_Alt", Class = "Autodesk.Revit.DB.FamilyInstance" };
+
+            var elemModel1 = new ElementModel { ElementId = idModel1 };
+            var elemModel2 = new ElementModel { ElementId = idModel2 };
+
+            Assert.IsTrue(service.AreSameIdentity(idModel1, idModel2), "AreSameIdentity(ElementIdModel, ElementIdModel) overload should return true.");
+            Assert.IsTrue(service.AreSameIdentity(elemModel1, elemModel2), "AreSameIdentity(ElementModel, ElementModel) overload should return true.");
+            Assert.IsTrue(service.AreSameIdentity(idModel1, elemModel2), "AreSameIdentity(ElementIdModel, ElementModel) overload should return true.");
+            Assert.IsTrue(service.AreSameIdentity(elemModel1, idModel2), "AreSameIdentity(ElementModel, ElementIdModel) overload should return true.");
+        }
     }
 }
 ```
@@ -3019,7 +3316,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace ExternalNamespace
 {
@@ -3161,7 +3461,10 @@ namespace SyntheticTests.Modules.RevitDOM
 using System;
 using System.Collections.Generic;
 using NUnit.Framework;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests.Modules.RevitDOM
 {
@@ -3311,7 +3614,10 @@ using System;
 using NUnit.Framework;
 using Newtonsoft.Json.Linq;
 using Synthetic.Infrastructure.Serialization;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests.Modules.RevitDOM
 {
@@ -3400,7 +3706,10 @@ using NUnit.Framework;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Synthetic.Infrastructure.Serialization;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests.Modules.RevitDOM
 {
@@ -3562,7 +3871,10 @@ using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Shared.UI;
 
@@ -3736,7 +4048,10 @@ using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Shared.UI;
 
@@ -3938,12 +4253,15 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.MergeDuplicates.Models;
+using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.Settings;
 using Synthetic.Shared.UI;
-using Synthetic.Modules.RevitDOM;
-using Synthetic.Modules.StandardsManagement.Utilities;
-using Synthetic.Modules.StandardsManagement.Engine;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
+using Synthetic.RevitDOM.Operations.Standards;
+using Synthetic.RevitDOM.Operations.Standards;
 
 namespace SyntheticTests.Modules.StandardsManagement
 {
@@ -4069,7 +4387,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             File.WriteAllText(tempJsonFile, @"{
                 ""Materials"": {
                     ""Concrete"": {
-                        ""$type"": ""Synthetic.Modules.StandardsManagement.Models.MaterialModel, SyntheticShared"",
+                        ""$type"": ""Synthetic.RevitDOM.Operations.Standards.MaterialModel, SyntheticShared"",
                         ""Name"": ""Concrete"",
                         ""Class"": ""Autodesk.Revit.DB.Material"",
                         ""UniqueId"": ""abc-123""
@@ -4305,11 +4623,14 @@ using System.IO;
 using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.StandardsManagement.Models;
+using Synthetic.RevitDOM.Operations.Standards;
 using Synthetic.Shared.UI;
-using Synthetic.Modules.DiffEngine;
+using Synthetic.RevitDOM.Operations.Diffing;
 using SyntheticTests.Modules.RevitDOM;
 
 namespace SyntheticTests.Modules.StandardsManagement
@@ -4413,6 +4734,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         }
     }
 }
+
 ```
 
 ### File: tests/SyntheticTests.Logic/Modules/StandardsManagement/DuplicateClusterModelTests.cs
@@ -4421,7 +4743,8 @@ namespace SyntheticTests.Modules.StandardsManagement
 using System.Collections.Generic;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.MergeDuplicates.Models;
+using Synthetic.RevitDOM.Operations.Merge;
+using Synthetic.RevitDOM.Models;
 using Synthetic.Modules.MergeDuplicates.ViewModels;
 
 namespace SyntheticTests.Modules.StandardsManagement
@@ -4443,8 +4766,8 @@ namespace SyntheticTests.Modules.StandardsManagement
                 IsApproved = true
             };
 
-            var elementId1 = new ElementId(101);
-            var elementId2 = new ElementId(102);
+            var elementId1 = new ElementIdModel { Id = 101 };
+            var elementId2 = new ElementIdModel { Id = 102 };
 
             // Add options for source and target values
             row.Options.Add(new ParameterValueOption { ElementId = elementId1, DisplayText = "1" });
@@ -4473,7 +4796,10 @@ namespace SyntheticTests.Modules.StandardsManagement
 ﻿using System;
 using System.Collections.Generic;
 using NUnit.Framework;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 
 namespace SyntheticTests.Modules.StandardsManagement
@@ -4567,8 +4893,11 @@ namespace SyntheticTests.Modules.StandardsManagement
 ﻿using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
-using Synthetic.Modules.RevitDOM;
-using Synthetic.Modules.StandardsManagement.Utilities;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
+using Synthetic.RevitDOM.Operations.Standards;
 
 namespace SyntheticTests.Modules.StandardsManagement
 {
@@ -4664,12 +4993,148 @@ namespace SyntheticTests.Modules.StandardsManagement
 }
 ```
 
+### File: tests/SyntheticTests.Logic/Modules/StandardsManagement/ParameterDiffRowModelTests.cs
+```csharp
+using System;
+using System.Collections.Generic;
+using NUnit.Framework;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Operations.Merge;
+
+namespace SyntheticTests.Modules.StandardsManagement
+{
+    [TestFixture]
+    public class ParameterDiffRowModelTests
+    {
+        [Test]
+        public void RadioButtonBindings_EvaluateCorrectlyOnLoad_UsingValueEquality()
+        {
+            // Arrange: distinct ElementIdModel instances representing same elements
+            var sourceId = new ElementIdModel { Id = 1001, Name = "SourceType", Class = "Autodesk.Revit.DB.FamilySymbol" };
+            var targetId = new ElementIdModel { Id = 2002, Name = "TargetType", Class = "Autodesk.Revit.DB.FamilySymbol" };
+
+            var sourceIdDistinct = new ElementIdModel { Id = 1001, Name = "SourceType", Class = "Autodesk.Revit.DB.FamilySymbol" };
+            var targetIdDistinct = new ElementIdModel { Id = 2002, Name = "TargetType", Class = "Autodesk.Revit.DB.FamilySymbol" };
+
+            var row = new ParameterDiffRowModel
+            {
+                ParameterName = "Comments",
+                Options = new List<ParameterValueOption>
+                {
+                    new ParameterValueOption { ElementId = sourceId, DisplayText = "Source Comment" },
+                    new ParameterValueOption { ElementId = targetId, DisplayText = "Target Comment" }
+                },
+                // Set winning value to distinct instance equal to sourceId
+                WinningValueElementId = sourceIdDistinct
+            };
+
+            // Assert
+            Assert.IsTrue(row.IsSourceWinning, "IsSourceWinning should evaluate to true when WinningValueElementId is value-equal to Options[0].ElementId.");
+            Assert.IsFalse(row.IsTargetWinning, "IsTargetWinning should evaluate to false when source is winning.");
+
+            // Act: change winning value to distinct instance equal to targetId
+            row.WinningValueElementId = targetIdDistinct;
+
+            // Assert
+            Assert.IsFalse(row.IsSourceWinning, "IsSourceWinning should evaluate to false when target is winning.");
+            Assert.IsTrue(row.IsTargetWinning, "IsTargetWinning should evaluate to true when WinningValueElementId is value-equal to Options[1].ElementId.");
+        }
+
+        [Test]
+        public void RadioButtonBindings_RespondToUserSelectionChanges()
+        {
+            var sourceId = new ElementIdModel { Id = 1001, Name = "SourceType" };
+            var targetId = new ElementIdModel { Id = 2002, Name = "TargetType" };
+
+            var row = new ParameterDiffRowModel
+            {
+                ParameterName = "Width",
+                Options = new List<ParameterValueOption>
+                {
+                    new ParameterValueOption { ElementId = sourceId, DisplayText = "100" },
+                    new ParameterValueOption { ElementId = targetId, DisplayText = "200" }
+                },
+                WinningValueElementId = sourceId
+            };
+
+            List<string> changedProperties = new List<string>();
+            row.PropertyChanged += (s, e) =>
+            {
+                if (e.PropertyName != null) changedProperties.Add(e.PropertyName);
+            };
+
+            // Act: simulate user clicking Target RadioButton (TwoWay binding sets IsTargetWinning = true)
+            row.IsTargetWinning = true;
+
+            // Assert
+            Assert.IsTrue(row.IsTargetWinning, "IsTargetWinning should be true after user selection.");
+            Assert.IsFalse(row.IsSourceWinning, "IsSourceWinning should be false after target selection.");
+            Assert.AreEqual(targetId, row.WinningValueElementId, "WinningValueElementId should be updated to targetId.");
+            Assert.Contains(nameof(row.IsSourceWinning), changedProperties, "PropertyChanged should fire for IsSourceWinning.");
+            Assert.Contains(nameof(row.IsTargetWinning), changedProperties, "PropertyChanged should fire for IsTargetWinning.");
+
+            // Act: simulate user clicking Source RadioButton
+            changedProperties.Clear();
+            row.IsSourceWinning = true;
+
+            // Assert
+            Assert.IsTrue(row.IsSourceWinning, "IsSourceWinning should be true after user selection.");
+            Assert.IsFalse(row.IsTargetWinning, "IsTargetWinning should be false after source selection.");
+            Assert.AreEqual(sourceId, row.WinningValueElementId, "WinningValueElementId should be updated to sourceId.");
+            Assert.Contains(nameof(row.IsSourceWinning), changedProperties, "PropertyChanged should fire for IsSourceWinning.");
+            Assert.Contains(nameof(row.IsTargetWinning), changedProperties, "PropertyChanged should fire for IsTargetWinning.");
+        }
+
+        [Test]
+        public void GetValueForElement_DistinctElementIdModelInstances_DoesNotThrowKeyNotFoundException()
+        {
+            var keyInDict = new ElementIdModel { Id = 5005, UniqueId = "uid-5005", Name = "DoorType", Class = "Autodesk.Revit.DB.FamilySymbol" };
+            var distinctQueryKey = new ElementIdModel { Id = 5005, UniqueId = "uid-5005", Name = "DoorType", Class = "Autodesk.Revit.DB.FamilySymbol" };
+
+            var row = new ParameterDiffRowModel
+            {
+                ParameterName = "Cost"
+            };
+
+            row.Values[keyInDict] = "150.00";
+            row.WinningValueElementId = distinctQueryKey;
+
+            // Act & Assert
+            Assert.DoesNotThrow(() =>
+            {
+                string value = row.GetValueForElement(distinctQueryKey);
+                Assert.AreEqual("150.00", value, "GetValueForElement should retrieve the dictionary value using value equality.");
+            }, "GetValueForElement must not throw KeyNotFoundException when queried with distinct ElementIdModel instances.");
+
+            Assert.AreEqual("150.00", row.WinningValue, "WinningValue property must return the winning value without throwing KeyNotFoundException.");
+        }
+
+        [Test]
+        public void DictionaryKeyLookup_AcrossElementIdModelKeys_SucceedsForDistinctInstances()
+        {
+            var keyAdded = new ElementIdModel { Id = 7007, Name = "Window", Class = "Autodesk.Revit.DB.FamilySymbol" };
+            var keyQueried = new ElementIdModel { Id = 7007, Name = "Window", Class = "Autodesk.Revit.DB.FamilySymbol" };
+
+            var dict = new Dictionary<ElementIdModel, string>();
+            dict[keyAdded] = "SampleValue";
+
+            Assert.IsTrue(dict.ContainsKey(keyQueried), "Dictionary.ContainsKey must return true for value-equal distinct ElementIdModel key.");
+            Assert.DoesNotThrow(() =>
+            {
+                string val = dict[keyQueried];
+                Assert.AreEqual("SampleValue", val, "Dictionary indexer retrieval must return value for distinct ElementIdModel key.");
+            });
+        }
+    }
+}
+```
+
 ### File: tests/SyntheticTests.Logic/Modules/StandardsManagement/PathResolutionUtilityTests.cs
 ```csharp
 ﻿using System;
 using System.IO;
 using NUnit.Framework;
-using Synthetic.Modules.StandardsManagement.Utilities;
+using Synthetic.RevitDOM.Operations.Standards;
 
 namespace SyntheticTests.Modules.StandardsManagement
 {
@@ -4763,7 +5228,10 @@ using System.IO;
 using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Shared.UI;
 
@@ -4952,13 +5420,15 @@ using System.Linq;
 using NUnit.Framework;
 using System.Collections.Generic;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Settings;
 using Synthetic.Infrastructure.Persistence;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.StandardsManagement.Utilities;
-using Synthetic.Modules.MergeDuplicates.Models;
-using Synthetic.Modules.StandardsManagement.Engine;
+using Synthetic.RevitDOM.Operations.Standards;
+using Synthetic.RevitDOM.Operations.Merge;
 using SyntheticTests.Modules.RevitDOM;
 using Synthetic.Shared.UI;
 
@@ -5605,8 +6075,8 @@ namespace SyntheticTests.Modules.StandardsManagement
                 TargetType = targetType
             };
 
-            var sourceId = new ElementId(101);
-            var targetId = new ElementId(102);
+            var sourceId = new ElementIdModel { Id = 101 };
+            var targetId = new ElementIdModel { Id = 102 };
 
             var diffRow = new ParameterDiffRowModel
             {
@@ -6399,9 +6869,12 @@ using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.StandardsManagement.Utilities;
+using Synthetic.RevitDOM.Operations.Standards;
 using Synthetic.Shared.UI;
 using Synthetic.Settings;
 
@@ -6609,7 +7082,10 @@ namespace SyntheticTests.Modules.StandardsManagement
 ﻿using System;
 using System.Collections.Generic;
 using NUnit.Framework;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 
 namespace SyntheticTests.Modules.StandardsManagement
@@ -6733,9 +7209,12 @@ using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.StandardsManagement.Utilities;
+using Synthetic.RevitDOM.Operations.Standards;
 
 namespace SyntheticTests.Modules.StandardsManagement
 {
@@ -7032,10 +7511,13 @@ using System.Linq;
 using System.Threading;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.StandardsManagement.Engine;
-using Synthetic.Modules.StandardsManagement.Models;
-using Synthetic.Modules.RevitDOM;
-using Synthetic.Modules.MergeDuplicates.Models;
+using Synthetic.RevitDOM.Operations.Standards;
+using Synthetic.RevitDOM.Operations.Standards;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
+using Synthetic.RevitDOM.Operations.Merge;
 
 namespace SyntheticTests.Modules.StandardsManagement
 {
@@ -7141,7 +7623,7 @@ using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.StandardsManagement.Utilities;
+using Synthetic.RevitDOM.Operations.Standards;
 
 namespace SyntheticTests.Modules.StandardsManagement
 {
@@ -7406,8 +7888,11 @@ using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
 using System.Collections.ObjectModel;
-using Synthetic.Modules.RevitDOM;
-using Synthetic.Modules.StandardsManagement.Utilities;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
+using Synthetic.RevitDOM.Operations.Standards;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 
 namespace SyntheticTests.Modules.StandardsManagement
@@ -7623,10 +8108,10 @@ namespace SyntheticTests
             var guardrail = new SyntheticTests.Modules.StandardsManagement.FakeGuardrailPromptService();
             var userPromptService = new SyntheticTests.Modules.StandardsManagement.FakeUserPromptService();
 
-            var exportServiceType = Type.GetType($"Synthetic.Modules.StandardsManagement.Utilities.StandardsExportService{suffix}");
+            var exportServiceType = Type.GetType($"Synthetic.RevitDOM.Operations.Standards.StandardsExportService{suffix}");
             var exportService = Activator.CreateInstance(exportServiceType, guardrail, fakeDialog);
 
-            var findReplaceType = Type.GetType($"Synthetic.Modules.StandardsManagement.Utilities.FindReplaceService{suffix}");
+            var findReplaceType = Type.GetType($"Synthetic.RevitDOM.Operations.Standards.FindReplaceService{suffix}");
             var findReplaceService = Activator.CreateInstance(findReplaceType);
 
             var serializationEngineType = Type.GetType($"Synthetic.Modules.RevitDOM.StandardSerializationEngine{suffix}");
@@ -7635,19 +8120,19 @@ namespace SyntheticTests
             var revitIdentityType = Type.GetType($"Synthetic.Modules.RevitDOM.RevitIdentityService{suffix}");
             var revitIdentity = Activator.CreateInstance(revitIdentityType);
 
-            var orchestratorType = Type.GetType($"Synthetic.Modules.StandardsManagement.Engine.StandardsExtractionOrchestrator{suffix}");
+            var orchestratorType = Type.GetType($"Synthetic.RevitDOM.Operations.Standards.StandardsExtractionOrchestrator{suffix}");
             var orchestrator = Activator.CreateInstance(orchestratorType, revitIdentity, serializationEngine);
 
             var pocoIdentityType = Type.GetType($"Synthetic.Modules.RevitDOM.PocoIdentityService{suffix}");
             var pocoIdentityService = Activator.CreateInstance(pocoIdentityType);
 
-            var diffEngineType = Type.GetType($"Synthetic.Modules.DiffEngine.PocoToRevitDiffEngine{suffix}");
+            var diffEngineType = Type.GetType($"Synthetic.RevitDOM.Operations.Diffing.PocoToRevitDiffEngine{suffix}");
             var diffEngine = Activator.CreateInstance(diffEngineType, revitIdentity);
 
-            var revitFamilyEnforcerType = Type.GetType($"Synthetic.Modules.StandardsManagement.Engine.RevitFamilyEnforcer{suffix}");
+            var revitFamilyEnforcerType = Type.GetType($"Synthetic.RevitDOM.Operations.Standards.RevitFamilyEnforcer{suffix}");
             var revitFamilyEnforcer = Activator.CreateInstance(revitFamilyEnforcerType, serializationEngine);
 
-            var pipelineType = Type.GetType($"Synthetic.Modules.StandardsManagement.Engine.StandardsExecutionPipeline{suffix}");
+            var pipelineType = Type.GetType($"Synthetic.RevitDOM.Operations.Standards.StandardsExecutionPipeline{suffix}");
             var pipeline = Activator.CreateInstance(pipelineType, serializationEngine, exportService, revitFamilyEnforcer);
 
             var vm = Activator.CreateInstance(vmType, 
@@ -7701,6 +8186,7 @@ namespace SyntheticTests
         }
     }
 }
+
 ```
 
 ### File: tests/SyntheticTests.Shared/Modules/AssemblyAnalyzer/Tier2_AssemblyAnalyzerTests.cs
@@ -8812,6 +9298,1405 @@ namespace SyntheticTests
 }
 ```
 
+### File: tests/SyntheticTests.Shared/Modules/MergeDuplicates/Tier2_MergeDuplicatesHeadlessTests.cs
+```csharp
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using NUnit.Framework;
+using Newtonsoft.Json;
+
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Operations.Merge;
+
+
+namespace SyntheticTests
+{
+    [TestFixture]
+    public class Tier2_MergeDuplicatesHeadlessTests
+    {
+        private static string GetProjectRoot()
+        {
+            string envPath = Environment.GetEnvironmentVariable("SYNTHETIC_PROJECT_ROOT");
+            if (!string.IsNullOrEmpty(envPath) && Directory.Exists(envPath))
+            {
+                return envPath;
+            }
+
+            string dir = TestContext.CurrentContext.TestDirectory;
+            while (dir != null && !Directory.Exists(Path.Combine(dir, "tests")))
+            {
+                dir = Path.GetDirectoryName(dir);
+            }
+            return dir ?? TestContext.CurrentContext.TestDirectory;
+        }
+
+        [Test]
+        public void Test_GetBaseName_StripsTrailingDigitsAndSeparators()
+        {
+            Assert.AreEqual("MyFamily", MergeAnalysisEngine.GetBaseName("MyFamily_1"));
+            Assert.AreEqual("MyFamily", MergeAnalysisEngine.GetBaseName("MyFamily-2"));
+            Assert.AreEqual("MyFamily", MergeAnalysisEngine.GetBaseName("MyFamily 3"));
+            Assert.AreEqual("MyFamily", MergeAnalysisEngine.GetBaseName("MyFamily#4"));
+            Assert.AreEqual("MyFamily", MergeAnalysisEngine.GetBaseName("MyFamily.5"));
+            Assert.AreEqual("MyFamily", MergeAnalysisEngine.GetBaseName("MyFamily"));
+            Assert.AreEqual("", MergeAnalysisEngine.GetBaseName(""));
+            Assert.AreEqual("", MergeAnalysisEngine.GetBaseName(null));
+        }
+
+        [Test]
+        public void Test_BuildClustersFromModels_GroupsDuplicateFamilies()
+        {
+            string projectRoot = GetProjectRoot();
+            string jsonPath = Path.Combine(projectRoot, "tests", "SyntheticTests.Shared", "Assets", "test_duplicate_families.json");
+            Assert.IsTrue(File.Exists(jsonPath), $"Snapshot file not found at: {jsonPath}");
+
+            string json = File.ReadAllText(jsonPath);
+            var elements = JsonConvert.DeserializeObject<List<ElementModel>>(json);
+            Assert.IsNotNull(elements);
+            Assert.AreEqual(6, elements.Count);
+
+            var token = CancellationToken.None;
+            var clusters = MergeAnalysisEngine.BuildClustersFromModels(elements, token);
+
+            // Assertions for clustering
+            Assert.IsNotNull(clusters, "Clusters collection should not be null.");
+            Assert.AreEqual(3, clusters.Count, "Should detect 3 duplicate family symbol clusters.");
+
+            var runningSectionCluster = clusters.FirstOrDefault(c => c.ClusterName.Contains("Running Section"));
+            Assert.IsNotNull(runningSectionCluster, "Should contain Running Section cluster.");
+            Assert.AreEqual(2, runningSectionCluster.Items.Count);
+            Assert.IsTrue(runningSectionCluster.Items.Any(i => i.IsPrimary), "One item should be flagged as primary.");
+
+            var soldierCluster = clusters.FirstOrDefault(c => c.ClusterName.Contains("Soldier & Plan"));
+            Assert.IsNotNull(soldierCluster, "Should contain Soldier & Plan cluster.");
+            Assert.AreEqual(2, soldierCluster.Items.Count);
+
+            var rowlockCluster = clusters.FirstOrDefault(c => c.ClusterName.Contains("Rowlock"));
+            Assert.IsNotNull(rowlockCluster, "Should contain Rowlock cluster.");
+            Assert.AreEqual(2, rowlockCluster.Items.Count);
+        }
+
+        [Test]
+        public void Test_BuildClustersFromModels_GroupsDuplicateGroups()
+        {
+            string projectRoot = GetProjectRoot();
+            string jsonPath = Path.Combine(projectRoot, "tests", "SyntheticTests.Shared", "Assets", "test_duplicate_groups.json");
+            Assert.IsTrue(File.Exists(jsonPath), $"Snapshot file not found at: {jsonPath}");
+
+            string json = File.ReadAllText(jsonPath);
+            var elements = JsonConvert.DeserializeObject<List<ElementModel>>(json);
+            Assert.IsNotNull(elements);
+            Assert.AreEqual(2, elements.Count);
+
+            var token = CancellationToken.None;
+            var clusters = MergeAnalysisEngine.BuildClustersFromModels(elements, token);
+
+            // Assertions for clustering
+            Assert.IsNotNull(clusters, "Clusters collection should not be null.");
+            Assert.AreEqual(1, clusters.Count, "Should detect 1 duplicate group cluster.");
+
+            var groupCluster = clusters.First();
+            Assert.IsTrue(groupCluster.ClusterName.Contains("TestGroup"), "Cluster name should contain TestGroup.");
+            Assert.AreEqual(2, groupCluster.Items.Count, "Should contain 2 group items.");
+            Assert.IsTrue(groupCluster.Items.Any(i => i.IsPrimary), "One item should be flagged as primary.");
+
+            var primaryItem = groupCluster.Items.First(i => i.IsPrimary);
+            Assert.AreEqual("TestGroup", primaryItem.ItemName, "Item with shorter name should be primary.");
+            
+            var nonPrimaryItem = groupCluster.Items.First(i => !i.IsPrimary);
+            Assert.AreEqual("TestGroup1", nonPrimaryItem.ItemName);
+        }
+
+        [Test]
+        public void Test_CompareParameters_IdentifiesMatches()
+        {
+            var primaryElem = new ElementModel
+            {
+                ElementId = new ElementIdModel { Id = 1001, UniqueId = "uid-1001" },
+                Name = "Running Section",
+                Category = "Detail Items",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                Parameters = new List<ParameterModel>
+                {
+                    new ParameterModel { Name = "Cost", Value = "100.0", StorageType = "Double", Id = 101 },
+                    new ParameterModel { Name = "Type Comments", Value = "Standard", StorageType = "String", Id = 102 }
+                }
+            };
+
+            var duplicateElem = new ElementModel
+            {
+                ElementId = new ElementIdModel { Id = 1002, UniqueId = "uid-1002" },
+                Name = "Running Section",
+                Category = "Detail Items",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                Parameters = new List<ParameterModel>
+                {
+                    new ParameterModel { Name = "Cost", Value = "100.0", StorageType = "Double", Id = 101 },
+                    new ParameterModel { Name = "Type Comments", Value = "Standard", StorageType = "String", Id = 102 }
+                }
+            };
+
+            var elements = new List<ElementModel> { primaryElem, duplicateElem };
+            var token = CancellationToken.None;
+            var clusters = MergeAnalysisEngine.BuildClustersFromModels(elements, token);
+            Assert.AreEqual(1, clusters.Count);
+
+            var cluster = clusters[0];
+            var primaryItem = cluster.Items.First(i => i.RevitElementId.Id == 1001);
+            cluster.UpdatePrimaryItem(primaryItem);
+
+            MergeAnalysisEngine.GenerateRecommendations(cluster);
+
+            var mapping = cluster.TypeMappings.First();
+            Assert.IsNotNull(mapping);
+
+            var costRow = mapping.ParameterResolutions.FirstOrDefault(r => r.ParameterName == "Cost");
+            Assert.IsNotNull(costRow);
+            Assert.IsFalse(costRow.HasConflict, "Identical Cost parameter should not have conflict.");
+            Assert.IsFalse(costRow.IsSchemaMismatch, "Identical Cost parameter should not have schema mismatch.");
+
+            var commentRow = mapping.ParameterResolutions.FirstOrDefault(r => r.ParameterName == "Type Comments");
+            Assert.IsNotNull(commentRow);
+            Assert.IsFalse(commentRow.HasConflict, "Identical Type Comments parameter should not have conflict.");
+            Assert.IsFalse(commentRow.IsSchemaMismatch, "Identical Type Comments parameter should not have schema mismatch.");
+        }
+
+        [Test]
+        public void Test_CompareParameters_IdentifiesConflicts()
+        {
+            var primaryElem = new ElementModel
+            {
+                ElementId = new ElementIdModel { Id = 1001, UniqueId = "uid-1001" },
+                Name = "Running Section",
+                Category = "Detail Items",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                Parameters = new List<ParameterModel>
+                {
+                    new ParameterModel { Name = "Type Comments", Value = "Standard", StorageType = "String", Id = 102 }
+                }
+            };
+
+            var duplicateElem = new ElementModel
+            {
+                ElementId = new ElementIdModel { Id = 1002, UniqueId = "uid-1002" },
+                Name = "Running Section",
+                Category = "Detail Items",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                Parameters = new List<ParameterModel>
+                {
+                    new ParameterModel { Name = "Type Comments", Value = "Override", StorageType = "String", Id = 102 }
+                }
+            };
+
+            var elements = new List<ElementModel> { primaryElem, duplicateElem };
+            var token = CancellationToken.None;
+            var clusters = MergeAnalysisEngine.BuildClustersFromModels(elements, token);
+            var cluster = clusters[0];
+            var primaryItem = cluster.Items.First(i => i.RevitElementId.Id == 1001);
+            cluster.UpdatePrimaryItem(primaryItem);
+
+            MergeAnalysisEngine.GenerateRecommendations(cluster);
+
+            var mapping = cluster.TypeMappings.First();
+            var row = mapping.ParameterResolutions.FirstOrDefault(r => r.ParameterName == "Type Comments");
+            Assert.IsNotNull(row);
+            Assert.IsTrue(row.HasConflict, "Differing parameter values should flag conflict.");
+            Assert.IsFalse(row.IsSchemaMismatch, "Differing parameter values with same storage type should not have schema mismatch.");
+            Assert.AreEqual(2, row.Options.Count);
+            Assert.AreEqual("Override", row.Options[0].DisplayText);
+            Assert.AreEqual("Standard", row.Options[1].DisplayText);
+        }
+
+        [Test]
+        public void Test_CompareParameters_IdentifiesSchemaMismatches()
+        {
+            var primaryElem = new ElementModel
+            {
+                ElementId = new ElementIdModel { Id = 1001, UniqueId = "uid-1001" },
+                Name = "Running Section",
+                Category = "Detail Items",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                Parameters = new List<ParameterModel>
+                {
+                    new ParameterModel { Name = "Cost", Value = "100.0", StorageType = "Double", Id = 101 }
+                }
+            };
+
+            var duplicateElem = new ElementModel
+            {
+                ElementId = new ElementIdModel { Id = 1002, UniqueId = "uid-1002" },
+                Name = "Running Section",
+                Category = "Detail Items",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                Parameters = new List<ParameterModel>
+                {
+                    new ParameterModel { Name = "Cost", Value = "100.0", StorageType = "String", Id = 101 }
+                }
+            };
+
+            var elements = new List<ElementModel> { primaryElem, duplicateElem };
+            var token = CancellationToken.None;
+            var clusters = MergeAnalysisEngine.BuildClustersFromModels(elements, token);
+            var cluster = clusters[0];
+            var primaryItem = cluster.Items.First(i => i.RevitElementId.Id == 1001);
+            cluster.UpdatePrimaryItem(primaryItem);
+
+            MergeAnalysisEngine.GenerateRecommendations(cluster);
+
+            var mapping = cluster.TypeMappings.First();
+            var row = mapping.ParameterResolutions.FirstOrDefault(r => r.ParameterName == "Cost");
+            Assert.IsNotNull(row);
+            Assert.IsTrue(row.IsSchemaMismatch, "Differing storage types should flag schema mismatch.");
+        }
+
+        [Test]
+        public void Test_CompareParameters_IdentifiesMissingParameters()
+        {
+            var primaryElem = new ElementModel
+            {
+                ElementId = new ElementIdModel { Id = 1001, UniqueId = "uid-1001" },
+                Name = "Running Section",
+                Category = "Detail Items",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                Parameters = new List<ParameterModel>
+                {
+                    new ParameterModel { Name = "OnlyInPrimary", Value = "Hello", StorageType = "String", Id = 103 }
+                }
+            };
+
+            var duplicateElem = new ElementModel
+            {
+                ElementId = new ElementIdModel { Id = 1002, UniqueId = "uid-1002" },
+                Name = "Running Section",
+                Category = "Detail Items",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                Parameters = new List<ParameterModel>
+                {
+                    new ParameterModel { Name = "OnlyInSource", Value = "World", StorageType = "String", Id = 104 }
+                }
+            };
+
+            var elements = new List<ElementModel> { primaryElem, duplicateElem };
+            var token = CancellationToken.None;
+            var clusters = MergeAnalysisEngine.BuildClustersFromModels(elements, token);
+            var cluster = clusters[0];
+            var primaryItem = cluster.Items.First(i => i.RevitElementId.Id == 1001);
+            cluster.UpdatePrimaryItem(primaryItem);
+
+            MergeAnalysisEngine.GenerateRecommendations(cluster);
+
+            var mapping = cluster.TypeMappings.First();
+            
+            // OnlyInPrimary row (in target, missing in source)
+            var primRow = mapping.ParameterResolutions.FirstOrDefault(r => r.ParameterName == "OnlyInPrimary");
+            Assert.IsNotNull(primRow);
+            Assert.IsFalse(primRow.IsSchemaMismatch, "Missing parameter on source is not a schema mismatch.");
+            Assert.IsFalse(primRow.IsInjectEnabled, "Missing parameter on source should not be inject-enabled on target.");
+
+            // OnlyInSource row (in source, missing in target)
+            var srcRow = mapping.ParameterResolutions.FirstOrDefault(r => r.ParameterName == "OnlyInSource");
+            Assert.IsNotNull(srcRow);
+            Assert.IsFalse(srcRow.IsSchemaMismatch, "Missing parameter on target is not a schema mismatch.");
+            Assert.IsTrue(srcRow.IsInjectEnabled, "Missing parameter on target should be inject-enabled.");
+        }
+
+        [Test]
+        public void Test_GenerateRecommendedAction_MatchesDecisions()
+        {
+            // Case 1: Loadable Family (IsLoadableFamily = true)
+            var primaryFam = new ElementModel
+            {
+                ElementId = new ElementIdModel { Id = 1001, UniqueId = "uid-1001" },
+                Name = "Running Section",
+                Category = "Detail Items",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                NestedTypes = new List<ElementModel>
+                {
+                    new ElementModel { ElementId = new ElementIdModel { Id = 10011 }, Name = "Type A" }
+                }
+            };
+
+            var duplicateFam = new ElementModel
+            {
+                ElementId = new ElementIdModel { Id = 1002, UniqueId = "uid-1002" },
+                Name = "Running Section 1",
+                Category = "Detail Items",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                NestedTypes = new List<ElementModel>
+                {
+                    new ElementModel { ElementId = new ElementIdModel { Id = 10021 }, Name = "Type A" },
+                    new ElementModel { ElementId = new ElementIdModel { Id = 10022 }, Name = "Type B" }
+                }
+            };
+
+            var elements = new List<ElementModel> { primaryFam, duplicateFam };
+            var token = CancellationToken.None;
+            var clusters = MergeAnalysisEngine.BuildClustersFromModels(elements, token);
+            Assert.AreEqual(1, clusters.Count);
+
+            var cluster = clusters[0];
+            var primaryItem = cluster.Items.First(i => i.RevitElementId.Id == 1001);
+            cluster.UpdatePrimaryItem(primaryItem);
+
+            MergeAnalysisEngine.GenerateRecommendations(cluster);
+
+            Assert.AreEqual(2, cluster.TypeMappings.Count);
+            
+            var typeAMapping = cluster.TypeMappings.First(m => m.SourceType.Name == "Type A");
+            Assert.AreEqual(RecommendedAction.Merge, typeAMapping.RecommendedAction, "Type A exists in primary and should be Merged.");
+
+            var typeBMapping = cluster.TypeMappings.First(m => m.SourceType.Name == "Type B");
+            Assert.AreEqual(RecommendedAction.Migrate, typeBMapping.RecommendedAction, "Type B is unique to duplicate family and should be Migrated.");
+
+            // Case 2: Group (IsLoadableFamily = false)
+            var primaryGroup = new ElementModel
+            {
+                ElementId = new ElementIdModel { Id = 2001, UniqueId = "uid-2001" },
+                Name = "TestGroup",
+                Category = "Model Groups",
+                Class = "Autodesk.Revit.DB.GroupType"
+            };
+
+            var duplicateGroup = new ElementModel
+            {
+                ElementId = new ElementIdModel { Id = 2002, UniqueId = "uid-2002" },
+                Name = "TestGroup 1",
+                Category = "Model Groups",
+                Class = "Autodesk.Revit.DB.GroupType"
+            };
+
+            var groupElements = new List<ElementModel> { primaryGroup, duplicateGroup };
+            var groupClusters = MergeAnalysisEngine.BuildClustersFromModels(groupElements, token);
+            Assert.AreEqual(1, groupClusters.Count);
+
+            var groupCluster = groupClusters[0];
+            var primaryGroupItem = groupCluster.Items.First(i => i.RevitElementId.Id == 2001);
+            groupCluster.UpdatePrimaryItem(primaryGroupItem);
+
+            MergeAnalysisEngine.GenerateRecommendations(groupCluster);
+
+            Assert.AreEqual(1, groupCluster.TypeMappings.Count);
+            var groupMapping = groupCluster.TypeMappings.First();
+            Assert.AreEqual(RecommendedAction.Merge, groupMapping.RecommendedAction, "Groups should default to Merge even if names differ.");
+        }
+
+        [Test]
+        public void Test_BoundingBoxXYZModel_GetSize_CalculatesDimensionsCorrectly()
+        {
+            var validBBox = new BoundingBoxXYZModel
+            {
+                Min = new XYZModel(-10.0, -5.0, 0.0),
+                Max = new XYZModel(10.0, 15.0, 30.0)
+            };
+
+            var size = validBBox.GetSize();
+            Assert.IsNotNull(size);
+            Assert.AreEqual(20.0, size!.X, 1e-6);
+            Assert.AreEqual(20.0, size.Y, 1e-6);
+            Assert.AreEqual(30.0, size.Z, 1e-6);
+
+            var nullBBox = new BoundingBoxXYZModel
+            {
+                Min = null,
+                Max = new XYZModel(10.0, 10.0, 10.0)
+            };
+            Assert.IsNull(nullBBox.GetSize(), "GetSize should return null when Min is null.");
+
+            var invalidBBox = new BoundingBoxXYZModel
+            {
+                Min = new XYZModel(double.NaN, 0, 0),
+                Max = new XYZModel(10.0, 10.0, 10.0)
+            };
+            Assert.IsNull(invalidBBox.GetSize(), "GetSize should return null when Min contains NaN.");
+        }
+
+        [Test]
+        public void Test_BoundingBoxXYZModel_GetCenter_CalculatesCenterCorrectly()
+        {
+            var validBBox = new BoundingBoxXYZModel
+            {
+                Min = new XYZModel(-10.0, -20.0, 0.0),
+                Max = new XYZModel(10.0, 20.0, 100.0)
+            };
+
+            var center = validBBox.GetCenter();
+            Assert.IsNotNull(center);
+            Assert.AreEqual(0.0, center!.X, 1e-6);
+            Assert.AreEqual(0.0, center.Y, 1e-6);
+            Assert.AreEqual(50.0, center.Z, 1e-6);
+
+            var nullBBox = new BoundingBoxXYZModel();
+            Assert.IsNull(nullBBox.GetCenter(), "GetCenter should return null when Min and Max are unassigned.");
+        }
+
+        [Test]
+        public void Test_BoundingBoxXYZModel_IsValid_ReturnsCorrectStatus()
+        {
+            var valid = new BoundingBoxXYZModel
+            {
+                Min = new XYZModel(0, 0, 0),
+                Max = new XYZModel(1, 1, 1)
+            };
+            Assert.IsTrue(valid.IsValid);
+
+            var nullMin = new BoundingBoxXYZModel
+            {
+                Min = null,
+                Max = new XYZModel(1, 1, 1)
+            };
+            Assert.IsFalse(nullMin.IsValid);
+
+            var nanVal = new BoundingBoxXYZModel
+            {
+                Min = new XYZModel(0, 0, double.NaN),
+                Max = new XYZModel(1, 1, 1)
+            };
+            Assert.IsFalse(nanVal.IsValid);
+
+            var infVal = new BoundingBoxXYZModel
+            {
+                Min = new XYZModel(0, 0, 0),
+                Max = new XYZModel(1, double.PositiveInfinity, 1)
+            };
+            Assert.IsFalse(infVal.IsValid);
+        }
+
+        [Test]
+        public void Test_XYZModel_IsOffsetEqual_EvaluatesTolerancesAndNullsCorrectly()
+        {
+            var vecA = new XYZModel(3.0, 4.0, 0.0); // length = 5.0
+            var vecB = new XYZModel(0.0, 5.0, 0.0); // length = 5.0, but different spatial displacement
+            var vecC = new XYZModel(3.0, 4.0, 0.0005); // spatial displacement within tolerance 1e-3
+
+            Assert.IsFalse(XYZModel.IsOffsetEqual(vecA, vecB, 1e-3), "Vectors pointing in different directions should not be offset equal.");
+            Assert.IsTrue(XYZModel.IsOffsetEqual(vecA, vecC, 1e-3), "Slightly differing vectors within tolerance should be equal.");
+
+            var vecD = new XYZModel(10.0, 0.0, 0.0); // length = 10.0
+            Assert.IsFalse(XYZModel.IsOffsetEqual(vecA, vecD, 1e-3), "Vectors with different lengths should not be offset equal.");
+
+            // Null cases
+            Assert.IsTrue(XYZModel.IsOffsetEqual(null, null), "Two null vectors should be equal.");
+            Assert.IsFalse(XYZModel.IsOffsetEqual(vecA, null), "Vector compared to null should be false.");
+            Assert.IsFalse(XYZModel.IsOffsetEqual(null, vecB), "Null compared to vector should be false.");
+
+            // NaN / Infinity cases
+            var nanVec = new XYZModel(double.NaN, 0, 0);
+            Assert.IsFalse(XYZModel.IsOffsetEqual(vecA, nanVec), "Comparison with NaN vector should return false.");
+        }
+
+        [Test]
+        public void Test_XYZModel_IsValid_DetectsNaNAndInfinity()
+        {
+            Assert.IsTrue(new XYZModel(1.0, 2.0, 3.0).IsValid);
+            Assert.IsFalse(new XYZModel(double.NaN, 2.0, 3.0).IsValid);
+            Assert.IsFalse(new XYZModel(1.0, double.NegativeInfinity, 3.0).IsValid);
+            Assert.IsFalse(new XYZModel(1.0, 2.0, double.PositiveInfinity).IsValid);
+        }
+    }
+}
+```
+
+### File: tests/SyntheticTests.Shared/Modules/MergeDuplicates/Tier2_MergeDuplicatesIntegrationTests.cs
+```csharp
+using Synthetic.Modules.MergeDuplicates.Services;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using NUnit.Framework;
+using Autodesk.Revit.UI;
+using Autodesk.Revit.DB;
+using Newtonsoft.Json;
+
+using Synthetic.Modules.MergeDuplicates.Handlers;
+using Synthetic.Modules.MergeDuplicates.ViewModels;
+using Synthetic.RevitDOM.Operations.Merge;
+using Synthetic.RevitDOM.Models;
+
+
+namespace SyntheticTests
+{
+    [TestFixture]
+    public class Tier2_MergeDuplicatesIntegrationTests
+    {
+        private UIApplication? _uiapp;
+
+        [OneTimeSetUp]
+        public void Setup(UIApplication uiapp)
+        {
+            _uiapp = uiapp;
+            string errPath = Path.Combine(Path.GetTempPath(), "synthetic_test_error.txt");
+            if (File.Exists(errPath))
+            {
+                File.Delete(errPath);
+            }
+        }
+
+        #region Helper Methods
+
+        private static string GetProjectRoot()
+        {
+            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            string addinPath = Path.Combine(appData, "Autodesk", "Revit", "Addins", "2026", "Synthetic2026.addin");
+            if (File.Exists(addinPath))
+            {
+                string content = File.ReadAllText(addinPath);
+                var match = System.Text.RegularExpressions.Regex.Match(content, @"<Assembly>(.*?)\\output\\Synthetic\\Synthetic2026\.dll", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                if (match.Success)
+                {
+                    string root = match.Groups[1].Value;
+                    if (Directory.Exists(root))
+                    {
+                        return root;
+                    }
+                }
+            }
+
+            string envPath = Environment.GetEnvironmentVariable("SYNTHETIC_PROJECT_ROOT");
+            if (!string.IsNullOrEmpty(envPath) && Directory.Exists(envPath))
+            {
+                return envPath;
+            }
+
+            string dir = TestContext.CurrentContext.TestDirectory;
+            while (dir != null && !Directory.Exists(Path.Combine(dir, "tests")))
+            {
+                dir = Path.GetDirectoryName(dir);
+            }
+            return dir ?? TestContext.CurrentContext.TestDirectory;
+        }
+
+        private Document OpenTestTemplate(Autodesk.Revit.ApplicationServices.Application app)
+        {
+            string projectRoot = GetProjectRoot();
+            string testModelName = "TestTemplate" + app.VersionNumber + ".rvt";
+            string modelPathStr = Path.Combine(projectRoot, "tests", "test_models", testModelName);
+            if (!File.Exists(modelPathStr))
+            {
+                throw new FileNotFoundException("Test template model not found: " + modelPathStr);
+            }
+
+            ModelPath modelPath = ModelPathUtils.ConvertUserVisiblePathToModelPath(modelPathStr);
+            OpenOptions openOptions = new OpenOptions
+            {
+                DetachFromCentralOption = DetachFromCentralOption.DetachAndDiscardWorksets
+            };
+            return app.OpenDocumentFile(modelPath, openOptions);
+        }
+
+        private Family DuplicateFamily(Document doc, Family sourceFamily, string suffix, out string tempPath)
+        {
+            Document famDoc = doc.EditFamily(sourceFamily);
+            if (famDoc == null)
+            {
+                throw new InvalidOperationException("EditFamily returned null.");
+            }
+
+            try
+            {
+                string tempDir = Path.GetTempPath();
+                string newName = sourceFamily.Name + suffix;
+                tempPath = Path.Combine(tempDir, newName + ".rfa");
+
+                if (File.Exists(tempPath))
+                {
+                    File.Delete(tempPath);
+                }
+
+                famDoc.SaveAs(tempPath);
+            }
+            finally
+            {
+                famDoc.Close(false);
+            }
+
+            // Load duplicate family back in a transaction on doc
+            Family duplicatedFamily;
+            using (Transaction t = new Transaction(doc, "Load Duplicate Family"))
+            {
+                t.Start();
+                bool loaded = doc.LoadFamily(tempPath, new ProcessMergeFamilyLoadOptions(), out duplicatedFamily);
+                if (!loaded || duplicatedFamily == null)
+                {
+                    throw new InvalidOperationException("Failed to load duplicated family.");
+                }
+                t.Commit();
+            }
+
+            return duplicatedFamily;
+        }
+
+        private FamilyInstance PlaceInstance(Document doc, FamilySymbol symbol)
+        {
+            if (!symbol.IsActive)
+            {
+                symbol.Activate();
+            }
+
+            Category cat = symbol.Category;
+            if (cat != null && cat.Id == new ElementId(BuiltInCategory.OST_TitleBlocks))
+            {
+                ViewSheet sheet = ViewSheet.Create(doc, ElementId.InvalidElementId);
+                return doc.Create.NewFamilyInstance(XYZ.Zero, symbol, sheet);
+            }
+
+            // Check if it's a detail component or annotation
+            if (symbol.Family.FamilyCategory.CategoryType == CategoryType.Annotation ||
+                symbol.Family.FamilyCategory.Id == new ElementId(BuiltInCategory.OST_DetailComponents))
+            {
+                FilteredElementCollector viewCollector = new FilteredElementCollector(doc);
+                ViewFamilyType? draftingViewType = viewCollector
+                    .OfClass(typeof(ViewFamilyType))
+                    .Cast<ViewFamilyType>()
+                    .FirstOrDefault(vt => vt.ViewFamily == ViewFamily.Drafting);
+
+                ViewDrafting draftingView;
+                if (draftingViewType != null)
+                {
+                    draftingView = ViewDrafting.Create(doc, draftingViewType.Id);
+                }
+                else
+                {
+                    draftingView = ViewDrafting.Create(doc, ElementId.InvalidElementId);
+                }
+                return doc.Create.NewFamilyInstance(XYZ.Zero, symbol, draftingView);
+            }
+
+            // Fallback for 3D model elements
+            Level level = new FilteredElementCollector(doc)
+                .OfClass(typeof(Level))
+                .Cast<Level>()
+                .FirstOrDefault();
+            if (level == null)
+            {
+                level = Level.Create(doc, 0.0);
+            }
+            return doc.Create.NewFamilyInstance(XYZ.Zero, symbol, level, Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
+        }
+
+        private static bool InjectParameterToFamilyDynamic(FamilyManager famManager, string paramName)
+        {
+            object? paramGroup = null;
+            object? paramType = null;
+
+            Type? groupTypeIdType = typeof(ElementId).Assembly.GetType("Autodesk.Revit.DB.GroupTypeId");
+            if (groupTypeIdType != null)
+            {
+                paramGroup = groupTypeIdType.GetProperty("Data")?.GetValue(null);
+                paramType = typeof(ElementId).Assembly.GetType("Autodesk.Revit.DB.SpecTypeId+String")?.GetProperty("Text")?.GetValue(null);
+            }
+            else
+            {
+                paramGroup = Enum.Parse(typeof(ElementId).Assembly.GetType("Autodesk.Revit.DB.BuiltInParameterGroup")!, "PG_DATA");
+                paramType = Enum.Parse(typeof(ElementId).Assembly.GetType("Autodesk.Revit.DB.ParameterType")!, "Text");
+            }
+
+            if (famManager == null)
+            {
+                Console.WriteLine("[ERROR] FamilyManager is null.");
+                return false;
+            }
+            if (paramGroup == null)
+            {
+                Console.WriteLine("[ERROR] paramGroup is null.");
+                return false;
+            }
+            if (paramType == null)
+            {
+                Console.WriteLine("[ERROR] paramType is null.");
+                return false;
+            }
+
+            System.Reflection.MethodInfo? addParamMethod = null;
+            if (groupTypeIdType != null)
+            {
+                addParamMethod = famManager.GetType().GetMethods()
+                    .FirstOrDefault(m => m.Name == "AddParameter" && 
+                                         m.GetParameters().Length == 4 && 
+                                         m.GetParameters()[1].ParameterType.Name.Contains("ForgeTypeId") &&
+                                         m.GetParameters()[2].ParameterType.Name.Contains("ForgeTypeId"));
+            }
+            else
+            {
+                addParamMethod = famManager.GetType().GetMethods()
+                    .FirstOrDefault(m => m.Name == "AddParameter" && 
+                                         m.GetParameters().Length == 4 && 
+                                         m.GetParameters()[1].ParameterType.Name.Contains("BuiltInParameterGroup") &&
+                                         m.GetParameters()[2].ParameterType.Name.Contains("ParameterType"));
+            }
+
+            if (addParamMethod != null)
+            {
+                try
+                {
+                    addParamMethod.Invoke(famManager, new object[] { paramName, paramGroup, paramType, false });
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[ERROR] AddParameter invoke failed: {ex.Message}");
+                    if (ex.InnerException != null)
+                    {
+                        Console.WriteLine($"[INNER EXCEPTION] {ex.InnerException.Message}\n{ex.InnerException.StackTrace}");
+                    }
+                    return false;
+                }
+            }
+            else
+            {
+                Console.WriteLine("[ERROR] AddParameter method with 4 arguments not found.");
+            }
+            return false;
+        }
+
+        private static void ExportPocoSnapshot(IEnumerable<Element> elements, string fileName)
+        {
+            string projectRoot = GetProjectRoot();
+            string assetsDir = Path.Combine(projectRoot, "tests", "SyntheticTests.Shared", "Assets");
+            if (!Directory.Exists(assetsDir))
+            {
+                Directory.CreateDirectory(assetsDir);
+            }
+
+            var models = elements
+                .Where(el => el != null)
+                .Select(el => el.ToModel(false))
+                .ToList();
+
+            string json = JsonConvert.SerializeObject(models, Formatting.Indented);
+            string filePath = Path.Combine(assetsDir, fileName);
+            File.WriteAllText(filePath, json);
+        }
+
+        #endregion
+
+        #region Integration Tests
+
+        [Test]
+        public void Test_MergeDuplicates_SuccessfulMerge()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            Document doc = OpenTestTemplate(app);
+
+            string tempPath = string.Empty;
+
+            try
+            {
+                // 1. Locate editable, loadable family
+                Family? sourceFamily = new FilteredElementCollector(doc)
+                    .OfClass(typeof(Family))
+                    .Cast<Family>()
+                    .FirstOrDefault(f => f.IsEditable && !f.IsInPlace);
+                Assert.IsNotNull(sourceFamily, "Could not find a loadable, editable family in the document.");
+
+                // 2. Duplicate the family (suffix "1" ensures duplicate base name match)
+                Family duplicatedFamily = DuplicateFamily(doc, sourceFamily, "1", out tempPath);
+                ElementId duplicateFamilyId = duplicatedFamily.Id;
+
+                // 3. Place family instance of the duplicate family symbol
+                FamilySymbol sourceSymbol = (FamilySymbol)doc.GetElement(sourceFamily.GetFamilySymbolIds().First());
+                FamilySymbol duplicateSymbol = (FamilySymbol)doc.GetElement(duplicatedFamily.GetFamilySymbolIds().First());
+
+                FamilyInstance instance;
+                using (Transaction t = new Transaction(doc, "Place Duplicate Family Instance"))
+                {
+                    t.Start();
+                    instance = PlaceInstance(doc, duplicateSymbol);
+                    t.Commit();
+                }
+
+                Assert.IsNotNull(instance, "Failed to place family instance.");
+                Assert.AreEqual(duplicateSymbol.Id, instance.GetTypeId(), "Placed instance should initially point to duplicate symbol.");
+
+                using (var tg = new TransactionGroup(doc, "Merge Duplicates Integration Test"))
+                {
+                    tg.Start();
+
+                    // Export the duplicate family symbols
+                    var familySymbols = sourceFamily.GetFamilySymbolIds()
+                        .Concat(duplicatedFamily.GetFamilySymbolIds())
+                        .Select(id => doc.GetElement(id))
+                        .ToList();
+                    ExportPocoSnapshot(familySymbols, "test_duplicate_families.json");
+
+                    // 4. Run Fast Scan
+                    var token = CancellationToken.None;
+                    var clusters = RevitMergeDataCollector.RunFastScan(doc, token);
+                    foreach (var c in clusters)
+                    {
+                        app.WriteJournalComment($"[TEST_CLUSTER_DEBUG] Cluster: {c.ClusterName}", true);
+                        foreach (var i in c.Items)
+                        {
+                            app.WriteJournalComment($"  [TEST_CLUSTER_DEBUG] Item: Name={i.ItemName}, ID={i.RevitElementId.ToElementId().ToString()}", true);
+                        }
+                    }
+                    var targetCluster = clusters.FirstOrDefault(c => c.ClusterName.Contains(sourceFamily.Name));
+                    Assert.IsNotNull(targetCluster, "MergeAnalysisEngine should detect the duplicate cluster.");
+
+                    // 5. Run Deep Scan
+                    MergeAnalysisEngine.RunDeepScan(targetCluster, token);
+                    Assert.IsFalse(targetCluster.HasSchemaMismatch, "Should not have schema mismatch.");
+                    Assert.IsFalse(targetCluster.HasOriginMismatch, "Should not have origin mismatch.");
+
+                    // 6. Generate Recommendations
+                    MergeAnalysisEngine.GenerateRecommendations(targetCluster);
+
+                    // Set primary item and ensure duplicate is included for merge
+                    var primaryItem = targetCluster.Items.FirstOrDefault(i => i.RevitElementId.ToElementId() == sourceFamily.Id);
+                    Assert.IsNotNull(primaryItem, "Primary item should exist in cluster.");
+                    targetCluster.UpdatePrimaryItem(primaryItem);
+
+                    var duplicateItem = targetCluster.Items.FirstOrDefault(i => i.RevitElementId.ToElementId() == duplicatedFamily.Id);
+                    Assert.IsNotNull(duplicateItem, "Duplicate item should exist in cluster.");
+                    duplicateItem.IsIncludedForMerge = true;
+
+                    // 7. Execute Merge
+                    var queueVM = new MergeQueueViewModel();
+                    queueVM.QueuedClusters.Add(targetCluster);
+
+                    var handler = new ProcessMergeEventHandler();
+                    handler.QueueRequest(queueVM, null, null, token);
+                    handler.Execute(_uiapp);
+
+                    // 8. Assertions
+                    // Verify duplicate family was deleted/purged
+                    var deletedFamily = doc.GetElement(duplicateFamilyId);
+                    if (deletedFamily != null)
+                    {
+                        Assert.Fail($"Duplicate family should be deleted. Deletion error: {(File.Exists(Path.Combine(Path.GetTempPath(), "synthetic_test_error.txt")) ? File.ReadAllText(Path.Combine(Path.GetTempPath(), "synthetic_test_error.txt")) : "No log file found.")}");
+                    }
+
+                    // Verify instance is redirected to the primary family symbol
+                    Assert.AreEqual(sourceSymbol.Id, instance.GetTypeId(), "Family instance should be redirected to the primary family symbol.");
+
+                    tg.RollBack();
+                }
+            }
+            finally
+            {
+                doc.Close(false);
+
+                if (!string.IsNullOrEmpty(tempPath) && File.Exists(tempPath))
+                {
+                    try
+                    {
+                        File.Delete(tempPath);
+                    }
+                    catch { }
+                }
+            }
+        }
+
+        [Test]
+        public void Test_MergeDuplicates_DetectsSchemaMismatch()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            Document doc = OpenTestTemplate(app);
+
+            string tempPath = string.Empty;
+
+            try
+            {
+                // 1. Locate editable, loadable family
+                Family? sourceFamily = new FilteredElementCollector(doc)
+                    .OfClass(typeof(Family))
+                    .Cast<Family>()
+                    .FirstOrDefault(f => f.IsEditable && !f.IsInPlace);
+                Assert.IsNotNull(sourceFamily, "Could not find a loadable, editable family in the document.");
+
+                // 2. Duplicate the family (suffix "2" ensures duplicate base name match)
+                Family duplicatedFamily = DuplicateFamily(doc, sourceFamily, "2", out tempPath);
+
+                // 3. Edit duplicated family and inject custom parameter
+                Document famDoc = doc.EditFamily(duplicatedFamily);
+                Assert.IsNotNull(famDoc, "EditFamily returned null.");
+
+                try
+                {
+                    using (Transaction t = new Transaction(famDoc, "Add Parameter to Duplicate Family"))
+                    {
+                        t.Start();
+                        bool added = InjectParameterToFamilyDynamic(famDoc.FamilyManager, "Schema_Mismatch_Test_Param");
+                        Assert.IsTrue(added, "Should successfully inject parameter into family.");
+                        t.Commit();
+                    }
+
+                    SaveAsOptions saveOptions = new SaveAsOptions { OverwriteExistingFile = true };
+                    famDoc.SaveAs(tempPath, saveOptions);
+                }
+                finally
+                {
+                    famDoc.Close(false);
+                }
+
+                // Load the updated family from disk back into doc
+                using (Transaction t = new Transaction(doc, "Reload Modified Family"))
+                {
+                    t.Start();
+                    doc.LoadFamily(tempPath, new ProcessMergeFamilyLoadOptions(), out duplicatedFamily);
+                    t.Commit();
+                }
+
+                using (var tg = new TransactionGroup(doc, "Schema Mismatch Test"))
+                {
+                    tg.Start();
+
+                    // 4. Run Scan & Analyze
+                    var token = CancellationToken.None;
+                    var clusters = RevitMergeDataCollector.RunFastScan(doc, token);
+                    foreach (var c in clusters)
+                    {
+                        app.WriteJournalComment($"[TEST_CLUSTER_DEBUG] Cluster: {c.ClusterName}", true);
+                        foreach (var i in c.Items)
+                        {
+                            app.WriteJournalComment($"  [TEST_CLUSTER_DEBUG] Item: Name={i.ItemName}, ID={i.RevitElementId.ToElementId().ToString()}", true);
+                        }
+                    }
+                    var targetCluster = clusters.FirstOrDefault(c => c.ClusterName.Contains(sourceFamily.Name));
+                    Assert.IsNotNull(targetCluster, "MergeAnalysisEngine should detect the duplicate cluster.");
+
+                    MergeAnalysisEngine.RunDeepScan(targetCluster, token);
+
+                    // 5. Assert
+                    Assert.IsTrue(targetCluster.HasSchemaMismatch, "Deep scan should detect schema mismatch because of injected parameter.");
+
+                    tg.RollBack();
+                }
+            }
+            finally
+            {
+                doc.Close(false);
+
+                if (!string.IsNullOrEmpty(tempPath) && File.Exists(tempPath))
+                {
+                    try
+                    {
+                        File.Delete(tempPath);
+                    }
+                    catch { }
+                }
+            }
+        }
+
+        [Test]
+        public void Test_MergeDuplicates_ResolvesParameterConflicts()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            Document doc = OpenTestTemplate(app);
+
+            string tempPath = string.Empty;
+
+            try
+            {
+                // 1. Locate editable, loadable family
+                Family? sourceFamily = new FilteredElementCollector(doc)
+                    .OfClass(typeof(Family))
+                    .Cast<Family>()
+                    .FirstOrDefault(f => f.IsEditable && !f.IsInPlace);
+                Assert.IsNotNull(sourceFamily, "Could not find a loadable, editable family in the document.");
+
+                // 2. Duplicate the family (suffix "3" ensures duplicate base name match)
+                Family duplicatedFamily = DuplicateFamily(doc, sourceFamily, "3", out tempPath);
+                ElementId duplicateFamilyId = duplicatedFamily.Id;
+
+                FamilySymbol sourceSymbol = (FamilySymbol)doc.GetElement(sourceFamily.GetFamilySymbolIds().First());
+                FamilySymbol duplicateSymbol = (FamilySymbol)doc.GetElement(duplicatedFamily.GetFamilySymbolIds().First());
+
+                // Place duplicate instance
+                FamilyInstance instance;
+                using (Transaction t = new Transaction(doc, "Place Instance and Set Parameters"))
+                {
+                    t.Start();
+                    instance = PlaceInstance(doc, duplicateSymbol);
+
+                    // 3. Set conflicting parameter values on the Description parameter (Type parameter)
+                    sourceSymbol.get_Parameter(BuiltInParameter.ALL_MODEL_DESCRIPTION).Set("Primary Value");
+                    duplicateSymbol.get_Parameter(BuiltInParameter.ALL_MODEL_DESCRIPTION).Set("Duplicate Value");
+
+                    t.Commit();
+                }
+
+                using (var tg = new TransactionGroup(doc, "Parameter Conflict Resolution Test"))
+                {
+                    tg.Start();
+
+                    // 4. Run Scan
+                    var token = CancellationToken.None;
+                    var clusters = RevitMergeDataCollector.RunFastScan(doc, token);
+                    foreach (var c in clusters)
+                    {
+                        app.WriteJournalComment($"[TEST_CLUSTER_DEBUG] Cluster: {c.ClusterName}", true);
+                        foreach (var i in c.Items)
+                        {
+                            app.WriteJournalComment($"  [TEST_CLUSTER_DEBUG] Item: Name={i.ItemName}, ID={i.RevitElementId.ToElementId().ToString()}", true);
+                        }
+                    }
+                    var targetCluster = clusters.FirstOrDefault(c => c.ClusterName.Contains(sourceFamily.Name));
+                    Assert.IsNotNull(targetCluster, "MergeAnalysisEngine should detect the duplicate cluster.");
+
+                    // 5. Deep Scan & Recommendations
+                    MergeAnalysisEngine.RunDeepScan(targetCluster, token);
+                    MergeAnalysisEngine.GenerateRecommendations(targetCluster);
+
+                    // 6. Locate conflict row & designate winner
+                    var primaryItem = targetCluster.Items.FirstOrDefault(i => i.RevitElementId.ToElementId() == sourceFamily.Id);
+                    Assert.IsNotNull(primaryItem);
+                    targetCluster.UpdatePrimaryItem(primaryItem);
+
+                    var duplicateItem = targetCluster.Items.FirstOrDefault(i => i.RevitElementId.ToElementId() == duplicatedFamily.Id);
+                    Assert.IsNotNull(duplicateItem);
+                    duplicateItem.IsIncludedForMerge = true;
+
+                    var mapping = targetCluster.TypeMappings.First();
+                    var descRow = mapping.ParameterResolutions.FirstOrDefault(r => r.ParameterName.Equals("Description", StringComparison.OrdinalIgnoreCase));
+                    Assert.IsNotNull(descRow, "Should find Description parameter row.");
+                    Assert.IsTrue(descRow.HasConflict, "Should detect parameter value conflict.");
+
+                    // Designate duplicate symbol's parameter value as the winner
+                    descRow.WinningValueElementId = duplicateSymbol.Id.ToModel(doc);
+
+                    // 7. Execute Merge
+                    var queueVM = new MergeQueueViewModel();
+                    queueVM.QueuedClusters.Add(targetCluster);
+
+                    var handler = new ProcessMergeEventHandler();
+                    handler.QueueRequest(queueVM, null, null, token);
+                    handler.Execute(_uiapp);
+
+                    // 8. Assertions
+                    // Verify duplicate family was deleted/purged
+                    var deletedFamily = doc.GetElement(duplicateFamilyId);
+                    if (deletedFamily != null)
+                    {
+                        Assert.Fail($"Duplicate family should be deleted. Deletion error: {(File.Exists(Path.Combine(Path.GetTempPath(), "synthetic_test_error.txt")) ? File.ReadAllText(Path.Combine(Path.GetTempPath(), "synthetic_test_error.txt")) : "No log file found.")}");
+                    }
+
+                    // Verify winning parameter value was copied to primary symbol
+                    string finalValue = sourceSymbol.get_Parameter(BuiltInParameter.ALL_MODEL_DESCRIPTION).AsString();
+                    Assert.AreEqual("Duplicate Value", finalValue, "Primary family symbol's Description parameter should retain the designated winning value.");
+
+                    tg.RollBack();
+                }
+            }
+            finally
+            {
+                doc.Close(false);
+
+                if (!string.IsNullOrEmpty(tempPath) && File.Exists(tempPath))
+                {
+                    try
+                    {
+                        File.Delete(tempPath);
+                    }
+                    catch { }
+                }
+            }
+        }
+
+        [Test]
+        public void Test_MergeGroupDuplicates_SuccessfulMerge()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            Document doc = OpenTestTemplate(app);
+
+            try
+            {
+                GroupType? sourceGroupType = null;
+                GroupType? duplicateGroupType = null;
+                Group? groupInstance1 = null;
+                Group? groupInstance2 = null;
+
+                using (Transaction t = new Transaction(doc, "Create Test Groups"))
+                {
+                    t.Start();
+
+                    // Create Model Curve on a Level Plane to form a Model Group
+                    Level? level = new FilteredElementCollector(doc)
+                        .OfClass(typeof(Level))
+                        .Cast<Level>()
+                        .FirstOrDefault();
+                    Assert.IsNotNull(level, "Document must have at least one level.");
+
+                    Plane plane = Plane.CreateByNormalAndOrigin(XYZ.BasisZ, new XYZ(0, 0, level.Elevation));
+                    SketchPlane sketchPlane = SketchPlane.Create(doc, plane);
+
+                    Line line = Line.CreateBound(XYZ.Zero, new XYZ(5, 0, 0));
+                    ModelCurve modelLine = doc.Create.NewModelCurve(line, sketchPlane);
+
+                    // Create group
+                    Group sourceGroupInstance = doc.Create.NewGroup(new List<ElementId> { modelLine.Id });
+                    sourceGroupType = sourceGroupInstance.GroupType;
+                    sourceGroupType.Name = "TestGroup";
+
+                    // Duplicate group type
+                    duplicateGroupType = (GroupType)sourceGroupType.Duplicate("TestGroup1");
+
+                    // Place instances
+                    groupInstance1 = doc.Create.PlaceGroup(new XYZ(0, 0, 0), sourceGroupType);
+                    groupInstance2 = doc.Create.PlaceGroup(new XYZ(5, 0, 0), duplicateGroupType);
+
+                    t.Commit();
+                }
+
+                Assert.IsNotNull(sourceGroupType);
+                Assert.IsNotNull(duplicateGroupType);
+                Assert.IsNotNull(groupInstance1);
+                Assert.IsNotNull(groupInstance2);
+
+                ElementId duplicateGroupTypeId = duplicateGroupType.Id;
+
+                using (var tg = new TransactionGroup(doc, "Merge Group Duplicates Integration Test"))
+                {
+                    tg.Start();
+
+                    // Export the duplicate group types
+                    var groupTypes = new List<Element> { sourceGroupType, duplicateGroupType };
+                    ExportPocoSnapshot(groupTypes, "test_duplicate_groups.json");
+
+                    var token = CancellationToken.None;
+                    var clusters = RevitMergeDataCollector.RunFastScan(doc, token);
+                    var targetCluster = clusters.FirstOrDefault(c => c.ClusterName.Contains("TestGroup"));
+                    Assert.IsNotNull(targetCluster, "MergeAnalysisEngine should detect the duplicate group cluster.");
+
+                    MergeAnalysisEngine.RunDeepScan(targetCluster, token);
+                    Assert.IsFalse(targetCluster.HasSchemaMismatch, "Should not have schema mismatch.");
+                    Assert.IsFalse(targetCluster.HasOriginMismatch, "Should not have origin mismatch.");
+
+                    MergeAnalysisEngine.GenerateRecommendations(targetCluster);
+
+                    var primaryItem = targetCluster.Items.FirstOrDefault(i => i.RevitElementId.ToElementId() == sourceGroupType.Id);
+                    Assert.IsNotNull(primaryItem, "Primary item should exist in cluster.");
+                    targetCluster.UpdatePrimaryItem(primaryItem);
+
+                    var duplicateItem = targetCluster.Items.FirstOrDefault(i => i.RevitElementId.ToElementId() == duplicateGroupType.Id);
+                    Assert.IsNotNull(duplicateItem, "Duplicate item should exist in cluster.");
+                    duplicateItem.IsIncludedForMerge = true;
+
+                    var queueVM = new MergeQueueViewModel();
+                    queueVM.QueuedClusters.Add(targetCluster);
+
+                    var handler = new ProcessMergeEventHandler();
+                    handler.QueueRequest(queueVM, null, null, token);
+                    handler.Execute(_uiapp);
+
+                    // Verify duplicate group type was deleted/purged
+                    var deletedGroupType = doc.GetElement(duplicateGroupTypeId);
+                    Assert.IsNull(deletedGroupType, "Duplicate group type should be deleted.");
+
+                    // Verify instance is redirected to the primary group type
+                    Assert.AreEqual(sourceGroupType.Id, groupInstance2.GroupType.Id, "Group instance should be redirected to the primary group type.");
+
+                    tg.RollBack();
+                }
+            }
+            finally
+            {
+                doc.Close(false);
+            }
+        }
+
+        [Test]
+        public void Test_MergeGroupDuplicates_ResolvesParameterConflicts()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            Document doc = OpenTestTemplate(app);
+
+            GroupType? sourceGroupType = null;
+            GroupType? duplicateGroupType = null;
+            Group? groupInstance1 = null;
+            Group? groupInstance2 = null;
+
+            // Create shared parameters file
+            string tempFilePath = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".txt");
+            File.WriteAllText(tempFilePath, ""); // Create empty file
+            
+            string originalSharedParamFile = app.SharedParametersFilename;
+            app.SharedParametersFilename = tempFilePath;
+
+            try
+            {
+                using (Transaction t = new Transaction(doc, "Create Test Groups and Bind Parameter"))
+                {
+                    t.Start();
+
+                    // 1. Create a Type Parameter bound to Model Groups category
+                    DefinitionFile defFile = app.OpenSharedParameterFile();
+                    Assert.IsNotNull(defFile, "Failed to open temporary shared parameter file.");
+
+                    DefinitionGroup group = defFile.Groups.Create("TestGroup");
+                    Definition definition = group.Definitions.Create(new ExternalDefinitionCreationOptions("TestParam", SpecTypeId.String.Text));
+                    Assert.IsNotNull(definition, "Failed to create shared parameter definition.");
+
+                    CategorySet categorySet = app.Create.NewCategorySet();
+                    Category groupCat1 = doc.Settings.Categories.get_Item(BuiltInCategory.OST_IOSModelGroups);
+                    categorySet.Insert(groupCat1);
+
+                    Binding binding = app.Create.NewTypeBinding(categorySet);
+                    bool inserted = doc.ParameterBindings.Insert(definition, binding);
+                    Assert.IsTrue(inserted, "Failed to insert parameter binding.");
+
+                    // 2. Create Model Curve on a Level Plane to form a Model Group
+                    Level? level = new FilteredElementCollector(doc)
+                        .OfClass(typeof(Level))
+                        .Cast<Level>()
+                        .FirstOrDefault();
+                    Assert.IsNotNull(level, "Document must have at least one level.");
+
+                    Plane plane = Plane.CreateByNormalAndOrigin(XYZ.BasisZ, new XYZ(0, 0, level.Elevation));
+                    SketchPlane sketchPlane = SketchPlane.Create(doc, plane);
+
+                    Line line = Line.CreateBound(XYZ.Zero, new XYZ(5, 0, 0));
+                    ModelCurve modelLine = doc.Create.NewModelCurve(line, sketchPlane);
+
+                    // Create group
+                    Group sourceGroupInstance = doc.Create.NewGroup(new List<ElementId> { modelLine.Id });
+                    sourceGroupType = sourceGroupInstance.GroupType;
+                    sourceGroupType.Name = "TestGroupParam";
+
+                    // Duplicate group type
+                    duplicateGroupType = (GroupType)sourceGroupType.Duplicate("TestGroupParam1");
+
+                    // Place instances
+                    groupInstance1 = doc.Create.PlaceGroup(new XYZ(0, 0, 0), sourceGroupType);
+                    groupInstance2 = doc.Create.PlaceGroup(new XYZ(5, 0, 0), duplicateGroupType);
+
+                    // Set conflicting parameter values on the newly created Type Parameter using LookupParameter
+                    var srcDescParam = sourceGroupType.LookupParameter("TestParam");
+                    var dupDescParam = duplicateGroupType.LookupParameter("TestParam");
+                    
+                    Assert.IsNotNull(srcDescParam, "Source group type should have TestParam parameter.");
+                    Assert.IsNotNull(dupDescParam, "Duplicate group type should have TestParam parameter.");
+                    
+                    srcDescParam.Set("Primary Value");
+                    dupDescParam.Set("Duplicate Value");
+
+                    t.Commit();
+                }
+
+                Assert.IsNotNull(sourceGroupType);
+                Assert.IsNotNull(duplicateGroupType);
+                Assert.IsNotNull(groupInstance1);
+                Assert.IsNotNull(groupInstance2);
+
+                ElementId duplicateGroupTypeId = duplicateGroupType.Id;
+
+                using (var tg = new TransactionGroup(doc, "Parameter Conflict Resolution Test for Groups"))
+                {
+                    tg.Start();
+
+                    var token = CancellationToken.None;
+                    var clusters = RevitMergeDataCollector.RunFastScan(doc, token);
+                    var targetCluster = clusters.FirstOrDefault(c => c.ClusterName.Contains("TestGroupParam"));
+                    Assert.IsNotNull(targetCluster, "MergeAnalysisEngine should detect the duplicate group cluster.");
+
+                    MergeAnalysisEngine.RunDeepScan(targetCluster, token);
+                    MergeAnalysisEngine.GenerateRecommendations(targetCluster);
+
+                    var primaryItem = targetCluster.Items.FirstOrDefault(i => i.RevitElementId.ToElementId() == sourceGroupType.Id);
+                    Assert.IsNotNull(primaryItem);
+                    targetCluster.UpdatePrimaryItem(primaryItem);
+
+                    var duplicateItem = targetCluster.Items.FirstOrDefault(i => i.RevitElementId.ToElementId() == duplicateGroupType.Id);
+                    Assert.IsNotNull(duplicateItem);
+                    duplicateItem.IsIncludedForMerge = true;
+
+                    var mapping = targetCluster.TypeMappings.First();
+                    var descRow = mapping.ParameterResolutions.FirstOrDefault(r => r.ParameterName.Equals("TestParam", StringComparison.OrdinalIgnoreCase));
+                    Assert.IsNotNull(descRow, "Should find TestParam parameter row.");
+                    Assert.IsTrue(descRow.HasConflict, "Should detect parameter value conflict.");
+
+                    // Designate duplicate type's parameter value as the winner
+                    descRow.WinningValueElementId = duplicateGroupType.Id.ToModel(doc);
+
+                    var queueVM = new MergeQueueViewModel();
+                    queueVM.QueuedClusters.Add(targetCluster);
+
+                    var handler = new ProcessMergeEventHandler();
+                    handler.QueueRequest(queueVM, null, null, token);
+                    handler.Execute(_uiapp);
+
+                    // Verify duplicate group type was deleted/purged
+                    var deletedGroupType = doc.GetElement(duplicateGroupTypeId);
+                    Assert.IsNull(deletedGroupType, "Duplicate group type should be deleted.");
+
+                    // Verify winning parameter value was copied to primary group type
+                    string finalValue = sourceGroupType.LookupParameter("TestParam").AsString();
+                    Assert.AreEqual("Duplicate Value", finalValue, "Primary group type's TestParam parameter should retain the designated winning value.");
+
+                    tg.RollBack();
+                }
+            }
+            finally
+            {
+                doc.Close(false);
+                app.SharedParametersFilename = originalSharedParamFile;
+                try
+                {
+                    if (File.Exists(tempFilePath))
+                    {
+                        File.Delete(tempFilePath);
+                    }
+                }
+                catch {}
+            }
+        }
+
+        
+        [Test]
+        public void TestRevitMergeDataCollectorConvertToPoco()
+        {
+            var app = _uiapp.Application;
+            string tempFilePath = Path.Combine(Path.GetTempPath(), $"TestMergeDataCollector_{Guid.NewGuid()}.rvt");
+            Document doc = app.NewProjectDocument(UnitSystem.Imperial);
+            doc.SaveAs(tempFilePath);
+
+            try
+            {
+                using (var tr = new Transaction(doc, "Setup Test Elements"))
+                {
+                    tr.Start();
+
+                    // Create a dummy wall type or family element
+                    var collector = new FilteredElementCollector(doc).OfClass(typeof(WallType));
+                    var wallType = collector.FirstElement() as WallType;
+                    Assert.IsNotNull(wallType, "Document should contain at least one WallType.");
+
+                    // Convert to POCO via RevitMergeDataCollector
+                    ElementModel poco = RevitMergeDataCollector.ConvertToPoco(doc, wallType);
+                    Assert.IsNotNull(poco, "RevitMergeDataCollector.ConvertToPoco should return non-null ElementModel.");
+                    Assert.AreEqual(wallType.Name, poco.Name, "POCO name should match element name.");
+
+                    tr.Commit();
+                }
+            }
+            finally
+            {
+                doc.Close(false);
+                try
+                {
+                    if (File.Exists(tempFilePath))
+                    {
+                        File.Delete(tempFilePath);
+                    }
+                }
+                catch {}
+            }
+        }
+
+#endregion
+    }
+}
+```
+
 ### File: tests/SyntheticTests.Shared/Modules/RevitDOM/AliasSwapEngineTests.cs
 ```csharp
 using System;
@@ -8820,7 +10705,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -9122,7 +11010,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -9188,7 +11079,10 @@ using System;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -9258,7 +11152,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -9508,7 +11405,10 @@ namespace SyntheticTests
 using System;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -9541,7 +11441,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -9688,7 +11591,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -9795,7 +11701,10 @@ namespace SyntheticTests
 using System;
 using System.Collections.Generic;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests.Modules.RevitDOM
 {
@@ -9934,8 +11843,11 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
-using Synthetic.Modules.MergeDuplicates.Models;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
+using Synthetic.RevitDOM.Operations.Merge;
 
 namespace SyntheticTests.Shared.Modules.RevitDOM
 {
@@ -9972,7 +11884,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -10204,7 +12119,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -10409,7 +12327,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -10690,7 +12611,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -10875,7 +12799,10 @@ using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Visual;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -11268,7 +13195,10 @@ using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Visual;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -11556,6 +13486,43 @@ namespace SyntheticTests
 }
 ```
 
+### File: tests/SyntheticTests.Shared/Modules/RevitDOM/ParameterDefinitionSpecTests.cs
+```csharp
+using System;
+using NUnit.Framework;
+using Synthetic.RevitDOM.Models;
+
+namespace SyntheticTests
+{
+    [TestFixture]
+    public class ParameterDefinitionSpecIntegrationTests
+    {
+        [Test]
+        public void ParameterDefinitionSpec_CreateDefault_ReturnsValidDefaults()
+        {
+            var spec = ParameterDefinitionSpec.CreateDefault();
+
+            Assert.IsNotNull(spec, "Default spec should not be null.");
+            Assert.IsNotNull(spec.Group, "Default group should not be null.");
+            Assert.IsNotNull(spec.SpecType, "Default spec type should not be null.");
+            Assert.AreEqual("PG_DATA", spec.Group);
+            Assert.AreEqual("Text", spec.SpecType);
+        }
+
+        [Test]
+        public void ParameterDefinitionSpec_Constructor_SetsGroupAndType()
+        {
+            var spec = new ParameterDefinitionSpec("PG_GEOMETRY", "Length");
+
+            Assert.AreEqual("PG_GEOMETRY", spec.Group);
+            Assert.AreEqual("Length", spec.SpecType);
+            Assert.AreEqual("PG_GEOMETRY", spec.ParameterGroup);
+            Assert.AreEqual("Length", spec.ParameterType);
+        }
+    }
+}
+```
+
 ### File: tests/SyntheticTests.Shared/Modules/RevitDOM/ParameterElementTranslatorTests.cs
 ```csharp
 using System;
@@ -11565,7 +13532,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -11780,7 +13750,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -11943,7 +13916,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -12130,7 +14106,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -12321,7 +14300,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using SyntheticTests.Modules.RevitDOM;
 
 namespace SyntheticTests
@@ -12424,7 +14406,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -12897,7 +14882,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -13060,7 +15048,10 @@ using System;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -13205,7 +15196,10 @@ using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
 using System.Threading;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -13416,7 +15410,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -13664,7 +15661,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -13861,8 +15861,11 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
-using Synthetic.Modules.StandardsManagement.Engine;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
+using Synthetic.RevitDOM.Operations.Standards;
 
 namespace SyntheticTests
 {
@@ -13957,7 +15960,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -14046,7 +16052,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -14750,11 +16759,14 @@ namespace SyntheticTests
 using System;
 using System.Collections.Generic;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.DiffEngine;
-using Synthetic.Modules.MergeDuplicates.Models;
-using Synthetic.Modules.RevitDOM;
-using Synthetic.Modules.StandardsManagement.Engine;
-using Synthetic.Modules.StandardsManagement.Utilities;
+using Synthetic.RevitDOM.Operations.Diffing;
+using Synthetic.RevitDOM.Operations.Merge;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
+using Synthetic.RevitDOM.Operations.Standards;
+using Synthetic.RevitDOM.Operations.Standards;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Shared.UI;
 using Synthetic.Settings;
@@ -14833,6 +16845,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         }
     }
 }
+
 ```
 
 ### File: tests/SyntheticTests.Shared/Modules/StandardsManagement/FakeFileDialogService.cs
@@ -14949,13 +16962,16 @@ using System.Linq;
 using System.Threading;
 using Autodesk.Revit.DB;
 using NUnit.Framework;
-using Synthetic.Modules.RevitDOM;
-using Synthetic.Modules.StandardsManagement.Engine;
-using Synthetic.Modules.StandardsManagement.Models;
-using Synthetic.Modules.StandardsManagement.Utilities;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
+using Synthetic.RevitDOM.Operations.Standards;
+using Synthetic.RevitDOM.Operations.Standards;
+using Synthetic.RevitDOM.Operations.Standards;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Shared.UI;
-using Synthetic.Modules.MergeDuplicates.Models;
+using Synthetic.RevitDOM.Operations.Merge;
 
 namespace SyntheticTests.Modules.StandardsManagement
 {
@@ -15284,9 +17300,12 @@ using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Shared.UI;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Settings;
-using Synthetic.Modules.StandardsManagement.Utilities;
+using Synthetic.RevitDOM.Operations.Standards;
 using SyntheticTests.Modules.StandardsManagement;
 
 namespace SyntheticTests
@@ -15618,9 +17637,12 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
-using Synthetic.Modules.StandardsManagement.Engine;
-using Synthetic.Modules.MergeDuplicates.Models;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
+using Synthetic.RevitDOM.Operations.Standards;
+using Synthetic.RevitDOM.Operations.Merge;
 
 namespace SyntheticTests
 {
@@ -15711,7 +17733,7 @@ namespace SyntheticTests
             try
             {
                 // 5. Run the comparison directly on the engine
-                var engine = new Synthetic.Modules.DiffEngine.PocoToRevitDiffEngine();
+                var engine = new Synthetic.RevitDOM.Operations.Diffing.PocoToRevitDiffEngine();
                 var clusters = engine.Compare(new List<ObjectModel> { context.Model }, context.Doc).ToList();
 
                 // 6. Assert that conflicts were successfully identified
@@ -15719,10 +17741,10 @@ namespace SyntheticTests
                 Assert.IsTrue(clusters.Count > 0, "A conflict cluster should be returned.");
 
                 // Find the cluster matching our element type
-                var cluster = clusters.FirstOrDefault(c => c.TypeMappings.Any(m => m.SourceType != null && m.SourceType.RevitTypeId == context.TextNoteType.Id));
+                var cluster = clusters.FirstOrDefault(c => c.TypeMappings.Any(m => m.SourceType != null && m.SourceType.RevitTypeId.ToElementId() == context.TextNoteType.Id));
                 Assert.IsNotNull(cluster, "Should find a cluster matching the tested TextNoteType.");
 
-                var mapping = cluster!.TypeMappings.FirstOrDefault(m => m.SourceType != null && m.SourceType.RevitTypeId == context.TextNoteType.Id);
+                var mapping = cluster!.TypeMappings.FirstOrDefault(m => m.SourceType != null && m.SourceType.RevitTypeId.ToElementId() == context.TextNoteType.Id);
                 Assert.IsNotNull(mapping, "Should find a type mapping for the tested TextNoteType.");
 
                 var conflictRow = mapping!.ParameterResolutions.FirstOrDefault(r => r.ParameterName == context.TargetParam.Name);
@@ -15767,5 +17789,6 @@ namespace SyntheticTests
         }
     }
 }
+
 ```
 

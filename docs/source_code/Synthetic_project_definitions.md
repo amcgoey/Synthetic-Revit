@@ -80,7 +80,7 @@
       <Private>False</Private>
     </Reference>
     <Reference Include="eTransmitForRevitDB">
-      <HintPath>..\..\..\..\..\..\..\Program Files\Autodesk\eTransmit for Revit 2022\eTransmitForRevitDB.dll</HintPath>
+      <HintPath>C:\Program Files\Autodesk\eTransmit for Revit 2022\eTransmitForRevitDB.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="Microsoft.CSharp" />
@@ -301,11 +301,11 @@
       <Private>False</Private>
     </Reference>
     <Reference Include="eTransmitForRevit">
-      <HintPath>..\..\..\..\..\..\..\Program Files\Autodesk\eTransmit for Revit 2023\eTransmitForRevit.dll</HintPath>
+      <HintPath>C:\Program Files\Autodesk\eTransmit for Revit 2023\eTransmitForRevit.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="eTransmitForRevitDB">
-      <HintPath>..\..\..\..\..\..\..\Program Files\Autodesk\eTransmit for Revit 2023\eTransmitForRevitDB.dll</HintPath>
+      <HintPath>C:\Program Files\Autodesk\eTransmit for Revit 2023\eTransmitForRevitDB.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="Microsoft.CSharp" />
@@ -682,11 +682,11 @@
       <Private>False</Private>
     </Reference>
     <Reference Include="eTransmitForRevit">
-      <HintPath>..\..\..\..\..\..\..\Program Files\Autodesk\eTransmit for Revit 2024\eTransmitForRevit.dll</HintPath>
+      <HintPath>C:\Program Files\Autodesk\eTransmit for Revit 2024\eTransmitForRevit.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="eTransmitForRevitDB">
-      <HintPath>..\..\..\..\..\..\..\Program Files\Autodesk\eTransmit for Revit 2024\eTransmitForRevitDB.dll</HintPath>
+      <HintPath>C:\Program Files\Autodesk\eTransmit for Revit 2024\eTransmitForRevitDB.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="Microsoft.CSharp" />
@@ -866,7 +866,7 @@
 
   <ItemGroup>
     <Reference Include="eTransmitForRevitDB">
-      <HintPath>..\..\..\..\..\..\..\Program Files\Autodesk\eTransmit for Revit 2025\eTransmitForRevitDB.dll</HintPath>
+      <HintPath>C:\Program Files\Autodesk\eTransmit for Revit 2025\eTransmitForRevitDB.dll</HintPath>
       <Private>False</Private>
     </Reference>
   </ItemGroup>
@@ -977,6 +977,7 @@
     <Exec Command="&quot;$(SignToolExe)&quot; sign /n &quot;Synthetic&quot; /fd SHA256 /a &quot;$(TargetPath)&quot;" IgnoreExitCode="true" />
   </Target>
 </Project>
+
 ```
 
 ### File: Revit API Synthetic v2/src/Synthetic2026/App.config
@@ -994,11 +995,12 @@
     <Name>Synthetic</Name>
     <Assembly>C:\ProgramData\Autodesk\Revit\Addins\Synthetic\Synthetic2026.dll</Assembly>
     <FullClassName>Synthetic.Core.App</FullClassName>
-    <ClientId>4fd5b26e-1325-460f-97b1-878804070868</ClientId>
+    <ClientId>4fd5b26e-1325-460f-97b1-878804070869</ClientId>
     <VendorId>net.amcgoey</VendorId>
     <VendorDescription>Synthetic by Arthur McGoey</VendorDescription>
   </AddIn>
 </RevitAddIns>
+
 ```
 
 ### File: Revit API Synthetic v2/src/Synthetic2026/Synthetic2026.csproj
@@ -1037,7 +1039,7 @@
 
   <ItemGroup>
     <Reference Include="eTransmitForRevitDB">
-      <HintPath>..\..\..\..\..\..\..\Program Files\Autodesk\eTransmit for Revit 2026\eTransmitForRevitDB.dll</HintPath>
+      <HintPath>C:\Program Files\Autodesk\eTransmit for Revit 2026\eTransmitForRevitDB.dll</HintPath>
       <Private>False</Private>
     </Reference>
   </ItemGroup>
@@ -1124,6 +1126,7 @@
     <Exec Command="&quot;$(SignToolExe)&quot; sign /n &quot;Synthetic&quot; /fd SHA256 /a &quot;$(TargetPath)&quot;" IgnoreExitCode="true" />
   </Target>
 </Project>
+
 ```
 
 ### File: Revit API Synthetic v2/src/SyntheticShared/SyntheticShared.projitems
@@ -1156,85 +1159,88 @@
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\Diagnostics\StorageDelete.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ViewManagement\Commands\ViewAutoNumberConfig.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\Worksets\Commands\WorksetStartView.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\BooleanModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\GraphicOverrideUtility.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\CategoryModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\CategoryGraphicOverrideModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\CategoryIdModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\IStandardSerializationEngine.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\StandardSerializationEngine.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\DiffEngine\IDiffEngine.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\DiffEngine\PocoToRevitDiffEngine.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\RevitDomDependencyScanner.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\IPocoIdentityService.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\PocoIdentityService.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\IModelTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\IIdentityService.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\RevitIdentityService.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\LinePatternTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\FillPatternTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\MaterialTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\CategoryTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\TemplateDuplicatingTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\GridTypeTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\LevelTypeTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\TextElementTypeTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\SpotDimensionTypeTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\DimensionTypeTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ModelDispatcher.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ParameterEngine.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\ModelsToSerialize.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\AppearanceAssetModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\BooleanModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\BoundingBoxXYZModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\CategoryGraphicOverrideModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\CategoryIdModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\CategoryModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ColorModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\CompoundStructureModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\DimensionTypeModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ElementIdModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ElementModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ElementTypeModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\EnumModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\FilledRegionTypeModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\FillGridModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\FillPatternModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\FilterRuleModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\HostObjTypeModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ListModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\MaterialModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\MissingModels.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ObjectModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\OverrideGraphicSettingsModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ParameterFilterElementModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ParameterModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ParameterDefinitionSpec.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\PlanViewRangeModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\SerializationResultModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\StructuralAssetModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ThermalAssetModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\TransformModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\UVModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ViewFilterOverrideModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ViewModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ViewPlanModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ViewScheduleModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ViewSheetModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\XYZModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\AliasSwapEngine.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\GraphicOverrideUtility.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\ImportExecutionRunner.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\IStandardSerializationEngine.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\MaterialAssetEngine.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\ParameterEngine.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\RevitDomDependencyScanner.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\StandardSerializationEngine.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\BoundingBoxTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\BrowserOrganizationTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\CategoryGraphicOverrideTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\CategoryTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\ColorTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\DimensionTypeTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\FilledRegionTypeTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\FillPatternTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\GridTypeTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\HostObjTypeTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\IIdentityService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\IModelTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\IPocoIdentityService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\LevelTypeTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\LinePatternTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\MaterialTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\ModelDispatcher.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\ParameterElementTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\ParameterFilterElementTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\PocoIdentityService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\RevitDomExtensions.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\RevitIdentityService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\SpotDimensionTypeTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\TemplateDuplicatingTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\TextElementTypeTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\TransformTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\ViewPlanTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\ViewScheduleTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\ViewSheetTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\ViewTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\XYZTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Diffing\IDiffEngine.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Diffing\PocoToRevitDiffEngine.cs" />
 
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\SerializationResultModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ImportExecutionRunner.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\AliasSwapEngine.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\Worksets\Models\ElementsOnWorkset.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\UVModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\FillGridModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\FillPatternModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ColorModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ColorTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\CompoundStructureModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\DimensionTypeModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ElementModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ElementIdModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\RevitDomExtensions.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\FilledRegionTypeModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\FilledRegionTypeTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ElementTypeModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\EnumModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\HostObjTypeModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\HostObjTypeTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ModelsToSerialize.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ListModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\MaterialModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\AppearanceAssetModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\StructuralAssetModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ThermalAssetModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\MaterialAssetEngine.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\OverrideGraphicSettingsModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ParameterModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ViewModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ViewPlanModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ViewPlanTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ViewSheetModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ViewSheetTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ViewScheduleModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ViewScheduleTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ViewFilterOverrideModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ParameterFilterElementModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\FilterRuleModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ParameterFilterElementTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\PlanViewRangeModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\MissingModels.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\XYZModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\TransformModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\BoundingBoxXYZModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\XYZTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\TransformTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\BoundingBoxTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ViewTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ParameterElementTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\BrowserOrganizationTranslator.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Settings\ConfigCollection.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Settings\ISettingModule.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\Persistence\SyntheticSettingsJsonSchema.cs" />
@@ -1261,13 +1267,13 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\Worksets\Utilities\ScopeBoxUtil.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\IO\SearchPaths.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Shared\RevitAPI\Select.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Engine\StandardsDiffEngine.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Engine\IStandardsExtractionOrchestrator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Engine\StandardsExtractionOrchestrator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Engine\IFamilyEnforcer.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Engine\IStandardsExecutionPipeline.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Engine\RevitFamilyEnforcer.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Engine\StandardsExecutionPipeline.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\StandardsDiffEngine.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\IStandardsExtractionOrchestrator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\StandardsExtractionOrchestrator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\IFamilyEnforcer.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\IStandardsExecutionPipeline.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\RevitFamilyEnforcer.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\StandardsExecutionPipeline.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Shared\RevitAPI\StorageUtil.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\FamilyManagement\Utilities\SafeFamilyLoadOptions.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\FamilyManagement\Utilities\PurgeFailuresPreprocessor.cs" />
@@ -1284,18 +1290,17 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\Worksets\Commands\WorksetSetFile.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\Worksets\Commands\WorksetsImport.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\IO\Excel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ObjectModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\Worksets\Models\WorksetModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Models\ImportLogItem.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Models\StandardsExecutionItem.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Models\StandardsExecutionOptions.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Models\StandardsExecutionResult.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Models\DuplicateItemModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Models\DuplicateClusterModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Models\DuplicateTypeModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Models\RecommendedAction.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Models\TypeMappingModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Models\ParameterDiffRowModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\ImportLogItem.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\StandardsExecutionItem.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\StandardsExecutionOptions.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\StandardsExecutionResult.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Merge\DuplicateItemModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Merge\DuplicateClusterModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Merge\DuplicateTypeModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Merge\RecommendedAction.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Merge\TypeMappingModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Merge\ParameterDiffRowModel.cs" />
   </ItemGroup>
   <ItemGroup>
     <Folder Include="$(MSBuildThisFileDirectory)Views\" />
@@ -1309,10 +1314,11 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\ElementTypeWrapperVM.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\ViewModels\MergeQueueViewModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\ViewModels\MergeDuplicatesViewModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Services\RevitMergeDataCollector.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Shared\UI\RevitWindowHelper.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\AutoTagger\Models\TagTemplate.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Shared\RevitAPI\CoordinateUtility.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Engine\MergeAnalysisEngine.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Merge\MergeAnalysisEngine.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\AutoTagger\Repositories\TemplateStorageRepository.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\AutoTagger\ViewModels\SetTemplateViewModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\AutoTagger\Views\SetTemplateView.xaml.cs" />
@@ -1391,14 +1397,14 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\StandardClassModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\StandardElementModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\ProjectStandardsSourceViewModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Utilities\StandardsHierarchyUtility.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Utilities\PathResolutionUtility.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Utilities\StandardsExportService.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Utilities\StandardsMergeUtility.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Utilities\IStandardsExportService.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Utilities\FindReplaceService.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Utilities\IFindReplaceService.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Utilities\StandardsReportGenerator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\StandardsHierarchyUtility.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\PathResolutionUtility.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\StandardsExportService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\StandardsMergeUtility.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\IStandardsExportService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\FindReplaceService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\IFindReplaceService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\StandardsReportGenerator.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\ProjectStandardsDashboardViewModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\StandardsSourceTreeViewModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\StagingQueueViewModel.cs" />
@@ -1647,6 +1653,7 @@
     </None>
   </ItemGroup>
 </Project>
+
 ```
 
 ### File: Revit API Synthetic v2/src/SyntheticShared/SyntheticShared.shproj
@@ -1729,22 +1736,22 @@
     <Compile Include="..\SyntheticTests.Shared\Modules\StandardsManagement\FakeFileDialogService.cs" Link="Modules\StandardsManagement\FakeFileDialogService.cs" />
     <Compile Include="..\SyntheticTests.Shared\Modules\StandardsManagement\FakeGuardrailPromptService.cs" Link="Modules\StandardsManagement\FakeGuardrailPromptService.cs" />
     <Compile Include="..\SyntheticTests.Shared\Modules\StandardsManagement\FakeUserPromptService.cs" Link="Modules\StandardsManagement\FakeUserPromptService.cs" />
+    <Compile Include="..\SyntheticTests.Shared\Modules\MergeDuplicates\Tier2_MergeDuplicatesHeadlessTests.cs" Link="Modules\MergeDuplicates\Tier2_MergeDuplicatesHeadlessTests.cs" />
     <Compile Remove="Infrastructure\UI\RibbonTests.cs" />
     <Compile Include="Infrastructure\UI\RibbonTests.cs" />
   </ItemGroup>
 
   <!-- Compile mock RevitAPI and RevitAPIUI projects and copy them to output directory post-build -->
-  <Target Name="CopyMockRevitAPI" AfterTargets="Build">
+    <Target Name="CopyMockRevitAPI" AfterTargets="Build">
     <MSBuild Projects="..\RevitAPIMock\RevitAPIMock.csproj" Targets="Build" Properties="Configuration=$(Configuration);Platform=$(Platform)" />
-    <Copy SourceFiles="..\RevitAPIMock\bin\x64\$(Configuration)\net8.0-windows8.0\RevitAPI.dll" DestinationFolder="$(TargetDir)" OverwriteReadOnlyFiles="true" SkipUnchangedFiles="false" Condition="Exists('..\RevitAPIMock\bin\x64\$(Configuration)\net8.0-windows8.0\RevitAPI.dll')" />
-    <Copy SourceFiles="..\RevitAPIMock\bin\$(Configuration)\net8.0-windows8.0\RevitAPI.dll" DestinationFolder="$(TargetDir)" OverwriteReadOnlyFiles="true" SkipUnchangedFiles="false" Condition="!Exists('..\RevitAPIMock\bin\x64\$(Configuration)\net8.0-windows8.0\RevitAPI.dll')" />
+    <Copy SourceFiles="$(LocalAppData)\Temp\bin\RevitAPIMock\net8.0-windows8.0\RevitAPI.dll" DestinationFolder="$(TargetDir)" OverwriteReadOnlyFiles="true" SkipUnchangedFiles="false" />
 
     <MSBuild Projects="..\RevitAPIUIMock\RevitAPIUIMock.csproj" Targets="Build" Properties="Configuration=$(Configuration);Platform=$(Platform)" />
-    <Copy SourceFiles="..\RevitAPIUIMock\bin\x64\$(Configuration)\net8.0-windows8.0\RevitAPIUI.dll" DestinationFolder="$(TargetDir)" OverwriteReadOnlyFiles="true" SkipUnchangedFiles="false" Condition="Exists('..\RevitAPIUIMock\bin\x64\$(Configuration)\net8.0-windows8.0\RevitAPIUI.dll')" />
-    <Copy SourceFiles="..\RevitAPIUIMock\bin\$(Configuration)\net8.0-windows8.0\RevitAPIUI.dll" DestinationFolder="$(TargetDir)" OverwriteReadOnlyFiles="true" SkipUnchangedFiles="false" Condition="!Exists('..\RevitAPIUIMock\bin\x64\$(Configuration)\net8.0-windows8.0\RevitAPIUI.dll')" />
+    <Copy SourceFiles="$(LocalAppData)\Temp\bin\RevitAPIUIMock\net8.0-windows8.0\RevitAPIUI.dll" DestinationFolder="$(TargetDir)" OverwriteReadOnlyFiles="true" SkipUnchangedFiles="false" />
   </Target>
 
 </Project>
+
 ```
 
 ### File: Revit API Synthetic v2/tests/SyntheticTests.Shared/SyntheticTests.Shared.projitems
@@ -1782,6 +1789,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\AliasSwapEngineTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\Tier2_AliasAssimilationTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ParameterModelTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ParameterDefinitionSpecTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ViewModelTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ParameterFilterElementTranslatorTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\FilledRegionTypeTranslatorTests.cs" />
@@ -1798,8 +1806,11 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\FakeGuardrailPromptService.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\FakeUserPromptService.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\AssemblyAnalyzer\Tier2_AssemblyAnalyzerTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Tier2_MergeDuplicatesHeadlessTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Tier2_MergeDuplicatesIntegrationTests.cs" />
   </ItemGroup>
 </Project>
+
 ```
 
 ### File: Revit API Synthetic v2/tests/SyntheticTests.Shared/SyntheticTests.Shared.shproj
@@ -1878,6 +1889,13 @@
     
     <Exec Command="&quot;$(SignToolExe)&quot; sign /n &quot;Synthetic&quot; /fd SHA256 /a &quot;$(TargetPath)&quot;" IgnoreExitCode="true" />
   </Target>
+
+  <ItemGroup>
+    <Reference Include="PresentationCore" />
+    <Reference Include="PresentationFramework" />
+    <Reference Include="WindowsBase" />
+    <Reference Include="System.Xaml" />
+  </ItemGroup>
 </Project>
 ```
 
@@ -1940,6 +1958,13 @@
     
     <Exec Command="&quot;$(SignToolExe)&quot; sign /n &quot;Synthetic&quot; /fd SHA256 /a &quot;$(TargetPath)&quot;" IgnoreExitCode="true" />
   </Target>
+
+  <ItemGroup>
+    <Reference Include="PresentationCore" />
+    <Reference Include="PresentationFramework" />
+    <Reference Include="WindowsBase" />
+    <Reference Include="System.Xaml" />
+  </ItemGroup>
 </Project>
 ```
 
@@ -2001,6 +2026,13 @@
     
     <Exec Command="&quot;$(SignToolExe)&quot; sign /n &quot;Synthetic&quot; /fd SHA256 /a &quot;$(TargetPath)&quot;" IgnoreExitCode="true" />
   </Target>
+
+  <ItemGroup>
+    <Reference Include="PresentationCore" />
+    <Reference Include="PresentationFramework" />
+    <Reference Include="WindowsBase" />
+    <Reference Include="System.Xaml" />
+  </ItemGroup>
 </Project>
 ```
 
@@ -2010,6 +2042,8 @@
 
   <PropertyGroup>
     <TargetFramework>net8.0-windows8.0</TargetFramework>
+    <BaseIntermediateOutputPath>$(LocalAppData)\Temp\obj\SyntheticTests2026_ff610c80\</BaseIntermediateOutputPath>
+    <OutputPath>$(LocalAppData)\Temp\bin\SyntheticTests2026_ff610c80\</OutputPath>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <Platforms>x64</Platforms>
@@ -2063,5 +2097,9 @@
     <Exec Command="&quot;$(SignToolExe)&quot; sign /n &quot;Synthetic&quot; /fd SHA256 /a &quot;$(TargetPath)&quot;" IgnoreExitCode="true" />
   </Target>
 </Project>
+
+
+
+
 ```
 

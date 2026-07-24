@@ -17,7 +17,10 @@ using Synthetic.Core;
 using Synthetic.Settings;
 using Synthetic.Infrastructure.Persistence;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.SettingsDashboard.Handlers;
 using Synthetic.Modules.SettingsDashboard.Views;
 
@@ -533,7 +536,10 @@ using Synthetic.Infrastructure.IO;
 
 using Synthetic.Infrastructure.Diagnostics;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 namespace Synthetic.Infrastructure.Diagnostics{
     /// <summary>
     /// Deletes all extensible storage created by any application all active documents.
@@ -649,7 +655,10 @@ using Autodesk.Revit.DB.ExtensibleStorage;
 
 using Synthetic.Infrastructure.Diagnostics;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Shared.RevitAPI;
 namespace Synthetic.Infrastructure.Diagnostics{
 
@@ -692,7 +701,10 @@ using System.Text;
 using ExcelMS = Microsoft.Office.Interop.Excel;
 
 using Synthetic.Infrastructure.IO;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 namespace Synthetic.Infrastructure.IO{
     /// <summary>
@@ -845,7 +857,10 @@ using Synthetic.Settings;
 using Synthetic.Infrastructure.Persistence;
 
 using Synthetic.Infrastructure.IO;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Shared.RevitAPI;
 namespace Synthetic.Infrastructure.IO{
@@ -1158,7 +1173,10 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using Synthetic.Modules.MergeDuplicates.Handlers;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Infrastructure.IO;
 
@@ -1445,7 +1463,10 @@ using Autodesk.Revit.DB.ExtensibleStorage;
 
 using Synthetic.Infrastructure.Persistence;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 namespace Synthetic.Infrastructure.Persistence{
     /// <summary>
     /// Utility class to find and purge legacy settings storage schemas from the Revit document database.
@@ -1573,7 +1594,10 @@ using Synthetic.Infrastructure.Persistence;
 using Synthetic.Settings;
 using Synthetic.Modules.DetailItemFactory.Settings;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Shared.RevitAPI;
 namespace Synthetic.Infrastructure.Persistence{
     /// <summary>
@@ -1983,7 +2007,10 @@ using Autodesk.Revit.DB.ExtensibleStorage;
 
 using Synthetic.Infrastructure.Persistence;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 namespace Synthetic.Infrastructure.Persistence{
     /// <summary>
     /// Schema definition for storing settings modules as serialized JSON string payloads inside Revit extensible storage.
@@ -2045,7 +2072,10 @@ using System.Collections.Generic;
 using j = Newtonsoft.Json;
 
 using Synthetic.Infrastructure.Serialization;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 namespace Synthetic.Infrastructure.Serialization{
     /// <summary>
@@ -2120,7 +2150,10 @@ using Autodesk.Revit.DB;
 
 using Synthetic.Settings;
 using Synthetic.Modules.DetailItemFactory.Settings;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Shared.RevitAPI;
 namespace Synthetic.Settings
@@ -2372,7 +2405,10 @@ using RevitDoc = Autodesk.Revit.DB.Document;
 
 using Synthetic.Shared.RevitAPI;
 using Synthetic.Settings;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 namespace Synthetic.Settings
 {
@@ -2555,7 +2591,10 @@ using Autodesk.Revit.DB;
 
 using Synthetic.Settings;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 namespace Synthetic.Settings
 {
     /// <summary>
@@ -2622,7 +2661,10 @@ using Autodesk.Revit.DB;
 
 using Synthetic.Settings;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 namespace Synthetic.Settings
 {
     /// <summary>
@@ -2653,7 +2695,10 @@ using Autodesk.Revit.DB;
 
 using Synthetic.Settings;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 namespace Synthetic.Settings
 {
     /// <summary>
@@ -2713,7 +2758,10 @@ using Autodesk.Revit.DB;
 
 using Synthetic.Settings;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 namespace Synthetic.Settings
 {
     /// <summary>
@@ -2856,7 +2904,10 @@ using Autodesk.Revit.DB;
 
 using Synthetic.Settings;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 namespace Synthetic.Settings
 {
     /// <summary>
@@ -2919,7 +2970,10 @@ using Newtonsoft.Json;
 
 using Synthetic.Settings;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 namespace Synthetic.Settings
 {
     /// <summary>
@@ -2976,7 +3030,10 @@ using RevitDoc = Autodesk.Revit.DB.Document;
 
 using Synthetic.Settings;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Shared.RevitAPI;
 namespace Synthetic.Settings
 {
@@ -3110,7 +3167,10 @@ using Autodesk.Revit.DB;
 using Synthetic.Core;
 using Synthetic.Settings;
 using Synthetic.Modules.Worksets.Utilities;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Shared.RevitAPI;
 namespace Synthetic.Settings
@@ -3263,7 +3323,10 @@ namespace Synthetic.Settings
 using System;
 using System.Collections.Generic;
 using Synthetic.Modules.MergeDuplicates.Handlers;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Shared.RevitAPI;
 
@@ -3437,7 +3500,10 @@ using System.Windows.Forms;
 
 using Synthetic.Shared.RevitAPI;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 namespace Synthetic.Shared.RevitAPI
 {
     /// <summary>
@@ -3569,7 +3635,10 @@ namespace Synthetic.Shared.RevitAPI
 using Autodesk.Revit.DB;
 
 using Synthetic.Modules.AutoTagger.Models;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Infrastructure.Serialization;
 
 using Synthetic.Shared.RevitAPI;
@@ -3694,7 +3763,10 @@ using eTransmitForRevitDB;
 #endif
 
 using Synthetic.Shared.RevitAPI;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 namespace Synthetic.Shared.RevitAPI{
     /// <summary>
@@ -3820,7 +3892,10 @@ using Autodesk.Revit.UI;
 
 using Synthetic.Shared.RevitAPI;
 using Synthetic.Modules.MergeDuplicates.Handlers;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 namespace Synthetic.Shared.RevitAPI{
     /// <summary>
@@ -4453,7 +4528,10 @@ using Autodesk.Revit.DB;
 using RevitDoc = Autodesk.Revit.DB.Document;
 using View = Autodesk.Revit.DB.View;
 using Synthetic.Modules.MergeDuplicates.Handlers;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 
 namespace Synthetic.Shared.RevitAPI
@@ -4571,7 +4649,10 @@ using static System.Net.Mime.MediaTypeNames;
 using System.Windows.Forms;
 using Autodesk.Revit.DB.ExtensibleStorage;
 
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Infrastructure.Serialization;
 
 using Synthetic.Shared.UI;
@@ -5053,7 +5134,10 @@ using RevitDoc = Autodesk.Revit.DB.Document;
 using RevitFECollector = Autodesk.Revit.DB.FilteredElementCollector;
 using RevitElem = Autodesk.Revit.DB.Element;
 using Synthetic.Modules.MergeDuplicates.Handlers;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 
 //using SynthCollect = Synthetic.Collector;
@@ -5315,7 +5399,10 @@ using Autodesk.Revit.UI;
 using Autodesk.Revit.DB.ExtensibleStorage;
 using Document = Autodesk.Revit.DB.Document;
 using System.Windows.Forms;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 
 
@@ -5561,7 +5648,10 @@ using Synthetic.Shared.UI;
 using Synthetic.Core;
 
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace Synthetic.Shared.UI
 {
@@ -5610,7 +5700,10 @@ using System.Linq;
 using System.Windows.Input;
 
 using Synthetic.Shared.UI;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Shared.RevitAPI;
 namespace Synthetic.Shared.UI
@@ -5753,7 +5846,10 @@ using System.Windows.Data;
 using Synthetic.Shared.UI;
 using Synthetic.Modules.MergeDuplicates.Handlers;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Shared.RevitAPI;
 namespace Synthetic.Shared.UI{
     /// <summary>
@@ -5807,7 +5903,10 @@ using System;
 using System.IO;
 
 using Synthetic.Shared.UI;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 namespace Synthetic.Shared.UI{
     /// <summary>
@@ -6211,7 +6310,10 @@ using Synthetic.Shared.UI;
 using Synthetic.Core;
 
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace Synthetic.Shared.UI
 {
@@ -6263,7 +6365,10 @@ using Autodesk.Revit.DB;
 
 using Synthetic.Shared.UI;
 
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Shared.RevitAPI;
 namespace Synthetic.Shared.UI
@@ -6592,7 +6697,10 @@ using System.Windows.Threading;
 using Synthetic.Shared.UI;
 
 using Synthetic.Core;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 namespace Synthetic.Shared.UI
 {
@@ -6830,7 +6938,10 @@ using System;
 using System.Windows.Input;
 using Synthetic.Shared.UI;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 namespace Synthetic.Shared.UI{
     /// <summary>
     /// A command implementation that relays its functionality by invoking delegates.
@@ -6889,7 +7000,10 @@ using System.Windows;
 using System.Windows.Interop;
 using Synthetic.Shared.UI;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 namespace Synthetic.Shared.UI{
     /// <summary>
     /// Helper methods for managing WPF window parenting/owners within Revit.
@@ -7031,7 +7145,10 @@ using Synthetic.Shared.UI;
 using Synthetic.Core;
 
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace Synthetic.Shared.UI
 {
@@ -7085,7 +7202,10 @@ using System.Windows.Interop;
 using Synthetic.Shared.UI;
 using Synthetic.Core;
 
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Shared.RevitAPI;
 namespace Synthetic.Shared.UI
@@ -7309,7 +7429,10 @@ using System.Threading;
 using System.Windows.Input;
 
 using Synthetic.Shared.UI;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 namespace Synthetic.Shared.UI
 {
@@ -7497,7 +7620,10 @@ using System.Windows;
 using Synthetic.Shared.UI;
 using Synthetic.Core;
 
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 
 namespace Synthetic.Shared.UI
@@ -9087,7 +9213,10 @@ namespace Synthetic.Shared.UI
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using Synthetic.Shared.UI;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Shared.RevitAPI;
 namespace Synthetic.Shared.UI{
