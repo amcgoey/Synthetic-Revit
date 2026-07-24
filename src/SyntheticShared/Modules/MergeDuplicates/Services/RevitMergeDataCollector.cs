@@ -179,7 +179,7 @@ namespace Synthetic.Modules.MergeDuplicates.Services
         {
             var model = elem.ToModel(false);
 
-            // Get instances to calculate count, location, bounding box
+            // Get instances to calculate count, location, bounding box using native quick filters first
             var instances = new List<Element>();
             if (elem is Family family)
             {
@@ -189,6 +189,7 @@ namespace Synthetic.Modules.MergeDuplicates.Services
                     var symbolIdSet = new HashSet<ElementId>(symbolIds);
                     var familyInstances = new FilteredElementCollector(doc)
                         .OfClass(typeof(FamilyInstance))
+                        .WhereElementIsNotElementType()
                         .Where(inst => symbolIdSet.Contains(inst.GetTypeId()))
                         .ToList();
                     instances.AddRange(familyInstances);
@@ -198,6 +199,7 @@ namespace Synthetic.Modules.MergeDuplicates.Services
             {
                 var groupInstances = new FilteredElementCollector(doc)
                     .OfClass(typeof(Autodesk.Revit.DB.Group))
+                    .WhereElementIsNotElementType()
                     .Where(g => g.GetTypeId() == gt.Id)
                     .ToList();
                 instances.AddRange(groupInstances);
@@ -206,14 +208,20 @@ namespace Synthetic.Modules.MergeDuplicates.Services
             {
                 var assemblyInstances = new FilteredElementCollector(doc)
                     .OfClass(typeof(AssemblyInstance))
+                    .WhereElementIsNotElementType()
                     .Where(a => a.GetTypeId() == at.Id)
                     .ToList();
                 instances.AddRange(assemblyInstances);
             }
             else if (elem is ElementType et)
             {
-                var typeInstances = new FilteredElementCollector(doc)
-                    .WherePasses(new ElementIsElementTypeFilter(true)) // Instances
+                FilteredElementCollector collector = new FilteredElementCollector(doc)
+                    .WhereElementIsNotElementType();
+                if (et.Category != null)
+                {
+                    collector = collector.OfCategoryId(et.Category.Id);
+                }
+                var typeInstances = collector
                     .Where(x => x.GetTypeId() == et.Id)
                     .ToList();
                 instances.AddRange(typeInstances);
@@ -272,10 +280,12 @@ namespace Synthetic.Modules.MergeDuplicates.Services
             token.ThrowIfCancellationRequested();
             var elements = new List<Element>();
 
-            // Collect Family, GroupType, and AssemblyType elements using ElementMulticlassFilter
+            // Collect Family, GroupType, and AssemblyType elements using ElementMulticlassFilter and WhereIsElementType
             var classes = new List<Type> { typeof(Family), typeof(GroupType), typeof(AssemblyType) };
             var filter = new ElementMulticlassFilter(classes);
-            var collector = new FilteredElementCollector(doc).WherePasses(filter);
+            var collector = new FilteredElementCollector(doc)
+                .WhereIsElementType()
+                .WherePasses(filter);
 
             foreach (var elem in collector)
             {
@@ -340,7 +350,9 @@ namespace Synthetic.Modules.MergeDuplicates.Services
             // Collect Family, GroupType, and AssemblyType elements matching selection parameters using ElementMulticlassFilter
             var classes = new List<Type> { typeof(Family), typeof(GroupType), typeof(AssemblyType) };
             var filter = new ElementMulticlassFilter(classes);
-            var collector = new FilteredElementCollector(doc).WherePasses(filter);
+            var collector = new FilteredElementCollector(doc)
+                .WhereIsElementType()
+                .WherePasses(filter);
 
             foreach (var elem in collector)
             {
@@ -375,6 +387,7 @@ namespace Synthetic.Modules.MergeDuplicates.Services
                 {
                     var typeClass = target.GetType();
                     var matchingTypes = new FilteredElementCollector(doc)
+                        .WhereIsElementType()
                         .OfClass(typeClass)
                         .Cast<ElementType>();
                     foreach (var et in matchingTypes)
@@ -412,7 +425,9 @@ namespace Synthetic.Modules.MergeDuplicates.Services
             // Use ElementMulticlassFilter to collect Families, GroupTypes, and AssemblyTypes
             var classes = new List<Type> { typeof(Family), typeof(GroupType), typeof(AssemblyType) };
             var filter = new ElementMulticlassFilter(classes);
-            var collector = new FilteredElementCollector(doc).WherePasses(filter);
+            var collector = new FilteredElementCollector(doc)
+                .WhereIsElementType()
+                .WherePasses(filter);
 
             foreach (var elem in collector)
             {
@@ -428,7 +443,7 @@ namespace Synthetic.Modules.MergeDuplicates.Services
 
             // Also collect generic ElementTypes if the category matches
             var elementTypes = new FilteredElementCollector(doc)
-                .WherePasses(new ElementIsElementTypeFilter(false)) // Types
+                .WhereIsElementType()
                 .Cast<ElementType>();
             foreach (var et in elementTypes)
             {

@@ -4,7 +4,6 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
-using Autodesk.Revit.DB;
 
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
@@ -18,7 +17,7 @@ using Synthetic.Shared.RevitAPI;
 namespace Synthetic.RevitDOM.Operations.Merge
 {
     /// <summary>
-    /// Analysis engine that scans the document for duplicates and calculates merge recommendations.
+    /// Analysis engine that scans duplicate POCO models and calculates merge recommendations headlessly.
     /// </summary>
     public static class MergeAnalysisEngine
     {
@@ -33,28 +32,6 @@ namespace Synthetic.RevitDOM.Operations.Merge
             // Match base name and strip optional separator (space, underscore, hyphen, dot, hash) followed by trailing numbers
             var match = Regex.Match(name, @"^(.*?)(?:[\s_#\-\.]+)?\d+$");
             return match.Success ? match.Groups[1].Value.Trim() : name.Trim();
-        }
-                            else
-                            {
-#if REVIT2022 || REVIT2023
-                                valueString = elementId.IntegerValue.ToString();
-#else
-                                valueString = elementId.Value.ToString();
-#endif
-                            }
-                        }
-                        else
-                        {
-#if REVIT2022 || REVIT2023
-                            valueString = elementId.IntegerValue.ToString();
-#else
-                            valueString = elementId.Value.ToString();
-#endif
-                        }
-                    }
-                    break;
-            }
-            return $"{storageType}:{valueString}";
         }
 
         /// <summary>
@@ -72,64 +49,6 @@ namespace Synthetic.RevitDOM.Operations.Merge
                    name.Equals("Family", StringComparison.OrdinalIgnoreCase) ||
                    name.Equals("Type", StringComparison.OrdinalIgnoreCase) ||
                    name.Equals("Type Mark", StringComparison.OrdinalIgnoreCase);
-        }
-                }
-                return "Unknown Category";
-            }
-            else if (element is GroupType groupType)
-            {
-                return groupType.Category?.Name ?? "Model Groups";
-            }
-            else if (element is Autodesk.Revit.DB.Group group)
-            {
-                return group.GroupType?.Category?.Name ?? "Model Groups";
-            }
-            else if (element is AssemblyType assemblyType)
-            {
-                return assemblyType.Category?.Name ?? "Assemblies";
-            }
-            else if (element is AssemblyInstance assemblyInstance)
-            {
-                var typeElementId = assemblyInstance.GetTypeId();
-                if (typeElementId != null && typeElementId != ElementId.InvalidElementId)
-                {
-                    var typeElement = doc.GetElement(typeElementId) as AssemblyType;
-                    if (typeElement != null)
-                    {
-                        return typeElement.Category?.Name ?? "Assemblies";
-                    }
-                }
-                return "Assemblies";
-            }
-
-            return element.Category?.Name ?? "Unknown Category";
-        }
-            }
-            if (element is Autodesk.Revit.DB.Group group)
-            {
-                return group.GroupType;
-            }
-            if (element is AssemblyInstance assemblyInstance)
-            {
-                var typeElementId = assemblyInstance.GetTypeId();
-                if (typeElementId != null && typeElementId != ElementId.InvalidElementId)
-                {
-                    return doc.GetElement(typeElementId) as AssemblyType;
-                }
-            }
-
-            // 3. Fallback using GetTypeId() for other instance elements
-            var elementTypeElementId = element.GetTypeId();
-            if (elementTypeElementId != null && elementTypeElementId != ElementId.InvalidElementId)
-            {
-                var typeElement = doc.GetElement(elementTypeElementId);
-                if (typeElement is FamilySymbol familySymbol) return familySymbol.Family;
-                if (typeElement is GroupType groupType) return groupType;
-                if (typeElement is AssemblyType assemblyType) return assemblyType;
-                if (typeElement is ElementType elementType2) return elementType2;
-            }
-
-            return null;
         }
 
         /// <summary>
@@ -284,164 +203,7 @@ namespace Synthetic.RevitDOM.Operations.Merge
 
             return item;
         }
-            }
-            else if (element is GroupType groupType)
-            {
-                var groupInstances = new FilteredElementCollector(doc)
-                    .OfClass(typeof(Autodesk.Revit.DB.Group))
-                    .Where(group => group.GetTypeId() == groupType.Id)
-                    .ToList();
-                instances.AddRange(groupInstances);
-            }
-            else if (element is AssemblyType assemblyType)
-            {
-                var assemblyInstances = new FilteredElementCollector(doc)
-                    .OfClass(typeof(AssemblyInstance))
-                    .Where(assembly => assembly.GetTypeId() == assemblyType.Id)
-                    .ToList();
-                instances.AddRange(assemblyInstances);
-            }
-            else if (element is ElementType elementType)
-            {
-                var typeInstances = new FilteredElementCollector(doc)
-                    .WherePasses(new ElementIsElementTypeFilter(true)) // Instances
-                    .Where(instance => instance.GetTypeId() == elementType.Id)
-                    .ToList();
-                instances.AddRange(typeInstances);
-            }
 
-            model.InstanceCount = instances.Count;
-
-            var firstInstance = instances.FirstOrDefault();
-            if (firstInstance != null)
-            {
-                if (firstInstance.Location is LocationPoint locationPoint)
-                {
-                    model.Location = locationPoint.Point.ToModel();
-                }
-                else if (firstInstance is FamilyInstance familyInstance)
-                {
-                    model.Location = familyInstance.GetTransform().Origin.ToModel();
-                }
-                else
-                {
-                    var boundingBox = firstInstance.get_BoundingBox(null);
-                    if (boundingBox != null)
-                    {
-                        model.Location = ((boundingBox.Max + boundingBox.Min) * 0.5).ToModel();
-                    }
-                }
-                model.BoundingBox = firstInstance.get_BoundingBox(null).ToModel();
-            }
-
-            // Populate NestedTypes if it is a Family
-            if (element is Family parentFamily)
-            {
-                var symbolIds = parentFamily.GetFamilySymbolIds();
-                if (symbolIds != null)
-                {
-                    foreach (var symbolId in symbolIds)
-                    {
-                        var symbol = doc.GetElement(symbolId) as FamilySymbol;
-                        if (symbol != null)
-                        {
-                            var nestedModel = symbol.ToModel(false);
-                            model.NestedTypes.Add(nestedModel);
-                        }
-                    }
-                }
-            }
-
-            return model;
-        }
-                }
-                else
-                {
-                    elements.Add(element);
-                }
-            }
-
-            var models = new List<ElementModel>();
-            foreach (var element in elements)
-            {
-                token.ThrowIfCancellationRequested();
-                models.Add(ConvertToPoco(doc, element));
-            }
-
-            return BuildClustersFromModels(models, token);
-        }
-
-            if (selectedCategories.Count == 0 || selectedBaseNames.Count == 0)
-            {
-                return clusters;
-            }
-
-            var elements = new List<Element>();
-
-            // Collect Family, GroupType, and AssemblyType elements matching selection parameters using ElementMulticlassFilter
-            var classes = new List<Type> { typeof(Family), typeof(GroupType), typeof(AssemblyType) };
-            var filter = new ElementMulticlassFilter(classes);
-            var collector = new FilteredElementCollector(doc).WherePasses(filter);
-
-            foreach (var element in collector)
-            {
-                token.ThrowIfCancellationRequested();
-                if (element is Family family)
-                {
-                    if (family.IsInPlace) continue;
-                    string category = GetElementCategoryName(doc, family);
-                    if (selectedCategories.Contains(category) && selectedBaseNames.Contains(GetBaseName(family.Name)))
-                    {
-                        elements.Add(family);
-                    }
-                }
-                else
-                {
-                    string category = GetElementCategoryName(doc, element);
-                    if (selectedCategories.Contains(category) && selectedBaseNames.Contains(GetBaseName(element.Name)))
-                    {
-                        elements.Add(element);
-                    }
-                }
-            }
-
-            // Collect generic ElementTypes matching selection parameters (e.g. WallType)
-            foreach (var elementId in selectedIds)
-            {
-                token.ThrowIfCancellationRequested();
-                var target = GetTargetElement(doc, elementId);
-                if (target == null) continue;
-
-                if (target is ElementType && !(target is GroupType) && !(target is AssemblyType) && !(target is FamilySymbol))
-                {
-                    var typeClass = target.GetType();
-                    var matchingTypes = new FilteredElementCollector(doc)
-                        .OfClass(typeClass)
-                        .Cast<ElementType>();
-                    foreach (var elementType in matchingTypes)
-                    {
-                        token.ThrowIfCancellationRequested();
-                        string category = GetElementCategoryName(doc, elementType);
-                        if (selectedCategories.Contains(category) && selectedBaseNames.Contains(GetBaseName(elementType.Name)))
-                        {
-                            if (!elements.Any(existingElement => existingElement.Id == elementType.Id))
-                            {
-                                elements.Add(elementType);
-                            }
-                        }
-                    }
-                }
-            }
-
-            var models = new List<ElementModel>();
-            foreach (var element in elements)
-            {
-                token.ThrowIfCancellationRequested();
-                models.Add(ConvertToPoco(doc, element));
-            }
-
-            return BuildClustersFromModels(models, token);
-        }
         /// <summary>
         /// Performs a deep comparison of the schemas and geometry in the given duplicate cluster.
         /// </summary>
