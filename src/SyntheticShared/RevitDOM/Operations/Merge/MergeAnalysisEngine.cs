@@ -38,51 +38,51 @@ namespace Synthetic.RevitDOM.Operations.Merge
         /// <summary>
         /// Gets a string representation of a Parameter's storage type and value.
         /// </summary>
-        /// <param name="p">The Parameter to read.</param>
+        /// <param name="parameter">The Parameter to read.</param>
         /// <param name="doc">The active Revit document to resolve element references.</param>
         /// <returns>A string representation of the parameter value.</returns>
-        public static string GetParameterValueString(Parameter p, Document? doc = null)
+        public static string GetParameterValueString(Parameter parameter, Document? doc = null)
         {
-            if (p == null) return string.Empty;
-            string storageType = p.StorageType.ToString();
+            if (parameter == null) return string.Empty;
+            string storageType = parameter.StorageType.ToString();
             string valueString = string.Empty;
-            switch (p.StorageType)
+            switch (parameter.StorageType)
             {
                 case StorageType.Double:
-                    valueString = p.AsDouble().ToString();
+                    valueString = parameter.AsDouble().ToString();
                     break;
                 case StorageType.Integer:
-                    valueString = p.AsInteger().ToString();
+                    valueString = parameter.AsInteger().ToString();
                     break;
                 case StorageType.String:
-                    valueString = p.AsString() ?? string.Empty;
+                    valueString = parameter.AsString() ?? string.Empty;
                     break;
                 case StorageType.ElementId:
-                    ElementId id = p.AsElementId();
-                    if (id != null && id != ElementId.InvalidElementId)
+                    ElementId elementId = parameter.AsElementId();
+                    if (elementId != null && elementId != ElementId.InvalidElementId)
                     {
                         if (doc != null)
                         {
-                            Element elem = doc.GetElement(id);
-                            if (elem != null)
+                            Element element = doc.GetElement(elementId);
+                            if (element != null)
                             {
-                                valueString = elem.Name;
+                                valueString = element.Name;
                             }
                             else
                             {
 #if REVIT2022 || REVIT2023
-                                valueString = id.IntegerValue.ToString();
+                                valueString = elementId.IntegerValue.ToString();
 #else
-                                valueString = id.Value.ToString();
+                                valueString = elementId.Value.ToString();
 #endif
                             }
                         }
                         else
                         {
 #if REVIT2022 || REVIT2023
-                            valueString = id.IntegerValue.ToString();
+                            valueString = elementId.IntegerValue.ToString();
 #else
-                            valueString = id.Value.ToString();
+                            valueString = elementId.Value.ToString();
 #endif
                         }
                     }
@@ -112,16 +112,16 @@ namespace Synthetic.RevitDOM.Operations.Merge
         /// Gets the category name of the specified Revit element.
         /// </summary>
         /// <param name="doc">The active Revit document.</param>
-        /// <param name="elem">The element whose category name should be retrieved.</param>
+        /// <param name="element">The element whose category name should be retrieved.</param>
         /// <returns>The name of the category, or a default name if category is not found.</returns>
-        public static string GetElementCategoryName(Document doc, Element elem)
+        public static string GetElementCategoryName(Document doc, Element element)
         {
-            if (elem == null) return "Unknown Category";
+            if (element == null) return "Unknown Category";
 
-            if (elem is Family f)
+            if (element is Family family)
             {
-                if (f.FamilyCategory != null) return f.FamilyCategory.Name;
-                var symbolIds = f.GetFamilySymbolIds();
+                if (family.FamilyCategory != null) return family.FamilyCategory.Name;
+                var symbolIds = family.GetFamilySymbolIds();
                 if (symbolIds != null && symbolIds.Count > 0)
                 {
                     var firstSymbol = doc.GetElement(symbolIds.First()) as FamilySymbol;
@@ -132,33 +132,33 @@ namespace Synthetic.RevitDOM.Operations.Merge
                 }
                 return "Unknown Category";
             }
-            else if (elem is GroupType gt)
+            else if (element is GroupType groupType)
             {
-                return gt.Category?.Name ?? "Model Groups";
+                return groupType.Category?.Name ?? "Model Groups";
             }
-            else if (elem is Autodesk.Revit.DB.Group g)
+            else if (element is Autodesk.Revit.DB.Group group)
             {
-                return g.GroupType?.Category?.Name ?? "Model Groups";
+                return group.GroupType?.Category?.Name ?? "Model Groups";
             }
-            else if (elem is AssemblyType at)
+            else if (element is AssemblyType assemblyType)
             {
-                return at.Category?.Name ?? "Assemblies";
+                return assemblyType.Category?.Name ?? "Assemblies";
             }
-            else if (elem is AssemblyInstance ai)
+            else if (element is AssemblyInstance assemblyInstance)
             {
-                var typeId = ai.GetTypeId();
-                if (typeId != null && typeId != ElementId.InvalidElementId)
+                var typeElementId = assemblyInstance.GetTypeId();
+                if (typeElementId != null && typeElementId != ElementId.InvalidElementId)
                 {
-                    var typeElem = doc.GetElement(typeId) as AssemblyType;
-                    if (typeElem != null)
+                    var typeElement = doc.GetElement(typeElementId) as AssemblyType;
+                    if (typeElement != null)
                     {
-                        return typeElem.Category?.Name ?? "Assemblies";
+                        return typeElement.Category?.Name ?? "Assemblies";
                     }
                 }
                 return "Assemblies";
             }
 
-            return elem.Category?.Name ?? "Unknown Category";
+            return element.Category?.Name ?? "Unknown Category";
         }
 
         /// <summary>
@@ -167,51 +167,51 @@ namespace Synthetic.RevitDOM.Operations.Merge
         /// <param name="doc">The active Revit document.</param>
         /// <param name="id">The ElementId to resolve.</param>
         /// <returns>The resolved target element, or null if not found.</returns>
-        public static Element? GetTargetElement(Document doc, ElementId id)
+        public static Element? GetTargetElement(Document doc, ElementId elementId)
         {
-            if (id == null || id == ElementId.InvalidElementId) return null;
-            Element elem = doc.GetElement(id);
-            if (elem == null) return null;
+            if (elementId == null || elementId == ElementId.InvalidElementId) return null;
+            Element element = doc.GetElement(elementId);
+            if (element == null) return null;
 
             // 1. Direct checks (typically selected in Project Browser or direct types)
-            if (elem is Family) return elem;
-            if (elem is GroupType) return elem;
-            if (elem is AssemblyType) return elem;
-            if (elem is FamilySymbol symbol) return symbol.Family;
-            if (elem is ElementType et) return et;
+            if (element is Family) return element;
+            if (element is GroupType) return element;
+            if (element is AssemblyType) return element;
+            if (element is FamilySymbol patternFamilySymbol) return patternFamilySymbol.Family;
+            if (element is ElementType elementType) return elementType;
 
             // 2. Instance checks (typically selected in Canvas)
-            if (elem is FamilyInstance fi)
+            if (element is FamilyInstance familyInstance)
             {
-                var symId = fi.GetTypeId();
-                if (symId != null && symId != ElementId.InvalidElementId)
+                var symbolId = familyInstance.GetTypeId();
+                if (symbolId != null && symbolId != ElementId.InvalidElementId)
                 {
-                    var sym = doc.GetElement(symId) as FamilySymbol;
-                    return sym?.Family;
+                    var familySymbolObj = doc.GetElement(symbolId) as FamilySymbol;
+                    return familySymbolObj?.Family;
                 }
             }
-            if (elem is Autodesk.Revit.DB.Group g)
+            if (element is Autodesk.Revit.DB.Group group)
             {
-                return g.GroupType;
+                return group.GroupType;
             }
-            if (elem is AssemblyInstance ai)
+            if (element is AssemblyInstance assemblyInstance)
             {
-                var typeId = ai.GetTypeId();
-                if (typeId != null && typeId != ElementId.InvalidElementId)
+                var typeElementId = assemblyInstance.GetTypeId();
+                if (typeElementId != null && typeElementId != ElementId.InvalidElementId)
                 {
-                    return doc.GetElement(typeId) as AssemblyType;
+                    return doc.GetElement(typeElementId) as AssemblyType;
                 }
             }
 
             // 3. Fallback using GetTypeId() for other instance elements
-            var elemTypeId = elem.GetTypeId();
-            if (elemTypeId != null && elemTypeId != ElementId.InvalidElementId)
+            var elementTypeElementId = element.GetTypeId();
+            if (elementTypeElementId != null && elementTypeElementId != ElementId.InvalidElementId)
             {
-                var typeElem = doc.GetElement(elemTypeId);
-                if (typeElem is FamilySymbol fs) return fs.Family;
-                if (typeElem is GroupType gt) return gt;
-                if (typeElem is AssemblyType at) return at;
-                if (typeElem is ElementType et2) return et2;
+                var typeElement = doc.GetElement(elementTypeElementId);
+                if (typeElement is FamilySymbol familySymbol) return familySymbol.Family;
+                if (typeElement is GroupType groupType) return groupType;
+                if (typeElement is AssemblyType assemblyType) return assemblyType;
+                if (typeElement is ElementType elementType2) return elementType2;
             }
 
             return null;
@@ -229,7 +229,7 @@ namespace Synthetic.RevitDOM.Operations.Merge
 
             // Group by Category Name
             var elementsByCategory = elements
-                .GroupBy(elem => elem.Category ?? "Unknown Category");
+                .GroupBy(element => element.Category ?? "Unknown Category");
 
             foreach (var categoryGroup in elementsByCategory)
             {
@@ -238,7 +238,7 @@ namespace Synthetic.RevitDOM.Operations.Merge
 
                 // Group by base name within category
                 var groupedByBaseName = categoryGroup
-                    .GroupBy(elem => GetBaseName(elem.Name), StringComparer.OrdinalIgnoreCase);
+                    .GroupBy(element => GetBaseName(element.Name), StringComparer.OrdinalIgnoreCase);
 
                 foreach (var baseGroup in groupedByBaseName)
                 {
@@ -252,17 +252,17 @@ namespace Synthetic.RevitDOM.Operations.Merge
                         };
 
                         var items = new List<DuplicateItemModel>();
-                        foreach (var elem in baseGroup)
+                        foreach (var element in baseGroup)
                         {
                             token.ThrowIfCancellationRequested();
-                            var item = CreateItemFromModel(elem, categoryName);
+                            var item = CreateItemFromModel(element, categoryName);
                             items.Add(item);
                         }
 
                         // Flag the item with the shortest name as primary
                         if (items.Count > 0)
                         {
-                            var primaryItem = items.OrderBy(i => i.ItemName.Length).First();
+                            var primaryItem = items.OrderBy(item => item.ItemName.Length).First();
                             primaryItem.IsPrimary = true;
                         }
 
@@ -281,54 +281,54 @@ namespace Synthetic.RevitDOM.Operations.Merge
         /// <summary>
         /// Gets a string representation of a ParameterModel's value.
         /// </summary>
-        public static string GetParameterValueString(ParameterModel p)
+        public static string GetParameterValueString(ParameterModel parameter)
         {
-            if (p == null) return string.Empty;
+            if (parameter == null) return string.Empty;
             string valueString = string.Empty;
-            if (p.StorageType == "ElementId" && p.ValueElemId != null)
+            if (parameter.StorageType == "ElementId" && parameter.ValueElemId != null)
             {
-                valueString = !string.IsNullOrEmpty(p.ValueElemId.Name) ? p.ValueElemId.Name : p.ValueElemId.Id.ToString();
+                valueString = !string.IsNullOrEmpty(parameter.ValueElemId.Name) ? parameter.ValueElemId.Name : parameter.ValueElemId.Id.ToString();
             }
             else
             {
-                valueString = p.Value ?? string.Empty;
+                valueString = parameter.Value ?? string.Empty;
             }
-            return $"{p.StorageType}:{valueString}";
+            return $"{parameter.StorageType}:{valueString}";
         }
 
         /// <summary>
         /// Creates a DuplicateItemModel from an ElementModel.
         /// </summary>
-        public static DuplicateItemModel CreateItemFromModel(ElementModel elem, string categoryName)
+        public static DuplicateItemModel CreateItemFromModel(ElementModel element, string categoryName)
         {
             var item = new DuplicateItemModel
             {
-                RevitElementId = elem.ElementId,
-                ItemName = elem.Name,
+                RevitElementId = element.ElementId,
+                ItemName = element.Name,
                 CategoryName = categoryName,
                 IsPrimary = false,
                 IsIncludedForMerge = true,
-                IsLoadableFamily = (elem.Class == "Autodesk.Revit.DB.Family" || elem.Class == "Autodesk.Revit.DB.FamilySymbol")
+                IsLoadableFamily = (element.Class == "Autodesk.Revit.DB.Family" || element.Class == "Autodesk.Revit.DB.FamilySymbol")
             };
 
-            item.InstanceCount = elem.InstanceCount;
-            item.Location = elem.Location;
-            item.BoundingBox = elem.BoundingBox;
+            item.InstanceCount = element.InstanceCount;
+            item.Location = element.Location;
+            item.BoundingBox = element.BoundingBox;
 
             // Populate parameters (legacy dict)
             item.Parameters = new Dictionary<string, string>();
-            foreach (var p in elem.Parameters)
+            foreach (var parameter in element.Parameters)
             {
-                if (!string.IsNullOrEmpty(p.Name) && !item.Parameters.ContainsKey(p.Name))
+                if (!string.IsNullOrEmpty(parameter.Name) && !item.Parameters.ContainsKey(parameter.Name))
                 {
-                    item.Parameters[p.Name] = p.StorageType;
+                    item.Parameters[parameter.Name] = parameter.StorageType;
                 }
             }
 
             // Populate Nested Collection of Types
-            if (elem.NestedTypes != null && elem.NestedTypes.Count > 0)
+            if (element.NestedTypes != null && element.NestedTypes.Count > 0)
             {
-                foreach (var nestedType in elem.NestedTypes)
+                foreach (var nestedType in element.NestedTypes)
                 {
                     var typeModel = new DuplicateTypeModel
                     {
@@ -336,12 +336,12 @@ namespace Synthetic.RevitDOM.Operations.Merge
                         Name = nestedType.Name,
                         Parameters = new Dictionary<string, string>()
                     };
-                    foreach (var p in nestedType.Parameters)
+                    foreach (var parameter in nestedType.Parameters)
                     {
-                        if (!string.IsNullOrEmpty(p.Name) && !typeModel.Parameters.ContainsKey(p.Name))
+                        if (!string.IsNullOrEmpty(parameter.Name) && !typeModel.Parameters.ContainsKey(parameter.Name))
                         {
-                            if (IsIdentityParameter(p.Name)) continue;
-                            typeModel.Parameters[p.Name] = GetParameterValueString(p);
+                            if (IsIdentityParameter(parameter.Name)) continue;
+                            typeModel.Parameters[parameter.Name] = GetParameterValueString(parameter);
                         }
                     }
                     item.Types.Add(typeModel);
@@ -352,16 +352,16 @@ namespace Synthetic.RevitDOM.Operations.Merge
                 // Fallback: add the element itself as the single type
                 var typeModel = new DuplicateTypeModel
                 {
-                    RevitTypeId = elem.ElementId,
-                    Name = elem.Name,
+                    RevitTypeId = element.ElementId,
+                    Name = element.Name,
                     Parameters = new Dictionary<string, string>()
                 };
-                foreach (var p in elem.Parameters)
+                foreach (var parameter in element.Parameters)
                 {
-                    if (!string.IsNullOrEmpty(p.Name) && !typeModel.Parameters.ContainsKey(p.Name))
+                    if (!string.IsNullOrEmpty(parameter.Name) && !typeModel.Parameters.ContainsKey(parameter.Name))
                     {
-                        if (IsIdentityParameter(p.Name)) continue;
-                        typeModel.Parameters[p.Name] = GetParameterValueString(p);
+                        if (IsIdentityParameter(parameter.Name)) continue;
+                        typeModel.Parameters[parameter.Name] = GetParameterValueString(parameter);
                     }
                 }
                 item.Types.Add(typeModel);
@@ -370,46 +370,46 @@ namespace Synthetic.RevitDOM.Operations.Merge
             return item;
         }
 
-        public static ElementModel ConvertToPoco(Document doc, Element elem)
+        public static ElementModel ConvertToPoco(Document doc, Element element)
         {
-            var model = elem.ToModel(false);
+            var model = element.ToModel(false);
             
             // Get instances to calculate count, location, bounding box
             var instances = new List<Element>();
-            if (elem is Family family)
+            if (element is Family loadableFamily)
             {
-                var symbolIds = family.GetFamilySymbolIds();
+                var symbolIds = loadableFamily.GetFamilySymbolIds();
                 if (symbolIds != null && symbolIds.Count > 0)
                 {
                     var symbolIdSet = new HashSet<ElementId>(symbolIds);
                     var familyInstances = new FilteredElementCollector(doc)
                         .OfClass(typeof(FamilyInstance))
-                        .Where(inst => symbolIdSet.Contains(inst.GetTypeId()))
+                        .Where(instance => symbolIdSet.Contains(instance.GetTypeId()))
                         .ToList();
                     instances.AddRange(familyInstances);
                 }
             }
-            else if (elem is GroupType gt)
+            else if (element is GroupType groupType)
             {
                 var groupInstances = new FilteredElementCollector(doc)
                     .OfClass(typeof(Autodesk.Revit.DB.Group))
-                    .Where(g => g.GetTypeId() == gt.Id)
+                    .Where(group => group.GetTypeId() == groupType.Id)
                     .ToList();
                 instances.AddRange(groupInstances);
             }
-            else if (elem is AssemblyType at)
+            else if (element is AssemblyType assemblyType)
             {
                 var assemblyInstances = new FilteredElementCollector(doc)
                     .OfClass(typeof(AssemblyInstance))
-                    .Where(a => a.GetTypeId() == at.Id)
+                    .Where(assembly => assembly.GetTypeId() == assemblyType.Id)
                     .ToList();
                 instances.AddRange(assemblyInstances);
             }
-            else if (elem is ElementType et)
+            else if (element is ElementType elementType)
             {
                 var typeInstances = new FilteredElementCollector(doc)
                     .WherePasses(new ElementIsElementTypeFilter(true)) // Instances
-                    .Where(x => x.GetTypeId() == et.Id)
+                    .Where(instance => instance.GetTypeId() == elementType.Id)
                     .ToList();
                 instances.AddRange(typeInstances);
             }
@@ -419,34 +419,34 @@ namespace Synthetic.RevitDOM.Operations.Merge
             var firstInstance = instances.FirstOrDefault();
             if (firstInstance != null)
             {
-                if (firstInstance.Location is LocationPoint lp)
+                if (firstInstance.Location is LocationPoint locationPoint)
                 {
-                    model.Location = lp.Point.ToModel();
+                    model.Location = locationPoint.Point.ToModel();
                 }
-                else if (firstInstance is FamilyInstance fi)
+                else if (firstInstance is FamilyInstance familyInstance)
                 {
-                    model.Location = fi.GetTransform().Origin.ToModel();
+                    model.Location = familyInstance.GetTransform().Origin.ToModel();
                 }
                 else
                 {
-                    var bbox = firstInstance.get_BoundingBox(null);
-                    if (bbox != null)
+                    var boundingBox = firstInstance.get_BoundingBox(null);
+                    if (boundingBox != null)
                     {
-                        model.Location = ((bbox.Max + bbox.Min) * 0.5).ToModel();
+                        model.Location = ((boundingBox.Max + boundingBox.Min) * 0.5).ToModel();
                     }
                 }
                 model.BoundingBox = firstInstance.get_BoundingBox(null).ToModel();
             }
 
             // Populate NestedTypes if it is a Family
-            if (elem is Family fam)
+            if (element is Family parentFamily)
             {
-                var symbolIds = fam.GetFamilySymbolIds();
+                var symbolIds = parentFamily.GetFamilySymbolIds();
                 if (symbolIds != null)
                 {
-                    foreach (var sId in symbolIds)
+                    foreach (var symbolId in symbolIds)
                     {
-                        var symbol = doc.GetElement(sId) as FamilySymbol;
+                        var symbol = doc.GetElement(symbolId) as FamilySymbol;
                         if (symbol != null)
                         {
                             var nestedModel = symbol.ToModel(false);
@@ -475,27 +475,27 @@ namespace Synthetic.RevitDOM.Operations.Merge
             var filter = new ElementMulticlassFilter(classes);
             var collector = new FilteredElementCollector(doc).WherePasses(filter);
 
-            foreach (var elem in collector)
+            foreach (var element in collector)
             {
                 token.ThrowIfCancellationRequested();
-                if (elem is Family f)
+                if (element is Family family)
                 {
-                    if (!f.IsInPlace)
+                    if (!family.IsInPlace)
                     {
-                        elements.Add(f);
+                        elements.Add(family);
                     }
                 }
                 else
                 {
-                    elements.Add(elem);
+                    elements.Add(element);
                 }
             }
 
             var models = new List<ElementModel>();
-            foreach (var elem in elements)
+            foreach (var element in elements)
             {
                 token.ThrowIfCancellationRequested();
-                models.Add(ConvertToPoco(doc, elem));
+                models.Add(ConvertToPoco(doc, element));
             }
 
             return BuildClustersFromModels(models, token);
@@ -511,16 +511,16 @@ namespace Synthetic.RevitDOM.Operations.Merge
             var selectedCategories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var selectedBaseNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var id in selectedIds)
+            foreach (var elementId in selectedIds)
             {
                 token.ThrowIfCancellationRequested();
-                var originalElem = doc.GetElement(id);
-                if (originalElem == null) continue;
+                var originalElement = doc.GetElement(elementId);
+                if (originalElement == null) continue;
 
-                var target = GetTargetElement(doc, id);
+                var target = GetTargetElement(doc, elementId);
                 if (target == null) continue;
 
-                string categoryName = GetElementCategoryName(doc, originalElem);
+                string categoryName = GetElementCategoryName(doc, originalElement);
                 selectedCategories.Add(categoryName);
                 selectedBaseNames.Add(GetBaseName(target.Name));
             }
@@ -537,33 +537,33 @@ namespace Synthetic.RevitDOM.Operations.Merge
             var filter = new ElementMulticlassFilter(classes);
             var collector = new FilteredElementCollector(doc).WherePasses(filter);
 
-            foreach (var elem in collector)
+            foreach (var element in collector)
             {
                 token.ThrowIfCancellationRequested();
-                if (elem is Family fam)
+                if (element is Family family)
                 {
-                    if (fam.IsInPlace) continue;
-                    string cat = GetElementCategoryName(doc, fam);
-                    if (selectedCategories.Contains(cat) && selectedBaseNames.Contains(GetBaseName(fam.Name)))
+                    if (family.IsInPlace) continue;
+                    string category = GetElementCategoryName(doc, family);
+                    if (selectedCategories.Contains(category) && selectedBaseNames.Contains(GetBaseName(family.Name)))
                     {
-                        elements.Add(fam);
+                        elements.Add(family);
                     }
                 }
                 else
                 {
-                    string cat = GetElementCategoryName(doc, elem);
-                    if (selectedCategories.Contains(cat) && selectedBaseNames.Contains(GetBaseName(elem.Name)))
+                    string category = GetElementCategoryName(doc, element);
+                    if (selectedCategories.Contains(category) && selectedBaseNames.Contains(GetBaseName(element.Name)))
                     {
-                        elements.Add(elem);
+                        elements.Add(element);
                     }
                 }
             }
 
             // Collect generic ElementTypes matching selection parameters (e.g. WallType)
-            foreach (var id in selectedIds)
+            foreach (var elementId in selectedIds)
             {
                 token.ThrowIfCancellationRequested();
-                var target = GetTargetElement(doc, id);
+                var target = GetTargetElement(doc, elementId);
                 if (target == null) continue;
 
                 if (target is ElementType && !(target is GroupType) && !(target is AssemblyType) && !(target is FamilySymbol))
@@ -572,15 +572,15 @@ namespace Synthetic.RevitDOM.Operations.Merge
                     var matchingTypes = new FilteredElementCollector(doc)
                         .OfClass(typeClass)
                         .Cast<ElementType>();
-                    foreach (var et in matchingTypes)
+                    foreach (var elementType in matchingTypes)
                     {
                         token.ThrowIfCancellationRequested();
-                        string cat = GetElementCategoryName(doc, et);
-                        if (selectedCategories.Contains(cat) && selectedBaseNames.Contains(GetBaseName(et.Name)))
+                        string category = GetElementCategoryName(doc, elementType);
+                        if (selectedCategories.Contains(category) && selectedBaseNames.Contains(GetBaseName(elementType.Name)))
                         {
-                            if (!elements.Any(x => x.Id == et.Id))
+                            if (!elements.Any(existingElement => existingElement.Id == elementType.Id))
                             {
-                                elements.Add(et);
+                                elements.Add(elementType);
                             }
                         }
                     }
@@ -588,10 +588,10 @@ namespace Synthetic.RevitDOM.Operations.Merge
             }
 
             var models = new List<ElementModel>();
-            foreach (var elem in elements)
+            foreach (var element in elements)
             {
                 token.ThrowIfCancellationRequested();
-                models.Add(ConvertToPoco(doc, elem));
+                models.Add(ConvertToPoco(doc, element));
             }
 
             return BuildClustersFromModels(models, token);
@@ -617,26 +617,26 @@ namespace Synthetic.RevitDOM.Operations.Merge
             {
                 var firstType = allTypes[0];
                 var firstSchema = firstType.Parameters.ToDictionary(
-                    kvp => kvp.Key,
-                    kvp => kvp.Value.Split(':')[0]
+                    keyValuePair => keyValuePair.Key,
+                    keyValuePair => keyValuePair.Value.Split(':')[0]
                 );
 
-                for (int i = 1; i < allTypes.Count; i++)
+                for (int typeIndex = 1; typeIndex < allTypes.Count; typeIndex++)
                 {
                     token.ThrowIfCancellationRequested();
-                    var currentType = allTypes[i];
+                    var currentType = allTypes[typeIndex];
                     if (firstSchema.Count != currentType.Parameters.Count)
                     {
                         schemaMismatch = true;
                         break;
                     }
 
-                    foreach (var kvp in currentType.Parameters)
+                    foreach (var keyValuePair in currentType.Parameters)
                     {
-                        string paramName = kvp.Key;
-                        string currentStorageType = kvp.Value.Split(':')[0];
+                        string parameterName = keyValuePair.Key;
+                        string currentStorageType = keyValuePair.Value.Split(':')[0];
 
-                        if (!firstSchema.TryGetValue(paramName, out string? expectedStorageType) || expectedStorageType != currentStorageType)
+                        if (!firstSchema.TryGetValue(parameterName, out string? expectedStorageType) || expectedStorageType != currentStorageType)
                         {
                             schemaMismatch = true;
                             break;
@@ -650,21 +650,21 @@ namespace Synthetic.RevitDOM.Operations.Merge
             // 2. Compare physical origins / bounding boxes of instances
             bool originMismatch = false;
             var firstItem = cluster.Items[0];
-            var firstBBox = firstItem.BoundingBox;
-            var firstLoc = firstItem.Location;
+            var firstBoundingBox = firstItem.BoundingBox;
+            var firstLocation = firstItem.Location;
 
-            for (int i = 1; i < cluster.Items.Count; i++)
+            for (int itemIndex = 1; itemIndex < cluster.Items.Count; itemIndex++)
             {
                 token.ThrowIfCancellationRequested();
-                var currentItem = cluster.Items[i];
-                var currentBBox = currentItem.BoundingBox;
-                var currentLoc = currentItem.Location;
+                var currentItem = cluster.Items[itemIndex];
+                var currentBoundingBox = currentItem.BoundingBox;
+                var currentLocation = currentItem.Location;
 
-                if (firstBBox != null && currentBBox != null && firstBBox.IsValid && currentBBox.IsValid &&
-                    firstLoc != null && currentLoc != null)
+                if (firstBoundingBox != null && currentBoundingBox != null && firstBoundingBox.IsValid && currentBoundingBox.IsValid &&
+                    firstLocation != null && currentLocation != null)
                 {
-                    XYZModel? firstSize = firstBBox.GetSize();
-                    XYZModel? currentSize = currentBBox.GetSize();
+                    XYZModel? firstSize = firstBoundingBox.GetSize();
+                    XYZModel? currentSize = currentBoundingBox.GetSize();
 
                     if (firstSize == null || currentSize == null ||
                         Math.Abs(firstSize.X - currentSize.X) > 1e-3 ||
@@ -676,11 +676,11 @@ namespace Synthetic.RevitDOM.Operations.Merge
                     }
 
                     // Compare Origin relative to Bounding Box center
-                    XYZModel? firstCenter = firstBBox.GetCenter();
-                    XYZModel? currentCenter = currentBBox.GetCenter();
+                    XYZModel? firstCenter = firstBoundingBox.GetCenter();
+                    XYZModel? currentCenter = currentBoundingBox.GetCenter();
 
-                    XYZModel? firstOffset = (firstCenter != null) ? firstLoc - firstCenter : null;
-                    XYZModel? currentOffset = (currentCenter != null) ? currentLoc - currentCenter : null;
+                    XYZModel? firstOffset = (firstCenter != null) ? firstLocation - firstCenter : null;
+                    XYZModel? currentOffset = (currentCenter != null) ? currentLocation - currentCenter : null;
 
                     if (!XYZModel.IsOffsetEqual(firstOffset, currentOffset, 1e-3))
                     {
@@ -688,7 +688,7 @@ namespace Synthetic.RevitDOM.Operations.Merge
                         break;
                     }
                 }
-                else if ((firstBBox == null) != (currentBBox == null))
+                else if ((firstBoundingBox == null) != (currentBoundingBox == null))
                 {
                     // One has instances and the other doesn't
                     originMismatch = true;
@@ -717,13 +717,13 @@ namespace Synthetic.RevitDOM.Operations.Merge
             {
                 if (item.IsPrimary) continue; // Skip primary itself
 
-                foreach (var srcType in item.Types)
+                foreach (var sourceType in item.Types)
                 {
                     // Find target type with matching name in primary
-                    var exactTgtType = primaryTypes!.FirstOrDefault(t => t.Name.Equals(srcType.Name, StringComparison.Ordinal));
+                    var exactTargetType = primaryTypes!.FirstOrDefault(primaryType => primaryType.Name.Equals(sourceType.Name, StringComparison.Ordinal));
                     RecommendedAction recommendation = RecommendedAction.Merge;
 
-                    if (exactTgtType == null)
+                    if (exactTargetType == null)
                     {
                         // No exact match. For loadable families, recommend Migrate. For system/flat families (like groups/assemblies), we must Merge.
                         if (item.IsLoadableFamily)
@@ -738,7 +738,7 @@ namespace Synthetic.RevitDOM.Operations.Merge
 
                     var mapping = new TypeMappingModel
                     {
-                        SourceType = srcType,
+                        SourceType = sourceType,
                         RecommendedAction = recommendation,
                         SourceFamily = item,
                         TargetFamily = primary
@@ -747,9 +747,9 @@ namespace Synthetic.RevitDOM.Operations.Merge
                     // Populate Available Types: For every TypeMappingModel being created, populate its AvailablePrimaryTypes collection with all DuplicateTypeModels found in the Primary Family (TargetFamily.Types).
                     if (primaryTypes != null)
                     {
-                        foreach (var t in primaryTypes)
+                        foreach (var primaryType in primaryTypes)
                         {
-                            mapping.AvailablePrimaryTypes.Add(t);
+                            mapping.AvailablePrimaryTypes.Add(primaryType);
                         }
                     }
 
@@ -758,14 +758,14 @@ namespace Synthetic.RevitDOM.Operations.Merge
                     // Set mapping.TargetType to the first type in the list that matches the base name.
                     // If no base names match, fallback to setting mapping.TargetType to AvailablePrimaryTypes.FirstOrDefault().
                     DuplicateTypeModel? matchedTarget = null;
-                    string srcBaseName = GetBaseName(srcType.Name);
+                    string sourceBaseName = GetBaseName(sourceType.Name);
                     if (primaryTypes != null)
                     {
-                        foreach (var availType in mapping.AvailablePrimaryTypes)
+                        foreach (var availableType in mapping.AvailablePrimaryTypes)
                         {
-                            if (GetBaseName(availType.Name).Equals(srcBaseName, StringComparison.OrdinalIgnoreCase))
+                            if (GetBaseName(availableType.Name).Equals(sourceBaseName, StringComparison.OrdinalIgnoreCase))
                             {
-                                matchedTarget = availType;
+                                matchedTarget = availableType;
                                 break;
                             }
                         }
@@ -781,7 +781,7 @@ namespace Synthetic.RevitDOM.Operations.Merge
                     mapping.TargetType = matchedTarget;
 
                     // Default Rename Text: Set mapping.MigrateRenameText to mapping.SourceType.Name by default.
-                    mapping.MigrateRenameText = srcType.Name;
+                    mapping.MigrateRenameText = sourceType.Name;
 
                     UpdateParameterResolutions(mapping);
 
@@ -800,44 +800,44 @@ namespace Synthetic.RevitDOM.Operations.Merge
 
             mapping.ParameterResolutions.Clear();
 
-            var srcType = mapping.SourceType;
-            if (srcType == null) return;
+            var sourceType = mapping.SourceType;
+            if (sourceType == null) return;
 
-            var tgtType = mapping.TargetType;
-            if (tgtType == null)
+            var targetType = mapping.TargetType;
+            if (targetType == null)
             {
                 // Fallback: If no target type is selected/available, load only source parameters with no highlights
-                foreach (var kvp in srcType.Parameters)
+                foreach (var keyValuePair in sourceType.Parameters)
                 {
-                    string paramName = kvp.Key;
-                    string srcRaw = kvp.Value;
+                    string parameterName = keyValuePair.Key;
+                    string sourceRaw = keyValuePair.Value;
 
-                    string? srcStorage = null, srcVal = null;
-                    if (!string.IsNullOrEmpty(srcRaw))
+                    string? sourceStorageType = null, sourceValueString = null;
+                    if (!string.IsNullOrEmpty(sourceRaw))
                     {
-                        int colonIndex = srcRaw.IndexOf(':');
+                        int colonIndex = sourceRaw.IndexOf(':');
                         if (colonIndex >= 0)
                         {
-                            srcStorage = srcRaw.Substring(0, colonIndex);
-                            srcVal = srcRaw.Substring(colonIndex + 1);
+                            sourceStorageType = sourceRaw.Substring(0, colonIndex);
+                            sourceValueString = sourceRaw.Substring(colonIndex + 1);
                         }
                     }
 
                     var row = new ParameterDiffRowModel
                     {
-                        ParameterName = paramName,
+                        ParameterName = parameterName,
                         IsSchemaMismatch = false,
                         HasConflict = false,
-                        WinningValueElementId = srcType.RevitTypeId,
+                        WinningValueElementId = sourceType.RevitTypeId,
                         IsInjectEnabled = false
                     };
 
-                    row.Values[srcType.RevitTypeId] = srcVal ?? string.Empty;
-                    row.ValueList = new List<string> { srcVal ?? string.Empty, string.Empty };
+                    row.Values[sourceType.RevitTypeId] = sourceValueString ?? string.Empty;
+                    row.ValueList = new List<string> { sourceValueString ?? string.Empty, string.Empty };
 
                     row.Options = new List<ParameterValueOption>
                     {
-                        new ParameterValueOption { ElementId = srcType.RevitTypeId, DisplayText = srcVal ?? string.Empty }
+                        new ParameterValueOption { ElementId = sourceType.RevitTypeId, DisplayText = sourceValueString ?? string.Empty }
                     };
 
                     mapping.ParameterResolutions.Add(row);
@@ -846,83 +846,83 @@ namespace Synthetic.RevitDOM.Operations.Merge
             }
 
             // Union of parameter names between source and target type to show all parameters
-            var allParamNames = srcType.Parameters.Keys.Union(tgtType.Parameters.Keys).ToList();
-            foreach (var paramName in allParamNames)
+            var allParameterNames = sourceType.Parameters.Keys.Union(targetType.Parameters.Keys).ToList();
+            foreach (var parameterName in allParameterNames)
             {
-                string? srcRaw = null;
-                string? tgtRaw = null;
-                srcType.Parameters.TryGetValue(paramName, out srcRaw);
-                tgtType.Parameters.TryGetValue(paramName, out tgtRaw);
+                string? sourceRaw = null;
+                string? targetRaw = null;
+                sourceType.Parameters.TryGetValue(parameterName, out sourceRaw);
+                targetType.Parameters.TryGetValue(parameterName, out targetRaw);
 
-                string? srcStorage = null, srcVal = null;
-                if (!string.IsNullOrEmpty(srcRaw))
+                string? sourceStorageType = null, sourceValueString = null;
+                if (!string.IsNullOrEmpty(sourceRaw))
                 {
-                    int colonIndex = srcRaw.IndexOf(':');
+                    int colonIndex = sourceRaw.IndexOf(':');
                     if (colonIndex >= 0)
                     {
-                        srcStorage = srcRaw.Substring(0, colonIndex);
-                        srcVal = srcRaw.Substring(colonIndex + 1);
+                        sourceStorageType = sourceRaw.Substring(0, colonIndex);
+                        sourceValueString = sourceRaw.Substring(colonIndex + 1);
                     }
                 }
 
-                string? tgtStorage = null, tgtVal = null;
-                if (!string.IsNullOrEmpty(tgtRaw))
+                string? targetStorageType = null, targetValueString = null;
+                if (!string.IsNullOrEmpty(targetRaw))
                 {
-                    int colonIndex = tgtRaw.IndexOf(':');
+                    int colonIndex = targetRaw.IndexOf(':');
                     if (colonIndex >= 0)
                     {
-                        tgtStorage = tgtRaw.Substring(0, colonIndex);
-                        tgtVal = tgtRaw.Substring(colonIndex + 1);
+                        targetStorageType = targetRaw.Substring(0, colonIndex);
+                        targetValueString = targetRaw.Substring(colonIndex + 1);
                     }
                 }
 
                 bool isSchemaMismatch = false;
                 bool isInjectEnabled = false;
 
-                if (srcRaw != null && tgtRaw != null)
+                if (sourceRaw != null && targetRaw != null)
                 {
-                    if (srcStorage != null && tgtStorage != null && srcStorage != tgtStorage)
+                    if (sourceStorageType != null && targetStorageType != null && sourceStorageType != targetStorageType)
                     {
                         isSchemaMismatch = true;
                         isInjectEnabled = true;
                     }
                 }
-                else if (srcRaw != null) // tgtRaw == null
+                else if (sourceRaw != null) // targetRaw == null
                 {
                     isSchemaMismatch = false;
                     isInjectEnabled = true;
                 }
-                else if (tgtRaw != null) // srcRaw == null
+                else if (targetRaw != null) // sourceRaw == null
                 {
                     isSchemaMismatch = false;
                     isInjectEnabled = false;
                 }
 
-                bool hasConflict = (srcRaw != null && tgtRaw != null) && (srcVal != tgtVal) && !isSchemaMismatch;
+                bool hasConflict = (sourceRaw != null && targetRaw != null) && (sourceValueString != targetValueString) && !isSchemaMismatch;
 
                 var row = new ParameterDiffRowModel
                 {
-                    ParameterName = paramName,
+                    ParameterName = parameterName,
                     IsSchemaMismatch = isSchemaMismatch,
                     HasConflict = hasConflict,
-                    WinningValueElementId = (mapping.RecommendedAction == RecommendedAction.Merge) ? tgtType.RevitTypeId : srcType.RevitTypeId,
+                    WinningValueElementId = (mapping.RecommendedAction == RecommendedAction.Merge) ? targetType.RevitTypeId : sourceType.RevitTypeId,
                     IsInjectEnabled = isInjectEnabled
                 };
 
-                row.Values[srcType.RevitTypeId] = srcVal ?? string.Empty;
-                row.Values[tgtType.RevitTypeId] = tgtVal ?? string.Empty;
+                row.Values[sourceType.RevitTypeId] = sourceValueString ?? string.Empty;
+                row.Values[targetType.RevitTypeId] = targetValueString ?? string.Empty;
 
                 // If Migrate or Exclude is selected, then the Primary/Target family's parameter value column should show empty
-                string primaryValue = (mapping.RecommendedAction == RecommendedAction.Merge) ? (tgtVal ?? string.Empty) : string.Empty;
-                row.ValueList = new List<string> { srcVal ?? string.Empty, primaryValue };
+                string primaryValue = (mapping.RecommendedAction == RecommendedAction.Merge) ? (targetValueString ?? string.Empty) : string.Empty;
+                row.ValueList = new List<string> { sourceValueString ?? string.Empty, primaryValue };
 
                 row.Options = new List<ParameterValueOption>
                 {
-                    new ParameterValueOption { ElementId = srcType.RevitTypeId, DisplayText = srcVal ?? string.Empty }
+                    new ParameterValueOption { ElementId = sourceType.RevitTypeId, DisplayText = sourceValueString ?? string.Empty }
                 };
                 if (mapping.RecommendedAction == RecommendedAction.Merge)
                 {
-                    row.Options.Add(new ParameterValueOption { ElementId = tgtType.RevitTypeId, DisplayText = tgtVal ?? string.Empty });
+                    row.Options.Add(new ParameterValueOption { ElementId = targetType.RevitTypeId, DisplayText = targetValueString ?? string.Empty });
                 }
 
                 mapping.ParameterResolutions.Add(row);
