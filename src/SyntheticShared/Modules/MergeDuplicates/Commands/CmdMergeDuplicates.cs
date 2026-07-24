@@ -1,3 +1,4 @@
+using Synthetic.Modules.MergeDuplicates.Services;
 using System;
 using System.Threading;
 using Autodesk.Revit.Attributes;
@@ -43,7 +44,7 @@ namespace Synthetic.Modules.MergeDuplicates.Commands
                 }
 
                 // 1. Run Fast Scan
-                var clusters = MergeAnalysisEngine.RunFastScan(doc, CancellationToken.None);
+                var clusters = RevitMergeDataCollector.RunFastScan(doc, CancellationToken.None);
 
                 if (clusters.Count == 0)
                 {

@@ -1,3 +1,4 @@
+using Synthetic.Modules.MergeDuplicates.Services;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -322,7 +323,7 @@ namespace SyntheticTests
 
                     // 4. Run Fast Scan
                     var token = CancellationToken.None;
-                    var clusters = MergeAnalysisEngine.RunFastScan(doc, token);
+                    var clusters = RevitMergeDataCollector.RunFastScan(doc, token);
                     foreach (var c in clusters)
                     {
                         app.WriteJournalComment($"[TEST_CLUSTER_DEBUG] Cluster: {c.ClusterName}", true);
@@ -445,7 +446,7 @@ namespace SyntheticTests
 
                     // 4. Run Scan & Analyze
                     var token = CancellationToken.None;
-                    var clusters = MergeAnalysisEngine.RunFastScan(doc, token);
+                    var clusters = RevitMergeDataCollector.RunFastScan(doc, token);
                     foreach (var c in clusters)
                     {
                         app.WriteJournalComment($"[TEST_CLUSTER_DEBUG] Cluster: {c.ClusterName}", true);
@@ -525,7 +526,7 @@ namespace SyntheticTests
 
                     // 4. Run Scan
                     var token = CancellationToken.None;
-                    var clusters = MergeAnalysisEngine.RunFastScan(doc, token);
+                    var clusters = RevitMergeDataCollector.RunFastScan(doc, token);
                     foreach (var c in clusters)
                     {
                         app.WriteJournalComment($"[TEST_CLUSTER_DEBUG] Cluster: {c.ClusterName}", true);
@@ -658,7 +659,7 @@ namespace SyntheticTests
                     ExportPocoSnapshot(groupTypes, "test_duplicate_groups.json");
 
                     var token = CancellationToken.None;
-                    var clusters = MergeAnalysisEngine.RunFastScan(doc, token);
+                    var clusters = RevitMergeDataCollector.RunFastScan(doc, token);
                     var targetCluster = clusters.FirstOrDefault(c => c.ClusterName.Contains("TestGroup"));
                     Assert.IsNotNull(targetCluster, "MergeAnalysisEngine should detect the duplicate group cluster.");
 
@@ -790,7 +791,7 @@ namespace SyntheticTests
                     tg.Start();
 
                     var token = CancellationToken.None;
-                    var clusters = MergeAnalysisEngine.RunFastScan(doc, token);
+                    var clusters = RevitMergeDataCollector.RunFastScan(doc, token);
                     var targetCluster = clusters.FirstOrDefault(c => c.ClusterName.Contains("TestGroupParam"));
                     Assert.IsNotNull(targetCluster, "MergeAnalysisEngine should detect the duplicate group cluster.");
 
@@ -846,6 +847,48 @@ namespace SyntheticTests
             }
         }
 
-        #endregion
+        
+        [Test]
+        public void TestRevitMergeDataCollectorConvertToPoco()
+        {
+            var app = _uiapp.Application;
+            string tempFilePath = Path.Combine(Path.GetTempPath(), $"TestMergeDataCollector_{Guid.NewGuid()}.rvt");
+            Document doc = app.NewProjectDocument(UnitSystem.Imperial);
+            doc.SaveAs(tempFilePath);
+
+            try
+            {
+                using (var tr = new Transaction(doc, "Setup Test Elements"))
+                {
+                    tr.Start();
+
+                    // Create a dummy wall type or family element
+                    var collector = new FilteredElementCollector(doc).OfClass(typeof(WallType));
+                    var wallType = collector.FirstElement() as WallType;
+                    Assert.IsNotNull(wallType, "Document should contain at least one WallType.");
+
+                    // Convert to POCO via RevitMergeDataCollector
+                    ElementModel poco = RevitMergeDataCollector.ConvertToPoco(doc, wallType);
+                    Assert.IsNotNull(poco, "RevitMergeDataCollector.ConvertToPoco should return non-null ElementModel.");
+                    Assert.AreEqual(wallType.Name, poco.Name, "POCO name should match element name.");
+
+                    tr.Commit();
+                }
+            }
+            finally
+            {
+                doc.Close(false);
+                try
+                {
+                    if (File.Exists(tempFilePath))
+                    {
+                        File.Delete(tempFilePath);
+                    }
+                }
+                catch {}
+            }
+        }
+
+#endregion
     }
 }

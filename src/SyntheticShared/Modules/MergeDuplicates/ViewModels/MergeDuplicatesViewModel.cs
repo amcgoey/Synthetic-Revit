@@ -1,3 +1,4 @@
+using Synthetic.Modules.MergeDuplicates.Services;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -424,38 +425,7 @@ namespace Synthetic.Modules.MergeDuplicates.ViewModels
                 var candidateList = new List<Tuple<string, ElementId>>();
                 var existingIds = new HashSet<ElementId>(cluster.Items.Where(i => i.RevitElementId != null).Select(i => i.RevitElementId!.ToElementId()));
 
-                // Use ElementMulticlassFilter to collect Families, GroupTypes, and AssemblyTypes
-                var classes = new List<Type> { typeof(Family), typeof(GroupType), typeof(AssemblyType) };
-                var filter = new ElementMulticlassFilter(classes);
-                var collector = new FilteredElementCollector(Document!).WherePasses(filter);
-
-                foreach (var elem in collector)
-                {
-                    if (existingIds.Contains(elem.Id)) continue;
-                    if (elem is Family fam && fam.IsInPlace) continue;
-
-                    string cat = MergeAnalysisEngine.GetElementCategoryName(Document!, elem);
-                    if (cat.Equals(categoryName, StringComparison.OrdinalIgnoreCase))
-                    {
-                        candidateList.Add(Tuple.Create($"{elem.Name} ({elem.GetType().Name})", elem.Id));
-                    }
-                }
-
-                // Also collect generic ElementTypes if the category matches
-                var elementTypes = new FilteredElementCollector(Document!)
-                    .WherePasses(new ElementIsElementTypeFilter(false)) // Types
-                    .Cast<ElementType>();
-                foreach (var et in elementTypes)
-                {
-                    if (existingIds.Contains(et.Id)) continue;
-                    if (et is GroupType || et is AssemblyType || et is FamilySymbol) continue; // Exclude since already handled or nested in families
-
-                    string cat = MergeAnalysisEngine.GetElementCategoryName(Document!, et);
-                    if (cat.Equals(categoryName, StringComparison.OrdinalIgnoreCase))
-                    {
-                        candidateList.Add(Tuple.Create($"{et.Name} ({et.GetType().Name})", et.Id));
-                    }
-                }
+                candidateList = RevitMergeDataCollector.GetCandidateStragglers(Document!, categoryName, existingIds);
 
                 if (candidateList.Count == 0)
                 {
@@ -485,7 +455,7 @@ namespace Synthetic.Modules.MergeDuplicates.ViewModels
                         if (elem == null) continue;
 
                         // Convert to POCO first and use the shared engine to create the item model
-                        var elementModel = MergeAnalysisEngine.ConvertToPoco(Document!, elem);
+                        var elementModel = RevitMergeDataCollector.ConvertToPoco(Document!, elem);
                         var item = MergeAnalysisEngine.CreateItemFromModel(elementModel, categoryName!);
 
                         cluster.Items.Add(item);

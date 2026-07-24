@@ -34,40 +34,6 @@ namespace Synthetic.RevitDOM.Operations.Merge
             var match = Regex.Match(name, @"^(.*?)(?:[\s_#\-\.]+)?\d+$");
             return match.Success ? match.Groups[1].Value.Trim() : name.Trim();
         }
-
-        /// <summary>
-        /// Gets a string representation of a Parameter's storage type and value.
-        /// </summary>
-        /// <param name="parameter">The Parameter to read.</param>
-        /// <param name="doc">The active Revit document to resolve element references.</param>
-        /// <returns>A string representation of the parameter value.</returns>
-        public static string GetParameterValueString(Parameter parameter, Document? doc = null)
-        {
-            if (parameter == null) return string.Empty;
-            string storageType = parameter.StorageType.ToString();
-            string valueString = string.Empty;
-            switch (parameter.StorageType)
-            {
-                case StorageType.Double:
-                    valueString = parameter.AsDouble().ToString();
-                    break;
-                case StorageType.Integer:
-                    valueString = parameter.AsInteger().ToString();
-                    break;
-                case StorageType.String:
-                    valueString = parameter.AsString() ?? string.Empty;
-                    break;
-                case StorageType.ElementId:
-                    ElementId elementId = parameter.AsElementId();
-                    if (elementId != null && elementId != ElementId.InvalidElementId)
-                    {
-                        if (doc != null)
-                        {
-                            Element element = doc.GetElement(elementId);
-                            if (element != null)
-                            {
-                                valueString = element.Name;
-                            }
                             else
                             {
 #if REVIT2022 || REVIT2023
@@ -107,28 +73,6 @@ namespace Synthetic.RevitDOM.Operations.Merge
                    name.Equals("Type", StringComparison.OrdinalIgnoreCase) ||
                    name.Equals("Type Mark", StringComparison.OrdinalIgnoreCase);
         }
-
-        /// <summary>
-        /// Gets the category name of the specified Revit element.
-        /// </summary>
-        /// <param name="doc">The active Revit document.</param>
-        /// <param name="element">The element whose category name should be retrieved.</param>
-        /// <returns>The name of the category, or a default name if category is not found.</returns>
-        public static string GetElementCategoryName(Document doc, Element element)
-        {
-            if (element == null) return "Unknown Category";
-
-            if (element is Family family)
-            {
-                if (family.FamilyCategory != null) return family.FamilyCategory.Name;
-                var symbolIds = family.GetFamilySymbolIds();
-                if (symbolIds != null && symbolIds.Count > 0)
-                {
-                    var firstSymbol = doc.GetElement(symbolIds.First()) as FamilySymbol;
-                    if (firstSymbol?.Category != null)
-                    {
-                        return firstSymbol.Category.Name;
-                    }
                 }
                 return "Unknown Category";
             }
@@ -160,35 +104,6 @@ namespace Synthetic.RevitDOM.Operations.Merge
 
             return element.Category?.Name ?? "Unknown Category";
         }
-
-        /// <summary>
-        /// Retrieves the target mergeable element (e.g. Family, GroupType, AssemblyType) from a given ElementId.
-        /// </summary>
-        /// <param name="doc">The active Revit document.</param>
-        /// <param name="id">The ElementId to resolve.</param>
-        /// <returns>The resolved target element, or null if not found.</returns>
-        public static Element? GetTargetElement(Document doc, ElementId elementId)
-        {
-            if (elementId == null || elementId == ElementId.InvalidElementId) return null;
-            Element element = doc.GetElement(elementId);
-            if (element == null) return null;
-
-            // 1. Direct checks (typically selected in Project Browser or direct types)
-            if (element is Family) return element;
-            if (element is GroupType) return element;
-            if (element is AssemblyType) return element;
-            if (element is FamilySymbol patternFamilySymbol) return patternFamilySymbol.Family;
-            if (element is ElementType elementType) return elementType;
-
-            // 2. Instance checks (typically selected in Canvas)
-            if (element is FamilyInstance familyInstance)
-            {
-                var symbolId = familyInstance.GetTypeId();
-                if (symbolId != null && symbolId != ElementId.InvalidElementId)
-                {
-                    var familySymbolObj = doc.GetElement(symbolId) as FamilySymbol;
-                    return familySymbolObj?.Family;
-                }
             }
             if (element is Autodesk.Revit.DB.Group group)
             {
@@ -369,25 +284,6 @@ namespace Synthetic.RevitDOM.Operations.Merge
 
             return item;
         }
-
-        public static ElementModel ConvertToPoco(Document doc, Element element)
-        {
-            var model = element.ToModel(false);
-            
-            // Get instances to calculate count, location, bounding box
-            var instances = new List<Element>();
-            if (element is Family loadableFamily)
-            {
-                var symbolIds = loadableFamily.GetFamilySymbolIds();
-                if (symbolIds != null && symbolIds.Count > 0)
-                {
-                    var symbolIdSet = new HashSet<ElementId>(symbolIds);
-                    var familyInstances = new FilteredElementCollector(doc)
-                        .OfClass(typeof(FamilyInstance))
-                        .Where(instance => symbolIdSet.Contains(instance.GetTypeId()))
-                        .ToList();
-                    instances.AddRange(familyInstances);
-                }
             }
             else if (element is GroupType groupType)
             {
@@ -458,32 +354,6 @@ namespace Synthetic.RevitDOM.Operations.Merge
 
             return model;
         }
-
-        /// <summary>
-        /// Scans the Revit document quickly for duplicate elements.
-        /// </summary>
-        /// <param name="doc">The active Revit document.</param>
-        /// <param name="token">A cancellation token to monitor for cancellation requests.</param>
-        /// <returns>A collection of duplicate cluster models found during the scan.</returns>
-        public static ObservableCollection<DuplicateClusterModel> RunFastScan(Document doc, CancellationToken token)
-        {
-            token.ThrowIfCancellationRequested();
-            var elements = new List<Element>();
-
-            // Collect Family, GroupType, and AssemblyType elements using ElementMulticlassFilter
-            var classes = new List<Type> { typeof(Family), typeof(GroupType), typeof(AssemblyType) };
-            var filter = new ElementMulticlassFilter(classes);
-            var collector = new FilteredElementCollector(doc).WherePasses(filter);
-
-            foreach (var element in collector)
-            {
-                token.ThrowIfCancellationRequested();
-                if (element is Family family)
-                {
-                    if (!family.IsInPlace)
-                    {
-                        elements.Add(family);
-                    }
                 }
                 else
                 {
@@ -500,30 +370,6 @@ namespace Synthetic.RevitDOM.Operations.Merge
 
             return BuildClustersFromModels(models, token);
         }
-
-        public static ObservableCollection<DuplicateClusterModel> RunTargetedScan(Document doc, ICollection<ElementId> selectedIds, CancellationToken token)
-        {
-            token.ThrowIfCancellationRequested();
-            var clusters = new ObservableCollection<DuplicateClusterModel>();
-
-            if (selectedIds == null || selectedIds.Count == 0) return clusters;
-
-            var selectedCategories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var selectedBaseNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (var elementId in selectedIds)
-            {
-                token.ThrowIfCancellationRequested();
-                var originalElement = doc.GetElement(elementId);
-                if (originalElement == null) continue;
-
-                var target = GetTargetElement(doc, elementId);
-                if (target == null) continue;
-
-                string categoryName = GetElementCategoryName(doc, originalElement);
-                selectedCategories.Add(categoryName);
-                selectedBaseNames.Add(GetBaseName(target.Name));
-            }
 
             if (selectedCategories.Count == 0 || selectedBaseNames.Count == 0)
             {
