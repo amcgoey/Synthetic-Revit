@@ -198,20 +198,12 @@ namespace Synthetic.Modules.MergeDuplicates.Services
             }
             else if (elem is GroupType gt)
             {
-                var groupInstances = new FilteredElementCollector(doc)
-                    .OfClass(typeof(Autodesk.Revit.DB.Group))
-                    .WhereElementIsNotElementType()
-                    .Where(g => g.GetTypeId() == gt.Id)
-                    .ToList();
+                var groupInstances = Select.GetInstancesFromElemType(gt, doc).ToList();
                 instances.AddRange(groupInstances);
             }
             else if (elem is AssemblyType at)
             {
-                var assemblyInstances = new FilteredElementCollector(doc)
-                    .OfClass(typeof(AssemblyInstance))
-                    .WhereElementIsNotElementType()
-                    .Where(a => a.GetTypeId() == at.Id)
-                    .ToList();
+                var assemblyInstances = Select.GetInstancesFromElemType(at, doc).ToList();
                 instances.AddRange(assemblyInstances);
             }
             else if (elem is ElementType et)
@@ -273,11 +265,10 @@ namespace Synthetic.Modules.MergeDuplicates.Services
             token.ThrowIfCancellationRequested();
             var elements = new List<Element>();
 
-            // Collect Family, GroupType, and AssemblyType elements using ElementMulticlassFilter and WhereIsElementType
+            // Collect Family, GroupType, and AssemblyType elements using ElementMulticlassFilter
             var classes = new List<Type> { typeof(Family), typeof(GroupType), typeof(AssemblyType) };
             var filter = new ElementMulticlassFilter(classes);
             var collector = new FilteredElementCollector(doc)
-                .WhereIsElementType()
                 .WherePasses(filter);
 
             foreach (var elem in collector)
@@ -344,7 +335,6 @@ namespace Synthetic.Modules.MergeDuplicates.Services
             var classes = new List<Type> { typeof(Family), typeof(GroupType), typeof(AssemblyType) };
             var filter = new ElementMulticlassFilter(classes);
             var collector = new FilteredElementCollector(doc)
-                .WhereIsElementType()
                 .WherePasses(filter);
 
             foreach (var elem in collector)
@@ -380,7 +370,7 @@ namespace Synthetic.Modules.MergeDuplicates.Services
                 {
                     var typeClass = target.GetType();
                     var matchingTypes = new FilteredElementCollector(doc)
-                        .WhereIsElementType()
+                        .WhereElementIsElementType()
                         .OfClass(typeClass)
                         .Cast<ElementType>();
                     foreach (var et in matchingTypes)
@@ -419,7 +409,6 @@ namespace Synthetic.Modules.MergeDuplicates.Services
             var classes = new List<Type> { typeof(Family), typeof(GroupType), typeof(AssemblyType) };
             var filter = new ElementMulticlassFilter(classes);
             var collector = new FilteredElementCollector(doc)
-                .WhereIsElementType()
                 .WherePasses(filter);
 
             foreach (var elem in collector)
@@ -436,7 +425,7 @@ namespace Synthetic.Modules.MergeDuplicates.Services
 
             // Also collect generic ElementTypes if the category matches
             var elementTypes = new FilteredElementCollector(doc)
-                .WhereIsElementType()
+                .WhereElementIsElementType()
                 .Cast<ElementType>();
             foreach (var et in elementTypes)
             {
@@ -454,3 +443,5 @@ namespace Synthetic.Modules.MergeDuplicates.Services
         }
     }
 }
+
+
