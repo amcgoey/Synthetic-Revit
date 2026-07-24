@@ -1,3 +1,4 @@
+using Synthetic.Shared.RevitAPI;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -215,15 +216,7 @@ namespace Synthetic.Modules.MergeDuplicates.Services
             }
             else if (elem is ElementType et)
             {
-                FilteredElementCollector collector = new FilteredElementCollector(doc)
-                    .WhereElementIsNotElementType();
-                if (et.Category != null)
-                {
-                    collector = collector.OfCategoryId(et.Category.Id);
-                }
-                var typeInstances = collector
-                    .Where(x => x.GetTypeId() == et.Id)
-                    .ToList();
+                var typeInstances = Select.GetInstancesFromElemType(et, doc).ToList();
                 instances.AddRange(typeInstances);
             }
 
