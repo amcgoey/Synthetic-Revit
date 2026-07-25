@@ -8,6 +8,7 @@ using Newtonsoft.Json;
 
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Operations.Merge;
+using Synthetic.RevitDOM.Utilities;
 
 
 namespace SyntheticTests
@@ -34,14 +35,14 @@ namespace SyntheticTests
         [Test]
         public void Test_GetBaseName_StripsTrailingDigitsAndSeparators()
         {
-            Assert.AreEqual("MyFamily", MergeAnalysisEngine.GetBaseName("MyFamily_1"));
-            Assert.AreEqual("MyFamily", MergeAnalysisEngine.GetBaseName("MyFamily-2"));
-            Assert.AreEqual("MyFamily", MergeAnalysisEngine.GetBaseName("MyFamily 3"));
-            Assert.AreEqual("MyFamily", MergeAnalysisEngine.GetBaseName("MyFamily#4"));
-            Assert.AreEqual("MyFamily", MergeAnalysisEngine.GetBaseName("MyFamily.5"));
-            Assert.AreEqual("MyFamily", MergeAnalysisEngine.GetBaseName("MyFamily"));
-            Assert.AreEqual("", MergeAnalysisEngine.GetBaseName(""));
-            Assert.AreEqual("", MergeAnalysisEngine.GetBaseName(null));
+            Assert.AreEqual("MyFamily", NamingUtils.GetBaseName("MyFamily_1"));
+            Assert.AreEqual("MyFamily", NamingUtils.GetBaseName("MyFamily-2"));
+            Assert.AreEqual("MyFamily", NamingUtils.GetBaseName("MyFamily 3"));
+            Assert.AreEqual("MyFamily", NamingUtils.GetBaseName("MyFamily#4"));
+            Assert.AreEqual("MyFamily", NamingUtils.GetBaseName("MyFamily.5"));
+            Assert.AreEqual("MyFamily", NamingUtils.GetBaseName("MyFamily"));
+            Assert.AreEqual("", NamingUtils.GetBaseName(""));
+            Assert.AreEqual("", NamingUtils.GetBaseName(null));
         }
 
         [Test]

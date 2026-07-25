@@ -6,13 +6,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 
 using Synthetic.RevitDOM.Models;
-using Synthetic.RevitDOM.Translation;
-using Synthetic.RevitDOM.Operations;
-using Synthetic.RevitDOM;
-using Synthetic.Infrastructure.Serialization;
-using Synthetic.Modules.MergeDuplicates.Handlers;
-using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Shared.RevitAPI;
+using Synthetic.RevitDOM.Utilities;
 
 namespace Synthetic.RevitDOM.Operations.Merge
 {
@@ -21,18 +15,6 @@ namespace Synthetic.RevitDOM.Operations.Merge
     /// </summary>
     public static class MergeAnalysisEngine
     {
-        /// <summary>
-        /// Retrieves the base name from a name string by stripping optional separators and trailing numbers.
-        /// </summary>
-        /// <param name="name">The name to process.</param>
-        /// <returns>The base name string without trailing numbers or separators.</returns>
-        public static string GetBaseName(string name)
-        {
-            if (string.IsNullOrEmpty(name)) return string.Empty;
-            // Match base name and strip optional separator (space, underscore, hyphen, dot, hash) followed by trailing numbers
-            var match = Regex.Match(name, @"^(.*?)(?:[\s_#\-\.]+)?\d+$");
-            return match.Success ? match.Groups[1].Value.Trim() : name.Trim();
-        }
 
         /// <summary>
         /// Determines if the specified parameter name corresponds to an identity parameter.
@@ -70,9 +52,8 @@ namespace Synthetic.RevitDOM.Operations.Merge
                 token.ThrowIfCancellationRequested();
                 string categoryName = categoryGroup.Key;
 
-                // Group by base name within category
                 var groupedByBaseName = categoryGroup
-                    .GroupBy(element => GetBaseName(element.Name), StringComparer.OrdinalIgnoreCase);
+                    .GroupBy(element => NamingUtils.GetBaseName(element.Name), StringComparer.OrdinalIgnoreCase);
 
                 foreach (var baseGroup in groupedByBaseName)
                 {
@@ -366,12 +347,12 @@ namespace Synthetic.RevitDOM.Operations.Merge
                     // Set mapping.TargetType to the first type in the list that matches the base name.
                     // If no base names match, fallback to setting mapping.TargetType to AvailablePrimaryTypes.FirstOrDefault().
                     DuplicateTypeModel? matchedTarget = null;
-                    string sourceBaseName = GetBaseName(sourceType.Name);
+                    string sourceBaseName = NamingUtils.GetBaseName(sourceType.Name);
                     if (primaryTypes != null)
                     {
                         foreach (var availableType in mapping.AvailablePrimaryTypes)
                         {
-                            if (GetBaseName(availableType.Name).Equals(sourceBaseName, StringComparison.OrdinalIgnoreCase))
+                            if (NamingUtils.GetBaseName(availableType.Name).Equals(sourceBaseName, StringComparison.OrdinalIgnoreCase))
                             {
                                 matchedTarget = availableType;
                                 break;
