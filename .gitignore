@@ -336,7 +336,7 @@ build/Sync-NotebookLM.ps1
 **/__pycache__/
 *.pyc
 
-tests/test_models/INC Standards - Assemblies & Details.rvt
+tests/test_models/INC Standards - Assemblies & Details*.rvt
 
 # Documentation
 docs/issues/

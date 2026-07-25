@@ -18,6 +18,7 @@
     <PackageReference Include="NUnit" Version="3.13.3" />
     <PackageReference Include="ricaun.RevitTest.TestAdapter" Version="1.11.1" />
     <PackageReference Include="Revit_All_Main_Versions_API_x64" Version="2024.2.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
 
   <ItemGroup>
@@ -27,6 +28,7 @@
   <ItemGroup>
     <AssemblyMetadata Include="NUnit.Version" Value="2024" />
     <AssemblyMetadata Include="ricaun.RevitTest.Timeout" Value="600000" />
+    <AssemblyMetadata Include="NUnit.Close" Value="true" />
   </ItemGroup>
 
   <Import Project="..\SyntheticTests.Shared\SyntheticTests.Shared.projitems" Label="Shared" />

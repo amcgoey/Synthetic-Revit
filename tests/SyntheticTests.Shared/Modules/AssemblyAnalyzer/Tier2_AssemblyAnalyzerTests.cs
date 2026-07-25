@@ -27,31 +27,57 @@ namespace SyntheticTests
             _uiapp = uiapp;
 
             string projectRoot = GetProjectRoot();
-            string modelPathStr = Path.Combine(projectRoot, "tests", "test_models", "INC Standards - Assemblies & Details.rvt");
-            if (!File.Exists(modelPathStr))
+            
+            // Resolve target Revit version suffix
+            string assemblyName = System.Reflection.Assembly.GetExecutingAssembly().GetName().Name ?? "";
+            string revitVersion = assemblyName.Replace("SyntheticTests", ""); // e.g. "2026", "2024", etc.
+            if (string.IsNullOrEmpty(revitVersion))
             {
-                Console.WriteLine($"[WARN] AssemblyAnalyzer test model not found: {modelPathStr}. Tests will be skipped.");
-                return;
+                revitVersion = "Shared";
             }
+            
+            string modelFolder = Path.Combine(projectRoot, "tests", "test_models");
+            string originalModelPath = Path.Combine(modelFolder, "INC Standards - Assemblies & Details.rvt");
+            string versionModelPath = Path.Combine(modelFolder, $"INC Standards - Assemblies & Details{revitVersion}.rvt");
 
             var app = _uiapp.Application;
-            ModelPath modelPath = ModelPathUtils.ConvertUserVisiblePathToModelPath(modelPathStr);
-            // Use DiscardWorksets instead of PreserveWorksets: avoids opening a full
-            // worksharing session, eliminating the ForgeConnectionTracker ArchiveException
-            // and the double-close crash on Revit shutdown.
-            OpenOptions openOptions = new OpenOptions
-            {
-                DetachFromCentralOption = DetachFromCentralOption.DetachAndDiscardWorksets
-            };
-
             app.FailuresProcessing += ResolveWarnings;
+
             try
             {
-                _sharedDoc = app.OpenDocumentFile(modelPath, openOptions);
+                OpenOptions openOptions = new OpenOptions
+                {
+                    DetachFromCentralOption = DetachFromCentralOption.DetachAndDiscardWorksets
+                };
+
+                if (File.Exists(versionModelPath))
+                {
+                    ModelPath modelPath = ModelPathUtils.ConvertUserVisiblePathToModelPath(versionModelPath);
+                    _sharedDoc = app.OpenDocumentFile(modelPath, openOptions);
+                }
+                else
+                {
+                    if (!File.Exists(originalModelPath))
+                    {
+                        Console.WriteLine($"[WARN] AssemblyAnalyzer base test model not found: {originalModelPath}. Tests will be skipped.");
+                        return;
+                    }
+                    
+                    Console.WriteLine($"[INFO] Upgrading base model to Revit {revitVersion} and saving to: {versionModelPath}...");
+                    ModelPath modelPath = ModelPathUtils.ConvertUserVisiblePathToModelPath(originalModelPath);
+                    _sharedDoc = app.OpenDocumentFile(modelPath, openOptions);
+                    
+                    if (_sharedDoc != null)
+                    {
+                        SaveAsOptions saveOptions = new SaveAsOptions { OverwriteExistingFile = true };
+                        _sharedDoc.SaveAs(versionModelPath, saveOptions);
+                        Console.WriteLine("[INFO] Upgraded model saved successfully.");
+                    }
+                }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[ERROR] Failed to open shared document in OneTimeSetUp: {ex.Message}");
+                Console.WriteLine($"[ERROR] Failed to open/upgrade shared document in OneTimeSetUp: {ex.Message}");
                 _sharedDoc = null;
             }
         }
@@ -1076,6 +1102,12 @@ namespace SyntheticTests
 
         private static string GetProjectRoot()
         {
+            string envPath = Environment.GetEnvironmentVariable("SYNTHETIC_PROJECT_ROOT");
+            if (!string.IsNullOrEmpty(envPath) && Directory.Exists(envPath))
+            {
+                return envPath;
+            }
+
             string dir = TestContext.CurrentContext.TestDirectory;
             while (dir != null && !Directory.Exists(Path.Combine(dir, "tests")))
             {

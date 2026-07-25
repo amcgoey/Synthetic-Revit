@@ -28,6 +28,7 @@
   <ItemGroup>
     <AssemblyMetadata Include="NUnit.Version" Value="2026" />
     <AssemblyMetadata Include="ricaun.RevitTest.Timeout" Value="600000" />
+    <AssemblyMetadata Include="NUnit.Close" Value="true" />
   </ItemGroup>
 
   <Import Project="..\SyntheticTests.Shared\SyntheticTests.Shared.projitems" Label="Shared" />

@@ -5,9 +5,70 @@ import glob
 import xml.etree.ElementTree as ET
 import re
 import winreg
-
-# Import helper scripts for isolating Revit environment configurations
+import json
+import shutil
 import guid_whitelister
+
+class TempDisableThirdPartyAddins:
+    def __init__(self, version):
+        self.version = version
+        appdata = os.environ.get("AppData", os.path.expanduser("~\\AppData\\Roaming"))
+        self.json_path = os.path.join(appdata, "Autodesk", "Revit", f"Autodesk Revit {version}", "AddinsData", "AddInsSettings.json")
+        self.backup_path = self.json_path + ".bak"
+
+    def restore_addins(self):
+        if os.path.exists(self.backup_path):
+            try:
+                if os.path.exists(self.json_path):
+                    os.remove(self.json_path)
+                shutil.move(self.backup_path, self.json_path)
+                print(f"[TESTS] Restored native AddInsSettings.json for Revit {self.version}")
+            except Exception as e:
+                print(f"[WARN] Failed to restore AddInsSettings.json backup for Revit {self.version}: {e}")
+
+    def disable_addins(self):
+        if not os.path.exists(self.json_path):
+            return
+        
+        try:
+            shutil.copy2(self.json_path, self.backup_path)
+            
+            with open(self.json_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                
+            modified = False
+            if "AddInItemSettings" in data:
+                for item in data["AddInItemSettings"]:
+                    name = item.get("Name", "")
+                    vendor = item.get("Vendor", "")
+                    disabled = item.get("Disabled", False)
+                    
+                    if not disabled:
+                        if vendor == "ADSK" or vendor == "ricaun" or vendor == "net.amcgoey" or name == "Synthetic" or name == "ricaun.RevitTest.Application":
+                            continue
+                        
+                        item["Disabled"] = True
+                        modified = True
+                        print(f"[TESTS] Temporarily disabled third-party add-in: {name} (Vendor: {vendor})")
+                        
+            if modified:
+                with open(self.json_path, "w", encoding="utf-8") as f:
+                    json.dump(data, f)
+        except Exception as e:
+            print(f"[WARN] Failed to modify AddInsSettings.json for Revit {self.version}: {e}")
+            if os.path.exists(self.backup_path):
+                try:
+                    os.remove(self.backup_path)
+                except Exception:
+                    pass
+
+    def __enter__(self):
+        self.restore_addins()
+        self.disable_addins()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.restore_addins()
 
 class TempConfigureRevitAddins:
     def __init__(self, version):
@@ -44,7 +105,26 @@ def run_test_suite(target_class, target_version):
     solution_path = os.path.join(workspace_path, "src", "Synthetic.sln")
     
     os.environ["SYNTHETIC_PROJECT_ROOT"] = workspace_path
-    print("[TESTS] Bypassing solution build and restore...")
+
+    # Self-heal any previously disabled add-ins across all versions on start
+    for v in ["2023", "2024", "2025", "2026"]:
+        try:
+            TempDisableThirdPartyAddins(v).restore_addins()
+        except Exception:
+            pass
+    
+    # 1. Restore solution NuGet packages
+    print("[TESTS] Restoring solution NuGet packages...")
+    try:
+        subprocess.run(
+            ["dotnet", "restore", solution_path],
+            check=True
+        )
+    except subprocess.CalledProcessError as e:
+        print(f"[ERROR] NuGet restore failed: {e}")
+        sys.exit(1)
+
+    msbuild_path = find_msbuild()
 
     # 2. Discover test projects dynamically
     test_dir = os.path.join(workspace_path, "tests")
@@ -91,6 +171,21 @@ def run_test_suite(target_class, target_version):
     for ver, csproj_path in run_projects.items():
         is_logic = (ver.lower() == "logic")
         if is_logic:
+            print(f"[TESTS] Building logic test project with MSBuild: {msbuild_path}...")
+        else:
+            print(f"[TESTS] Building test project for Revit {ver} with MSBuild: {msbuild_path}...")
+            
+        try:
+            subprocess.run(
+                [msbuild_path, csproj_path, "/t:Build", "/p:Configuration=Debug", "/p:Platform=x64"],
+                check=True
+            )
+            print(f"[TESTS] Build succeeded for {ver}.")
+        except subprocess.CalledProcessError as e:
+            print(f"[ERROR] Build failed for {ver}: {e}")
+            sys.exit(1)
+
+        if is_logic:
             print(f"[TESTS] Executing headless NUnit tests for logic...")
         else:
             print(f"[TESTS] Executing dotnet test for Revit {ver}...")
@@ -112,22 +207,23 @@ def run_test_suite(target_class, target_version):
             # Run headless tests synchronously in the foreground
             subprocess.run(cmd, stdout=out_f, stderr=out_f)
         else:
-            with TempConfigureRevitAddins(ver) as configurer:
-                # Start dotnet test in the background
-                proc = subprocess.Popen(cmd, stdout=out_f, stderr=out_f)
-                
-                # Poll for new add-ins and wait for dotnet test to exit
-                start_time = time.time()
-                timeout = 660  # 11 min: matches 600s ricaun.RevitTest.Timeout + 60s Revit boot buffer
-                print(f"[TESTS] Waiting for Revit {ver} test execution to complete (timeout: {timeout}s)...")
-                
-                while time.time() - start_time < timeout:
-                    configurer.whitelist_existing_addins()
+            with TempDisableThirdPartyAddins(ver) as isolator:
+                with TempConfigureRevitAddins(ver) as configurer:
+                    # Start dotnet test in the background
+                    proc = subprocess.Popen(cmd, stdout=out_f, stderr=out_f)
                     
-                    # Check if dotnet test has finished
-                    if proc.poll() is not None:
-                        break
-                    time.sleep(0.5)
+                    # Poll for new add-ins and wait for dotnet test to exit
+                    start_time = time.time()
+                    timeout = 660  # 11 min: matches 600s ricaun.RevitTest.Timeout + 60s Revit boot buffer
+                    print(f"[TESTS] Waiting for Revit {ver} test execution to complete (timeout: {timeout}s)...")
+                    
+                    while time.time() - start_time < timeout:
+                        configurer.whitelist_existing_addins()
+                        
+                        # Check if dotnet test has finished
+                        if proc.poll() is not None:
+                            break
+                        time.sleep(0.5)
                 
                 # If still running after timeout, kill Revit
                 if proc.poll() is None:
