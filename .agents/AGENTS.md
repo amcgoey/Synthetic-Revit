@@ -13,3 +13,7 @@ GitHub Issues. See [issue-tracker.md](../docs/agents/issue-tracker.md).
 
 Single-context layout. See [domain.md](../docs/agents/domain.md).
 
+### File editing
+
+- **Tool constraint:** Always use direct, built-in file-editing tools (`replace_file_content`, `multi_replace_file_content`, `write_to_file`) to edit code files. Do **not** write or execute Python, PowerShell, or command-line scripts to perform search-and-replace, edit code, or update files.
+
