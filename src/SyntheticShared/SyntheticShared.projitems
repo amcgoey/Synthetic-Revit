@@ -73,6 +73,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\ParameterEngine.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\RevitDomDependencyScanner.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\StandardSerializationEngine.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Utilities\NamingUtils.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\BoundingBoxTranslator.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\BrowserOrganizationTranslator.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\CategoryGraphicOverrideTranslator.cs" />

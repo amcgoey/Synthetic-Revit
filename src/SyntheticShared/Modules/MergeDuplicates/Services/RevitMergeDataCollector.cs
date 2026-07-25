@@ -9,6 +9,7 @@ using Autodesk.Revit.DB;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations.Merge;
+using NamingUtils = Synthetic.RevitDOM.Utilities.NamingUtils;
 
 namespace Synthetic.Modules.MergeDuplicates.Services
 {
@@ -321,7 +322,7 @@ namespace Synthetic.Modules.MergeDuplicates.Services
 
                 string categoryName = GetElementCategoryName(doc, originalElem);
                 selectedCategories.Add(categoryName);
-                selectedBaseNames.Add(MergeAnalysisEngine.GetBaseName(target.Name));
+                selectedBaseNames.Add(NamingUtils.GetBaseName(target.Name));
             }
 
             if (selectedCategories.Count == 0 || selectedBaseNames.Count == 0)
@@ -344,7 +345,7 @@ namespace Synthetic.Modules.MergeDuplicates.Services
                 {
                     if (fam.IsInPlace) continue;
                     string cat = GetElementCategoryName(doc, fam);
-                    if (selectedCategories.Contains(cat) && selectedBaseNames.Contains(MergeAnalysisEngine.GetBaseName(fam.Name)))
+                    if (selectedCategories.Contains(cat) && selectedBaseNames.Contains(NamingUtils.GetBaseName(fam.Name)))
                     {
                         elements.Add(fam);
                     }
@@ -352,7 +353,7 @@ namespace Synthetic.Modules.MergeDuplicates.Services
                 else
                 {
                     string cat = GetElementCategoryName(doc, elem);
-                    if (selectedCategories.Contains(cat) && selectedBaseNames.Contains(MergeAnalysisEngine.GetBaseName(elem.Name)))
+                    if (selectedCategories.Contains(cat) && selectedBaseNames.Contains(NamingUtils.GetBaseName(elem.Name)))
                     {
                         elements.Add(elem);
                     }
@@ -377,7 +378,7 @@ namespace Synthetic.Modules.MergeDuplicates.Services
                     {
                         token.ThrowIfCancellationRequested();
                         string cat = GetElementCategoryName(doc, et);
-                        if (selectedCategories.Contains(cat) && selectedBaseNames.Contains(MergeAnalysisEngine.GetBaseName(et.Name)))
+                        if (selectedCategories.Contains(cat) && selectedBaseNames.Contains(NamingUtils.GetBaseName(et.Name)))
                         {
                             if (!elements.Any(x => x.Id == et.Id))
                             {
