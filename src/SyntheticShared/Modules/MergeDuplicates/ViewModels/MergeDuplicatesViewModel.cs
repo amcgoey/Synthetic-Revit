@@ -41,12 +41,14 @@ namespace Synthetic.Modules.MergeDuplicates.ViewModels
         private ProcessMergeEventHandler? _mergeHandler;
         private ExternalEvent? _mergeEvent;
         private System.Threading.CancellationTokenSource _cts = new System.Threading.CancellationTokenSource();
+        private readonly IUserPromptService _userPromptService;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="MergeDuplicatesViewModel"/> class.
         /// </summary>
-        public MergeDuplicatesViewModel()
+        public MergeDuplicatesViewModel(IUserPromptService? userPromptService = null)
         {
+            _userPromptService = userPromptService ?? new WindowsUserPromptService();
             _scannedClusters = new ObservableCollection<DuplicateClusterModel>();
             _queueVM = new MergeQueueViewModel(cluster =>
             {
@@ -190,14 +192,15 @@ namespace Synthetic.Modules.MergeDuplicates.ViewModels
 
         private void ProcessAndLoadClusters(IEnumerable<DuplicateClusterModel> clusters, CancellationToken token)
         {
-            ScannedClusters.Clear();
+            var processedList = new List<DuplicateClusterModel>();
             foreach (var cluster in clusters)
             {
                 token.ThrowIfCancellationRequested();
                 MergeAnalysisEngine.RunDeepScan(cluster, token);
                 MergeAnalysisEngine.GenerateRecommendations(cluster);
+                processedList.Add(cluster);
             }
-            ScannedClusters = new ObservableCollection<DuplicateClusterModel>(clusters);
+            ScannedClusters = new ObservableCollection<DuplicateClusterModel>(processedList);
         }
 
         private void ExecuteScanModel(object parameter)
@@ -215,7 +218,7 @@ namespace Synthetic.Modules.MergeDuplicates.ViewModels
             }
             catch (Exception ex)
             {
-                Autodesk.Revit.UI.TaskDialog.Show("Scan Model Error", ex.Message);
+                _userPromptService.ShowMessage(ex.Message, "Scan Model Error");
             }
         }
 
@@ -225,7 +228,14 @@ namespace Synthetic.Modules.MergeDuplicates.ViewModels
 
             try
             {
-                var clusters = RevitMergeDataCollector.RunTargetedScan(Document, _cts.Token);
+                var uidoc = new Autodesk.Revit.UI.UIDocument(Document);
+                var selectedIds = uidoc.Selection.GetElementIds();
+                if (selectedIds == null || selectedIds.Count == 0)
+                {
+                    _userPromptService.ShowMessage("Please select one or more elements in the Revit document first.", "Load Selection");
+                    return;
+                }
+                var clusters = RevitMergeDataCollector.RunTargetedScan(Document, selectedIds, _cts.Token);
                 ProcessAndLoadClusters(clusters, _cts.Token);
             }
             catch (OperationCanceledException)
@@ -234,7 +244,7 @@ namespace Synthetic.Modules.MergeDuplicates.ViewModels
             }
             catch (Exception ex)
             {
-                Autodesk.Revit.UI.TaskDialog.Show("Load Selection Error", ex.Message);
+                _userPromptService.ShowMessage(ex.Message, "Load Selection Error");
             }
         }
 
@@ -316,7 +326,7 @@ namespace Synthetic.Modules.MergeDuplicates.ViewModels
 
             if (targetClusterNames.Count == 0)
             {
-                Autodesk.Revit.UI.TaskDialog.Show("Move Item", "There are no other clusters available to move this item to.");
+                _userPromptService.ShowMessage("There are no other clusters available to move this item to.", "Move Item");
                 return;
             }
 
@@ -413,7 +423,7 @@ namespace Synthetic.Modules.MergeDuplicates.ViewModels
         {
             if (QueueVM == null || QueueVM.QueuedClusters.Count == 0)
             {
-                Autodesk.Revit.UI.TaskDialog.Show("Merge Duplicates", "No merges in the queue to process.");
+                _userPromptService.ShowMessage("No merges in the queue to process.", "Merge Duplicates");
                 return;
             }
 
@@ -470,7 +480,7 @@ namespace Synthetic.Modules.MergeDuplicates.ViewModels
 
                 if (candidateList.Count == 0)
                 {
-                    Autodesk.Revit.UI.TaskDialog.Show("Add Stragglers", $"No other elements of category '{categoryName}' found in the document.");
+                    _userPromptService.ShowMessage($"No other elements of category '{categoryName}' found in the document.", "Add Stragglers");
                     return;
                 }
 
