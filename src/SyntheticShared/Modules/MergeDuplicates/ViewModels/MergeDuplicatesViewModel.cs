@@ -188,23 +188,26 @@ namespace Synthetic.Modules.MergeDuplicates.ViewModels
         /// </summary>
         public ICommand CmdAddStragglers { get; }
 
+        private void ProcessAndLoadClusters(IEnumerable<DuplicateClusterModel> clusters, CancellationToken token)
+        {
+            ScannedClusters.Clear();
+            foreach (var cluster in clusters)
+            {
+                token.ThrowIfCancellationRequested();
+                MergeAnalysisEngine.RunDeepScan(cluster, token);
+                MergeAnalysisEngine.GenerateRecommendations(cluster);
+            }
+            ScannedClusters = new ObservableCollection<DuplicateClusterModel>(clusters);
+        }
+
         private void ExecuteScanModel(object parameter)
         {
             if (Document == null) return;
 
             try
             {
-                ScannedClusters.Clear();
                 var clusters = RevitMergeDataCollector.RunFastScan(Document, _cts.Token);
-
-                foreach (var cluster in clusters)
-                {
-                    _cts.Token.ThrowIfCancellationRequested();
-                    MergeAnalysisEngine.RunDeepScan(cluster, _cts.Token);
-                    MergeAnalysisEngine.GenerateRecommendations(cluster);
-                }
-
-                ScannedClusters = new ObservableCollection<DuplicateClusterModel>(clusters);
+                ProcessAndLoadClusters(clusters, _cts.Token);
             }
             catch (OperationCanceledException)
             {
@@ -222,26 +225,8 @@ namespace Synthetic.Modules.MergeDuplicates.ViewModels
 
             try
             {
-                var uidoc = new Autodesk.Revit.UI.UIDocument(Document);
-                var selectedIds = uidoc.Selection.GetElementIds();
-
-                if (selectedIds == null || selectedIds.Count == 0)
-                {
-                    Autodesk.Revit.UI.TaskDialog.Show("Load Selection", "Please select one or more elements in the Revit document first.");
-                    return;
-                }
-
-                ScannedClusters.Clear();
-                var clusters = RevitMergeDataCollector.RunTargetedScan(Document, selectedIds, _cts.Token);
-
-                foreach (var cluster in clusters)
-                {
-                    _cts.Token.ThrowIfCancellationRequested();
-                    MergeAnalysisEngine.RunDeepScan(cluster, _cts.Token);
-                    MergeAnalysisEngine.GenerateRecommendations(cluster);
-                }
-
-                ScannedClusters = new ObservableCollection<DuplicateClusterModel>(clusters);
+                var clusters = RevitMergeDataCollector.RunTargetedScan(Document, _cts.Token);
+                ProcessAndLoadClusters(clusters, _cts.Token);
             }
             catch (OperationCanceledException)
             {

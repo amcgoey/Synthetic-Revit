@@ -5,7 +5,7 @@
     "Name": "TestGroup",
     "Aliases": null,
     "Id": 1391734,
-    "UniqueId": "40e244da-c3b2-41e2-930a-5dfda84ba080-00153c76",
+    "UniqueId": "3f655ba9-d3c3-4c9b-bbad-7159173dda71-00153c76",
     "Parameters": [
       {
         "Name": "Type Image",
@@ -59,7 +59,7 @@
       },
       {
         "Name": "Type IfcGUID",
-        "Value": "10uaJQmx91ufCANVseNfps",
+        "Value": "0$PLkfqyDCcxkjSLaNAEO7",
         "ValueElemId": null,
         "StorageType": "String",
         "Id": -1019001,
@@ -159,7 +159,7 @@
     "Name": "TestGroup1",
     "Aliases": null,
     "Id": 1391740,
-    "UniqueId": "40e244da-c3b2-41e2-930a-5dfda84ba080-00153c7c",
+    "UniqueId": "3f655ba9-d3c3-4c9b-bbad-7159173dda71-00153c7c",
     "Parameters": [
       {
         "Name": "Type Image",
@@ -213,7 +213,7 @@
       },
       {
         "Name": "Type IfcGUID",
-        "Value": "10uaJQmx91ufCANVseNfpy",
+        "Value": "0$PLkfqyDCcxkjSLaNAEOD",
         "ValueElemId": null,
         "StorageType": "String",
         "Id": -1019001,

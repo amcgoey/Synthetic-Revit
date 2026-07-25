@@ -5,6 +5,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading;
 using Autodesk.Revit.DB;
+using Autodesk.Revit.UI;
 
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
@@ -296,6 +297,23 @@ namespace Synthetic.Modules.MergeDuplicates.Services
             }
 
             return MergeAnalysisEngine.BuildClustersFromModels(models, token);
+        }
+
+        /// <summary>
+        /// Performs a targeted scan on the active selection in the Revit document.
+        /// </summary>
+        public static ObservableCollection<DuplicateClusterModel> RunTargetedScan(Document doc, CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            var uidoc = new UIDocument(doc);
+            var selectedIds = uidoc.Selection.GetElementIds();
+
+            if (selectedIds == null || selectedIds.Count == 0)
+            {
+                throw new InvalidOperationException("Please select one or more elements in the Revit document first.");
+            }
+
+            return RunTargetedScan(doc, selectedIds, token);
         }
 
         /// <summary>
