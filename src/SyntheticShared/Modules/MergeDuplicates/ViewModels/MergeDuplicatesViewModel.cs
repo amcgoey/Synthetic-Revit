@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading;
 using System.Windows.Input;
 using Newtonsoft.Json;
 using Autodesk.Revit.DB;
@@ -189,12 +190,67 @@ namespace Synthetic.Modules.MergeDuplicates.ViewModels
 
         private void ExecuteScanModel(object parameter)
         {
-            // Stub: Revit API logic & Analysis Engine will be implemented in subsequent steps.
+            if (Document == null) return;
+
+            try
+            {
+                ScannedClusters.Clear();
+                var clusters = RevitMergeDataCollector.RunFastScan(Document, _cts.Token);
+
+                foreach (var cluster in clusters)
+                {
+                    _cts.Token.ThrowIfCancellationRequested();
+                    MergeAnalysisEngine.RunDeepScan(cluster, _cts.Token);
+                    MergeAnalysisEngine.GenerateRecommendations(cluster);
+                }
+
+                ScannedClusters = new ObservableCollection<DuplicateClusterModel>(clusters);
+            }
+            catch (OperationCanceledException)
+            {
+                // Scan cancelled
+            }
+            catch (Exception ex)
+            {
+                Autodesk.Revit.UI.TaskDialog.Show("Scan Model Error", ex.Message);
+            }
         }
 
         private void ExecuteLoadSelection(object parameter)
         {
-            // Stub: Revit API logic & Analysis Engine will be implemented in subsequent steps.
+            if (Document == null) return;
+
+            try
+            {
+                var uidoc = new Autodesk.Revit.UI.UIDocument(Document);
+                var selectedIds = uidoc.Selection.GetElementIds();
+
+                if (selectedIds == null || selectedIds.Count == 0)
+                {
+                    Autodesk.Revit.UI.TaskDialog.Show("Load Selection", "Please select one or more elements in the Revit document first.");
+                    return;
+                }
+
+                ScannedClusters.Clear();
+                var clusters = RevitMergeDataCollector.RunTargetedScan(Document, selectedIds, _cts.Token);
+
+                foreach (var cluster in clusters)
+                {
+                    _cts.Token.ThrowIfCancellationRequested();
+                    MergeAnalysisEngine.RunDeepScan(cluster, _cts.Token);
+                    MergeAnalysisEngine.GenerateRecommendations(cluster);
+                }
+
+                ScannedClusters = new ObservableCollection<DuplicateClusterModel>(clusters);
+            }
+            catch (OperationCanceledException)
+            {
+                // Selection load cancelled
+            }
+            catch (Exception ex)
+            {
+                Autodesk.Revit.UI.TaskDialog.Show("Load Selection Error", ex.Message);
+            }
         }
 
         private void ExecuteAddToQueue(object parameter)
