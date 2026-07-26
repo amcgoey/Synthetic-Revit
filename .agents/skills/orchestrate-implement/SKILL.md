@@ -1,84 +1,147 @@
 ---
 name: orchestrate-implement
-description: Coordinate subagents implementing tickets (a parent issue and its children, a specific list of issues, or all ready-for-agent issues). Coordinates resources (git branches, building, testing), runs plan reviews, and executes an automated post-implementation code review loop with defect classification.
+description: Coordinate subagents implementing tickets (a parent issue and its children, a specific list of issues, or all ready-for-agent issues). Manages resources (Git worktrees, MSBuild, Revit test locks), runs plan reviews, and enforces an automated subagent post-implementation code review loop with defect classification until clean.
 disable-model-invocation: true
 ---
 
 # Code Implementation Orchestrator
 
-This skill coordinates the development flow of subagents handling issue tickets. The orchestrator coordinates activities, manages resources, and routes defects, but does **not** write code. The subagents perform the actual planning and implementation.
+This skill coordinates the development flow of subagents handling issue tickets in Revit API Synthetic v2. The **Orchestrator Agent** coordinates activities, manages the issue queue/frontier, reviews subagent plans, enforces MSBuild and test execution locks, merges feature branches, and posts the final summary walkthrough on the primary parent issue upon completion. **Subagents** perform planning, implementation using `/implement` and `/tdd` (via Revit test executor), post-implementation `/code-review` (by spawning dedicated review subagents), milestone artifact posting on their assigned issue, defect breakdown, and child ticket closure.
 
-## Process
+---
 
-### 1. Scope & Ticket Discovery
+## Orchestrator Agent Process
 
-Identify the set of issues to orchestrate. Determine the mode based on user input:
-- **Parent Issue Mode**: If a parent issue is specified (e.g., `#57`), fetch its details and all its sub-issues (children).
-- **Custom Group Mode**: If a specific list of issues is provided, fetch all of them.
-- **Frontier Mode**: If no specific issues are provided, fetch all open issues in the repository marked with the `ready-for-agent` label.
+1. **Map dependencies**: Discover target issues via `gh` CLI (`docs/agents/issue-tracker.md`) and build the Directed Acyclic Graph (DAG) using native GitHub issue dependencies (`issue_dependencies_summary.blocked_by`) or `Blocked by: #XX` headers.
+   * *Completion Criterion*: A complete DAG of all scoped issues with identified parent/child and blocking edges.
 
-For each issue, retrieve its title, body, existing comments, and labels.
+2. **Identify frontier issues**: Query the DAG for open issues that have no open blockers and no assignees.
+   * *Completion Criterion*: A list of unblocked, unassigned frontier issues ready for immediate work.
 
-### 2. Map Dependencies & Identify Frontier
+3. **Manage the queue & spawn subagents**: Assign each frontier issue (`gh issue edit <n> --add-assignee @me`) and spawn subagents using `invoke_subagent` with `Workspace: "share"` (Git worktrees). Direct subagents to acquire build/test locks before compilation/testing, spawn separate review subagents when running `/code-review`, and post milestone artifacts to their assigned issue.
+   * *Completion Criterion*: Subagents spawned on isolated Git branches (`ticket-<number>`) for all available frontier slots with strict subagent-spawning, resource locking, and milestone commenting directives.
 
-Build a Directed Acyclic Graph (DAG) of the target issues to determine their execution order:
-- **Blocking Edges**: Read native GitHub issue dependencies. As a fallback, check for a `Blocked by: #XX` list in the issue body.
-- **Frontier**: Identify the set of open issues that have no open blockers. These are the only issues that can be worked on immediately.
+4. **Manage resources & review plans**: Enforce subagent concurrency caps (2–4 active agents). Enforce MSBuild compilation and Revit test execution locks (serializing build and test commands across subagents to prevent `output/Synthetic/` write locks or registry conflicts). Review subagent implementation plans against `CONTEXT.md` (domain vocabulary per `docs/agents/domain.md`), parent issue/spec, and repository standards (including Revit skills like `revit-multi-versions`, `revit-transactions`, `revit-wpf-mvvm`). Provide feedback until satisfied, then approve the plan and release the subagent.
+   * *Completion Criterion*: Approved plan attached to the GitHub issue as a comment and subagent released for development.
 
-### 3. Resource & Queue Management
+5. **Merge commits & update DAG**: Once a subagent reports a ticket is defect-free and closed, verify that its branch compiles clean and passes tests across supported Revit versions (`python .agents/skills/revit-tests/scripts/test_executor.py`), merge the ticket's feature branch into the target integration branch (`develop`), recalculate the dependency frontier, and repeat.
+   * *Completion Criterion*: Ticket branch verified, merged into integration branch, DAG updated, and next frontier queued.
 
-Because local environment resources are limited and concurrent tasks can cause file/build locks, you must coordinate access. Enforce the **Resource Lock Protocol**:
-- **Concurrency Limit**: Limit active implementation to a manageable number (default: 1 or 2 concurrent subagents running active build/test steps).
-- **Workspace Sharing (Git Worktrees)**: When spawning subagents via `invoke_subagent`, specify `Workspace: "share"`. This instructs the system to create isolated workspaces using Git worktrees, allowing subagents to check out independent branches without colliding or affecting the parent's working directory.
-- **Branch Management**: Direct each subagent to create and work on its dedicated branch (e.g., `ticket-<number>`) within its shared worktree workspace.
-- **Build / Compilation Lock**: Serialize build commands. Only one subagent is allowed to compile the code at a time to prevent MSBuild write conflicts.
-- **Test Lock**: Serialize integration/unit test execution to prevent database, Revit session, or file lock conflicts.
-- Keep a FIFO queue of subagent requests for build and test locks, granting them sequentially.
+6. **Post primary issue walkthrough & close parent**: Once all child sub-issues under a primary parent issue are completed and merged, aggregate the overall work into a comprehensive final walkthrough comment on the **primary parent issue** (`gh issue comment <parent-number> --body "..."`) and close the primary issue.
+   * *Completion Criterion*: Primary parent issue closed with an aggregated summary walkthrough comment.
 
-### 4. Spawning Subagents & Plan Review Loop
+---
 
-For each issue on the frontier, spawn a subagent using the `invoke_subagent` tool with the `implement` skill. 
-Direct the subagent to:
-1. Review the parent spec (if applicable) and their assigned ticket + comments.
-2. Formulate an implementation plan.
-3. Submit the plan back to the orchestrator for review and wait for approval.
-4. Once approved, proceed with implementation using appropriate skills (such as `/tdd`).
+## Subagent Process
 
-When a subagent submits an implementation plan, review it thoroughly:
-- **Standards & Spec Check**: Verify the plan against the Parent Spec/PRD, the subissue description, repository coding standards, and target test seams.
-- **Feedback**: If the plan is incomplete or does not address the issue fully, send feedback to the subagent to revise it. Repeat until satisfied.
-- **Approval**: Once the plan is approved, reply to the subagent to release them for development, and **attach the plan as a comment to the subissue on GitHub**.
+1. **Formulate & post implementation plan**: Formulate an implementation plan for the assigned ticket (referring to `CONTEXT.md` / `docs/agents/domain.md` for domain vocabulary and parent issue/spec). Submit the plan to the orchestrator for review. Once approved, post the plan as a comment on the assigned GitHub issue (`gh issue comment <n> --body "..."`), scrubbing any sensitive information (tokens, credentials, internal paths).
+   * *Completion Criterion*: Orchestrator-approved implementation plan posted as an issue comment on GitHub.
 
-### 5. Automated Post-Implementation Code Review
+2. **Implement assigned issue**: Run `/implement` on the assigned ticket using `/tdd` following the `revit-tests` execution sequence (headless Logic tests -> `CURRENT_LATEST_VERSION` tests -> multi-version validation). Acquire build/test locks from the orchestrator before executing compilation or test runs.
+   * *Completion Criterion*: Code changes implemented, tested with `/tdd`, and passing logic and Revit version tests (`python .agents/skills/revit-tests/scripts/test_executor.py`).
 
-When a subagent reports completion of their implementation, do **not** merge the branch or close the ticket immediately. Instead, run a code review:
-1. Spawn a new, separate subagent to run the `/code-review` skill on the ticket's branch (comparing it against the base branch).
-2. When the review subagent returns the report, split the findings into two categories:
-   - **Direct Defects**: Clear errors, missing features, bugs, or omissions that must be implemented directly.
-   - **Judgement Calls / Human Review**: Design smells, subjective decisions, or potential issues requiring developer clarification or a grilling session.
+3. **Post implementation walkthrough**: Produce a post-implementation walkthrough detailing code changes made and verification results. Post the walkthrough as a comment on the assigned GitHub issue, scrubbing any sensitive information.
+   * *Completion Criterion*: Implementation walkthrough posted as an issue comment on GitHub.
 
-### 6. Defect Routing & DAG Updating
+4. **Perform Code Review via spawned subagents**: Execute `/code-review` by **spawning separate parallel subagents** via `invoke_subagent` (one for Standards review and one for Spec review). **Do NOT perform the code review inline within your own conversation.**
+   * *Completion Criterion*: Parallel review subagents spawned and their two-axis report (Standards & Spec) collected.
 
-Based on the code review findings, perform the following routing steps:
-1. **Direct Defects**:
-   - Group the findings logically into clean, vertical slices of work.
-   - Present the drafted list of defect tickets to the user for approval.
-   - Once approved, publish them as subissues to the original issue on GitHub with the `ready-for-agent` label.
-2. **Judgement Calls**:
-   - Create subissues linked to the original issue and apply a label for future human review (e.g., `grilling-required`). These tickets are held for later interactive grilling sessions and are not worked on by agents yet.
-3. **DAG Update**:
-   - Update the active dependency graph to block the original ticket's completion by all newly created defect and grilling subissues.
-   - The original ticket's branch is NOT merged, and the ticket remains open.
-   - Downstream tickets in the DAG that depend on the original ticket remain blocked.
-   - Independent tickets on the frontier (unaffected by this branch) continue implementation in parallel.
+5. **Post Code Review report as comment**: Post the aggregated `/code-review` report as a comment on the assigned GitHub issue, scrubbing any sensitive information.
+   * *Completion Criterion*: Cleaned `/code-review` report posted as an issue comment on GitHub.
 
-### 7. Defect Resolution & Closure
+6. **Route defects & human review tickets**:
+   - **6.1. Human review tickets**: If judgement calls (design smells, architectural choices) are needed, create a sub-issue with the `ready-for-human` (or `wayfinder:grilling`) label per `docs/agents/triage-labels.md` and post a reference comment.
+   - **6.2. Defect classification**: For defects ready for agent implementation (`ready-for-agent`), determine if multiple tickets are needed:
+     - **6.2.1. Multiple tickets**: Run `/to-tickets` to publish tracer-bullet subissues on the current ticket.
+     - **6.2.2. Single ticket/comment**: Add the defect description and fix task directly as a comment to the issue.
+   - **6.3. Implement defects**: Run `/implement` to resolve all direct defects (from comments or subissues).
+   * *Completion Criterion*: Judgement call tickets created if needed, direct defects identified and implemented.
 
-For the created direct defect tickets:
-1. Direct the assigned subagent to branch off the original ticket's branch (or work directly on it) to build on top of the existing implementation.
-2. Run each defect ticket through the standard subagent plan review and implementation flow (Step 4).
-3. Once all blocking subissues (both direct defects and grilling tickets) are closed and resolved:
-   - Merge the original ticket's branch into the base integration/development branch.
-   - Post the final walkthrough as a comment on the original issue.
-   - Close the original issue (`state: "closed"`, `state_reason: "completed"`).
-   - Recalculate the dependency frontier and spawn subagents for any newly unblocked issues.
+7. **Repeat Code Review loop**: Re-run Steps 4–6 (spawning new parallel review subagents for `/code-review`, posting updated `/code-review` comments, and implementing fixes) after defect fixes until the branch is completely defect-free (0 direct defects).
+   * *Completion Criterion*: `/code-review` from spawned review subagents returns zero direct defects on both Standards and Spec axes.
+
+8. **Post ticket walkthrough & close child issue**: Post a walkthrough comment on the assigned ticket summarizing its specific implementation and close the ticket (`gh issue close <number>`) once defect-free and all blocking human review tickets are accounted for.
+   * *Completion Criterion*: Assigned ticket state updated to `closed` on GitHub with its specific walkthrough comment.
+
+---
+
+## Orchestrator Agent Detailed Explanations
+
+### Step 1: Map Dependencies
+* **Discovery Modes**:
+  - *Parent Issue Mode*: Fetch the parent issue and all sub-issues via `gh api repos/<owner>/<repo>/issues/<number>/sub_issues`.
+  - *Custom Group Mode*: Fetch specified issue numbers using `gh issue view <number> --comments`.
+  - *Frontier Mode*: Fetch all open issues with label `ready-for-agent` (`gh issue list --label ready-for-agent --state open`).
+* **DAG Construction**: Query native GitHub issue dependencies via `gh api`. Read `issue_dependencies_summary.blocked_by`. Fall back to parsing `Blocked by: #XX` lines in issue bodies where native links are absent.
+
+### Step 2: Identify Frontier Issues
+* Filter the DAG for open tickets where `blocked_by` count is 0 and no assignee is assigned (`assignees` list is empty).
+* Sort tickets by priority or map order. These constitute the active frontier.
+
+### Step 3: Manage Queue & Spawn Subagents
+* Claim each frontier issue before spawning (`gh issue edit <n> --add-assignee @me`).
+* Spawn a subagent via `invoke_subagent` using the `implement` skill with `Workspace: "share"`. This provisions an isolated Git worktree so subagents work on dedicated branches (`ticket-<number>`) without workspace collisions.
+* **Directives to Subagent**: Explicitly instruct the spawned subagent: *"Post artifacts as comments at each milestone (approved plan, implementation walkthrough, and code review reports). Acquire build/test locks from the orchestrator before compiling or running tests. When implementation is complete, you MUST spawn separate parallel subagents to run `/code-review` (Standards and Spec axes). Do NOT perform the code review yourself inline."*
+
+### Step 4: Manage Resources & Review Plans
+* **Concurrency Cap**: Maintain 2–4 active subagents maximum to prevent system CPU/memory exhaustion.
+* **Build & Test Lock Protocol**: While Git worktrees isolate source files, MSBuild compilation writes to a common output path (`output/Synthetic/`) and `guid_whitelister.py` updates system registry keys for Revit testing. The Orchestrator serializes compilation (`MSBuild.exe`) and test execution (`test_executor.py`) across subagents via a FIFO lock queue so only one subagent compiles or runs tests at a time.
+* **Plan Review**: Subagents must submit implementation plans to the orchestrator before editing code. Check plans against `CONTEXT.md` domain vocabulary (per `docs/agents/domain.md`), parent spec constraints, test seams, and Revit skills (`revit-multi-versions`, `revit-transactions`, `revit-wpf-mvvm`, etc.). Provide feedback if incomplete; once approved, post the plan to the GitHub issue (`gh issue comment <n> --body "..."`) and release the subagent.
+
+### Step 5: Merge Commits & Update DAG
+* When a subagent closes its ticket, verify that its branch compiles clean and tests pass across supported versions (`python .agents/skills/revit-tests/scripts/test_executor.py`).
+* Merge the ticket's feature branch into the target integration branch (`develop`).
+* Recalculate the DAG, unblock downstream tickets whose dependencies are now closed, and populate the next frontier.
+
+### Step 6: Post Primary Issue Walkthrough & Close Parent
+* When operating on a primary issue with subissues (Parent Issue Mode), the orchestrator holds high-level responsibility for the primary issue.
+* Once all child sub-issues are closed and merged:
+  1. Aggregate the walkthroughs, code review results, and verification metrics from all child sub-issues into one unified, high-level summary walkthrough.
+  2. Post this aggregated walkthrough as a comment on the **primary parent issue** (`gh issue comment <parent-number> --body "..."`).
+  3. Close the primary parent issue (`gh issue close <parent-number> --comment "All sub-issues completed and verified"`).
+
+---
+
+## Subagent Detailed Explanations
+
+### Step 1: Formulate & Post Implementation Plan
+* Check `CONTEXT.md` (per `docs/agents/domain.md`) to align all naming with ubiquitous domain vocabulary.
+* Read the assigned ticket body, comments, and the **parent issue / spec** for surrounding architectural context.
+* Review relevant Revit skills (`revit-multi-versions`, `revit-transactions`, `revit-wpf-mvvm`, `revit-extensible-storage`, `revit-failure-handling`) to ensure design alignment.
+* Formulate an implementation plan and submit it to the orchestrator for review.
+* **Post Plan Comment**: Once approved by the orchestrator, post the plan as a comment to the assigned GitHub issue (`gh issue comment <number> --body "..."`). Scrub sensitive information (tokens, credentials, local user paths).
+
+### Step 2: Implement Assigned Issue
+* Use `/implement` with `/tdd` following the `revit-tests` execution sequence:
+  1. **Step 1 (Logic Loop)**: Run headless logic tests (`python .agents/skills/revit-tests/scripts/test_executor.py --version Logic`).
+  2. **Step 2 (Latest Revit Loop)**: Run integration tests for `CURRENT_LATEST_VERSION` from `docs/agents/revit-config.md` (e.g. `2026`).
+  3. **Step 3 (Multi-Version Validation)**: Validate across all supported Revit versions (`python .agents/skills/revit-tests/scripts/test_executor.py`).
+* **Tool Constraint**: Always use direct built-in file-editing tools (`replace_file_content`, `multi_replace_file_content`, `write_to_file`). Do NOT write or execute Python, PowerShell, or CLI scripts to perform search-and-replace or edit code files.
+* Acquire build/test lock from the orchestrator before executing compilation or test commands to avoid MSBuild output directory and registry lock collisions.
+
+### Step 3: Post Implementation Walkthrough
+* After implementation completes and tests pass, summarize the changes made, files touched, and test results into a walkthrough document.
+* **Post Walkthrough Comment**: Post the walkthrough as a comment on the assigned GitHub issue (`gh issue comment <number> --body "..."`), scrubbing sensitive information.
+
+### Step 4 & 5: Code Review Execution & Comment Posting
+* **Mandatory Subagent Spawning for `/code-review`**: You MUST NOT perform code reviews inline within your own context window. In strict accordance with `/code-review` (Step 4), spawn two separate parallel subagents via `invoke_subagent`:
+  1. **Standards Subagent**: Evaluates diff against repo standards, Revit API practices, and Fowler code smells.
+  2. **Spec Subagent**: Evaluates diff against requirements in the assigned ticket and parent spec.
+* **Post Code Review Comment**: Collect the outputs from both review subagents and post the aggregated two-axis report (Standards & Spec) verbatim as an issue comment (`gh issue comment <number> --body "..."`), scrubbing sensitive information.
+
+### Step 6: Route Defects & Human Review Tickets
+* **6.1 Human Review Tickets**: Identify subjective design smells or architectural trade-offs. Create linked sub-issues labeled `ready-for-human` (or `wayfinder:grilling`) per `docs/agents/triage-labels.md` and post a reference comment on the issue.
+* **6.2 Defect Breakdown**:
+  - *Multi-ticket defects (6.2.1)*: If defects span multiple distinct components or tracer bullets, run `/to-tickets` to break them into sub-issues attached to the current ticket.
+  - *Single-ticket/comment defects (6.2.2)*: If defects are small and localized, write the defect checklist directly into a comment on the current issue.
+* **6.3 Implement Defects**: Execute `/implement` on the defect tasks (from subissues or comment checklist) on the ticket branch.
+
+### Step 7: Repeat Code Review Loop Until Defect-Free
+* After committing defect fixes, **spawn new parallel subagents** to re-run `/code-review`.
+* **Post Updated Code Review Comment**: Post each updated review report as a comment on the issue.
+* Repeat the `/code-review` (via subagents) ➔ post review comment ➔ fix defects cycle until `/code-review` returns zero direct defects on both Standards and Spec axes.
+
+### Step 8: Post Ticket Walkthrough & Close Child Issue
+* Compile a ticket completion walkthrough summarizing the overall resolution, final test suite results across supported Revit versions, and closed defect state for the assigned issue.
+* Scrub sensitive data and post the walkthrough as a comment on the assigned issue.
+* Close the assigned issue on GitHub (`gh issue close <number> --comment "Completed via orchestrate-implement"`).
