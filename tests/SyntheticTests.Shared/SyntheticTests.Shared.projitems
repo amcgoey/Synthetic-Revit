@@ -48,8 +48,11 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\FakeGuardrailPromptService.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\FakeUserPromptService.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\AssemblyAnalyzer\Tier2_AssemblyAnalyzerTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Helpers\TestPathHelper.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Helpers\PocoSnapshotExporter.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Tier2_MergeDuplicatesHeadlessTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Tier2_MergeDuplicatesIntegrationTests.cs" />
   </ItemGroup>
 </Project>
+
 

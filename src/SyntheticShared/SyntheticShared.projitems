@@ -493,7 +493,7 @@
     <Content Include="$(MSBuildThisFileDirectory)Assets\schema_32.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="$(MSBuildThisFileDirectory)SyntheticSettings.json">
+    <Content Include="$(MSBuildThisFileDirectory)SyntheticSettings.json" Condition="Exists('$(MSBuildThisFileDirectory)SyntheticSettings.json')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="$(MSBuildThisFileDirectory)SyntheticSettings.template.json">

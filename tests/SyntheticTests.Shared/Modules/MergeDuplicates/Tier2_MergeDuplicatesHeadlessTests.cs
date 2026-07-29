@@ -9,6 +9,7 @@ using Newtonsoft.Json;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.RevitDOM.Utilities;
+using SyntheticTests.Helpers;
 
 
 namespace SyntheticTests
@@ -16,22 +17,6 @@ namespace SyntheticTests
     [TestFixture]
     public class Tier2_MergeDuplicatesHeadlessTests
     {
-        private static string GetProjectRoot()
-        {
-            string envPath = Environment.GetEnvironmentVariable("SYNTHETIC_PROJECT_ROOT");
-            if (!string.IsNullOrEmpty(envPath) && Directory.Exists(envPath))
-            {
-                return envPath;
-            }
-
-            string dir = TestContext.CurrentContext.TestDirectory;
-            while (dir != null && !Directory.Exists(Path.Combine(dir, "tests")))
-            {
-                dir = Path.GetDirectoryName(dir);
-            }
-            return dir ?? TestContext.CurrentContext.TestDirectory;
-        }
-
         [Test]
         public void Test_GetBaseName_StripsTrailingDigitsAndSeparators()
         {
@@ -48,7 +33,7 @@ namespace SyntheticTests
         [Test]
         public void Test_BuildClustersFromModels_GroupsDuplicateFamilies()
         {
-            string projectRoot = GetProjectRoot();
+            string projectRoot = TestPathHelper.GetProjectRoot();
             string jsonPath = Path.Combine(projectRoot, "tests", "SyntheticTests.Shared", "Assets", "test_duplicate_families.json");
             Assert.IsTrue(File.Exists(jsonPath), $"Snapshot file not found at: {jsonPath}");
 
@@ -81,7 +66,7 @@ namespace SyntheticTests
         [Test]
         public void Test_BuildClustersFromModels_GroupsDuplicateGroups()
         {
-            string projectRoot = GetProjectRoot();
+            string projectRoot = TestPathHelper.GetProjectRoot();
             string jsonPath = Path.Combine(projectRoot, "tests", "SyntheticTests.Shared", "Assets", "test_duplicate_groups.json");
             Assert.IsTrue(File.Exists(jsonPath), $"Snapshot file not found at: {jsonPath}");
 

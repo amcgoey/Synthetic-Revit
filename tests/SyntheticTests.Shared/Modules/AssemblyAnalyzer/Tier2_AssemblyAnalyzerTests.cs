@@ -9,6 +9,7 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Architecture;
 using Autodesk.Revit.DB.Events;
 using NUnit.Framework;
+using SyntheticTests.Helpers;
 
 namespace SyntheticTests
 {
@@ -26,7 +27,7 @@ namespace SyntheticTests
         {
             _uiapp = uiapp;
 
-            string projectRoot = GetProjectRoot();
+            string projectRoot = TestPathHelper.GetProjectRoot();
             
             // Resolve target Revit version suffix
             string assemblyName = System.Reflection.Assembly.GetExecutingAssembly().GetName().Name ?? "";
@@ -266,7 +267,7 @@ namespace SyntheticTests
                 Console.WriteLine(resultStr);
 
                 // Write to local file in output directory
-                string projectRoot = GetProjectRoot();
+                string projectRoot = TestPathHelper.GetProjectRoot();
                 string outFilePath = Path.Combine(projectRoot, "output", "assembly_analyzer_base.txt");
 
                 try
@@ -709,7 +710,7 @@ namespace SyntheticTests
                 }
 
                 // Write output files
-                string projectRoot = GetProjectRoot();
+                string projectRoot = TestPathHelper.GetProjectRoot();
                 string activeFilePath = Path.Combine(projectRoot, "output", "assembly_analyzer_active.txt");
                 string archiveFilePath = Path.Combine(projectRoot, "output", "assembly_analyzer_instances_archive.txt");
                 string quarantineFilePath = Path.Combine(projectRoot, "output", "assembly_analyzer_quarantine.txt");
@@ -1003,7 +1004,7 @@ namespace SyntheticTests
                 Assert.IsTrue(totalScavenged > 0, "Should scavenge at least one live sub-object instance.");
 
                 // Write output files
-                string projectRoot = GetProjectRoot();
+                string projectRoot = TestPathHelper.GetProjectRoot();
                 string cleanFilePath = Path.Combine(projectRoot, "output", "assembly_analyzer_nested_clean.txt");
                 string quarantineFilePath = Path.Combine(projectRoot, "output", "assembly_analyzer_nested_quarantine.txt");
 
@@ -1098,22 +1099,6 @@ namespace SyntheticTests
             }
 
             return false;
-        }
-
-        private static string GetProjectRoot()
-        {
-            string envPath = Environment.GetEnvironmentVariable("SYNTHETIC_PROJECT_ROOT");
-            if (!string.IsNullOrEmpty(envPath) && Directory.Exists(envPath))
-            {
-                return envPath;
-            }
-
-            string dir = TestContext.CurrentContext.TestDirectory;
-            while (dir != null && !Directory.Exists(Path.Combine(dir, "tests")))
-            {
-                dir = Path.GetDirectoryName(dir);
-            }
-            return dir ?? TestContext.CurrentContext.TestDirectory;
         }
 
         private void ResolveWarnings(object? sender, FailuresProcessingEventArgs e)

@@ -4,26 +4,17 @@ using System.IO;
 using System.Collections.Generic;
 using Newtonsoft.Json.Linq;
 using Synthetic.Core;
+using SyntheticTests.Helpers;
 
 namespace SyntheticTests.Infrastructure.UI
 {
     [TestFixture]
     public class RibbonTests
     {
-        private static string GetProjectRoot()
-        {
-            string dir = TestContext.CurrentContext.TestDirectory;
-            while (dir != null && !Directory.Exists(Path.Combine(dir, "tests")))
-            {
-                dir = Path.GetDirectoryName(dir);
-            }
-            return dir ?? TestContext.CurrentContext.TestDirectory;
-        }
-
         [Test]
         public void RibbonConfig_ParsesWithoutErrors()
         {
-            string projectRoot = GetProjectRoot();
+            string projectRoot = TestPathHelper.GetProjectRoot();
             string configPath = Path.Combine(projectRoot, "src", "SyntheticShared", "Assets", "ribbon_config.json");
 
             if (!File.Exists(configPath))
@@ -45,7 +36,7 @@ namespace SyntheticTests.Infrastructure.UI
         [Test]
         public void RibbonConfig_AllCommandClasses_ShouldResolve()
         {
-            string projectRoot = GetProjectRoot();
+            string projectRoot = TestPathHelper.GetProjectRoot();
             string configPath = Path.Combine(projectRoot, "src", "SyntheticShared", "Assets", "ribbon_config.json");
 
             if (!File.Exists(configPath))
