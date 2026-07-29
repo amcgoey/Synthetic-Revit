@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -59,31 +59,24 @@ namespace Synthetic.RevitDOM.Translation
             // Step 5: Alias match (within expected Revit Class)
             if (model.Aliases != null && model.Aliases.Count > 0 && !string.IsNullOrEmpty(model.Class))
             {
-                foreach (var alias in model.Aliases)
-                {
-                    if (string.IsNullOrEmpty(alias)) continue;
+                // 5a. Check if candidate's Name matches any alias in model.Aliases
+                var match = pool.FirstOrDefault(p => 
+                    ElementIdModel.HasMatchingAlias(model.Aliases, p.Name) && 
+                    VerifyType(p, model.Class));
+                if (match != null) return match;
 
-                    // 5a. Check if candidate's Name matches the alias
-                    var match = pool.FirstOrDefault(p => 
-                        string.Equals(p.Name, alias, StringComparison.OrdinalIgnoreCase) && 
-                        VerifyType(p, model.Class));
-                    if (match != null) return match;
-
-                    // 5b. Check if candidate's Aliases contain the alias
-                    var aliasMatch = pool.FirstOrDefault(p => 
-                        p.Aliases != null && 
-                        p.Aliases.Any(a => string.Equals(a, alias, StringComparison.OrdinalIgnoreCase)) && 
-                        VerifyType(p, model.Class));
-                    if (aliasMatch != null) return aliasMatch;
-                }
+                // 5b. Check if candidate's Aliases cross-match model.Aliases
+                var aliasMatch = pool.FirstOrDefault(p => 
+                    ElementIdModel.HasMatchingAlias(model.Aliases, p.Aliases) && 
+                    VerifyType(p, model.Class));
+                if (aliasMatch != null) return aliasMatch;
             }
 
             // Fallback alias match: check if the candidate POCO's aliases contain the target model's Name
             if (!string.IsNullOrEmpty(model.Name) && !string.IsNullOrEmpty(model.Class))
             {
                 var match = pool.FirstOrDefault(p => 
-                    p.Aliases != null && 
-                    p.Aliases.Any(a => string.Equals(a, model.Name, StringComparison.OrdinalIgnoreCase)) && 
+                    ElementIdModel.HasMatchingAlias(p.Aliases, model.Name) && 
                     VerifyType(p, model.Class));
                 if (match != null) return match;
             }
@@ -119,6 +112,7 @@ namespace Synthetic.RevitDOM.Translation
         {
             if (ReferenceEquals(a, b)) return true;
             if (a == null || b == null) return false;
+            if (a.ElementId == null || b.ElementId == null) return false;
             return AreSameIdentity(a.ElementId, b.ElementId);
         }
 
@@ -126,7 +120,7 @@ namespace Synthetic.RevitDOM.Translation
         public bool AreSameIdentity(ElementIdModel? a, ElementModel? b)
         {
             if (a == null && b == null) return true;
-            if (a == null || b == null) return false;
+            if (a == null || b == null || b.ElementId == null) return false;
             return AreSameIdentity(a, b.ElementId);
         }
 
@@ -134,7 +128,7 @@ namespace Synthetic.RevitDOM.Translation
         public bool AreSameIdentity(ElementModel? a, ElementIdModel? b)
         {
             if (a == null && b == null) return true;
-            if (a == null || b == null) return false;
+            if (a == null || b == null || a.ElementId == null) return false;
             return AreSameIdentity(a.ElementId, b);
         }
 

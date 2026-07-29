@@ -136,5 +136,46 @@ namespace SyntheticTests.Logic.Modules.RevitDOM
             Assert.IsTrue(service.AreSameIdentity(idModel1, elemModel2), "AreSameIdentity(ElementIdModel, ElementModel) overload should return true.");
             Assert.IsTrue(service.AreSameIdentity(elemModel1, idModel2), "AreSameIdentity(ElementModel, ElementIdModel) overload should return true.");
         }
+
+        [Test]
+        public void AreSameIdentity_NullGuards_StandardizedBehavior()
+        {
+            var service = new PocoIdentityService();
+            var idModel = new ElementIdModel { UniqueId = "UID-100", Class = "Autodesk.Revit.DB.Wall" };
+            var elemModel = new ElementModel { ElementId = idModel };
+
+            // Overload 1: (ElementIdModel?, ElementIdModel?)
+            Assert.IsTrue(service.AreSameIdentity((ElementIdModel?)null, (ElementIdModel?)null));
+            Assert.IsFalse(service.AreSameIdentity(idModel, (ElementIdModel?)null));
+            Assert.IsFalse(service.AreSameIdentity((ElementIdModel?)null, idModel));
+
+            // Overload 2: (ElementModel?, ElementModel?)
+            Assert.IsTrue(service.AreSameIdentity((ElementModel?)null, (ElementModel?)null));
+            Assert.IsFalse(service.AreSameIdentity(elemModel, (ElementModel?)null));
+            Assert.IsFalse(service.AreSameIdentity((ElementModel?)null, elemModel));
+
+            // Overload 3: (ElementIdModel?, ElementModel?)
+            Assert.IsTrue(service.AreSameIdentity((ElementIdModel?)null, (ElementModel?)null));
+            Assert.IsFalse(service.AreSameIdentity(idModel, (ElementModel?)null));
+            Assert.IsFalse(service.AreSameIdentity((ElementIdModel?)null, elemModel));
+
+            // Overload 4: (ElementModel?, ElementIdModel?)
+            Assert.IsTrue(service.AreSameIdentity((ElementModel?)null, (ElementIdModel?)null));
+            Assert.IsFalse(service.AreSameIdentity(elemModel, (ElementIdModel?)null));
+            Assert.IsFalse(service.AreSameIdentity((ElementModel?)null, idModel));
+
+            // ElementModel instances with null ElementId property
+            var elemNullId1 = new ElementModel { ElementId = null };
+            var elemNullId2 = new ElementModel { ElementId = null };
+
+            // Same instance with null ElementId should return true via ReferenceEquals
+            Assert.IsTrue(service.AreSameIdentity(elemNullId1, elemNullId1));
+
+            // Distinct instances with null ElementId must NOT evaluate to true
+            Assert.IsFalse(service.AreSameIdentity(elemNullId1, elemNullId2));
+            Assert.IsFalse(service.AreSameIdentity(idModel, elemNullId1));
+            Assert.IsFalse(service.AreSameIdentity(elemNullId1, idModel));
+        }
     }
 }
+

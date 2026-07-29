@@ -207,43 +207,48 @@ namespace Synthetic.RevitDOM.Models
             }
 
             // Step 5: Aliases match / Name vs Aliases cross-match (case-insensitive)
-            if (!string.IsNullOrEmpty(this.Name) && other.Aliases != null && other.Aliases.Count > 0)
+            if (HasMatchingAlias(other.Aliases, this.Name)) return true;
+            if (HasMatchingAlias(this.Aliases, other.Name)) return true;
+            if (HasMatchingAlias(this.Aliases, other.Aliases)) return true;
+
+            return false;
+        }
+
+        /// <summary>
+        /// Determines whether a collection of aliases contains a target string (case-insensitive, ignoring null or empty items).
+        /// </summary>
+        /// <param name="aliases">The collection of aliases to search.</param>
+        /// <param name="target">The target string to search for.</param>
+        /// <returns>True if a matching alias is found; otherwise, false.</returns>
+        public static bool HasMatchingAlias(IEnumerable<string>? aliases, string? target)
+        {
+            if (aliases == null || string.IsNullOrEmpty(target)) return false;
+            foreach (var alias in aliases)
             {
-                foreach (var alias in other.Aliases)
+                if (!string.IsNullOrEmpty(alias) && string.Equals(target, alias, StringComparison.OrdinalIgnoreCase))
                 {
-                    if (!string.IsNullOrEmpty(alias) && string.Equals(this.Name, alias, StringComparison.OrdinalIgnoreCase))
-                    {
-                        return true;
-                    }
+                    return true;
                 }
             }
+            return false;
+        }
 
-            if (!string.IsNullOrEmpty(other.Name) && this.Aliases != null && this.Aliases.Count > 0)
+        /// <summary>
+        /// Determines whether two collections of aliases share any matching string (case-insensitive, ignoring null or empty items).
+        /// </summary>
+        /// <param name="aliasesA">The first collection of aliases.</param>
+        /// <param name="aliasesB">The second collection of aliases.</param>
+        /// <returns>True if any matching alias pair is found; otherwise, false.</returns>
+        public static bool HasMatchingAlias(IEnumerable<string>? aliasesA, IEnumerable<string>? aliasesB)
+        {
+            if (aliasesA == null || aliasesB == null) return false;
+            foreach (var aliasA in aliasesA)
             {
-                foreach (var alias in this.Aliases)
+                if (!string.IsNullOrEmpty(aliasA) && HasMatchingAlias(aliasesB, aliasA))
                 {
-                    if (!string.IsNullOrEmpty(alias) && string.Equals(other.Name, alias, StringComparison.OrdinalIgnoreCase))
-                    {
-                        return true;
-                    }
+                    return true;
                 }
             }
-
-            if (this.Aliases != null && this.Aliases.Count > 0 && other.Aliases != null && other.Aliases.Count > 0)
-            {
-                foreach (var aliasA in this.Aliases)
-                {
-                    if (string.IsNullOrEmpty(aliasA)) continue;
-                    foreach (var aliasB in other.Aliases)
-                    {
-                        if (!string.IsNullOrEmpty(aliasB) && string.Equals(aliasA, aliasB, StringComparison.OrdinalIgnoreCase))
-                        {
-                            return true;
-                        }
-                    }
-                }
-            }
-
             return false;
         }
 
