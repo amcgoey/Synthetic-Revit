@@ -6,11 +6,8 @@ using System.Reflection;
 using Newtonsoft.Json;
 
 using Synthetic.Infrastructure.Serialization;
-using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Shared.RevitAPI;
 using Autodesk.Revit.DB;
 
-using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 

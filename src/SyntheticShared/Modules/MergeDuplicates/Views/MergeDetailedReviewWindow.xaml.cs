@@ -8,7 +8,6 @@ using Synthetic.Shared.UI;
 using Synthetic.Core;
 
 using Synthetic.Modules.MergeDuplicates.ViewModels;
-using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;

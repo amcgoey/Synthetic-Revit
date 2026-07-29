@@ -23,8 +23,6 @@ using Synthetic.Modules.MergeDuplicates.Handlers;
 
 using Synthetic.Modules.MergeDuplicates.Views;
 using Synthetic.RevitDOM.Operations.Merge;
-using Synthetic.RevitDOM.Operations.Merge;
-using Synthetic.Modules.StandardsManagement.ViewModels;
 namespace Synthetic.Modules.MergeDuplicates.ViewModels
 {
     /// <summary>

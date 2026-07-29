@@ -130,22 +130,14 @@ namespace SyntheticTests.Infrastructure.UI
         /// </summary>
         private static string GetThemeXamlPath()
         {
-            // Walk upward from the test assembly output directory until we find
-            // the solution root (identified by Synthetic.sln), then navigate into
-            // the source tree.  This works regardless of whether the assembly was
-            // built by MSBuild (bin\x64\Debug\…) or dotnet CLI (bin\Debug\…).
-            string? dir = Path.GetDirectoryName(typeof(ThemeTests).Assembly.Location);
-            while (dir is not null)
-            {
-                if (File.Exists(Path.Combine(dir, "src", "Synthetic.sln")))
-                    break;
-                dir = Path.GetDirectoryName(dir);
-            }
-
+            string assemblyDir = Path.GetDirectoryName(typeof(ThemeTests).Assembly.Location) ?? string.Empty;
+            string localXaml = Path.Combine(assemblyDir, "SyntheticTheme.xaml");
+            if (File.Exists(localXaml)) return localXaml;
+            var bases = new[] { Environment.GetEnvironmentVariable("SOLUTION_DIR"), assemblyDir, NUnit.Framework.TestContext.CurrentContext.TestDirectory, NUnit.Framework.TestContext.CurrentContext.WorkDirectory, Directory.GetCurrentDirectory(), AppDomain.CurrentDomain.BaseDirectory, AppContext.BaseDirectory };
+            string? dir = null;
+            foreach (var b in bases) { if (string.IsNullOrEmpty(b)) continue; var curr = b; while (curr != null) { if (File.Exists(Path.Combine(curr, "src", "Synthetic.sln"))) { dir = curr; break; } var parent = Path.GetDirectoryName(curr); if (parent == curr) break; curr = parent; } if (dir != null) break; }
             if (dir is null)
-                throw new DirectoryNotFoundException(
-                    "Could not locate solution root (src/Synthetic.sln) by walking up from the test assembly.");
-
+                throw new DirectoryNotFoundException("Could not locate solution root (src/Synthetic.sln) by walking up from test execution context.");
             string xamlPath = Path.GetFullPath(
                 Path.Combine(dir, @"src\SyntheticShared\Shared\UI\SyntheticTheme.xaml"));
 
