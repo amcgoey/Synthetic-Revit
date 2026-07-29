@@ -163,6 +163,7 @@ namespace SyntheticTests.Infrastructure.UI
             throw new DirectoryNotFoundException(
                 "Could not locate SyntheticTheme.xaml by searching upward from test paths.");
         }
+        }
 
         /// <summary>
         /// Loads <c>SyntheticTheme.xaml</c> from the source tree using
