@@ -25,6 +25,7 @@
     <Compile Include="..\SyntheticTests.Shared\Modules\StandardsManagement\FakeFileDialogService.cs" Link="Modules\StandardsManagement\FakeFileDialogService.cs" />
     <Compile Include="..\SyntheticTests.Shared\Modules\StandardsManagement\FakeGuardrailPromptService.cs" Link="Modules\StandardsManagement\FakeGuardrailPromptService.cs" />
     <Compile Include="..\SyntheticTests.Shared\Modules\StandardsManagement\FakeUserPromptService.cs" Link="Modules\StandardsManagement\FakeUserPromptService.cs" />
+    <Compile Include="..\SyntheticTests.Shared\Helpers\TestPathHelper.cs" Link="Helpers\TestPathHelper.cs" />
     <Compile Include="..\SyntheticTests.Shared\Modules\MergeDuplicates\Tier2_MergeDuplicatesHeadlessTests.cs" Link="Modules\MergeDuplicates\Tier2_MergeDuplicatesHeadlessTests.cs" />
     <Compile Remove="Infrastructure\UI\RibbonTests.cs" />
     <Compile Include="Infrastructure\UI\RibbonTests.cs" />

@@ -13,6 +13,7 @@ using Synthetic.Modules.MergeDuplicates.Handlers;
 using Synthetic.Modules.MergeDuplicates.ViewModels;
 using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.RevitDOM.Models;
+using SyntheticTests.Helpers;
 
 
 namespace SyntheticTests
@@ -35,41 +36,9 @@ namespace SyntheticTests
 
         #region Helper Methods
 
-        private static string GetProjectRoot()
-        {
-            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            string addinPath = Path.Combine(appData, "Autodesk", "Revit", "Addins", "2026", "Synthetic2026.addin");
-            if (File.Exists(addinPath))
-            {
-                string content = File.ReadAllText(addinPath);
-                var match = System.Text.RegularExpressions.Regex.Match(content, @"<Assembly>(.*?)\\output\\Synthetic\\Synthetic2026\.dll", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-                if (match.Success)
-                {
-                    string root = match.Groups[1].Value;
-                    if (Directory.Exists(root))
-                    {
-                        return root;
-                    }
-                }
-            }
-
-            string envPath = Environment.GetEnvironmentVariable("SYNTHETIC_PROJECT_ROOT");
-            if (!string.IsNullOrEmpty(envPath) && Directory.Exists(envPath))
-            {
-                return envPath;
-            }
-
-            string dir = TestContext.CurrentContext.TestDirectory;
-            while (dir != null && !Directory.Exists(Path.Combine(dir, "tests")))
-            {
-                dir = Path.GetDirectoryName(dir);
-            }
-            return dir ?? TestContext.CurrentContext.TestDirectory;
-        }
-
         private Document OpenTestTemplate(Autodesk.Revit.ApplicationServices.Application app)
         {
-            string projectRoot = GetProjectRoot();
+            string projectRoot = TestPathHelper.GetProjectRoot();
             string testModelName = "TestTemplate" + app.VersionNumber + ".rvt";
             string modelPathStr = Path.Combine(projectRoot, "tests", "test_models", testModelName);
             if (!File.Exists(modelPathStr))
@@ -175,98 +144,55 @@ namespace SyntheticTests
             return doc.Create.NewFamilyInstance(XYZ.Zero, symbol, level, Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
         }
 
-        private static bool InjectParameterToFamilyDynamic(FamilyManager famManager, string paramName)
+        private ModelCurve CreateModelLineOnDefaultLevel(Document doc)
         {
-            object? paramGroup = null;
-            object? paramType = null;
-
-            Type? groupTypeIdType = typeof(ElementId).Assembly.GetType("Autodesk.Revit.DB.GroupTypeId");
-            if (groupTypeIdType != null)
+            Level? level = new FilteredElementCollector(doc)
+                .OfClass(typeof(Level))
+                .Cast<Level>()
+                .FirstOrDefault();
+            if (level == null)
             {
-                paramGroup = groupTypeIdType.GetProperty("Data")?.GetValue(null);
-                paramType = typeof(ElementId).Assembly.GetType("Autodesk.Revit.DB.SpecTypeId+String")?.GetProperty("Text")?.GetValue(null);
-            }
-            else
-            {
-                paramGroup = Enum.Parse(typeof(ElementId).Assembly.GetType("Autodesk.Revit.DB.BuiltInParameterGroup")!, "PG_DATA");
-                paramType = Enum.Parse(typeof(ElementId).Assembly.GetType("Autodesk.Revit.DB.ParameterType")!, "Text");
+                level = Level.Create(doc, 0.0);
             }
 
-            if (famManager == null)
-            {
-                Console.WriteLine("[ERROR] FamilyManager is null.");
-                return false;
-            }
-            if (paramGroup == null)
-            {
-                Console.WriteLine("[ERROR] paramGroup is null.");
-                return false;
-            }
-            if (paramType == null)
-            {
-                Console.WriteLine("[ERROR] paramType is null.");
-                return false;
-            }
+            Plane plane = Plane.CreateByNormalAndOrigin(XYZ.BasisZ, new XYZ(0, 0, level.Elevation));
+            SketchPlane sketchPlane = SketchPlane.Create(doc, plane);
 
-            System.Reflection.MethodInfo? addParamMethod = null;
-            if (groupTypeIdType != null)
-            {
-                addParamMethod = famManager.GetType().GetMethods()
-                    .FirstOrDefault(m => m.Name == "AddParameter" && 
-                                         m.GetParameters().Length == 4 && 
-                                         m.GetParameters()[1].ParameterType.Name.Contains("ForgeTypeId") &&
-                                         m.GetParameters()[2].ParameterType.Name.Contains("ForgeTypeId"));
-            }
-            else
-            {
-                addParamMethod = famManager.GetType().GetMethods()
-                    .FirstOrDefault(m => m.Name == "AddParameter" && 
-                                         m.GetParameters().Length == 4 && 
-                                         m.GetParameters()[1].ParameterType.Name.Contains("BuiltInParameterGroup") &&
-                                         m.GetParameters()[2].ParameterType.Name.Contains("ParameterType"));
-            }
-
-            if (addParamMethod != null)
-            {
-                try
-                {
-                    addParamMethod.Invoke(famManager, new object[] { paramName, paramGroup, paramType, false });
-                    return true;
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"[ERROR] AddParameter invoke failed: {ex.Message}");
-                    if (ex.InnerException != null)
-                    {
-                        Console.WriteLine($"[INNER EXCEPTION] {ex.InnerException.Message}\n{ex.InnerException.StackTrace}");
-                    }
-                    return false;
-                }
-            }
-            else
-            {
-                Console.WriteLine("[ERROR] AddParameter method with 4 arguments not found.");
-            }
-            return false;
+            Line line = Line.CreateBound(XYZ.Zero, new XYZ(5, 0, 0));
+            return doc.Create.NewModelCurve(line, sketchPlane);
         }
 
-        private static void ExportPocoSnapshot(IEnumerable<Element> elements, string fileName)
+        private void CreateTestModelGroupPair(
+            Document doc,
+            string groupName,
+            out GroupType sourceGroupType,
+            out GroupType duplicateGroupType,
+            out Group groupInstance1,
+            out Group groupInstance2)
         {
-            string projectRoot = GetProjectRoot();
-            string assetsDir = Path.Combine(projectRoot, "tests", "SyntheticTests.Shared", "Assets");
-            if (!Directory.Exists(assetsDir))
-            {
-                Directory.CreateDirectory(assetsDir);
-            }
+            ModelCurve modelLine = CreateModelLineOnDefaultLevel(doc);
 
-            var models = elements
-                .Where(el => el != null)
-                .Select(el => el.ToModel(false))
-                .ToList();
+            Group sourceGroupInstance = doc.Create.NewGroup(new List<ElementId> { modelLine.Id });
+            sourceGroupType = sourceGroupInstance.GroupType;
+            sourceGroupType.Name = groupName;
 
-            string json = JsonConvert.SerializeObject(models, Formatting.Indented);
-            string filePath = Path.Combine(assetsDir, fileName);
-            File.WriteAllText(filePath, json);
+            duplicateGroupType = (GroupType)sourceGroupType.Duplicate(groupName + "1");
+
+            groupInstance1 = doc.Create.PlaceGroup(new XYZ(0, 0, 0), sourceGroupType);
+            groupInstance2 = doc.Create.PlaceGroup(new XYZ(5, 0, 0), duplicateGroupType);
+        }
+
+        private static bool InjectParameterToFamilyDynamic(FamilyManager famManager, string paramName)
+        {
+            if (famManager == null) return false;
+
+#if REVIT2022 || REVIT2023
+            famManager.AddParameter(paramName, BuiltInParameterGroup.PG_DATA, ParameterType.Text, false);
+            return true;
+#else
+            famManager.AddParameter(paramName, GroupTypeId.Data, SpecTypeId.String.Text, false);
+            return true;
+#endif
         }
 
         #endregion
@@ -319,7 +245,7 @@ namespace SyntheticTests
                         .Concat(duplicatedFamily.GetFamilySymbolIds())
                         .Select(id => doc.GetElement(id))
                         .ToList();
-                    ExportPocoSnapshot(familySymbols, "test_duplicate_families.json");
+                    PocoSnapshotExporter.ExportPocoSnapshot(familySymbols, "test_duplicate_families.json");
 
                     // 4. Run Fast Scan
                     var token = CancellationToken.None;
@@ -371,7 +297,7 @@ namespace SyntheticTests
                     // Verify instance is redirected to the primary family symbol
                     Assert.AreEqual(sourceSymbol.Id, instance.GetTypeId(), "Family instance should be redirected to the primary family symbol.");
 
-                    tg.RollBack();
+                    tg.Assimilate();
                 }
             }
             finally
@@ -463,7 +389,7 @@ namespace SyntheticTests
                     // 5. Assert
                     Assert.IsTrue(targetCluster.HasSchemaMismatch, "Deep scan should detect schema mismatch because of injected parameter.");
 
-                    tg.RollBack();
+                    tg.Assimilate();
                 }
             }
             finally
@@ -579,7 +505,7 @@ namespace SyntheticTests
                     string finalValue = sourceSymbol.get_Parameter(BuiltInParameter.ALL_MODEL_DESCRIPTION).AsString();
                     Assert.AreEqual("Duplicate Value", finalValue, "Primary family symbol's Description parameter should retain the designated winning value.");
 
-                    tg.RollBack();
+                    tg.Assimilate();
                 }
             }
             finally
@@ -614,32 +540,7 @@ namespace SyntheticTests
                 using (Transaction t = new Transaction(doc, "Create Test Groups"))
                 {
                     t.Start();
-
-                    // Create Model Curve on a Level Plane to form a Model Group
-                    Level? level = new FilteredElementCollector(doc)
-                        .OfClass(typeof(Level))
-                        .Cast<Level>()
-                        .FirstOrDefault();
-                    Assert.IsNotNull(level, "Document must have at least one level.");
-
-                    Plane plane = Plane.CreateByNormalAndOrigin(XYZ.BasisZ, new XYZ(0, 0, level.Elevation));
-                    SketchPlane sketchPlane = SketchPlane.Create(doc, plane);
-
-                    Line line = Line.CreateBound(XYZ.Zero, new XYZ(5, 0, 0));
-                    ModelCurve modelLine = doc.Create.NewModelCurve(line, sketchPlane);
-
-                    // Create group
-                    Group sourceGroupInstance = doc.Create.NewGroup(new List<ElementId> { modelLine.Id });
-                    sourceGroupType = sourceGroupInstance.GroupType;
-                    sourceGroupType.Name = "TestGroup";
-
-                    // Duplicate group type
-                    duplicateGroupType = (GroupType)sourceGroupType.Duplicate("TestGroup1");
-
-                    // Place instances
-                    groupInstance1 = doc.Create.PlaceGroup(new XYZ(0, 0, 0), sourceGroupType);
-                    groupInstance2 = doc.Create.PlaceGroup(new XYZ(5, 0, 0), duplicateGroupType);
-
+                    CreateTestModelGroupPair(doc, "TestGroup", out sourceGroupType, out duplicateGroupType, out groupInstance1, out groupInstance2);
                     t.Commit();
                 }
 
@@ -656,7 +557,7 @@ namespace SyntheticTests
 
                     // Export the duplicate group types
                     var groupTypes = new List<Element> { sourceGroupType, duplicateGroupType };
-                    ExportPocoSnapshot(groupTypes, "test_duplicate_groups.json");
+                    PocoSnapshotExporter.ExportPocoSnapshot(groupTypes, "test_duplicate_groups.json");
 
                     var token = CancellationToken.None;
                     var clusters = RevitMergeDataCollector.RunFastScan(doc, token);
@@ -691,7 +592,7 @@ namespace SyntheticTests
                     // Verify instance is redirected to the primary group type
                     Assert.AreEqual(sourceGroupType.Id, groupInstance2.GroupType.Id, "Group instance should be redirected to the primary group type.");
 
-                    tg.RollBack();
+                    tg.Assimilate();
                 }
             }
             finally
@@ -741,30 +642,7 @@ namespace SyntheticTests
                     bool inserted = doc.ParameterBindings.Insert(definition, binding);
                     Assert.IsTrue(inserted, "Failed to insert parameter binding.");
 
-                    // 2. Create Model Curve on a Level Plane to form a Model Group
-                    Level? level = new FilteredElementCollector(doc)
-                        .OfClass(typeof(Level))
-                        .Cast<Level>()
-                        .FirstOrDefault();
-                    Assert.IsNotNull(level, "Document must have at least one level.");
-
-                    Plane plane = Plane.CreateByNormalAndOrigin(XYZ.BasisZ, new XYZ(0, 0, level.Elevation));
-                    SketchPlane sketchPlane = SketchPlane.Create(doc, plane);
-
-                    Line line = Line.CreateBound(XYZ.Zero, new XYZ(5, 0, 0));
-                    ModelCurve modelLine = doc.Create.NewModelCurve(line, sketchPlane);
-
-                    // Create group
-                    Group sourceGroupInstance = doc.Create.NewGroup(new List<ElementId> { modelLine.Id });
-                    sourceGroupType = sourceGroupInstance.GroupType;
-                    sourceGroupType.Name = "TestGroupParam";
-
-                    // Duplicate group type
-                    duplicateGroupType = (GroupType)sourceGroupType.Duplicate("TestGroupParam1");
-
-                    // Place instances
-                    groupInstance1 = doc.Create.PlaceGroup(new XYZ(0, 0, 0), sourceGroupType);
-                    groupInstance2 = doc.Create.PlaceGroup(new XYZ(5, 0, 0), duplicateGroupType);
+                    CreateTestModelGroupPair(doc, "TestGroupParam", out sourceGroupType, out duplicateGroupType, out groupInstance1, out groupInstance2);
 
                     // Set conflicting parameter values on the newly created Type Parameter using LookupParameter
                     var srcDescParam = sourceGroupType.LookupParameter("TestParam");
@@ -829,7 +707,7 @@ namespace SyntheticTests
                     string finalValue = sourceGroupType.LookupParameter("TestParam").AsString();
                     Assert.AreEqual("Duplicate Value", finalValue, "Primary group type's TestParam parameter should retain the designated winning value.");
 
-                    tg.RollBack();
+                    tg.Assimilate();
                 }
             }
             finally

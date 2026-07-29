@@ -9,6 +9,7 @@ using Newtonsoft.Json;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.RevitDOM.Utilities;
+using SyntheticTests.Helpers;
 
 
 namespace SyntheticTests
@@ -37,13 +38,14 @@ namespace SyntheticTests
                 dir = Path.GetDirectoryName(dir);
             }
 
-            // Fallback via env path if set
-            string envPath = Environment.GetEnvironmentVariable("SYNTHETIC_PROJECT_ROOT");
-            if (!string.IsNullOrEmpty(envPath))
+            // Strategy 4: TestPathHelper fallback
+            try
             {
-                string candidate = Path.Combine(envPath, "tests", "SyntheticTests.Shared", "Assets", fileName);
+                string projectRoot = TestPathHelper.GetProjectRoot();
+                string candidate = Path.Combine(projectRoot, "tests", "SyntheticTests.Shared", "Assets", fileName);
                 if (File.Exists(candidate)) return candidate;
             }
+            catch { }
 
             return Path.Combine(testDir, "Assets", fileName);
         }
@@ -93,6 +95,15 @@ namespace SyntheticTests
         }
 
         #endregion
+
+        [Test]
+        public void Test_GetBaseName_StripsTrailingDigitsAndSeparators()
+        {
+            Assert.AreEqual("Running Section", MergeAnalysisEngine.GetBaseName("Running Section 1"));
+            Assert.AreEqual("Soldier & Plan", MergeAnalysisEngine.GetBaseName("Soldier & Plan-2"));
+            Assert.AreEqual("Rowlock", MergeAnalysisEngine.GetBaseName("Rowlock_3"));
+            Assert.AreEqual("SimpleName", MergeAnalysisEngine.GetBaseName("SimpleName"));
+        }
 
         [Test]
         public void Test_BuildClustersFromModels_GroupsDuplicateFamilies()
