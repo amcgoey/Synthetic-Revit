@@ -51,5 +51,13 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Tier2_MergeDuplicatesHeadlessTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Tier2_MergeDuplicatesIntegrationTests.cs" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)Assets\test_duplicate_families.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="$(MSBuildThisFileDirectory)Assets\test_duplicate_groups.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
 </Project>
 
