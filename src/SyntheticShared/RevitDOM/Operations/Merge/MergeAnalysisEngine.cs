@@ -34,7 +34,12 @@ namespace Synthetic.RevitDOM.Operations.Merge
         }
 
         /// <summary>
-        /// Groups POCO element models into duplicate clusters headlessly.
+        /// Retrieves the base name from a name string by stripping optional separators and trailing numbers.
+        /// </summary>
+        public static string GetBaseName(string name) => NamingUtils.GetBaseName(name);
+
+        /// <summary>
+        /// Scans a collection of ElementModel POCOs headlessly, grouping elements into duplicate clusters by category and base name.
         /// </summary>
         /// <param name="elements">The list of ElementModels to group.</param>
         /// <param name="token">A cancellation token.</param>
