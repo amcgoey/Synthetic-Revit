@@ -4,7 +4,6 @@ using System.Linq;
 using System.Threading;
 using Autodesk.Revit.DB;
 using Synthetic.RevitDOM.Operations.Merge;
-using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;

@@ -1,8 +1,5 @@
 using Newtonsoft.Json;
 
-using Synthetic.RevitDOM.Models;
-using Synthetic.RevitDOM.Translation;
-using Synthetic.RevitDOM.Operations;
 
 namespace Synthetic.RevitDOM.Models
 {
@@ -27,8 +24,8 @@ namespace Synthetic.RevitDOM.Models
         public static XYZModel operator +(XYZModel a, XYZModel b)
         {
             if (a == null && b == null) return new XYZModel(0, 0, 0);
-            if (a == null) return b;
-            if (b == null) return a;
+            if (a == null) return new XYZModel(b.X, b.Y, b.Z);
+            if (b == null) return new XYZModel(a.X, a.Y, a.Z);
             return new XYZModel(a.X + b.X, a.Y + b.Y, a.Z + b.Z);
         }
 
@@ -36,7 +33,7 @@ namespace Synthetic.RevitDOM.Models
         {
             if (a == null && b == null) return new XYZModel(0, 0, 0);
             if (a == null) return new XYZModel(-b.X, -b.Y, -b.Z);
-            if (b == null) return a;
+            if (b == null) return new XYZModel(a.X, a.Y, a.Z);
             return new XYZModel(a.X - b.X, a.Y - b.Y, a.Z - b.Z);
         }
 

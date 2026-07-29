@@ -59,39 +59,7 @@ namespace Synthetic.RevitDOM.Operations
         /// </summary>
         public static void ModifyOverrideGraphicSettings(CategoryGraphicOverridesModel serialOverride, RevitView view)
         {
-            if (serialOverride == null) return;
-            if (view == null) return;
-
-            Document document = view.Document;
-            Category? category = serialOverride.Category.GetCategory(document);
-
-            if (category != null)
-            {
-                if (view.CanCategoryBeHidden(category.Id))
-                {
-                    try
-                    {
-                        view.SetCategoryHidden(category.Id, serialOverride.IsHidden);
-                    }
-                    catch (Exception)
-                    {
-                        // Ignore if setting hidden fails (e.g. read-only views/categories)
-                    }
-                }
-
-                if (serialOverride.GraphicOverride != null)
-                {
-                    try
-                    {
-                        OverrideGraphicSettings ogs = ToOverrideGraphicSettings(serialOverride.GraphicOverride, document);
-                        view.SetCategoryOverrides(category.Id, ogs);
-                    }
-                    catch (Exception)
-                    {
-                        // Ignore if override graphics settings fail to apply
-                    }
-                }
-            }
+            ModifyOverrideGraphicSettings(serialOverride, view, new RevitIdentityService());
         }
 
         /// <summary>
@@ -161,61 +129,7 @@ namespace Synthetic.RevitDOM.Operations
         /// </summary>
         public static OverrideGraphicSettings ToOverrideGraphicSettings(OverrideGraphicSettingsModel model, Document document)
         {
-            if (model == null) throw new ArgumentNullException(nameof(model));
-            if (document == null) throw new ArgumentNullException(nameof(document));
-
-            OverrideGraphicSettings ogs = new OverrideGraphicSettings();
-
-            ogs.SetSurfaceBackgroundPatternVisible(model.IsSurfaceBackgroundPatternVisible);
-            if (model.SurfaceBackgroundPatternColor != null)
-            {
-                ogs.SetSurfaceBackgroundPatternColor(model.SurfaceBackgroundPatternColor.ToColor());
-            }
-            ogs.SetSurfaceBackgroundPatternId(ResolveFillPatternId(model.SurfaceBackgroundPatternId, document));
-
-            ogs.SetSurfaceForegroundPatternVisible(model.IsSurfaceForegroundPatternVisible);
-            if (model.SurfaceForegroundPatternColor != null)
-            {
-                ogs.SetSurfaceForegroundPatternColor(model.SurfaceForegroundPatternColor.ToColor());
-            }
-            ogs.SetSurfaceForegroundPatternId(ResolveFillPatternId(model.SurfaceForegroundPatternId, document));
-
-            if (model.ProjectionLineColor != null)
-            {
-                ogs.SetProjectionLineColor(model.ProjectionLineColor.ToColor());
-            }
-            ogs.SetProjectionLinePatternId(ResolveLinePatternId(model.ProjectionLinePatternId, document));
-            ogs.SetProjectionLineWeight(model.ProjectionLineWeight);
-
-            ogs.SetCutBackgroundPatternVisible(model.IsCutBackgroundPatternVisible);
-            if (model.CutBackgroundPatternColor != null)
-            {
-                ogs.SetCutBackgroundPatternColor(model.CutBackgroundPatternColor.ToColor());
-            }
-            ogs.SetCutBackgroundPatternId(ResolveFillPatternId(model.CutBackgroundPatternId, document));
-
-            ogs.SetCutForegroundPatternVisible(model.IsCutForegroundPatternVisible);
-            if (model.CutForegroundPatternColor != null)
-            {
-                ogs.SetCutForegroundPatternColor(model.CutForegroundPatternColor.ToColor());
-            }
-            ogs.SetCutForegroundPatternId(ResolveFillPatternId(model.CutForegroundPatternId, document));
-
-            if (model.CutLineColor != null)
-            {
-                ogs.SetCutLineColor(model.CutLineColor.ToColor());
-            }
-            ogs.SetCutLinePatternId(ResolveLinePatternId(model.CutLinePatternId, document));
-            ogs.SetCutLineWeight(model.CutLineWeight);
-
-            ogs.SetSurfaceTransparency(model.Transparency);
-            ogs.SetHalftone(model.Halftone);
-            if (model.DetailLevel != null)
-            {
-                ogs.SetDetailLevel((ViewDetailLevel)model.DetailLevel.ToEnum());
-            }
-
-            return ogs;
+            return ToOverrideGraphicSettings(model, document, new RevitIdentityService());
         }
 
         /// <summary>
@@ -285,61 +199,7 @@ namespace Synthetic.RevitDOM.Operations
         /// </summary>
         public static OverrideGraphicSettings ToOverrideGraphicSettings(ViewFilterOverrideModel model, Document document)
         {
-            if (model == null) throw new ArgumentNullException(nameof(model));
-            if (document == null) throw new ArgumentNullException(nameof(document));
-
-            OverrideGraphicSettings ogs = new OverrideGraphicSettings();
-
-            ogs.SetSurfaceBackgroundPatternVisible(model.IsSurfaceBackgroundPatternVisible);
-            if (model.SurfaceBackgroundPatternColor != null)
-            {
-                ogs.SetSurfaceBackgroundPatternColor(model.SurfaceBackgroundPatternColor.ToColor());
-            }
-            ogs.SetSurfaceBackgroundPatternId(ResolveFillPatternId(model.SurfaceBackgroundPatternId, document));
-
-            ogs.SetSurfaceForegroundPatternVisible(model.IsSurfaceForegroundPatternVisible);
-            if (model.SurfaceForegroundPatternColor != null)
-            {
-                ogs.SetSurfaceForegroundPatternColor(model.SurfaceForegroundPatternColor.ToColor());
-            }
-            ogs.SetSurfaceForegroundPatternId(ResolveFillPatternId(model.SurfaceForegroundPatternId, document));
-
-            if (model.ProjectionLineColor != null)
-            {
-                ogs.SetProjectionLineColor(model.ProjectionLineColor.ToColor());
-            }
-            ogs.SetProjectionLinePatternId(ResolveLinePatternId(model.ProjectionLinePatternId, document));
-            ogs.SetProjectionLineWeight(model.ProjectionLineWeight);
-
-            ogs.SetCutBackgroundPatternVisible(model.IsCutBackgroundPatternVisible);
-            if (model.CutBackgroundPatternColor != null)
-            {
-                ogs.SetCutBackgroundPatternColor(model.CutBackgroundPatternColor.ToColor());
-            }
-            ogs.SetCutBackgroundPatternId(ResolveFillPatternId(model.CutBackgroundPatternId, document));
-
-            ogs.SetCutForegroundPatternVisible(model.IsCutForegroundPatternVisible);
-            if (model.CutForegroundPatternColor != null)
-            {
-                ogs.SetCutForegroundPatternColor(model.CutForegroundPatternColor.ToColor());
-            }
-            ogs.SetCutForegroundPatternId(ResolveFillPatternId(model.CutForegroundPatternId, document));
-
-            if (model.CutLineColor != null)
-            {
-                ogs.SetCutLineColor(model.CutLineColor.ToColor());
-            }
-            ogs.SetCutLinePatternId(ResolveLinePatternId(model.CutLinePatternId, document));
-            ogs.SetCutLineWeight(model.CutLineWeight);
-
-            ogs.SetSurfaceTransparency(model.Transparency);
-            ogs.SetHalftone(model.Halftone);
-            if (model.DetailLevel != null)
-            {
-                ogs.SetDetailLevel((ViewDetailLevel)model.DetailLevel.ToEnum());
-            }
-
-            return ogs;
+            return ToOverrideGraphicSettings(model, document, new RevitIdentityService());
         }
 
         /// <summary>

@@ -383,133 +383,87 @@ namespace Synthetic.RevitDOM.Operations.Merge
         /// Updates parameter resolutions for a given type mapping model based on the recommended action.
         /// </summary>
         /// <param name="mapping">The type mapping model to update.</param>
+        private static (string? StorageType, string? Value) ParseStorageAndValue(string? raw)
+        {
+            if (string.IsNullOrEmpty(raw)) return (null, null);
+            int colonIndex = raw.IndexOf(':');
+            if (colonIndex < 0) return (null, raw);
+            return (raw.Substring(0, colonIndex), raw.Substring(colonIndex + 1));
+        }
+
+        /// <summary>
+        /// Updates parameter resolutions for a given type mapping model based on the recommended action.
+        /// </summary>
+        /// <param name="mapping">The type mapping model to update.</param>
         public static void UpdateParameterResolutions(TypeMappingModel mapping)
         {
-            if (mapping == null) return;
-
+            if (mapping?.SourceType == null) return;
             mapping.ParameterResolutions.Clear();
 
             var sourceType = mapping.SourceType;
-            if (sourceType == null) return;
-
             var targetType = mapping.TargetType;
+
             if (targetType == null)
             {
-                // Fallback: If no target type is selected/available, load only source parameters with no highlights
                 foreach (var keyValuePair in sourceType.Parameters)
                 {
-                    string parameterName = keyValuePair.Key;
-                    string sourceRaw = keyValuePair.Value;
+                    var (_, sourceValue) = ParseStorageAndValue(keyValuePair.Value);
+                    var valStr = sourceValue ?? string.Empty;
 
-                    string? sourceStorageType = null, sourceValueString = null;
-                    if (!string.IsNullOrEmpty(sourceRaw))
+                    var fallbackRow = new ParameterDiffRowModel
                     {
-                        int colonIndex = sourceRaw.IndexOf(':');
-                        if (colonIndex >= 0)
-                        {
-                            sourceStorageType = sourceRaw.Substring(0, colonIndex);
-                            sourceValueString = sourceRaw.Substring(colonIndex + 1);
-                        }
-                    }
-
-                    var row = new ParameterDiffRowModel
-                    {
-                        ParameterName = parameterName,
+                        ParameterName = keyValuePair.Key,
                         IsSchemaMismatch = false,
                         HasConflict = false,
                         WinningValueElementId = sourceType.RevitTypeId,
-                        IsInjectEnabled = false
+                        IsInjectEnabled = false,
+                        ValueList = new List<string> { valStr, string.Empty },
+                        Options = new List<ParameterValueOption>
+                        {
+                            new ParameterValueOption { ElementId = sourceType.RevitTypeId, DisplayText = valStr }
+                        }
                     };
-
-                    row.Values[sourceType.RevitTypeId] = sourceValueString ?? string.Empty;
-                    row.ValueList = new List<string> { sourceValueString ?? string.Empty, string.Empty };
-
-                    row.Options = new List<ParameterValueOption>
-                    {
-                        new ParameterValueOption { ElementId = sourceType.RevitTypeId, DisplayText = sourceValueString ?? string.Empty }
-                    };
-
-                    mapping.ParameterResolutions.Add(row);
+                    fallbackRow.Values[sourceType.RevitTypeId] = valStr;
+                    mapping.ParameterResolutions.Add(fallbackRow);
                 }
                 return;
             }
 
-            // Union of parameter names between source and target type to show all parameters
             var allParameterNames = sourceType.Parameters.Keys.Union(targetType.Parameters.Keys).ToList();
+            bool isMergeAction = (mapping.RecommendedAction == RecommendedAction.Merge);
+
             foreach (var parameterName in allParameterNames)
             {
-                string? sourceRaw = null;
-                string? targetRaw = null;
-                sourceType.Parameters.TryGetValue(parameterName, out sourceRaw);
-                targetType.Parameters.TryGetValue(parameterName, out targetRaw);
+                sourceType.Parameters.TryGetValue(parameterName, out string? sourceRaw);
+                targetType.Parameters.TryGetValue(parameterName, out string? targetRaw);
 
-                string? sourceStorageType = null, sourceValueString = null;
-                if (!string.IsNullOrEmpty(sourceRaw))
-                {
-                    int colonIndex = sourceRaw.IndexOf(':');
-                    if (colonIndex >= 0)
-                    {
-                        sourceStorageType = sourceRaw.Substring(0, colonIndex);
-                        sourceValueString = sourceRaw.Substring(colonIndex + 1);
-                    }
-                }
+                var (sourceStorageType, sourceValueString) = ParseStorageAndValue(sourceRaw);
+                var (targetStorageType, targetValueString) = ParseStorageAndValue(targetRaw);
 
-                string? targetStorageType = null, targetValueString = null;
-                if (!string.IsNullOrEmpty(targetRaw))
-                {
-                    int colonIndex = targetRaw.IndexOf(':');
-                    if (colonIndex >= 0)
-                    {
-                        targetStorageType = targetRaw.Substring(0, colonIndex);
-                        targetValueString = targetRaw.Substring(colonIndex + 1);
-                    }
-                }
-
-                bool isSchemaMismatch = false;
-                bool isInjectEnabled = false;
-
-                if (sourceRaw != null && targetRaw != null)
-                {
-                    if (sourceStorageType != null && targetStorageType != null && sourceStorageType != targetStorageType)
-                    {
-                        isSchemaMismatch = true;
-                        isInjectEnabled = true;
-                    }
-                }
-                else if (sourceRaw != null) // targetRaw == null
-                {
-                    isSchemaMismatch = false;
-                    isInjectEnabled = true;
-                }
-                else if (targetRaw != null) // sourceRaw == null
-                {
-                    isSchemaMismatch = false;
-                    isInjectEnabled = false;
-                }
-
-                bool hasConflict = (sourceRaw != null && targetRaw != null) && (sourceValueString != targetValueString) && !isSchemaMismatch;
+                bool isSchemaMismatch = (sourceRaw != null && targetRaw != null && sourceStorageType != null && targetStorageType != null && sourceStorageType != targetStorageType);
+                bool isInjectEnabled = (sourceRaw != null && targetRaw == null) || isSchemaMismatch;
+                bool hasConflict = (sourceRaw != null && targetRaw != null && sourceValueString != targetValueString && !isSchemaMismatch);
 
                 var row = new ParameterDiffRowModel
                 {
                     ParameterName = parameterName,
                     IsSchemaMismatch = isSchemaMismatch,
                     HasConflict = hasConflict,
-                    WinningValueElementId = (mapping.RecommendedAction == RecommendedAction.Merge) ? targetType.RevitTypeId : sourceType.RevitTypeId,
+                    WinningValueElementId = isMergeAction ? targetType.RevitTypeId : sourceType.RevitTypeId,
                     IsInjectEnabled = isInjectEnabled
                 };
 
                 row.Values[sourceType.RevitTypeId] = sourceValueString ?? string.Empty;
                 row.Values[targetType.RevitTypeId] = targetValueString ?? string.Empty;
 
-                // If Migrate or Exclude is selected, then the Primary/Target family's parameter value column should show empty
-                string primaryValue = (mapping.RecommendedAction == RecommendedAction.Merge) ? (targetValueString ?? string.Empty) : string.Empty;
+                string primaryValue = isMergeAction ? (targetValueString ?? string.Empty) : string.Empty;
                 row.ValueList = new List<string> { sourceValueString ?? string.Empty, primaryValue };
 
                 row.Options = new List<ParameterValueOption>
                 {
                     new ParameterValueOption { ElementId = sourceType.RevitTypeId, DisplayText = sourceValueString ?? string.Empty }
                 };
-                if (mapping.RecommendedAction == RecommendedAction.Merge)
+                if (isMergeAction)
                 {
                     row.Options.Add(new ParameterValueOption { ElementId = targetType.RevitTypeId, DisplayText = targetValueString ?? string.Empty });
                 }
@@ -517,5 +471,5 @@ namespace Synthetic.RevitDOM.Operations.Merge
                 mapping.ParameterResolutions.Add(row);
             }
         }
-    }
+}
 }

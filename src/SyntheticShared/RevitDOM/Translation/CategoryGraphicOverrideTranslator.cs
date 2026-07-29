@@ -8,9 +8,6 @@ using View = Autodesk.Revit.DB.View;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Operations;
 
-using Synthetic.RevitDOM.Models;
-using Synthetic.RevitDOM.Translation;
-using Synthetic.RevitDOM.Operations;
 
 namespace Synthetic.RevitDOM.Translation
 {

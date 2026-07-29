@@ -24,12 +24,35 @@ namespace SyntheticTests
                 return envPath;
             }
 
-            string dir = TestContext.CurrentContext.TestDirectory;
-            while (dir != null && !Directory.Exists(Path.Combine(dir, "tests")))
+            string? sourceFile = new System.Diagnostics.StackTrace(true).GetFrame(0)?.GetFileName();
+            string[] candidateDirs = new[]
             {
-                dir = Path.GetDirectoryName(dir);
+                !string.IsNullOrEmpty(sourceFile) ? Path.GetDirectoryName(sourceFile) : null,
+                Environment.CurrentDirectory,
+                Path.GetDirectoryName(typeof(Tier2_MergeDuplicatesHeadlessTests).Assembly.Location),
+                AppDomain.CurrentDomain.BaseDirectory,
+                TestContext.CurrentContext.TestDirectory
+            };
+
+            foreach (var startDir in candidateDirs)
+            {
+                if (string.IsNullOrEmpty(startDir)) continue;
+                string? dir = startDir;
+                while (dir is not null)
+                {
+                    if (File.Exists(Path.Combine(dir, "src", "Synthetic.sln")))
+                    {
+                        return dir;
+                    }
+                    if (File.Exists(Path.Combine(dir, "Synthetic.sln")))
+                    {
+                        return Path.GetDirectoryName(dir) ?? dir;
+                    }
+                    dir = Path.GetDirectoryName(dir);
+                }
             }
-            return dir ?? TestContext.CurrentContext.TestDirectory;
+
+            return TestContext.CurrentContext.TestDirectory;
         }
 
         [Test]

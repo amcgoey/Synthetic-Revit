@@ -130,37 +130,26 @@ namespace SyntheticTests.Infrastructure.UI
         /// </summary>
         private static string GetThemeXamlPath()
         {
-            // Walk upward from the test assembly output directory until we find
-            // the solution root (identified by Synthetic.sln), then navigate into
-            // the source tree.  This works regardless of whether the assembly was
-            // built by MSBuild (bin\x64\Debug\…) or dotnet CLI (bin\Debug\…).
-            string? dir = Path.GetDirectoryName(typeof(ThemeTests).Assembly.Location);
+            string? dir = AppDomain.CurrentDomain.BaseDirectory;
+            if (string.IsNullOrEmpty(dir))
+            {
+                dir = Path.GetDirectoryName(typeof(ThemeTests).Assembly.Location);
+            }
+
             while (dir is not null)
             {
-                if (File.Exists(Path.Combine(dir, "src", "Synthetic.sln")))
-                    break;
+                string target1 = Path.Combine(dir, "src", "SyntheticShared", "Shared", "UI", "SyntheticTheme.xaml");
+                if (File.Exists(target1)) return Path.GetFullPath(target1);
+
+                string target2 = Path.Combine(dir, "SyntheticShared", "Shared", "UI", "SyntheticTheme.xaml");
+                if (File.Exists(target2)) return Path.GetFullPath(target2);
+
                 dir = Path.GetDirectoryName(dir);
             }
 
-            if (dir is null)
-                throw new DirectoryNotFoundException(
-                    "Could not locate solution root (src/Synthetic.sln) by walking up from the test assembly.");
-
-            string xamlPath = Path.GetFullPath(
-                Path.Combine(dir, @"src\SyntheticShared\Shared\UI\SyntheticTheme.xaml"));
-
-            if (!File.Exists(xamlPath))
-                throw new FileNotFoundException(
-                    $"SyntheticTheme.xaml not found at expected path: {xamlPath}");
-
-            return xamlPath;
+            throw new DirectoryNotFoundException("Could not locate SyntheticTheme.xaml by walking up from test directory.");
         }
 
-        /// <summary>
-        /// Loads <c>SyntheticTheme.xaml</c> from the source tree using
-        /// <see cref="XamlReader"/> and returns the resulting
-        /// <see cref="ResourceDictionary"/>.
-        /// </summary>
         private static ResourceDictionary LoadThemeDictionary()
         {
             using var stream = File.OpenRead(GetThemeXamlPath());

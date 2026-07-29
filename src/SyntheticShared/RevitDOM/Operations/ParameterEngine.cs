@@ -48,27 +48,7 @@ namespace Synthetic.RevitDOM.Operations
         /// </summary>
         public static void ExtractParameters(Element element, ElementModel model, bool isTemplate)
         {
-            model.Parameters = new List<ParameterModel>();
-            foreach (Parameter param in element.Parameters)
-            {
-                if (isTemplate)
-                {
-                    // "Filter on Extract": drop read-only parameters and parameters without values
-                    if (param.IsReadOnly) continue;
-                    if (!param.HasValue) continue;
-
-                    // Additionally skip empty strings or invalid element IDs
-                    if (param.StorageType == StorageType.String && string.IsNullOrEmpty(param.AsString())) continue;
-                    if (param.StorageType == StorageType.ElementId && param.AsElementId() == ElementId.InvalidElementId) continue;
-                }
-                else
-                {
-                    // For live elements, we only extract non-read-only parameters
-                    if (param.IsReadOnly) continue;
-                }
-
-                model.Parameters.Add(param.ToModel(element.Document, isTemplate));
-            }
+            ExtractParameters(element, model, isTemplate, new RevitIdentityService());
         }
 
         /// <summary>
@@ -88,11 +68,7 @@ namespace Synthetic.RevitDOM.Operations
         /// </summary>
         public static void InjectParameters(ElementModel model, Element element)
         {
-            if (model.Parameters == null) return;
-            foreach (var paramModel in model.Parameters)
-            {
-                InjectParameter(paramModel, element);
-            }
+            InjectParameters(model, element, new RevitIdentityService());
         }
 
         /// <summary>
@@ -144,43 +120,7 @@ namespace Synthetic.RevitDOM.Operations
         /// </summary>
         public static void InjectParameter(ParameterModel paramModel, Element element)
         {
-            if (paramModel.IsReadOnly) return;
-
-            Parameter param = GetParameter(paramModel, element);
-            if (param != null && !param.IsReadOnly)
-            {
-                try
-                {
-                    switch (paramModel.StorageType)
-                    {
-                        case "Double":
-                            if (paramModel.Value != null)
-                            {
-                                double val = Convert.ToDouble(paramModel.Value, System.Globalization.CultureInfo.InvariantCulture);
-                                param.Set(val);
-                            }
-                            break;
-                        case "ElementId":
-                            ModifyElementIdParameter(param, paramModel.ValueElemId, element.Document);
-                            break;
-                        case "Integer":
-                            if (paramModel.Value != null)
-                            {
-                                int val = Convert.ToInt32(paramModel.Value);
-                                param.Set(val);
-                            }
-                            break;
-                        case "String":
-                        default:
-                            param.Set(paramModel.Value ?? string.Empty);
-                            break;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Error modifying parameter '{paramModel.Name}' (ID: {paramModel.Id}) on element: {ex.Message}");
-                }
-            }
+            InjectParameter(paramModel, element, new RevitIdentityService());
         }
 
         /// <summary>
