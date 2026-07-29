@@ -130,46 +130,26 @@ namespace SyntheticTests.Infrastructure.UI
         /// </summary>
         private static string GetThemeXamlPath()
         {
-            var candidateDirs = new[]
+            string? dir = AppDomain.CurrentDomain.BaseDirectory;
+            if (string.IsNullOrEmpty(dir))
             {
-                Path.GetDirectoryName(typeof(ThemeTests).Assembly.Location),
-                AppContext.BaseDirectory,
-                Directory.GetCurrentDirectory(),
-                NUnit.Framework.TestContext.CurrentContext.TestDirectory
-            };
-
-            var relativeThemePaths = new[]
-            {
-                @"src\SyntheticShared\Shared\UI\SyntheticTheme.xaml",
-                @"SyntheticShared\Shared\UI\SyntheticTheme.xaml"
-            };
-
-            foreach (var candidateRaw in candidateDirs)
-            {
-                if (string.IsNullOrEmpty(candidateRaw)) continue;
-                string? dir = Path.GetFullPath(candidateRaw);
-                while (!string.IsNullOrEmpty(dir))
-                {
-                    foreach (var relativePath in relativeThemePaths)
-                    {
-                        string fullThemePath = Path.Combine(dir, relativePath);
-                        if (File.Exists(fullThemePath)) return fullThemePath;
-                    }
-
-                    dir = Path.GetDirectoryName(dir);
-                }
+                dir = Path.GetDirectoryName(typeof(ThemeTests).Assembly.Location);
             }
 
-            throw new DirectoryNotFoundException(
-                "Could not locate SyntheticTheme.xaml by searching upward from test paths.");
-        }
+            while (dir is not null)
+            {
+                string target1 = Path.Combine(dir, "src", "SyntheticShared", "Shared", "UI", "SyntheticTheme.xaml");
+                if (File.Exists(target1)) return Path.GetFullPath(target1);
+
+                string target2 = Path.Combine(dir, "SyntheticShared", "Shared", "UI", "SyntheticTheme.xaml");
+                if (File.Exists(target2)) return Path.GetFullPath(target2);
+
+                dir = Path.GetDirectoryName(dir);
+            }
+
+            throw new DirectoryNotFoundException("Could not locate SyntheticTheme.xaml by walking up from test directory.");
         }
 
-        /// <summary>
-        /// Loads <c>SyntheticTheme.xaml</c> from the source tree using
-        /// <see cref="XamlReader"/> and returns the resulting
-        /// <see cref="ResourceDictionary"/>.
-        /// </summary>
         private static ResourceDictionary LoadThemeDictionary()
         {
             using var stream = File.OpenRead(GetThemeXamlPath());

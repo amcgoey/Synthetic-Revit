@@ -11,7 +11,6 @@ using Synthetic.RevitDOM;
 using Synthetic.Infrastructure.Serialization;
 using Synthetic.Modules.MergeDuplicates.Handlers;
 using Synthetic.RevitDOM.Operations.Merge;
-using Synthetic.RevitDOM.Operations.Standards;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Shared.RevitAPI;
 

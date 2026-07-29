@@ -79,11 +79,7 @@ namespace Synthetic.RevitDOM.Operations
                 trans.Start();
                 try
                 {
-                    List<Category> allCats = new List<Category>();
-                    foreach (Category cat in doc.Settings.Categories)
-                    {
-                        AddCategoryAndSubcategories(cat, allCats);
-                    }
+                    List<Category> allCats = GetAllCategories(doc);
 
                     foreach (Category cat in allCats)
                     {
@@ -195,11 +191,7 @@ namespace Synthetic.RevitDOM.Operations
                         .Cast<RevitView>()
                         .ToList();
 
-                    List<Category> allCats = new List<Category>();
-                    foreach (Category cat in doc.Settings.Categories)
-                    {
-                        AddCategoryAndSubcategories(cat, allCats);
-                    }
+                    List<Category> allCats = GetAllCategories(doc);
 
                     foreach (RevitView view in views)
                     {
@@ -267,6 +259,22 @@ namespace Synthetic.RevitDOM.Operations
                 }
                 trans.Commit();
             }
+        }
+
+                /// <summary>
+        /// Recursively gathers all categories and subcategories in the document.
+        /// </summary>
+        private static List<Category> GetAllCategories(Document doc)
+        {
+            List<Category> list = new List<Category>();
+            if (doc?.Settings?.Categories != null)
+            {
+                foreach (Category cat in doc.Settings.Categories)
+                {
+                    AddCategoryAndSubcategories(cat, list);
+                }
+            }
+            return list;
         }
 
         /// <summary>

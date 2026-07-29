@@ -21,7 +21,6 @@ using Synthetic.Infrastructure.IO;
 using Synthetic.Shared.UI;
 using Synthetic.Modules.MergeDuplicates.Handlers;
 
-using Synthetic.Modules.MergeDuplicates.Views;
 using Synthetic.RevitDOM.Operations.Merge;
 namespace Synthetic.Modules.MergeDuplicates.ViewModels
 {
