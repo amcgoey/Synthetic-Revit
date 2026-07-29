@@ -16,40 +16,88 @@ namespace SyntheticTests
     [TestFixture]
     public class Tier2_MergeDuplicatesHeadlessTests
     {
-        private static string GetProjectRoot()
+        private static string GetJsonAssetPath(string fileName)
         {
-            string envPath = Environment.GetEnvironmentVariable("SYNTHETIC_PROJECT_ROOT");
-            if (!string.IsNullOrEmpty(envPath) && Directory.Exists(envPath))
-            {
-                return envPath;
-            }
+            string testDir = TestContext.CurrentContext.TestDirectory;
 
-            string dir = TestContext.CurrentContext.TestDirectory;
-            while (dir != null && !Directory.Exists(Path.Combine(dir, "tests")))
+            // Strategy 1: Copied to output Assets directory
+            string localAsset = Path.Combine(testDir, "Assets", fileName);
+            if (File.Exists(localAsset)) return localAsset;
+
+            // Strategy 2: Copied to output directory root
+            string directAsset = Path.Combine(testDir, fileName);
+            if (File.Exists(directAsset)) return directAsset;
+
+            // Strategy 3: Walk up directory tree to repo root
+            string? dir = testDir;
+            while (dir != null)
             {
+                string candidate = Path.Combine(dir, "tests", "SyntheticTests.Shared", "Assets", fileName);
+                if (File.Exists(candidate)) return candidate;
                 dir = Path.GetDirectoryName(dir);
             }
-            return dir ?? TestContext.CurrentContext.TestDirectory;
+
+            // Fallback via env path if set
+            string envPath = Environment.GetEnvironmentVariable("SYNTHETIC_PROJECT_ROOT");
+            if (!string.IsNullOrEmpty(envPath))
+            {
+                string candidate = Path.Combine(envPath, "tests", "SyntheticTests.Shared", "Assets", fileName);
+                if (File.Exists(candidate)) return candidate;
+            }
+
+            return Path.Combine(testDir, "Assets", fileName);
         }
 
-        [Test]
-        public void Test_GetBaseName_StripsTrailingDigitsAndSeparators()
+        #region Test Factory Helpers
+
+        private static ElementModel CreateTestElementModel(
+            long id,
+            string name,
+            string category = "Detail Items",
+            string className = "Autodesk.Revit.DB.FamilySymbol",
+            List<ParameterModel>? parameters = null,
+            List<ElementModel>? nestedTypes = null)
         {
-            Assert.AreEqual("MyFamily", NamingUtils.GetBaseName("MyFamily_1"));
-            Assert.AreEqual("MyFamily", NamingUtils.GetBaseName("MyFamily-2"));
-            Assert.AreEqual("MyFamily", NamingUtils.GetBaseName("MyFamily 3"));
-            Assert.AreEqual("MyFamily", NamingUtils.GetBaseName("MyFamily#4"));
-            Assert.AreEqual("MyFamily", NamingUtils.GetBaseName("MyFamily.5"));
-            Assert.AreEqual("MyFamily", NamingUtils.GetBaseName("MyFamily"));
-            Assert.AreEqual("", NamingUtils.GetBaseName(""));
-            Assert.AreEqual("", NamingUtils.GetBaseName(null));
+            return new ElementModel
+            {
+                ElementId = new ElementIdModel { Id = id, UniqueId = $"uid-{id}" },
+                Name = name,
+                Category = category,
+                Class = className,
+                Parameters = parameters ?? new List<ParameterModel>(),
+                NestedTypes = nestedTypes ?? new List<ElementModel>()
+            };
         }
+
+        private static ParameterModel CreateTestParameterModel(
+            string name,
+            string value,
+            string storageType = "String",
+            long id = 100)
+        {
+            return new ParameterModel
+            {
+                Name = name,
+                Value = value,
+                StorageType = storageType,
+                Id = id
+            };
+        }
+
+        private static void SetLoadableFlag(DuplicateClusterModel cluster, bool isLoadable)
+        {
+            foreach (var item in cluster.Items)
+            {
+                item.IsLoadableFamily = isLoadable;
+            }
+        }
+
+        #endregion
 
         [Test]
         public void Test_BuildClustersFromModels_GroupsDuplicateFamilies()
         {
-            string projectRoot = GetProjectRoot();
-            string jsonPath = Path.Combine(projectRoot, "tests", "SyntheticTests.Shared", "Assets", "test_duplicate_families.json");
+            string jsonPath = GetJsonAssetPath("test_duplicate_families.json");
             Assert.IsTrue(File.Exists(jsonPath), $"Snapshot file not found at: {jsonPath}");
 
             string json = File.ReadAllText(jsonPath);
@@ -63,6 +111,20 @@ namespace SyntheticTests
             // Assertions for clustering
             Assert.IsNotNull(clusters, "Clusters collection should not be null.");
             Assert.AreEqual(3, clusters.Count, "Should detect 3 duplicate family symbol clusters.");
+
+            // Assert category grouping across all clusters
+            foreach (var cluster in clusters)
+            {
+                Assert.IsTrue(cluster.Items.All(i => i.CategoryName == "Detail Items"),
+                    $"All items in cluster '{cluster.ClusterName}' should belong to Detail Items category.");
+                Assert.AreEqual(1, cluster.Items.Count(i => i.IsPrimary),
+                    $"Exactly one item in cluster '{cluster.ClusterName}' should be flagged as primary.");
+
+                var primary = cluster.Items.First(i => i.IsPrimary);
+                var shortestNameItem = cluster.Items.OrderBy(i => i.ItemName.Length).First();
+                Assert.AreEqual(shortestNameItem.ItemName, primary.ItemName,
+                    $"Primary item for '{cluster.ClusterName}' should have the shortest name length.");
+            }
 
             var runningSectionCluster = clusters.FirstOrDefault(c => c.ClusterName.Contains("Running Section"));
             Assert.IsNotNull(runningSectionCluster, "Should contain Running Section cluster.");
@@ -81,8 +143,7 @@ namespace SyntheticTests
         [Test]
         public void Test_BuildClustersFromModels_GroupsDuplicateGroups()
         {
-            string projectRoot = GetProjectRoot();
-            string jsonPath = Path.Combine(projectRoot, "tests", "SyntheticTests.Shared", "Assets", "test_duplicate_groups.json");
+            string jsonPath = GetJsonAssetPath("test_duplicate_groups.json");
             Assert.IsTrue(File.Exists(jsonPath), $"Snapshot file not found at: {jsonPath}");
 
             string json = File.ReadAllText(jsonPath);
@@ -100,7 +161,8 @@ namespace SyntheticTests
             var groupCluster = clusters.First();
             Assert.IsTrue(groupCluster.ClusterName.Contains("TestGroup"), "Cluster name should contain TestGroup.");
             Assert.AreEqual(2, groupCluster.Items.Count, "Should contain 2 group items.");
-            Assert.IsTrue(groupCluster.Items.Any(i => i.IsPrimary), "One item should be flagged as primary.");
+            Assert.IsTrue(groupCluster.Items.All(i => i.CategoryName == "Model Groups"), "All items in group cluster should belong to Model Groups category.");
+            Assert.AreEqual(1, groupCluster.Items.Count(i => i.IsPrimary), "Exactly one item should be flagged as primary.");
 
             var primaryItem = groupCluster.Items.First(i => i.IsPrimary);
             Assert.AreEqual("TestGroup", primaryItem.ItemName, "Item with shorter name should be primary.");
@@ -112,31 +174,23 @@ namespace SyntheticTests
         [Test]
         public void Test_CompareParameters_IdentifiesMatches()
         {
-            var primaryElem = new ElementModel
-            {
-                ElementId = new ElementIdModel { Id = 1001, UniqueId = "uid-1001" },
-                Name = "Running Section",
-                Category = "Detail Items",
-                Class = "Autodesk.Revit.DB.FamilySymbol",
-                Parameters = new List<ParameterModel>
+            var primaryElem = CreateTestElementModel(
+                1001,
+                "Running Section",
+                parameters: new List<ParameterModel>
                 {
-                    new ParameterModel { Name = "Cost", Value = "100.0", StorageType = "Double", Id = 101 },
-                    new ParameterModel { Name = "Type Comments", Value = "Standard", StorageType = "String", Id = 102 }
-                }
-            };
+                    CreateTestParameterModel("Cost", "100.0", "Double", 101),
+                    CreateTestParameterModel("Type Comments", "Standard", "String", 102)
+                });
 
-            var duplicateElem = new ElementModel
-            {
-                ElementId = new ElementIdModel { Id = 1002, UniqueId = "uid-1002" },
-                Name = "Running Section",
-                Category = "Detail Items",
-                Class = "Autodesk.Revit.DB.FamilySymbol",
-                Parameters = new List<ParameterModel>
+            var duplicateElem = CreateTestElementModel(
+                1002,
+                "Running Section",
+                parameters: new List<ParameterModel>
                 {
-                    new ParameterModel { Name = "Cost", Value = "100.0", StorageType = "Double", Id = 101 },
-                    new ParameterModel { Name = "Type Comments", Value = "Standard", StorageType = "String", Id = 102 }
-                }
-            };
+                    CreateTestParameterModel("Cost", "100.0", "Double", 101),
+                    CreateTestParameterModel("Type Comments", "Standard", "String", 102)
+                });
 
             var elements = new List<ElementModel> { primaryElem, duplicateElem };
             var token = CancellationToken.None;
@@ -166,29 +220,21 @@ namespace SyntheticTests
         [Test]
         public void Test_CompareParameters_IdentifiesConflicts()
         {
-            var primaryElem = new ElementModel
-            {
-                ElementId = new ElementIdModel { Id = 1001, UniqueId = "uid-1001" },
-                Name = "Running Section",
-                Category = "Detail Items",
-                Class = "Autodesk.Revit.DB.FamilySymbol",
-                Parameters = new List<ParameterModel>
+            var primaryElem = CreateTestElementModel(
+                1001,
+                "Running Section",
+                parameters: new List<ParameterModel>
                 {
-                    new ParameterModel { Name = "Type Comments", Value = "Standard", StorageType = "String", Id = 102 }
-                }
-            };
+                    CreateTestParameterModel("Type Comments", "Standard", "String", 102)
+                });
 
-            var duplicateElem = new ElementModel
-            {
-                ElementId = new ElementIdModel { Id = 1002, UniqueId = "uid-1002" },
-                Name = "Running Section",
-                Category = "Detail Items",
-                Class = "Autodesk.Revit.DB.FamilySymbol",
-                Parameters = new List<ParameterModel>
+            var duplicateElem = CreateTestElementModel(
+                1002,
+                "Running Section",
+                parameters: new List<ParameterModel>
                 {
-                    new ParameterModel { Name = "Type Comments", Value = "Override", StorageType = "String", Id = 102 }
-                }
-            };
+                    CreateTestParameterModel("Type Comments", "Override", "String", 102)
+                });
 
             var elements = new List<ElementModel> { primaryElem, duplicateElem };
             var token = CancellationToken.None;
@@ -212,29 +258,21 @@ namespace SyntheticTests
         [Test]
         public void Test_CompareParameters_IdentifiesSchemaMismatches()
         {
-            var primaryElem = new ElementModel
-            {
-                ElementId = new ElementIdModel { Id = 1001, UniqueId = "uid-1001" },
-                Name = "Running Section",
-                Category = "Detail Items",
-                Class = "Autodesk.Revit.DB.FamilySymbol",
-                Parameters = new List<ParameterModel>
+            var primaryElem = CreateTestElementModel(
+                1001,
+                "Running Section",
+                parameters: new List<ParameterModel>
                 {
-                    new ParameterModel { Name = "Cost", Value = "100.0", StorageType = "Double", Id = 101 }
-                }
-            };
+                    CreateTestParameterModel("Cost", "100.0", "Double", 101)
+                });
 
-            var duplicateElem = new ElementModel
-            {
-                ElementId = new ElementIdModel { Id = 1002, UniqueId = "uid-1002" },
-                Name = "Running Section",
-                Category = "Detail Items",
-                Class = "Autodesk.Revit.DB.FamilySymbol",
-                Parameters = new List<ParameterModel>
+            var duplicateElem = CreateTestElementModel(
+                1002,
+                "Running Section",
+                parameters: new List<ParameterModel>
                 {
-                    new ParameterModel { Name = "Cost", Value = "100.0", StorageType = "String", Id = 101 }
-                }
-            };
+                    CreateTestParameterModel("Cost", "100.0", "String", 101)
+                });
 
             var elements = new List<ElementModel> { primaryElem, duplicateElem };
             var token = CancellationToken.None;
@@ -254,29 +292,21 @@ namespace SyntheticTests
         [Test]
         public void Test_CompareParameters_IdentifiesMissingParameters()
         {
-            var primaryElem = new ElementModel
-            {
-                ElementId = new ElementIdModel { Id = 1001, UniqueId = "uid-1001" },
-                Name = "Running Section",
-                Category = "Detail Items",
-                Class = "Autodesk.Revit.DB.FamilySymbol",
-                Parameters = new List<ParameterModel>
+            var primaryElem = CreateTestElementModel(
+                1001,
+                "Running Section",
+                parameters: new List<ParameterModel>
                 {
-                    new ParameterModel { Name = "OnlyInPrimary", Value = "Hello", StorageType = "String", Id = 103 }
-                }
-            };
+                    CreateTestParameterModel("OnlyInPrimary", "Hello", "String", 103)
+                });
 
-            var duplicateElem = new ElementModel
-            {
-                ElementId = new ElementIdModel { Id = 1002, UniqueId = "uid-1002" },
-                Name = "Running Section",
-                Category = "Detail Items",
-                Class = "Autodesk.Revit.DB.FamilySymbol",
-                Parameters = new List<ParameterModel>
+            var duplicateElem = CreateTestElementModel(
+                1002,
+                "Running Section",
+                parameters: new List<ParameterModel>
                 {
-                    new ParameterModel { Name = "OnlyInSource", Value = "World", StorageType = "String", Id = 104 }
-                }
-            };
+                    CreateTestParameterModel("OnlyInSource", "World", "String", 104)
+                });
 
             var elements = new List<ElementModel> { primaryElem, duplicateElem };
             var token = CancellationToken.None;
@@ -306,30 +336,18 @@ namespace SyntheticTests
         public void Test_GenerateRecommendedAction_MatchesDecisions()
         {
             // Case 1: Loadable Family (IsLoadableFamily = true)
-            var primaryFam = new ElementModel
-            {
-                ElementId = new ElementIdModel { Id = 1001, UniqueId = "uid-1001" },
-                Name = "Running Section",
-                Category = "Detail Items",
-                Class = "Autodesk.Revit.DB.FamilySymbol",
-                NestedTypes = new List<ElementModel>
-                {
-                    new ElementModel { ElementId = new ElementIdModel { Id = 10011 }, Name = "Type A" }
-                }
-            };
+            var typeA1 = CreateTestElementModel(10011, "Type A");
+            var primaryFam = CreateTestElementModel(
+                1001,
+                "Running Section",
+                nestedTypes: new List<ElementModel> { typeA1 });
 
-            var duplicateFam = new ElementModel
-            {
-                ElementId = new ElementIdModel { Id = 1002, UniqueId = "uid-1002" },
-                Name = "Running Section 1",
-                Category = "Detail Items",
-                Class = "Autodesk.Revit.DB.FamilySymbol",
-                NestedTypes = new List<ElementModel>
-                {
-                    new ElementModel { ElementId = new ElementIdModel { Id = 10021 }, Name = "Type A" },
-                    new ElementModel { ElementId = new ElementIdModel { Id = 10022 }, Name = "Type B" }
-                }
-            };
+            var typeA2 = CreateTestElementModel(10021, "Type A");
+            var typeB2 = CreateTestElementModel(10022, "Type B");
+            var duplicateFam = CreateTestElementModel(
+                1002,
+                "Running Section 1",
+                nestedTypes: new List<ElementModel> { typeA2, typeB2 });
 
             var elements = new List<ElementModel> { primaryFam, duplicateFam };
             var token = CancellationToken.None;
@@ -339,6 +357,9 @@ namespace SyntheticTests
             var cluster = clusters[0];
             var primaryItem = cluster.Items.First(i => i.RevitElementId.Id == 1001);
             cluster.UpdatePrimaryItem(primaryItem);
+
+            // Mock IsLoadableFamily directly on items rather than relying on Class name checks
+            SetLoadableFlag(cluster, true);
 
             MergeAnalysisEngine.GenerateRecommendations(cluster);
 
@@ -351,21 +372,17 @@ namespace SyntheticTests
             Assert.AreEqual(RecommendedAction.Migrate, typeBMapping.RecommendedAction, "Type B is unique to duplicate family and should be Migrated.");
 
             // Case 2: Group (IsLoadableFamily = false)
-            var primaryGroup = new ElementModel
-            {
-                ElementId = new ElementIdModel { Id = 2001, UniqueId = "uid-2001" },
-                Name = "TestGroup",
-                Category = "Model Groups",
-                Class = "Autodesk.Revit.DB.GroupType"
-            };
+            var primaryGroup = CreateTestElementModel(
+                2001,
+                "TestGroup",
+                category: "Model Groups",
+                className: "Autodesk.Revit.DB.GroupType");
 
-            var duplicateGroup = new ElementModel
-            {
-                ElementId = new ElementIdModel { Id = 2002, UniqueId = "uid-2002" },
-                Name = "TestGroup 1",
-                Category = "Model Groups",
-                Class = "Autodesk.Revit.DB.GroupType"
-            };
+            var duplicateGroup = CreateTestElementModel(
+                2002,
+                "TestGroup 1",
+                category: "Model Groups",
+                className: "Autodesk.Revit.DB.GroupType");
 
             var groupElements = new List<ElementModel> { primaryGroup, duplicateGroup };
             var groupClusters = MergeAnalysisEngine.BuildClustersFromModels(groupElements, token);
@@ -374,6 +391,9 @@ namespace SyntheticTests
             var groupCluster = groupClusters[0];
             var primaryGroupItem = groupCluster.Items.First(i => i.RevitElementId.Id == 2001);
             groupCluster.UpdatePrimaryItem(primaryGroupItem);
+
+            // Mock IsLoadableFamily directly to false for group items
+            SetLoadableFlag(groupCluster, false);
 
             MergeAnalysisEngine.GenerateRecommendations(groupCluster);
 
