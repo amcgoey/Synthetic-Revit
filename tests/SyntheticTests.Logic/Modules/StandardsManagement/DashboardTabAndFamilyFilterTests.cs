@@ -139,7 +139,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             File.WriteAllText(tempJsonFile, @"{
                 ""Materials"": {
                     ""Concrete"": {
-                        ""$type"": ""Synthetic.RevitDOM.Operations.Standards.MaterialModel, SyntheticShared"",
+                        ""$type"": ""Synthetic.RevitDOM.Models.MaterialModel, SyntheticShared"",
                         ""Name"": ""Concrete"",
                         ""Class"": ""Autodesk.Revit.DB.Material"",
                         ""UniqueId"": ""abc-123""

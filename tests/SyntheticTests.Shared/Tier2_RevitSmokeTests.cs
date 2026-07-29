@@ -50,16 +50,16 @@ namespace SyntheticTests
             var findReplaceType = Type.GetType($"Synthetic.RevitDOM.Operations.Standards.FindReplaceService{suffix}");
             var findReplaceService = Activator.CreateInstance(findReplaceType);
 
-            var serializationEngineType = Type.GetType($"Synthetic.Modules.RevitDOM.StandardSerializationEngine{suffix}");
+            var serializationEngineType = Type.GetType($"Synthetic.RevitDOM.Operations.StandardSerializationEngine{suffix}");
             var serializationEngine = Activator.CreateInstance(serializationEngineType);
 
-            var revitIdentityType = Type.GetType($"Synthetic.Modules.RevitDOM.RevitIdentityService{suffix}");
+            var revitIdentityType = Type.GetType($"Synthetic.RevitDOM.Translation.RevitIdentityService{suffix}");
             var revitIdentity = Activator.CreateInstance(revitIdentityType);
 
             var orchestratorType = Type.GetType($"Synthetic.RevitDOM.Operations.Standards.StandardsExtractionOrchestrator{suffix}");
             var orchestrator = Activator.CreateInstance(orchestratorType, revitIdentity, serializationEngine);
 
-            var pocoIdentityType = Type.GetType($"Synthetic.Modules.RevitDOM.PocoIdentityService{suffix}");
+            var pocoIdentityType = Type.GetType($"Synthetic.RevitDOM.Translation.PocoIdentityService{suffix}");
             var pocoIdentityService = Activator.CreateInstance(pocoIdentityType);
 
             var diffEngineType = Type.GetType($"Synthetic.RevitDOM.Operations.Diffing.PocoToRevitDiffEngine{suffix}");
