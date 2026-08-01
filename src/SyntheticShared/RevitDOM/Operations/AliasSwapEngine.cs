@@ -244,9 +244,11 @@ namespace Synthetic.RevitDOM.Operations
                 {
                     if (view == null || !view.IsValidObject) continue;
 
+                    // 4a. Category Graphic Overrides
                     if (view.IsTemplate || view.ViewType == ViewType.FloorPlan || view.ViewType == ViewType.CeilingPlan ||
                         view.ViewType == ViewType.Elevation || view.ViewType == ViewType.Section || view.ViewType == ViewType.ThreeD ||
-                        view.ViewType == ViewType.DraftingView || view.ViewType == ViewType.AreaPlan)
+                        view.ViewType == ViewType.DraftingView || view.ViewType == ViewType.AreaPlan || view.ViewType == ViewType.EngineeringPlan ||
+                        view.ViewType == ViewType.Detail)
                     {
                         foreach (Category cat in allCats)
                         {
@@ -254,30 +256,48 @@ namespace Synthetic.RevitDOM.Operations
                             try
                             {
                                 OverrideGraphicSettings settings = view.GetCategoryOverrides(cat.Id);
-                                if (settings != null)
+                                if (settings != null && SwapPatternOverrides(settings, oldId, newId, patternCheckers, result))
                                 {
-                                    bool changed = false;
-
-                                    foreach (var (getPattern, setPattern) in patternCheckers)
-                                    {
-                                        if (getPattern(settings) == oldId)
-                                        {
-                                            setPattern(settings, newId);
-                                            changed = true;
-                                            result.ViewGraphicOverridesCount++;
-                                        }
-                                    }
-
-                                    if (changed)
-                                    {
-                                        view.SetCategoryOverrides(cat.Id, settings);
-                                    }
+                                    view.SetCategoryOverrides(cat.Id, settings);
                                 }
                             }
                             catch (Exception ex)
                             {
                                 result.Warnings.Add($"Error applying view graphic override on view '{view.Name}' for category '{cat.Name}': {ex.Message}");
                             }
+                        }
+                    }
+
+                    // 4b. Element-Level Graphic Overrides
+                    if (!view.IsTemplate)
+                    {
+                        try
+                        {
+                            var elementsInView = new FilteredElementCollector(doc, view.Id)
+                                .WhereElementIsNotElementType()
+                                .ToElements();
+
+                            foreach (Element elem in elementsInView)
+                            {
+                                if (elem == null || !elem.IsValidObject) continue;
+
+                                try
+                                {
+                                    OverrideGraphicSettings settings = view.GetElementOverrides(elem.Id);
+                                    if (settings != null && SwapPatternOverrides(settings, oldId, newId, patternCheckers, result))
+                                    {
+                                        view.SetElementOverrides(elem.Id, settings);
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    result.Warnings.Add($"Error applying element graphic override on view '{view.Name}' for element '{elem.Id}': {ex.Message}");
+                                }
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            result.Warnings.Add($"Error retrieving elements in view '{view.Name}': {ex.Message}");
                         }
                     }
                 }
@@ -288,7 +308,27 @@ namespace Synthetic.RevitDOM.Operations
             }
         }
 
-                /// <summary>
+        private static bool SwapPatternOverrides(
+            OverrideGraphicSettings settings,
+            ElementId oldId,
+            ElementId newId,
+            (Func<OverrideGraphicSettings, ElementId> GetPattern, Action<OverrideGraphicSettings, ElementId> SetPattern)[] patternCheckers,
+            RedirectionResultModel result)
+        {
+            bool changed = false;
+            foreach (var (getPattern, setPattern) in patternCheckers)
+            {
+                if (getPattern(settings) == oldId)
+                {
+                    setPattern(settings, newId);
+                    changed = true;
+                    result.ViewGraphicOverridesCount++;
+                }
+            }
+            return changed;
+        }
+
+        /// <summary>
         /// Recursively gathers all categories and subcategories in the document.
         /// </summary>
         private static List<Category> GetAllCategories(Document doc)
