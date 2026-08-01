@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
     <MSBuildAllProjects Condition="'$(MSBuildVersion)' == '' Or '$(MSBuildVersion)' &lt; '16.0'">$(MSBuildAllProjects);$(MSBuildThisFileFullPath)</MSBuildAllProjects>
@@ -10,8 +10,12 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="$(MSBuildThisFileDirectory)Modules\FailureProcessing\TargetIdFailureRuleTests.cs" />
+<<<<<<< HEAD
     <Compile Include="$(MSBuildThisFileDirectory)Modules\FailureProcessing\FailurePipelineBuilderTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\FailureProcessing\DocumentTransactionExtensionsTests.cs" />
+=======
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\FailureProcessing\SuppressConstraintsPresetTests.cs" />
+>>>>>>> subagent-Ticket-98-Developer-self-4f4a8f31
     <Compile Include="$(MSBuildThisFileDirectory)Tier2_RevitSmokeTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\CategoryModelTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\FakeIdentityService.cs" />

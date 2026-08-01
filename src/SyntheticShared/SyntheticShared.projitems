@@ -135,6 +135,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\FailureProcessing\CompositeFailuresPreprocessor.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\FailureProcessing\FailurePipelines.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\FailureProcessing\DocumentTransactionExtensions.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\FailureProcessing\FailureProcessingReport.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\IO\FileUtil.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ViewManagement\Utilities\LegendsUtil.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\MaterialManagement\Utilities\MaterialPathUtils.cs" />
