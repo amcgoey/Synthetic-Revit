@@ -130,6 +130,8 @@
     <Compile Include="$(MSBuildThisFileDirectory)Shared\RevitAPI\FamilySymbolUtil.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\FailureProcessing\IFailureRule.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\FailureProcessing\TargetIdFailureRule.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\FailureProcessing\SeverityFailureRule.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\FailureProcessing\FailurePipelineBuilder.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\FailureProcessing\CompositeFailuresPreprocessor.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\FailureProcessing\FailurePipelines.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\IO\FileUtil.cs" />
@@ -525,4 +527,3 @@
     </None>
   </ItemGroup>
 </Project>
-

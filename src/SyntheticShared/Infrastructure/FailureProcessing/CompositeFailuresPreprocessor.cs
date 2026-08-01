@@ -13,6 +13,12 @@ namespace Synthetic.Infrastructure.FailureProcessing
         private readonly List<IFailureRule> _rules = new List<IFailureRule>();
 
         /// <summary>
+        /// Gets or sets a value indicating whether blanket suppression of unmatched warnings is allowed.
+        /// Defaults to false to enforce anti-blanket warning suppression safety policy.
+        /// </summary>
+        public bool AllowBlanketSuppression { get; set; } = false;
+
+        /// <summary>
         /// Gets the collection of rules registered in this preprocessor.
         /// </summary>
         public IReadOnlyList<IFailureRule> Rules => _rules;
@@ -46,6 +52,8 @@ namespace Synthetic.Infrastructure.FailureProcessing
 
             foreach (FailureMessageAccessor failure in failureMessages)
             {
+                bool ruleMatched = false;
+
                 foreach (IFailureRule rule in _rules)
                 {
                     if (rule.Evaluates(failure))
@@ -53,8 +61,18 @@ namespace Synthetic.Infrastructure.FailureProcessing
                         if (rule.Execute(failuresAccessor, failure))
                         {
                             handledAny = true;
+                            ruleMatched = true;
                             break;
                         }
+                    }
+                }
+
+                if (!ruleMatched && AllowBlanketSuppression)
+                {
+                    if (failure.GetSeverity() == FailureSeverity.Warning)
+                    {
+                        failuresAccessor.DeleteWarning(failure);
+                        handledAny = true;
                     }
                 }
             }
