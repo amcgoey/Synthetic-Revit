@@ -450,6 +450,7 @@ namespace SyntheticTests
         }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
         private Document OpenTestTemplate(Autodesk.Revit.ApplicationServices.Application app)
         {
             string projectRoot = SyntheticTests.Helpers.TestPathHelper.GetProjectRoot();
@@ -568,6 +569,10 @@ namespace SyntheticTests
 
         [Test]
         public void SwapElementReferences_RemapsGroupTypes()
+=======
+        [Test]
+        public void SwapElementReferences_RemapsSystemFamilyTypes()
+>>>>>>> subagent-Ticket-109-Subagent-self-0d73600a
         {
             Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
             var app = _uiapp!.Application;
@@ -575,6 +580,7 @@ namespace SyntheticTests
 
             try
             {
+<<<<<<< HEAD
                 using (var tg = new TransactionGroup(doc, "Remap Group Types Test"))
                 {
                     tg.Start();
@@ -606,6 +612,42 @@ namespace SyntheticTests
                     Assert.AreEqual(newGroupType.Id, group1.GroupType.Id, "Group.GroupType should be updated to target group type.");
                     Assert.AreEqual(newGroupType.Id, group1.GetTypeId(), "Group.GetTypeId() should be updated to target group type.");
                     Assert.IsTrue(result.InstancesCount > 0, "InstancesCount should be incremented.");
+=======
+                using (var tg = new TransactionGroup(doc, "Remap System Family Test"))
+                {
+                    tg.Start();
+
+                    WallType wallType1, wallType2;
+                    Wall wall;
+                    using (var t = new Transaction(doc, "Setup Wall Types and Wall"))
+                    {
+                        t.Start();
+                        var wallTypes = new FilteredElementCollector(doc)
+                            .OfClass(typeof(WallType))
+                            .Cast<WallType>()
+                            .ToList();
+
+                        Assert.IsTrue(wallTypes.Count >= 1, "Expected at least one WallType in default project document.");
+                        wallType1 = wallTypes[0];
+                        wallType2 = wallType1.Duplicate("Duplicated Wall Type " + Guid.NewGuid().ToString().Substring(0, 8)) as WallType;
+                        Assert.IsNotNull(wallType2);
+
+                        Level level = Level.Create(doc, 0.0);
+                        Line line = Line.CreateBound(XYZ.Zero, new XYZ(10, 0, 0));
+                        wall = Wall.Create(doc, line, wallType1.Id, level.Id, 10.0, 0.0, false, false);
+                        t.Commit();
+                    }
+
+                    Assert.AreEqual(wallType1.Id, wall.GetTypeId());
+
+                    // Act - Swap wallType1.Id with wallType2.Id
+                    RedirectionResultModel result = AliasSwapEngine.SwapElementReferences(doc, wallType1.Id, wallType2.Id);
+
+                    // Assert
+                    Assert.IsNotNull(result);
+                    Assert.AreEqual(wallType2.Id, wall.GetTypeId(), "Wall instance type should be remapped to wallType2.");
+                    Assert.IsTrue(result.InstancesCount > 0, "InstancesCount should be incremented for remapped system family instance.");
+>>>>>>> subagent-Ticket-109-Subagent-self-0d73600a
 
                     tg.RollBack();
                 }
@@ -679,6 +721,62 @@ namespace SyntheticTests
                     Assert.IsNotNull(result, "RedirectionResultModel should not be null.");
                     Assert.AreEqual(newAssemblyTypeId, assembly1.GetTypeId(), "AssemblyInstance.GetTypeId() should be updated to target assembly type.");
                     Assert.IsTrue(result.InstancesCount > 0, "InstancesCount should be incremented.");
+
+                    tg.RollBack();
+                }
+            }
+            finally
+            {
+                doc.Close(false);
+            }
+        }
+
+        [Test]
+        public void SwapElementReferences_RemapsAnnotationTypes()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            Document doc = app.NewProjectDocument(UnitSystem.Metric);
+
+            try
+            {
+                using (var tg = new TransactionGroup(doc, "Remap Annotation Type Test"))
+                {
+                    tg.Start();
+
+                    TextNoteType textType1, textType2;
+                    TextNote textNote;
+                    using (var t = new Transaction(doc, "Setup TextNote Types and TextNote"))
+                    {
+                        t.Start();
+                        var textTypes = new FilteredElementCollector(doc)
+                            .OfClass(typeof(TextNoteType))
+                            .Cast<TextNoteType>()
+                            .ToList();
+
+                        Assert.IsTrue(textTypes.Count >= 1, "Expected at least one TextNoteType in default project document.");
+                        textType1 = textTypes[0];
+                        textType2 = textType1.Duplicate("Duplicated Text Type " + Guid.NewGuid().ToString().Substring(0, 8)) as TextNoteType;
+                        Assert.IsNotNull(textType2);
+
+                        View view = new FilteredElementCollector(doc)
+                            .OfClass(typeof(View))
+                            .Cast<View>()
+                            .First(v => !v.IsTemplate && v.ViewType == ViewType.FloorPlan);
+
+                        textNote = TextNote.Create(doc, view.Id, XYZ.Zero, "Sample Text Note", textType1.Id);
+                        t.Commit();
+                    }
+
+                    Assert.AreEqual(textType1.Id, textNote.GetTypeId());
+
+                    // Act - Swap textType1.Id with textType2.Id
+                    RedirectionResultModel result = AliasSwapEngine.SwapElementReferences(doc, textType1.Id, textType2.Id);
+
+                    // Assert
+                    Assert.IsNotNull(result);
+                    Assert.AreEqual(textType2.Id, textNote.GetTypeId(), "TextNote instance type should be remapped to textType2.");
+                    Assert.IsTrue(result.InstancesCount > 0, "InstancesCount should be incremented for remapped annotation instance.");
 
                     tg.RollBack();
                 }
