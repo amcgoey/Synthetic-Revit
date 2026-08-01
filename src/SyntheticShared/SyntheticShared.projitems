@@ -129,6 +129,8 @@
     <Compile Include="$(MSBuildThisFileDirectory)Shared\RevitAPI\FamilyUtil.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Shared\RevitAPI\FamilySymbolUtil.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\FailureProcessing\IFailureRule.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\FailureProcessing\FailureHandlingAction.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\FailureProcessing\FailureRecord.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\FailureProcessing\TargetIdFailureRule.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\FailureProcessing\SeverityFailureRule.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\FailureProcessing\FailurePipelineBuilder.cs" />
