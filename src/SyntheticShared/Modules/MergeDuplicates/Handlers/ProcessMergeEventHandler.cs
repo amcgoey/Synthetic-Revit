@@ -381,7 +381,7 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                                             }
                                         }
                                     }
-                                     typeMap[mapping.SourceType.RevitTypeId.ToElementId()] = resolvedTargetTypeId;
+                                    typeMap[mapping.SourceType.RevitTypeId.ToElementId()] = resolvedTargetTypeId;
                                 }
                             }
                             trans.Commit();
@@ -402,14 +402,16 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                         int totalInstancesSwapped = 0;
                         foreach (var kvp in typeMap)
                         {
-                            var redirectionResult = Synthetic.RevitDOM.Operations.AliasSwapEngine.SwapElementReferences(doc, kvp.Key, kvp.Value);
+                            var redirectionResult = AliasSwapEngine.SwapElementReferences(doc, kvp.Key, kvp.Value);
                             if (redirectionResult != null)
                             {
                                 totalInstancesSwapped += redirectionResult.InstancesCount;
 
                                 if (redirectionResult.Errors != null && redirectionResult.Errors.Count > 0)
                                 {
-                                    report.ErrorMessage = (report.ErrorMessage ?? "") + string.Join("; ", redirectionResult.Errors);
+                                    report.ExecutionSuccessStatus = false;
+                                    string errStr = string.Join("; ", redirectionResult.Errors);
+                                    report.ErrorMessage = string.IsNullOrEmpty(report.ErrorMessage) ? errStr : $"{report.ErrorMessage}; {errStr}";
                                 }
                                 if (redirectionResult.Warnings != null && redirectionResult.Warnings.Count > 0)
                                 {
@@ -424,8 +426,10 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                     }
                     catch (Exception ex)
                     {
-                        app.Application.WriteJournalComment($"[MERGE_ERROR] Error swapping alias references outside transaction: {ex.Message}", true);
-                        report.ErrorMessage = (report.ErrorMessage ?? "") + $" Error swapping alias references: {ex.Message}";
+                        report.ExecutionSuccessStatus = false;
+                        string exMsg = $"Error swapping alias references: {ex.Message}";
+                        report.ErrorMessage = string.IsNullOrEmpty(report.ErrorMessage) ? exMsg : $"{report.ErrorMessage}; {exMsg}";
+                        app.Application.WriteJournalComment($"[MERGE_ERROR] {exMsg}", true);
                     }
                     // 4. Redundancy Deletion in Transaction 2
                     using (var trans2 = new Transaction(doc, $"Merge Cluster Step 2: {cluster.ClusterName}"))
