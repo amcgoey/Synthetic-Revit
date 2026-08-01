@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -1120,8 +1120,8 @@ namespace Autodesk.Revit.DB
     {
         Unstarted = 0,
         Started = 1,
-        Committed = 2,
-        RolledBack = 3,
+        RolledBack = 2,
+        Committed = 3,
         Pending = 4,
         Error = 5
     }
@@ -1360,3 +1360,4 @@ namespace Autodesk.Revit.Exceptions
         public InvalidOperationException(string message) : base(message) { }
     }
 }
+
