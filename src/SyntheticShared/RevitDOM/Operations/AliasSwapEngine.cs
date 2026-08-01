@@ -381,7 +381,7 @@ namespace Synthetic.RevitDOM.Operations
                             try
                             {
                                 OverrideGraphicSettings settings = view.GetCategoryOverrides(cat.Id);
-                                if (SwapPatternOverrides(settings, oldId, newId, result, patternCheckers))
+                                if (SwapPatternOverrides(settings, oldId, newId, result, PatternCheckers))
                                 {
                                     view.SetCategoryOverrides(cat.Id, settings);
                                 }
@@ -404,7 +404,7 @@ namespace Synthetic.RevitDOM.Operations
                                     try
                                     {
                                         OverrideGraphicSettings settings = view.GetFilterOverrides(filterId);
-                                        if (SwapPatternOverrides(settings, oldId, newId, result, patternCheckers))
+                                        if (SwapPatternOverrides(settings, oldId, newId, result, PatternCheckers))
                                         {
                                             view.SetFilterOverrides(filterId, settings);
                                         }
@@ -438,7 +438,7 @@ namespace Synthetic.RevitDOM.Operations
                                 try
                                 {
                                     OverrideGraphicSettings settings = view.GetElementOverrides(elem.Id);
-                                    if (SwapPatternOverrides(settings, oldId, newId, result, patternCheckers))
+                                    if (SwapPatternOverrides(settings, oldId, newId, result, PatternCheckers))
                                     {
                                         view.SetElementOverrides(elem.Id, settings);
                                     }
@@ -467,11 +467,11 @@ namespace Synthetic.RevitDOM.Operations
             ElementId oldId,
             ElementId newId,
             RedirectionResultModel result,
-            (Func<OverrideGraphicSettings, ElementId> GetPattern, Action<OverrideGraphicSettings, ElementId> SetPattern)[] patternCheckers)
+            (Func<OverrideGraphicSettings, ElementId> GetPattern, Action<OverrideGraphicSettings, ElementId> SetPattern)[] PatternCheckers)
         {
             if (settings == null) return false;
             bool changed = false;
-            foreach (var (getPattern, setPattern) in patternCheckers)
+            foreach (var (getPattern, setPattern) in PatternCheckers)
             {
                 ElementId patternId = getPattern(settings);
                 if (patternId != null && oldId.Equals(patternId))

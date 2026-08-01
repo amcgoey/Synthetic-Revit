@@ -59,6 +59,11 @@ namespace Synthetic.RevitDOM.Models
         /// </summary>
         public string? Message { get; set; }
 
+        /// <summary>
+        /// Gets or sets the redirection result containing telemetry, counts, and warnings from an alias swap operation.
+        /// </summary>
+        public RedirectionResultModel? RedirectionResult { get; set; }
+
         #endregion
 
         #region Thread-Local Warning Context

@@ -116,7 +116,10 @@ namespace SyntheticTests
 
                     // Assert serialization results
                     Assert.IsTrue(results.Any(r => r.Success && r.Model == primaryModel && r.Action == "Created"), "Should contain a primary creation result");
-                    Assert.IsTrue(results.Any(r => r.Success && r.Model == primaryModel && r.Action == "Merged Alias"), "Should contain a merge alias success result");
+                    var mergeResult = results.FirstOrDefault(r => r.Success && r.Model == primaryModel && r.Action == "Merged Alias");
+                    Assert.IsNotNull(mergeResult, "Should contain a merge alias success result");
+                    Assert.IsNotNull(mergeResult!.RedirectionResult, "RedirectionResult on SerializationResultModel should not be null.");
+                    Assert.IsTrue(mergeResult.RedirectionResult!.CompoundStructureLayersCount > 0 || mergeResult.RedirectionResult.TotalSwappedCount > 0, "RedirectionResult should capture swapped count metrics.");
 
                     tg.RollBack();
                 }

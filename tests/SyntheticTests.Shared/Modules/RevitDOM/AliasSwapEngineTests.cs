@@ -449,9 +449,6 @@ namespace SyntheticTests
             }
         }
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-<<<<<<< HEAD
         private Document OpenTestTemplate(Autodesk.Revit.ApplicationServices.Application app)
         {
             string projectRoot = SyntheticTests.Helpers.TestPathHelper.GetProjectRoot();
@@ -570,14 +567,6 @@ namespace SyntheticTests
 
         [Test]
         public void SwapElementReferences_RemapsGroupTypes()
-=======
-        [Test]
-        public void SwapElementReferences_RemapsSystemFamilyTypes()
->>>>>>> subagent-Ticket-109-Subagent-self-0d73600a
-=======
-        [Test]
-        public void SwapElementReferences_UpdatesViewFilterGraphicOverrides()
->>>>>>> subagent-Ticket-111-Subagent-self-629e1d9e
         {
             Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
             var app = _uiapp!.Application;
@@ -585,8 +574,6 @@ namespace SyntheticTests
 
             try
             {
-<<<<<<< HEAD
-<<<<<<< HEAD
                 using (var tg = new TransactionGroup(doc, "Remap Group Types Test"))
                 {
                     tg.Start();
@@ -618,7 +605,25 @@ namespace SyntheticTests
                     Assert.AreEqual(newGroupType.Id, group1.GroupType.Id, "Group.GroupType should be updated to target group type.");
                     Assert.AreEqual(newGroupType.Id, group1.GetTypeId(), "Group.GetTypeId() should be updated to target group type.");
                     Assert.IsTrue(result.InstancesCount > 0, "InstancesCount should be incremented.");
-=======
+
+                    tg.RollBack();
+                }
+            }
+            finally
+            {
+                doc.Close(false);
+            }
+        }
+
+        [Test]
+        public void SwapElementReferences_RemapsSystemFamilyTypes()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            Document doc = app.NewProjectDocument(UnitSystem.Metric);
+
+            try
+            {
                 using (var tg = new TransactionGroup(doc, "Remap System Family Test"))
                 {
                     tg.Start();
@@ -653,7 +658,6 @@ namespace SyntheticTests
                     Assert.IsNotNull(result);
                     Assert.AreEqual(wallType2.Id, wall.GetTypeId(), "Wall instance type should be remapped to wallType2.");
                     Assert.IsTrue(result.InstancesCount > 0, "InstancesCount should be incremented for remapped system family instance.");
->>>>>>> subagent-Ticket-109-Subagent-self-0d73600a
 
                     tg.RollBack();
                 }

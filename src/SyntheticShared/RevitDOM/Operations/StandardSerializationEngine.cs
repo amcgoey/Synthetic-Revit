@@ -364,7 +364,7 @@ namespace Synthetic.RevitDOM.Operations
                         if (aliasId != primaryId)
                         {
                             // Deep-swap references using AliasSwapEngine (retains internal transaction boundaries)
-                            AliasSwapEngine.SwapElementReferences(doc, aliasId, primaryId);
+                            RedirectionResultModel swapResult = AliasSwapEngine.SwapElementReferences(doc, aliasId, primaryId);
 
                             // Delete the redundant alias element wrapped in a transaction
                             using (var txDelete = new Transaction(doc, "Purge Alias Element"))
@@ -378,8 +378,15 @@ namespace Synthetic.RevitDOM.Operations
                             var successResult = new SerializationResultModel(model, _identityService.ToModel(primaryId, doc))
                             {
                                 Action = "Merged Alias",
-                                Message = $"Successfully swapped and purged alias '{aliasString}'"
+                                Message = $"Successfully swapped and purged alias '{aliasString}'",
+                                RedirectionResult = swapResult
                             };
+
+                            if (swapResult != null && swapResult.Warnings != null && swapResult.Warnings.Count > 0)
+                            {
+                                successResult.Warnings.AddRange(swapResult.Warnings);
+                            }
+
                             results.Add(successResult);
                         }
                     }
