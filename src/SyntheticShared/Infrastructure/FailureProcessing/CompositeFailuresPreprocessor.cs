@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Autodesk.Revit.DB;
 
@@ -11,6 +11,28 @@ namespace Synthetic.Infrastructure.FailureProcessing
     public class CompositeFailuresPreprocessor : IFailuresPreprocessor
     {
         private readonly List<IFailureRule> _rules = new List<IFailureRule>();
+
+        /// <summary>
+        /// Gets or sets the diagnostic report for this preprocessor instance.
+        /// </summary>
+        public FailureProcessingReport Report { get; set; }
+
+        /// <summary>
+        /// Initializes a new instance of the CompositeFailuresPreprocessor class with a default FailureProcessingReport.
+        /// </summary>
+        public CompositeFailuresPreprocessor()
+            : this(new FailureProcessingReport())
+        {
+        }
+
+        /// <summary>
+        /// Initializes a new instance of the CompositeFailuresPreprocessor class with the specified FailureProcessingReport.
+        /// </summary>
+        /// <param name="report">The diagnostic failure processing report to record telemetry.</param>
+        public CompositeFailuresPreprocessor(FailureProcessingReport report)
+        {
+            Report = report ?? new FailureProcessingReport();
+        }
 
         /// <summary>
         /// Gets the collection of rules registered in this preprocessor.
@@ -50,9 +72,14 @@ namespace Synthetic.Infrastructure.FailureProcessing
                 {
                     if (rule.Evaluates(failure))
                     {
+                        FailureSeverity severity = failure.GetSeverity();
                         if (rule.Execute(failuresAccessor, failure))
                         {
                             handledAny = true;
+                            if (severity == FailureSeverity.Warning && Report != null)
+                            {
+                                Report.WarningTripped = true;
+                            }
                             break;
                         }
                     }
