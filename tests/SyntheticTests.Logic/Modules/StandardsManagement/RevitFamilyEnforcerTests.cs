@@ -5,7 +5,8 @@ using System.Threading;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
 using Synthetic.RevitDOM.Operations.Standards;
-using Synthetic.RevitDOM.Operations.Standards;
+using Synthetic.Infrastructure.FailureProcessing;
+using SyntheticTests.Helpers;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
@@ -83,8 +84,55 @@ namespace SyntheticTests.Modules.StandardsManagement
             Assert.IsFalse(processedFamilies.Any(f => f.Contains("WallFam")));
         }
 
+        [Test]
+        public void Enforce_PassesDeleteWarningsPreprocessorToSerializationEngine()
+        {
+            // Arrange
+            var enforcer = new RevitFamilyEnforcer(_fakeEngine);
+
+            var titleBlockFamily = (Family)Activator.CreateInstance(typeof(Family), true)!;
+            titleBlockFamily.Name = "TestFamily";
+            dynamic dFam = titleBlockFamily;
+            dFam.IsEditable = true;
+            
+            var cat = (Category)Activator.CreateInstance(typeof(Category), true)!;
+            cat.GetType().GetProperty("Id")?.SetValue(cat, new ElementId((long)BuiltInCategory.OST_TitleBlocks));
+            titleBlockFamily.FamilyCategory = cat;
+            titleBlockFamily.GetType().GetProperty("Id")?.SetValue(titleBlockFamily, new ElementId(2001));
+            ((dynamic)_doc).AddElement(titleBlockFamily, titleBlockFamily.Id);
+
+            var options = new StandardsExecutionOptions
+            {
+                ProcessFamilies = true
+            };
+
+            var results = new List<SerializationResultModel>();
+
+            // Act
+            enforcer.Enforce(_doc, new List<ElementModel>(), options, (t, d, c) => { }, results, CancellationToken.None);
+
+            // Assert
+            Assert.IsNotNull(_fakeEngine.LastFailuresPreprocessor, "FailuresPreprocessor must be passed to ToRevit");
+            Assert.IsInstanceOf<CompositeFailuresPreprocessor>(_fakeEngine.LastFailuresPreprocessor);
+            var composite = (CompositeFailuresPreprocessor)_fakeEngine.LastFailuresPreprocessor!;
+            Assert.IsTrue(composite.AllowBlanketSuppression, "AllowBlanketSuppression must be enabled on DeleteWarnings preprocessor");
+
+            // Verify warning deletion functionality on the preprocessor passed during family enforcement
+            FailureMessageAccessor warning = MockFailureFactory.CreateFailureMessage(
+                BuiltInFailures.RoomFailures.RoomNotEnclosed, FailureSeverity.Warning, "Family enforcement warning");
+            FailuresAccessor accessor = MockFailureFactory.CreateFailuresAccessor(new[] { warning });
+
+            FailureProcessingResult result = composite.PreprocessFailures(accessor);
+            Assert.AreEqual(FailureProcessingResult.ProceedWithCommit, result);
+            var deleted = MockFailureFactory.GetDeletedWarnings(accessor);
+            Assert.AreEqual(1, deleted.Count);
+            Assert.AreEqual(warning, deleted[0]);
+        }
+
         private class FakeSerializationEngine : IStandardSerializationEngine
         {
+            public IFailuresPreprocessor? LastFailuresPreprocessor { get; private set; }
+
             public IEnumerable<ObjectModel> ByRevit(IEnumerable<Element> elements, Document doc, bool isTemplate, IProgress<string>? progress = null, CancellationToken cancellationToken = default)
             {
                 return new List<ObjectModel>();
@@ -97,6 +145,7 @@ namespace SyntheticTests.Modules.StandardsManagement
 
             public IEnumerable<SerializationResultModel> ToRevit(IEnumerable<ObjectModel> models, Document doc, IProgress<string>? progress = null, CancellationToken cancellationToken = default, IFailuresPreprocessor? failuresPreprocessor = null)
             {
+                LastFailuresPreprocessor = failuresPreprocessor;
                 return new List<SerializationResultModel>();
             }
 
