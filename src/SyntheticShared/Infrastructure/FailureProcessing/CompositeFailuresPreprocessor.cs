@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using Autodesk.Revit.DB;
 
 namespace Synthetic.Infrastructure.FailureProcessing
@@ -11,13 +12,31 @@ namespace Synthetic.Infrastructure.FailureProcessing
     public class CompositeFailuresPreprocessor : IFailuresPreprocessor
     {
         private readonly List<IFailureRule> _rules = new List<IFailureRule>();
+        private string _contextTag = string.Empty;
 
-        /// <summary>
         /// <summary>
         /// Gets or sets a value indicating whether blanket suppression of unmatched warnings is allowed.
         /// Defaults to false to enforce anti-blanket warning suppression safety policy.
         /// </summary>
         public bool AllowBlanketSuppression { get; set; } = false;
+
+        /// <summary>
+        /// Gets or sets contextual tagging metadata for batch operations.
+        /// </summary>
+        public string ContextTag
+        {
+            get => _contextTag;
+            set => _contextTag = value ?? string.Empty;
+        }
+
+        /// <summary>
+        /// Sets a contextual scope tag for batch loops.
+        /// </summary>
+        /// <param name="contextTag">The context tag string.</param>
+        public void SetContext(string contextTag)
+        {
+            _contextTag = contextTag ?? string.Empty;
+        }
 
         /// <summary>
         /// Gets or sets the diagnostic report for this preprocessor instance.
@@ -86,26 +105,48 @@ namespace Synthetic.Infrastructure.FailureProcessing
                         {
                             handledAny = true;
                             ruleMatched = true;
-                            if (severity == FailureSeverity.Warning && Report != null)
-                            {
-                                Report.WarningTripped = true;
-                            }
+
+                            FailureHandlingAction action = severity == FailureSeverity.Warning
+                                ? FailureHandlingAction.Deleted
+                                : (severity == FailureSeverity.Error ? FailureHandlingAction.Resolved : FailureHandlingAction.Continued);
+
+                            RecordAndLogFailure(failure, action);
                             break;
                         }
                     }
                 }
 
-                if (!ruleMatched && AllowBlanketSuppression)
+                if (!ruleMatched)
                 {
-                    if (failure.GetSeverity() == FailureSeverity.Warning)
+                    if (AllowBlanketSuppression && failure.GetSeverity() == FailureSeverity.Warning)
                     {
                         failuresAccessor.DeleteWarning(failure);
                         handledAny = true;
+                        RecordAndLogFailure(failure, FailureHandlingAction.Deleted);
+                    }
+                    else
+                    {
+                        RecordAndLogFailure(failure, FailureHandlingAction.PassedThrough);
                     }
                 }
             }
 
             return handledAny ? FailureProcessingResult.ProceedWithCommit : FailureProcessingResult.Continue;
+        }
+
+        private void RecordAndLogFailure(FailureMessageAccessor failure, FailureHandlingAction actionTaken)
+        {
+            var record = new FailureRecord(failure, actionTaken, _contextTag);
+            Report?.AddRecord(record);
+            LogTelemetry(record);
+        }
+
+        private static void LogTelemetry(FailureRecord record)
+        {
+            if (record == null) return;
+
+            string logMessage = $"[FailureTelemetry] ID: {record.FailureDefinitionId} | Severity: {record.Severity} | Action: {record.ActionTaken} | Context: {record.ContextTag} | Desc: {record.DescriptionText}";
+            Debug.WriteLine(logMessage);
         }
     }
 }
