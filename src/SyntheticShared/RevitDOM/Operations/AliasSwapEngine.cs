@@ -361,13 +361,19 @@ namespace Synthetic.RevitDOM.Operations
 
                 foreach (RevitView view in views)
                 {
-                    if (view == null || !view.IsValidObject || !view.AreGraphicsOverridesAllowed()) continue;
+                    if (view == null || !view.IsValidObject) continue;
 
-                    // 4a. Category Graphic Overrides
-                    if (view.IsTemplate || view.ViewType == ViewType.FloorPlan || view.ViewType == ViewType.CeilingPlan ||
-                        view.ViewType == ViewType.Elevation || view.ViewType == ViewType.Section || view.ViewType == ViewType.ThreeD ||
-                        view.ViewType == ViewType.DraftingView || view.ViewType == ViewType.AreaPlan || view.ViewType == ViewType.EngineeringPlan ||
-                        view.ViewType == ViewType.Detail)
+                    bool supportsOverrides = false;
+                    try
+                    {
+                        supportsOverrides = view.IsTemplate || view.AreGraphicsOverridesAllowed();
+                    }
+                    catch
+                    {
+                        // Some view types throw on AreGraphicsOverridesAllowed
+                    }
+
+                    if (supportsOverrides)
                     {
                         foreach (Category cat in allCats)
                         {
@@ -375,7 +381,7 @@ namespace Synthetic.RevitDOM.Operations
                             try
                             {
                                 OverrideGraphicSettings settings = view.GetCategoryOverrides(cat.Id);
-                                if (settings != null && SwapPatternOverrides(settings, oldId, newId, patternCheckers, result))
+                                if (SwapPatternOverrides(settings, oldId, newId, result, patternCheckers))
                                 {
                                     view.SetCategoryOverrides(cat.Id, settings);
                                 }
@@ -384,6 +390,35 @@ namespace Synthetic.RevitDOM.Operations
                             {
                                 result.Warnings.Add($"Error applying view graphic override on view '{view?.Name ?? "Unknown View"}' for category '{cat?.Name ?? "Unknown Category"}': {ex.Message}");
                             }
+                        }
+
+                        // Filter overrides
+                        try
+                        {
+                            ICollection<ElementId> filterIds = view.GetFilters();
+                            if (filterIds != null && filterIds.Count > 0)
+                            {
+                                foreach (ElementId filterId in filterIds)
+                                {
+                                    if (filterId == null || filterId == ElementId.InvalidElementId) continue;
+                                    try
+                                    {
+                                        OverrideGraphicSettings settings = view.GetFilterOverrides(filterId);
+                                        if (SwapPatternOverrides(settings, oldId, newId, result, patternCheckers))
+                                        {
+                                            view.SetFilterOverrides(filterId, settings);
+                                        }
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        result.Warnings.Add($"Error applying view filter graphic override on view '{view.Name}' for filter '{filterId}': {ex.Message}");
+                                    }
+                                }
+                            }
+                        }
+                        catch
+                        {
+                            // Benign for view types that do not support filter retrieval
                         }
                     }
 
@@ -403,7 +438,7 @@ namespace Synthetic.RevitDOM.Operations
                                 try
                                 {
                                     OverrideGraphicSettings settings = view.GetElementOverrides(elem.Id);
-                                    if (settings != null && SwapPatternOverrides(settings, oldId, newId, patternCheckers, result))
+                                    if (SwapPatternOverrides(settings, oldId, newId, result, patternCheckers))
                                     {
                                         view.SetElementOverrides(elem.Id, settings);
                                     }
@@ -431,9 +466,10 @@ namespace Synthetic.RevitDOM.Operations
             OverrideGraphicSettings settings,
             ElementId oldId,
             ElementId newId,
-            (Func<OverrideGraphicSettings, ElementId> GetPattern, Action<OverrideGraphicSettings, ElementId> SetPattern)[] patternCheckers,
-            RedirectionResultModel result)
+            RedirectionResultModel result,
+            (Func<OverrideGraphicSettings, ElementId> GetPattern, Action<OverrideGraphicSettings, ElementId> SetPattern)[] patternCheckers)
         {
+            if (settings == null) return false;
             bool changed = false;
             foreach (var (getPattern, setPattern) in patternCheckers)
             {
@@ -447,7 +483,6 @@ namespace Synthetic.RevitDOM.Operations
             }
             return changed;
         }
-        /// <summary>
         /// Recursively gathers all categories and subcategories in the document.
         /// </summary>
         private static List<Category> GetAllCategories(Document doc)

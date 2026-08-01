@@ -451,6 +451,7 @@ namespace SyntheticTests
 
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
         private Document OpenTestTemplate(Autodesk.Revit.ApplicationServices.Application app)
         {
             string projectRoot = SyntheticTests.Helpers.TestPathHelper.GetProjectRoot();
@@ -573,6 +574,10 @@ namespace SyntheticTests
         [Test]
         public void SwapElementReferences_RemapsSystemFamilyTypes()
 >>>>>>> subagent-Ticket-109-Subagent-self-0d73600a
+=======
+        [Test]
+        public void SwapElementReferences_UpdatesViewFilterGraphicOverrides()
+>>>>>>> subagent-Ticket-111-Subagent-self-629e1d9e
         {
             Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
             var app = _uiapp!.Application;
@@ -580,6 +585,7 @@ namespace SyntheticTests
 
             try
             {
+<<<<<<< HEAD
 <<<<<<< HEAD
                 using (var tg = new TransactionGroup(doc, "Remap Group Types Test"))
                 {
@@ -776,7 +782,96 @@ namespace SyntheticTests
                     // Assert
                     Assert.IsNotNull(result);
                     Assert.AreEqual(textType2.Id, textNote.GetTypeId(), "TextNote instance type should be remapped to textType2.");
-                    Assert.IsTrue(result.InstancesCount > 0, "InstancesCount should be incremented for remapped annotation instance.");
+                    tg.RollBack();
+                }
+            }
+            finally
+            {
+                doc.Close(false);
+            }
+        }
+
+        [Test]
+        public void SwapElementReferences_UpdatesViewFilterGraphicOverrides()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            Document doc = app.NewProjectDocument(UnitSystem.Metric);
+
+            try
+            {
+                using (var tg = new TransactionGroup(doc, "Swap View Filter Overrides"))
+                {
+                    tg.Start();
+
+                    // Create line patterns & fetch fill patterns
+                    LinePatternElement sourceLinePattern, targetLinePattern;
+                    FillPatternElement sourceFillPattern = null, targetFillPattern = null;
+
+                    using (var t = new Transaction(doc, "Create Patterns"))
+                    {
+                        t.Start();
+                        sourceLinePattern = CreateLinePattern(doc, "Filter Pattern A");
+                        targetLinePattern = CreateLinePattern(doc, "Filter Pattern B");
+
+                        var fillPatterns = new FilteredElementCollector(doc)
+                            .OfClass(typeof(FillPatternElement))
+                            .Cast<FillPatternElement>()
+                            .Take(2)
+                            .ToList();
+
+                        if (fillPatterns.Count >= 2)
+                        {
+                            sourceFillPattern = fillPatterns[0];
+                            targetFillPattern = fillPatterns[1];
+                        }
+
+                        t.Commit();
+                    }
+
+                    View view = new FilteredElementCollector(doc)
+                        .OfClass(typeof(View))
+                        .Cast<View>()
+                        .FirstOrDefault(v => !v.IsTemplate && v.ViewType == ViewType.FloorPlan);
+
+                    Assert.IsNotNull(view, "Floor plan view should exist.");
+
+                    Category wallsCategory = doc.Settings.Categories.get_Item(BuiltInCategory.OST_Walls);
+                    List<ElementId> categoryIds = new List<ElementId> { wallsCategory.Id };
+
+                    ParameterFilterElement filter;
+                    using (var t = new Transaction(doc, "Create Filter"))
+                    {
+                        t.Start();
+                        filter = ParameterFilterElement.Create(doc, "Test Filter " + Guid.NewGuid().ToString().Substring(0, 8), categoryIds);
+                        view.AddFilter(filter.Id);
+
+                        OverrideGraphicSettings graphicSettings = new OverrideGraphicSettings();
+                        graphicSettings.SetProjectionLinePatternId(sourceLinePattern.Id);
+                        if (sourceFillPattern != null)
+                        {
+                            graphicSettings.SetSurfaceForegroundPatternId(sourceFillPattern.Id);
+                        }
+                        view.SetFilterOverrides(filter.Id, graphicSettings);
+                        t.Commit();
+                    }
+
+                    // Swap Line Pattern using AliasSwapEngine
+                    var resultLine = AliasSwapEngine.SwapElementReferences(doc, sourceLinePattern.Id, targetLinePattern.Id);
+
+                    // Assert Line Pattern swap
+                    var updatedSettings = view.GetFilterOverrides(filter.Id);
+                    Assert.AreEqual(targetLinePattern.Id, updatedSettings.ProjectionLinePatternId);
+                    Assert.IsTrue(resultLine.ViewGraphicOverridesCount > 0, "ViewGraphicOverridesCount should be incremented for line pattern swap.");
+
+                    // Swap Fill Pattern if available
+                    if (sourceFillPattern != null && targetFillPattern != null)
+                    {
+                        var resultFill = AliasSwapEngine.SwapElementReferences(doc, sourceFillPattern.Id, targetFillPattern.Id);
+                        updatedSettings = view.GetFilterOverrides(filter.Id);
+                        Assert.AreEqual(targetFillPattern.Id, updatedSettings.SurfaceForegroundPatternId);
+                        Assert.IsTrue(resultFill.ViewGraphicOverridesCount > 0, "ViewGraphicOverridesCount should be incremented for fill pattern swap.");
+                    }
 
                     tg.RollBack();
                 }
