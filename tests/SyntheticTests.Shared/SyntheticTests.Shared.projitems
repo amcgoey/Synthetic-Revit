@@ -9,6 +9,7 @@
     <Import_RootNamespace>SyntheticTests</Import_RootNamespace>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\FailureProcessing\TargetIdFailureRuleTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Tier2_RevitSmokeTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\CategoryModelTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\FakeIdentityService.cs" />
@@ -48,6 +49,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\FakeGuardrailPromptService.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\FakeUserPromptService.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\AssemblyAnalyzer\Tier2_AssemblyAnalyzerTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Helpers\MockFailureFactory.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Helpers\TestPathHelper.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Helpers\PocoSnapshotExporter.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Tier2_MergeDuplicatesHeadlessTests.cs" />
