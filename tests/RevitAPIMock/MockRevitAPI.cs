@@ -1120,8 +1120,8 @@ namespace Autodesk.Revit.DB
     {
         Unstarted = 0,
         Started = 1,
-        Committed = 2,
-        RolledBack = 3,
+        RolledBack = 2,
+        Committed = 3,
         Pending = 4,
         Error = 5
     }
@@ -1140,13 +1140,23 @@ namespace Autodesk.Revit.DB
     public class Transaction : IDisposable
     {
         private TransactionStatus _status = TransactionStatus.Unstarted;
-        public Transaction(Document doc, string name) { }
+        private FailureHandlingOptions _options = new FailureHandlingOptions();
+
+        public string Name { get; }
+
+        public Transaction(Document doc, string name)
+        {
+            Name = name;
+        }
+
+        public string GetName() => Name;
+
         public TransactionStatus Start() { _status = TransactionStatus.Started; return _status; }
         public TransactionStatus Commit() { _status = TransactionStatus.Committed; return _status; }
         public TransactionStatus RollBack() { _status = TransactionStatus.RolledBack; return _status; }
         public TransactionStatus GetStatus() => _status;
-        public FailureHandlingOptions GetFailureHandlingOptions() => new FailureHandlingOptions();
-        public void SetFailureHandlingOptions(FailureHandlingOptions options) { }
+        public FailureHandlingOptions GetFailureHandlingOptions() => _options;
+        public void SetFailureHandlingOptions(FailureHandlingOptions options) { _options = options; }
         public void Dispose() { }
     }
 
@@ -1157,12 +1167,27 @@ namespace Autodesk.Revit.DB
 
     public class FailureHandlingOptions
     {
-        public FailureHandlingOptions SetFailuresPreprocessor(IFailuresPreprocessor preprocessor) => this;
-        public IFailuresPreprocessor GetFailuresPreprocessor() => null;
+        private IFailuresPreprocessor _preprocessor;
+
+        public FailureHandlingOptions SetFailuresPreprocessor(IFailuresPreprocessor preprocessor)
+        {
+            _preprocessor = preprocessor;
+            return this;
+        }
+
+        public IFailuresPreprocessor GetFailuresPreprocessor() => _preprocessor;
         public FailureHandlingOptions SetClearAfterRollback(bool clearAfterRollback) => this;
         public bool GetClearAfterRollback() => false;
         public FailureHandlingOptions SetForcedModalHandling(bool forcedModalHandling) => this;
         public bool GetForcedModalHandling() => false;
+    }
+
+    public enum FailureSeverity
+    {
+        None = 0,
+        Warning = 1,
+        Error = 2,
+        DocumentCorruption = 3
     }
 
     public enum FailureProcessingResult
@@ -1174,24 +1199,121 @@ namespace Autodesk.Revit.DB
 
     public class FailuresAccessor
     {
-        public IList<FailureMessageAccessor> GetFailureMessages() => new List<FailureMessageAccessor>();
-        public void DeleteWarning(FailureMessageAccessor failureMessage) { }
+        private List<FailureMessageAccessor> _messages = new List<FailureMessageAccessor>();
+        private List<FailureMessageAccessor> _deletedWarnings = new List<FailureMessageAccessor>();
+        private List<FailureMessageAccessor> _resolvedFailures = new List<FailureMessageAccessor>();
+
+        public List<FailureMessageAccessor> DeletedWarnings => _deletedWarnings ?? (_deletedWarnings = new List<FailureMessageAccessor>());
+        public List<FailureMessageAccessor> ResolvedFailures => _resolvedFailures ?? (_resolvedFailures = new List<FailureMessageAccessor>());
+
+        public FailuresAccessor() : this(new List<FailureMessageAccessor>()) { }
+
+        public FailuresAccessor(IEnumerable<FailureMessageAccessor> messages)
+        {
+            _messages = messages != null ? new List<FailureMessageAccessor>(messages) : new List<FailureMessageAccessor>();
+            _deletedWarnings = new List<FailureMessageAccessor>();
+            _resolvedFailures = new List<FailureMessageAccessor>();
+        }
+
+        public IList<FailureMessageAccessor> GetFailureMessages() => _messages ?? (_messages = new List<FailureMessageAccessor>());
+
+        public void DeleteWarning(FailureMessageAccessor failureMessage)
+        {
+            if (failureMessage != null && !DeletedWarnings.Contains(failureMessage))
+            {
+                DeletedWarnings.Add(failureMessage);
+            }
+        }
+
+        public void ResolveFailure(FailureMessageAccessor failureMessage)
+        {
+            if (failureMessage != null && !ResolvedFailures.Contains(failureMessage))
+            {
+                ResolvedFailures.Add(failureMessage);
+            }
+        }
     }
 
     public class FailureMessageAccessor
     {
-        public FailureDefinitionId GetFailureDefinitionId() => new FailureDefinitionId();
+        public FailureDefinitionId DefinitionId { get; set; }
+        public FailureSeverity Severity { get; set; }
+        public string DescriptionText { get; set; }
+
+        public FailureMessageAccessor() : this(new FailureDefinitionId(), FailureSeverity.Warning, "") { }
+
+        public FailureMessageAccessor(FailureDefinitionId definitionId, FailureSeverity severity = FailureSeverity.Warning, string descriptionText = "")
+        {
+            DefinitionId = definitionId;
+            Severity = severity;
+            DescriptionText = descriptionText ?? "";
+        }
+
+        public FailureDefinitionId GetFailureDefinitionId() => DefinitionId;
+        public FailureSeverity GetSeverity() => Severity;
+        public string GetDescriptionText() => DescriptionText;
+        public ICollection<ElementId> GetFailingElementIds() => new List<ElementId>();
     }
 
-    public class FailureDefinitionId
+    public class FailureDefinitionId : IEquatable<FailureDefinitionId>
     {
+        public Guid Guid { get; }
+
+        public FailureDefinitionId()
+        {
+            Guid = Guid.NewGuid();
+        }
+
+        public FailureDefinitionId(Guid guid)
+        {
+            Guid = guid;
+        }
+
+        public Guid GetGuid() => Guid;
+
+        public bool Equals(FailureDefinitionId? other)
+        {
+            if (ReferenceEquals(null, other)) return false;
+            if (ReferenceEquals(this, other)) return true;
+            return Guid.Equals(other.Guid);
+        }
+
+        public override bool Equals(object? obj) => Equals(obj as FailureDefinitionId);
+
+        public override int GetHashCode() => Guid.GetHashCode();
+
+        public static bool operator ==(FailureDefinitionId? left, FailureDefinitionId? right)
+        {
+            if (ReferenceEquals(left, right)) return true;
+            if (ReferenceEquals(left, null) || ReferenceEquals(right, null)) return false;
+            return left.Equals(right);
+        }
+
+        public static bool operator !=(FailureDefinitionId? left, FailureDefinitionId? right) => !(left == right);
     }
 
     public static class BuiltInFailures
     {
         public static class RoomFailures
         {
-            public static FailureDefinitionId RoomNotEnclosed { get; } = new FailureDefinitionId();
+            public static FailureDefinitionId RoomNotEnclosed { get; } = new FailureDefinitionId(new Guid("88888888-8888-8888-8888-888888888888"));
+        }
+
+        public static class PurgeFailures
+        {
+            public static FailureDefinitionId PurgeUnusedElementsFailed { get; } = new FailureDefinitionId(new Guid("11111111-1111-1111-1111-111111111111"));
+            public static FailureDefinitionId ElementsWillBeDeleted { get; } = new FailureDefinitionId(new Guid("22222222-2222-2222-2222-222222222222"));
+        }
+
+        public static class EditingFailures
+        {
+            public static FailureDefinitionId ElementsWillBeDeleted { get; } = new FailureDefinitionId(new Guid("22222222-2222-2222-2222-222222222222"));
+            public static FailureDefinitionId ElementsDeleted { get; } = new FailureDefinitionId(new Guid("33333333-3333-3333-3333-333333333333"));
+        }
+
+        public static class GroupFailures
+        {
+            public static FailureDefinitionId GroupConstraintsFailed { get; } = new FailureDefinitionId(new Guid("44444444-4444-4444-4444-444444444444"));
         }
     }
 }
@@ -1238,3 +1360,4 @@ namespace Autodesk.Revit.Exceptions
         public InvalidOperationException(string message) : base(message) { }
     }
 }
+

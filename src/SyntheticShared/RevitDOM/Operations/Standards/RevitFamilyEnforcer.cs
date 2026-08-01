@@ -9,6 +9,7 @@ using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
 using Synthetic.Shared.RevitAPI;
+using Synthetic.Infrastructure.FailureProcessing;
 
 namespace Synthetic.RevitDOM.Operations.Standards
 {
@@ -212,7 +213,7 @@ namespace Synthetic.RevitDOM.Operations.Standards
                 {
                     familyTg.Start();
 
-                    _serializationEngine.ToRevit(familyStandards, familyDoc, null, cancellationToken, new DeleteWarningsPreprocessor());
+                    _serializationEngine.ToRevit(familyStandards, familyDoc, null, cancellationToken, FailurePipelines.DeleteWarnings());
 
                     if (options.PurgeUnusedStyleTypes)
                     {
@@ -242,7 +243,7 @@ namespace Synthetic.RevitDOM.Operations.Standards
                 using (Transaction parentTx = new Transaction(parentDoc, "Load Family"))
                 {
                     FailureHandlingOptions parentOptions = parentTx.GetFailureHandlingOptions();
-                    parentOptions.SetFailuresPreprocessor(new DeleteWarningsPreprocessor());
+                    parentOptions.SetFailuresPreprocessor(FailurePipelines.DeleteWarnings());
                     parentTx.SetFailureHandlingOptions(parentOptions);
 
                     parentTx.Start();
@@ -271,24 +272,7 @@ namespace Synthetic.RevitDOM.Operations.Standards
             }
         }
 
-        private class DeleteWarningsPreprocessor : IFailuresPreprocessor
-        {
-            public FailureProcessingResult PreprocessFailures(FailuresAccessor failuresAccessor)
-            {
-                IList<FailureMessageAccessor> failList = failuresAccessor.GetFailureMessages();
 
-                if (failList.Count == 0)
-                {
-                    return FailureProcessingResult.Continue;
-                }
-
-                foreach (FailureMessageAccessor failure in failList)
-                {
-                    failuresAccessor.DeleteWarning(failure);
-                }
-                return FailureProcessingResult.ProceedWithCommit;
-            }
-        }
 
         private class ImportFamilyLoadOptions : IFamilyLoadOptions
         {

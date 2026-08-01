@@ -128,6 +128,16 @@
     <Compile Include="$(MSBuildThisFileDirectory)Shared\EnumUtil.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Shared\RevitAPI\FamilyUtil.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Shared\RevitAPI\FamilySymbolUtil.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\FailureProcessing\IFailureRule.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\FailureProcessing\FailureHandlingAction.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\FailureProcessing\FailureRecord.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\FailureProcessing\TargetIdFailureRule.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\FailureProcessing\SeverityFailureRule.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\FailureProcessing\FailurePipelineBuilder.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\FailureProcessing\CompositeFailuresPreprocessor.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\FailureProcessing\FailurePipelines.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\FailureProcessing\DocumentTransactionExtensions.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\FailureProcessing\FailureProcessingReport.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\IO\FileUtil.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ViewManagement\Utilities\LegendsUtil.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\MaterialManagement\Utilities\MaterialPathUtils.cs" />
@@ -144,7 +154,6 @@
     <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\StandardsExecutionPipeline.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Shared\RevitAPI\StorageUtil.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\FamilyManagement\Utilities\SafeFamilyLoadOptions.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\FamilyManagement\Utilities\PurgeFailuresPreprocessor.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ViewManagement\Models\ViewAutoNumModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ViewManagement\Utilities\ViewUtil.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\Diagnostics\StorageQuery.cs" />
@@ -521,4 +530,3 @@
     </None>
   </ItemGroup>
 </Project>
-

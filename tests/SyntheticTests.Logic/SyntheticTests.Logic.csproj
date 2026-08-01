@@ -25,7 +25,11 @@
     <Compile Include="..\SyntheticTests.Shared\Modules\StandardsManagement\FakeFileDialogService.cs" Link="Modules\StandardsManagement\FakeFileDialogService.cs" />
     <Compile Include="..\SyntheticTests.Shared\Modules\StandardsManagement\FakeGuardrailPromptService.cs" Link="Modules\StandardsManagement\FakeGuardrailPromptService.cs" />
     <Compile Include="..\SyntheticTests.Shared\Modules\StandardsManagement\FakeUserPromptService.cs" Link="Modules\StandardsManagement\FakeUserPromptService.cs" />
+    <Compile Include="..\SyntheticTests.Shared\Helpers\MockFailureFactory.cs" Link="Helpers\MockFailureFactory.cs" />
     <Compile Include="..\SyntheticTests.Shared\Helpers\TestPathHelper.cs" Link="Helpers\TestPathHelper.cs" />
+    <Compile Include="..\SyntheticTests.Shared\Modules\FailureProcessing\TargetIdFailureRuleTests.cs" Link="Modules\FailureProcessing\TargetIdFailureRuleTests.cs" />
+    <Compile Include="..\SyntheticTests.Shared\Modules\FailureProcessing\DocumentTransactionExtensionsTests.cs" Link="Modules\FailureProcessing\DocumentTransactionExtensionsTests.cs" />
+    <Compile Include="..\SyntheticTests.Shared\Modules\FailureProcessing\SuppressConstraintsPresetTests.cs" Link="Modules\FailureProcessing\SuppressConstraintsPresetTests.cs" />
     <Compile Include="..\SyntheticTests.Shared\Modules\MergeDuplicates\Tier2_MergeDuplicatesHeadlessTests.cs" Link="Modules\MergeDuplicates\Tier2_MergeDuplicatesHeadlessTests.cs" />
     <Compile Remove="Infrastructure\UI\RibbonTests.cs" />
     <Compile Include="Infrastructure\UI\RibbonTests.cs" />
@@ -35,10 +39,10 @@
   <!-- Compile mock RevitAPI and RevitAPIUI projects and copy them to output directory post-build -->
     <Target Name="CopyMockRevitAPI" AfterTargets="Build">
     <MSBuild Projects="..\RevitAPIMock\RevitAPIMock.csproj" Targets="Build" Properties="Configuration=$(Configuration);Platform=$(Platform)" />
-    <Copy SourceFiles="$(LocalAppData)\Temp\bin\RevitAPIMock\net8.0-windows8.0\RevitAPI.dll" DestinationFolder="$(TargetDir)" OverwriteReadOnlyFiles="true" SkipUnchangedFiles="false" />
+    <Copy SourceFiles="..\RevitAPIMock\bin\$(Platform)\$(Configuration)\net8.0-windows8.0\RevitAPI.dll" DestinationFolder="$(TargetDir)" OverwriteReadOnlyFiles="true" SkipUnchangedFiles="false" />
 
     <MSBuild Projects="..\RevitAPIUIMock\RevitAPIUIMock.csproj" Targets="Build" Properties="Configuration=$(Configuration);Platform=$(Platform)" />
-    <Copy SourceFiles="$(LocalAppData)\Temp\bin\RevitAPIUIMock\net8.0-windows8.0\RevitAPIUI.dll" DestinationFolder="$(TargetDir)" OverwriteReadOnlyFiles="true" SkipUnchangedFiles="false" />
+    <Copy SourceFiles="..\RevitAPIUIMock\bin\$(Platform)\$(Configuration)\net8.0-windows8.0\RevitAPIUI.dll" DestinationFolder="$(TargetDir)" OverwriteReadOnlyFiles="true" SkipUnchangedFiles="false" />
   </Target>
 
 </Project>
