@@ -381,69 +381,8 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                                             }
                                         }
                                     }
-                                    typeMap[mapping.SourceType.RevitTypeId.ToElementId()] = resolvedTargetTypeId;
+                                     typeMap[mapping.SourceType.RevitTypeId.ToElementId()] = resolvedTargetTypeId;
                                 }
-                                // 3. Swap Instances
-                                int instancesSwapped = 0;
-                                var dupTypeIds = typeMap.Keys.ToList();
-                                if (dupTypeIds.Count > 0)
-                                {
-                                    if (primElement is Family)
-                                    {
-                                        var instances = new FilteredElementCollector(doc)
-                                            .OfClass(typeof(FamilyInstance))
-                                            .Cast<FamilyInstance>()
-                                            .Where(fi => dupTypeIds.Contains(fi.GetTypeId()))
-                                            .ToList();
-                                        foreach (var instance in instances)
-                                        {
-                                            ElementId targetTypeId = typeMap[instance.GetTypeId()];
-                                            FamilySymbol? targetSymbol = doc.GetElement(targetTypeId) as FamilySymbol;
-                                            if (targetSymbol != null)
-                                            {
-                                                if (!targetSymbol.IsActive)
-                                                {
-                                                    targetSymbol.Activate();
-                                                }
-                                                instance.Symbol = targetSymbol;
-                                                instancesSwapped++;
-                                            }
-                                        }
-                                    }
-                                    else if (primElement is GroupType)
-                                    {
-                                        var groups = new FilteredElementCollector(doc)
-                                            .OfClass(typeof(Group))
-                                            .Cast<Group>()
-                                            .Where(g => dupTypeIds.Contains(g.GetTypeId()))
-                                            .ToList();
-                                        foreach (var group in groups)
-                                        {
-                                            ElementId targetTypeId = typeMap[group.GetTypeId()];
-                                            GroupType? targetGroupType = doc.GetElement(targetTypeId) as GroupType;
-                                            if (targetGroupType != null)
-                                            {
-                                                group.GroupType = targetGroupType;
-                                                instancesSwapped++;
-                                            }
-                                        }
-                                    }
-                                    else if (primElement is AssemblyType)
-                                    {
-                                        var assemblies = new FilteredElementCollector(doc)
-                                            .OfClass(typeof(AssemblyInstance))
-                                            .Cast<AssemblyInstance>()
-                                            .Where(a => dupTypeIds.Contains(a.GetTypeId()))
-                                            .ToList();
-                                        foreach (var assembly in assemblies)
-                                        {
-                                            ElementId targetTypeId = typeMap[assembly.GetTypeId()];
-                                            assembly.ChangeTypeId(targetTypeId);
-                                            instancesSwapped++;
-                                        }
-                                    }
-                                }
-                                report.InstancesSwappedCount = instancesSwapped;
                             }
                             trans.Commit();
                         }
@@ -460,14 +399,33 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                     // 3.5 AliasSwapEngine deep scan and swap (outside any active transaction!)
                     try
                     {
+                        int totalInstancesSwapped = 0;
                         foreach (var kvp in typeMap)
                         {
-                            AliasSwapEngine.SwapElementReferences(doc, kvp.Key, kvp.Value);
+                            var redirectionResult = Synthetic.RevitDOM.Operations.AliasSwapEngine.SwapElementReferences(doc, kvp.Key, kvp.Value);
+                            if (redirectionResult != null)
+                            {
+                                totalInstancesSwapped += redirectionResult.InstancesCount;
+
+                                if (redirectionResult.Errors != null && redirectionResult.Errors.Count > 0)
+                                {
+                                    report.ErrorMessage = (report.ErrorMessage ?? "") + string.Join("; ", redirectionResult.Errors);
+                                }
+                                if (redirectionResult.Warnings != null && redirectionResult.Warnings.Count > 0)
+                                {
+                                    foreach (var warn in redirectionResult.Warnings)
+                                    {
+                                        app.Application.WriteJournalComment($"[MERGE_WARNING] {warn}", true);
+                                    }
+                                }
+                            }
                         }
+                        report.InstancesSwappedCount = totalInstancesSwapped;
                     }
                     catch (Exception ex)
                     {
                         app.Application.WriteJournalComment($"[MERGE_ERROR] Error swapping alias references outside transaction: {ex.Message}", true);
+                        report.ErrorMessage = (report.ErrorMessage ?? "") + $" Error swapping alias references: {ex.Message}";
                     }
                     // 4. Redundancy Deletion in Transaction 2
                     using (var trans2 = new Transaction(doc, $"Merge Cluster Step 2: {cluster.ClusterName}"))
