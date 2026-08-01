@@ -282,11 +282,101 @@ namespace SyntheticTests
                     }
 
                     // Swap using AliasSwapEngine
-                    AliasSwapEngine.SwapElementReferences(doc, lp1.Id, lp2.Id);
+                    var result = AliasSwapEngine.SwapElementReferences(doc, lp1.Id, lp2.Id);
 
                     // Assert
                     var settings = view.GetCategoryOverrides(wallsCat.Id);
                     Assert.AreEqual(lp2.Id, settings.ProjectionLinePatternId);
+                    Assert.IsNotNull(result, "RedirectionResultModel should not be null.");
+                    Assert.IsTrue(result.ViewGraphicOverridesCount > 0, "ViewGraphicOverridesCount should be greater than 0.");
+
+                    tg.RollBack();
+                }
+            }
+            finally
+            {
+                doc.Close(false);
+            }
+        }
+
+        [Test]
+        public void SwapElementReferences_ReturnsRedirectionResultModel_WithAccurateCounts()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            Document doc = app.NewProjectDocument(UnitSystem.Metric);
+
+            try
+            {
+                using (var tg = new TransactionGroup(doc, "RedirectionResult Metrics Test"))
+                {
+                    tg.Start();
+
+                    Wall wall;
+                    Level level1, level2;
+                    using (var t = new Transaction(doc, "Create Wall"))
+                    {
+                        t.Start();
+                        wall = CreateWall(doc, out level1, out level2);
+                        t.Commit();
+                    }
+
+                    // Act
+                    RedirectionResultModel result = AliasSwapEngine.SwapElementReferences(doc, level1.Id, level2.Id);
+
+                    // Assert
+                    Assert.IsNotNull(result, "RedirectionResultModel should not be null.");
+                    Assert.IsTrue(result.ParametersCount > 0, "ParametersCount should be greater than 0.");
+                    Assert.IsTrue(result.InstancesCount > 0, "InstancesCount should be greater than 0.");
+                    Assert.AreEqual(result.TotalSwappedCount, result.ParametersCount + result.CategoryStylesCount + result.CompoundStructureLayersCount + result.ViewGraphicOverridesCount);
+
+                    tg.RollBack();
+                }
+            }
+            finally
+            {
+                doc.Close(false);
+            }
+        }
+
+        [Test]
+        public void SwapElementReferences_SupportsCallerManagedTransaction()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            Document doc = app.NewProjectDocument(UnitSystem.Metric);
+
+            try
+            {
+                using (var tg = new TransactionGroup(doc, "Caller Managed Transaction Test"))
+                {
+                    tg.Start();
+
+                    Wall wall;
+                    Level level1, level2;
+                    using (var t = new Transaction(doc, "Create Wall"))
+                    {
+                        t.Start();
+                        wall = CreateWall(doc, out level1, out level2);
+                        t.Commit();
+                    }
+
+                    var baseConstraintParam = wall.get_Parameter(BuiltInParameter.WALL_BASE_CONSTRAINT);
+                    Assert.AreEqual(level1.Id, baseConstraintParam.AsElementId());
+
+                    // Act - Pass active caller-managed transaction
+                    RedirectionResultModel result;
+                    using (var callerTrans = new Transaction(doc, "Caller Active Trans"))
+                    {
+                        callerTrans.Start();
+                        result = AliasSwapEngine.SwapElementReferences(doc, level1.Id, level2.Id, callerTrans);
+                        callerTrans.Commit();
+                    }
+
+                    // Assert
+                    Assert.IsNotNull(result, "RedirectionResultModel should not be null.");
+                    Assert.AreEqual(level2.Id, baseConstraintParam.AsElementId());
+                    Assert.IsTrue(result.ParametersCount > 0);
 
                     tg.RollBack();
                 }
@@ -300,3 +390,4 @@ namespace SyntheticTests
         #endregion
     }
 }
+

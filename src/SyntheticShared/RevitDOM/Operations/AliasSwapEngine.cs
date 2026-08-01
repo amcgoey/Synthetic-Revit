@@ -6,7 +6,6 @@ using RevitView = Autodesk.Revit.DB.View;
 
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
-using Synthetic.RevitDOM.Operations;
 
 namespace Synthetic.RevitDOM.Operations
 {
@@ -22,242 +21,270 @@ namespace Synthetic.RevitDOM.Operations
         /// <param name="doc">The Revit document.</param>
         /// <param name="oldId">The old element ID (alias to replace).</param>
         /// <param name="newId">The new element ID (standard to use).</param>
-        public static void SwapElementReferences(Document doc, ElementId oldId, ElementId newId)
+        /// <returns>A <see cref="RedirectionResultModel"/> capturing count metrics and telemetry logs.</returns>
+        public static RedirectionResultModel SwapElementReferences(Document doc, ElementId oldId, ElementId newId)
+        {
+            return SwapElementReferences(doc, oldId, newId, null);
+        }
+
+        /// <summary>
+        /// Swaps references from an old element ID to a new element ID across parameters, category styles, compound structures, and view overrides.
+        /// </summary>
+        /// <param name="doc">The Revit document.</param>
+        /// <param name="oldId">The old element ID (alias to replace).</param>
+        /// <param name="newId">The new element ID (standard to use).</param>
+        /// <param name="trans">Optional caller-managed active transaction handle. If null, discrete internal transactions will be used.</param>
+        /// <returns>A <see cref="RedirectionResultModel"/> capturing count metrics and telemetry logs.</returns>
+        public static RedirectionResultModel SwapElementReferences(Document doc, ElementId oldId, ElementId newId, Transaction trans = null)
         {
             if (doc == null) throw new ArgumentNullException(nameof(doc));
             if (oldId == null) throw new ArgumentNullException(nameof(oldId));
             if (newId == null) throw new ArgumentNullException(nameof(newId));
 
+            RedirectionResultModel result = new RedirectionResultModel();
+            List<Category> allCats = GetAllCategories(doc);
+
+            bool isCallerManaged = trans != null && trans.GetStatus() == TransactionStatus.Started;
+
+            if (isCallerManaged)
+            {
+                ExecuteSwapPhases(doc, oldId, newId, allCats, result);
+            }
+            else
+            {
+                using (Transaction internalTrans = new Transaction(doc, "Swap Element References"))
+                {
+                    internalTrans.Start();
+                    ExecuteSwapPhases(doc, oldId, newId, allCats, result);
+                    internalTrans.Commit();
+                }
+            }
+
+            return result;
+        }
+
+        private static void ExecuteSwapPhases(Document doc, ElementId oldId, ElementId newId, List<Category> allCats, RedirectionResultModel result)
+        {
             // 1. Swap in all writeable ElementId parameters of all elements (instances and types)
-            using (Transaction trans = new Transaction(doc, "Swap Parameter References"))
+            try
             {
-                trans.Start();
-                try
+                var instances = new FilteredElementCollector(doc)
+                    .WhereElementIsNotElementType()
+                    .ToElements();
+                var types = new FilteredElementCollector(doc)
+                    .WhereElementIsElementType()
+                    .ToElements();
+
+                var allElements = instances.Concat(types);
+
+                foreach (Element elem in allElements)
                 {
-                    var instances = new FilteredElementCollector(doc)
-                        .WhereElementIsNotElementType()
-                        .ToElements();
-                    var types = new FilteredElementCollector(doc)
-                        .WhereElementIsElementType()
-                        .ToElements();
+                    if (elem == null || !elem.IsValidObject) continue;
 
-                    var allElements = instances.Concat(types);
-
-                    foreach (Element elem in allElements)
+                    bool elemModified = false;
+                    foreach (Parameter param in elem.Parameters)
                     {
-                        if (elem == null || !elem.IsValidObject) continue;
-
-                        foreach (Parameter param in elem.Parameters)
+                        if (param != null && !param.IsReadOnly && param.StorageType == StorageType.ElementId)
                         {
-                            if (param != null && !param.IsReadOnly && param.StorageType == StorageType.ElementId)
-                            {
-                                if (param.AsElementId() == oldId)
-                                {
-                                    try
-                                    {
-                                        param.Set(newId);
-                                    }
-                                    catch (Exception)
-                                    {
-                                        // Ignore parameter set errors (e.g. read-only parameter, type constraints)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Error swapping parameters: {ex.Message}");
-                }
-                trans.Commit();
-            }
-
-            // 2. Swap in Category default styles (Material, LinePatternId for cut/projection)
-            using (Transaction trans = new Transaction(doc, "Swap Category default styles"))
-            {
-                trans.Start();
-                try
-                {
-                    List<Category> allCats = GetAllCategories(doc);
-
-                    foreach (Category cat in allCats)
-                    {
-                        if (cat == null) continue;
-
-                        // Swap Material reference
-                        if (cat.Material != null && cat.Material.Id == oldId)
-                        {
-                            try
-                            {
-                                cat.Material = doc.GetElement(newId) as Material;
-                            }
-                            catch (Exception) { }
-                        }
-
-                        // Swap projection/cut LinePatternId references
-                        try
-                        {
-                            if (cat.GetLinePatternId(GraphicsStyleType.Projection) == oldId)
-                            {
-                                cat.SetLinePatternId(newId, GraphicsStyleType.Projection);
-                            }
-                        }
-                        catch (Exception) { }
-
-                        try
-                        {
-                            if (cat.GetLinePatternId(GraphicsStyleType.Cut) == oldId)
-                            {
-                                cat.SetLinePatternId(newId, GraphicsStyleType.Cut);
-                            }
-                        }
-                        catch (Exception) { }
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Error swapping categories: {ex.Message}");
-                }
-                trans.Commit();
-            }
-
-            // 3. Swap in Compound Structures (WallTypes, FloorTypes, RoofTypes, CeilingTypes)
-            using (Transaction trans = new Transaction(doc, "Swap Compound Structure layers"))
-            {
-                trans.Start();
-                try
-                {
-                    var hostTypes = new FilteredElementCollector(doc)
-                        .OfClass(typeof(HostObjAttributes))
-                        .Cast<HostObjAttributes>()
-                        .ToList();
-
-                    foreach (HostObjAttributes hostType in hostTypes)
-                    {
-                        if (hostType == null || !hostType.IsValidObject) continue;
-
-                        CompoundStructure cs = hostType.GetCompoundStructure();
-                        if (cs != null)
-                        {
-                            IList<CompoundStructureLayer> layers = cs.GetLayers();
-                            bool changed = false;
-
-                            for (int i = 0; i < layers.Count; i++)
-                            {
-                                CompoundStructureLayer layer = layers[i];
-                                if (layer.MaterialId == oldId)
-                                {
-                                    layer.MaterialId = newId;
-                                    changed = true;
-                                }
-                                if (layer.DeckProfileId == oldId)
-                                {
-                                    layer.DeckProfileId = newId;
-                                    changed = true;
-                                }
-                            }
-
-                            if (changed)
+                            if (param.AsElementId() == oldId)
                             {
                                 try
                                 {
-                                    cs.SetLayers(layers);
-                                    hostType.SetCompoundStructure(cs);
+                                    param.Set(newId);
+                                    result.ParametersCount++;
+                                    elemModified = true;
                                 }
                                 catch (Exception ex)
                                 {
-                                    Console.WriteLine($"Error setting compound structure for '{hostType.Name}': {ex.Message}");
+                                    result.Warnings.Add($"Parameter set error on element {elem.Id}: {ex.Message}");
                                 }
                             }
                         }
                     }
+
+                    if (elemModified && !(elem is ElementType))
+                    {
+                        result.InstancesCount++;
+                    }
                 }
-                catch (Exception ex)
+            }
+            catch (Exception ex)
+            {
+                result.Errors.Add($"Error swapping parameters: {ex.Message}");
+            }
+
+            // 2. Swap in Category default styles (Material, LinePatternId for cut/projection)
+            try
+            {
+                foreach (Category cat in allCats)
                 {
-                    Console.WriteLine($"Error swapping compound structures: {ex.Message}");
+                    if (cat == null) continue;
+
+                    // Swap Material reference
+                    if (cat.Material != null && cat.Material.Id == oldId)
+                    {
+                        try
+                        {
+                            cat.Material = doc.GetElement(newId) as Material;
+                            result.CategoryStylesCount++;
+                        }
+                        catch (Exception ex)
+                        {
+                            result.Warnings.Add($"Error setting category material on category '{cat.Name}': {ex.Message}");
+                        }
+                    }
+
+                    // Swap projection/cut LinePatternId references
+                    try
+                    {
+                        if (cat.GetLinePatternId(GraphicsStyleType.Projection) == oldId)
+                        {
+                            cat.SetLinePatternId(newId, GraphicsStyleType.Projection);
+                            result.CategoryStylesCount++;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        result.Warnings.Add($"Error setting projection line pattern on category '{cat.Name}': {ex.Message}");
+                    }
+
+                    try
+                    {
+                        if (cat.GetLinePatternId(GraphicsStyleType.Cut) == oldId)
+                        {
+                            cat.SetLinePatternId(newId, GraphicsStyleType.Cut);
+                            result.CategoryStylesCount++;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        result.Warnings.Add($"Error setting cut line pattern on category '{cat.Name}': {ex.Message}");
+                    }
                 }
-                trans.Commit();
+            }
+            catch (Exception ex)
+            {
+                result.Errors.Add($"Error swapping categories: {ex.Message}");
+            }
+
+            // 3. Swap in Compound Structures (WallTypes, FloorTypes, RoofTypes, CeilingTypes)
+            try
+            {
+                var hostTypes = new FilteredElementCollector(doc)
+                    .OfClass(typeof(HostObjAttributes))
+                    .Cast<HostObjAttributes>()
+                    .ToList();
+
+                foreach (HostObjAttributes hostType in hostTypes)
+                {
+                    if (hostType == null || !hostType.IsValidObject) continue;
+
+                    CompoundStructure cs = hostType.GetCompoundStructure();
+                    if (cs != null)
+                    {
+                        IList<CompoundStructureLayer> layers = cs.GetLayers();
+                        bool changed = false;
+
+                        for (int i = 0; i < layers.Count; i++)
+                        {
+                            CompoundStructureLayer layer = layers[i];
+                            if (layer.MaterialId == oldId)
+                            {
+                                layer.MaterialId = newId;
+                                changed = true;
+                                result.CompoundStructureLayersCount++;
+                            }
+                            if (layer.DeckProfileId == oldId)
+                            {
+                                layer.DeckProfileId = newId;
+                                changed = true;
+                                result.CompoundStructureLayersCount++;
+                            }
+                        }
+
+                        if (changed)
+                        {
+                            try
+                            {
+                                cs.SetLayers(layers);
+                                hostType.SetCompoundStructure(cs);
+                            }
+                            catch (Exception ex)
+                            {
+                                result.Errors.Add($"Error setting compound structure for '{hostType.Name}': {ex.Message}");
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                result.Errors.Add($"Error swapping compound structures: {ex.Message}");
             }
 
             // 4. Swap in View Graphic Overrides
-            using (Transaction trans = new Transaction(doc, "Swap View Graphic overrides"))
+            try
             {
-                trans.Start();
-                try
+                var views = new FilteredElementCollector(doc)
+                    .OfClass(typeof(RevitView))
+                    .Cast<RevitView>()
+                    .ToList();
+
+                var patternCheckers = new (Func<OverrideGraphicSettings, ElementId> GetPattern, Action<OverrideGraphicSettings, ElementId> SetPattern)[]
                 {
-                    var views = new FilteredElementCollector(doc)
-                        .OfClass(typeof(RevitView))
-                        .Cast<RevitView>()
-                        .ToList();
+                    (s => s.ProjectionLinePatternId, (s, id) => s.SetProjectionLinePatternId(id)),
+                    (s => s.CutLinePatternId, (s, id) => s.SetCutLinePatternId(id)),
+                    (s => s.SurfaceForegroundPatternId, (s, id) => s.SetSurfaceForegroundPatternId(id)),
+                    (s => s.SurfaceBackgroundPatternId, (s, id) => s.SetSurfaceBackgroundPatternId(id)),
+                    (s => s.CutForegroundPatternId, (s, id) => s.SetCutForegroundPatternId(id)),
+                    (s => s.CutBackgroundPatternId, (s, id) => s.SetCutBackgroundPatternId(id))
+                };
 
-                    List<Category> allCats = GetAllCategories(doc);
+                foreach (RevitView view in views)
+                {
+                    if (view == null || !view.IsValidObject) continue;
 
-                    foreach (RevitView view in views)
+                    if (view.IsTemplate || view.ViewType == ViewType.FloorPlan || view.ViewType == ViewType.CeilingPlan ||
+                        view.ViewType == ViewType.Elevation || view.ViewType == ViewType.Section || view.ViewType == ViewType.ThreeD ||
+                        view.ViewType == ViewType.DraftingView || view.ViewType == ViewType.AreaPlan)
                     {
-                        if (view == null || !view.IsValidObject) continue;
-
-                        if (view.IsTemplate || view.ViewType == ViewType.FloorPlan || view.ViewType == ViewType.CeilingPlan ||
-                            view.ViewType == ViewType.Elevation || view.ViewType == ViewType.Section || view.ViewType == ViewType.ThreeD ||
-                            view.ViewType == ViewType.DraftingView || view.ViewType == ViewType.AreaPlan)
+                        foreach (Category cat in allCats)
                         {
-                            foreach (Category cat in allCats)
+                            if (cat == null) continue;
+                            try
                             {
-                                if (cat == null) continue;
-                                try
+                                OverrideGraphicSettings settings = view.GetCategoryOverrides(cat.Id);
+                                if (settings != null)
                                 {
-                                    OverrideGraphicSettings settings = view.GetCategoryOverrides(cat.Id);
-                                    if (settings != null)
+                                    bool changed = false;
+
+                                    foreach (var (getPattern, setPattern) in patternCheckers)
                                     {
-                                        bool changed = false;
-
-                                        if (settings.ProjectionLinePatternId == oldId)
+                                        if (getPattern(settings) == oldId)
                                         {
-                                            settings.SetProjectionLinePatternId(newId);
+                                            setPattern(settings, newId);
                                             changed = true;
-                                        }
-                                        if (settings.CutLinePatternId == oldId)
-                                        {
-                                            settings.SetCutLinePatternId(newId);
-                                            changed = true;
-                                        }
-                                        if (settings.SurfaceForegroundPatternId == oldId)
-                                        {
-                                            settings.SetSurfaceForegroundPatternId(newId);
-                                            changed = true;
-                                        }
-                                        if (settings.SurfaceBackgroundPatternId == oldId)
-                                        {
-                                            settings.SetSurfaceBackgroundPatternId(newId);
-                                            changed = true;
-                                        }
-                                        if (settings.CutForegroundPatternId == oldId)
-                                        {
-                                            settings.SetCutForegroundPatternId(newId);
-                                            changed = true;
-                                        }
-                                        if (settings.CutBackgroundPatternId == oldId)
-                                        {
-                                            settings.SetCutBackgroundPatternId(newId);
-                                            changed = true;
-                                        }
-
-                                        if (changed)
-                                        {
-                                            view.SetCategoryOverrides(cat.Id, settings);
+                                            result.ViewGraphicOverridesCount++;
                                         }
                                     }
+
+                                    if (changed)
+                                    {
+                                        view.SetCategoryOverrides(cat.Id, settings);
+                                    }
                                 }
-                                catch (Exception) { }
+                            }
+                            catch (Exception ex)
+                            {
+                                result.Warnings.Add($"Error applying view graphic override on view '{view.Name}' for category '{cat.Name}': {ex.Message}");
                             }
                         }
                     }
                 }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Error swapping view overrides: {ex.Message}");
-                }
-                trans.Commit();
+            }
+            catch (Exception ex)
+            {
+                result.Errors.Add($"Error swapping view overrides: {ex.Message}");
             }
         }
 
