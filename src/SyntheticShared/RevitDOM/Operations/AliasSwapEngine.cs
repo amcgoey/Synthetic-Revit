@@ -65,10 +65,75 @@ namespace Synthetic.RevitDOM.Operations
 
         private static void ExecuteSwapPhases(Document doc, ElementId oldId, ElementId newId, List<Category> allCats, RedirectionResultModel result)
         {
-            // 1. Swap FamilyInstance symbols and ElementId parameters of all elements
+            // 1a. Remap Group and AssemblyInstance element types
             try
             {
-                // 1a. Swap FamilyInstance symbols if newId resolves to a FamilySymbol
+                GroupType targetGroupType = doc.GetElement(newId) as GroupType;
+                if (targetGroupType != null)
+                {
+                    var groups = new FilteredElementCollector(doc)
+                        .OfClass(typeof(Group))
+                        .Cast<Group>();
+
+                    foreach (Group group in groups)
+                    {
+                        if (group == null || !group.IsValidObject) continue;
+                        if (oldId.Equals(group.GetTypeId()))
+                        {
+                            try
+                            {
+                                group.GroupType = targetGroupType;
+                                result.InstancesCount++;
+                            }
+                            catch (Exception ex)
+                            {
+                                result.Warnings.Add($"Error setting GroupType for group {group.Id}: {ex.Message}");
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                result.Errors.Add($"Error remapping groups: {ex.Message}");
+            }
+
+            try
+            {
+                AssemblyType targetAssemblyType = doc.GetElement(newId) as AssemblyType;
+                if (targetAssemblyType != null)
+                {
+                    var assemblies = new FilteredElementCollector(doc)
+                        .OfClass(typeof(AssemblyInstance))
+                        .Cast<AssemblyInstance>();
+
+                    foreach (AssemblyInstance assembly in assemblies)
+                    {
+                        if (assembly == null || !assembly.IsValidObject) continue;
+                        if (oldId.Equals(assembly.GetTypeId()))
+                        {
+                            try
+                            {
+                                assembly.ChangeTypeId(newId);
+                                result.InstancesCount++;
+                            }
+                            catch (Exception ex)
+                            {
+                                result.Warnings.Add($"Error changing type for assembly instance {assembly.Id}: {ex.Message}");
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                result.Errors.Add($"Error remapping assemblies: {ex.Message}");
+            }
+
+            // 1b. Swap FamilyInstance symbols and ElementId parameters of all elements
+            try
+            {
+                // Swap FamilyInstance symbols if newId resolves to a FamilySymbol
                 FamilySymbol targetSymbol = doc.GetElement(newId) as FamilySymbol;
                 if (targetSymbol != null)
                 {
@@ -86,16 +151,16 @@ namespace Synthetic.RevitDOM.Operations
                             doc.Regenerate();
                         }
 
-                        foreach (FamilyInstance instance in familyInstances)
+                        foreach (FamilyInstance fi in familyInstances)
                         {
                             try
                             {
-                                instance.Symbol = targetSymbol;
+                                fi.Symbol = targetSymbol;
                                 result.InstancesCount++;
                             }
                             catch (Exception ex)
                             {
-                                result.Warnings.Add($"Error setting FamilyInstance symbol on element {instance.Id}: {ex.Message}");
+                                result.Warnings.Add($"Error remapping FamilyInstance {fi.Id} symbol: {ex.Message}");
                             }
                         }
                     }
