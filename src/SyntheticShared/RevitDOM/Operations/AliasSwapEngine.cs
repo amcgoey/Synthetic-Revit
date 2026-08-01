@@ -65,7 +65,72 @@ namespace Synthetic.RevitDOM.Operations
 
         private static void ExecuteSwapPhases(Document doc, ElementId oldId, ElementId newId, List<Category> allCats, RedirectionResultModel result)
         {
-            // 1. Swap in all writeable ElementId parameters of all elements (instances and types)
+            // 1a. Remap Group and AssemblyInstance element types
+            try
+            {
+                GroupType targetGroupType = doc.GetElement(newId) as GroupType;
+                if (targetGroupType != null)
+                {
+                    var groups = new FilteredElementCollector(doc)
+                        .OfClass(typeof(Group))
+                        .Cast<Group>();
+
+                    foreach (Group group in groups)
+                    {
+                        if (group == null || !group.IsValidObject) continue;
+                        if (group.GetTypeId() == oldId)
+                        {
+                            try
+                            {
+                                group.GroupType = targetGroupType;
+                                result.InstancesCount++;
+                            }
+                            catch (Exception ex)
+                            {
+                                result.Warnings.Add($"Error setting GroupType for group {group.Id}: {ex.Message}");
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                result.Errors.Add($"Error remapping groups: {ex.Message}");
+            }
+
+            try
+            {
+                AssemblyType targetAssemblyType = doc.GetElement(newId) as AssemblyType;
+                if (targetAssemblyType != null)
+                {
+                    var assemblies = new FilteredElementCollector(doc)
+                        .OfClass(typeof(AssemblyInstance))
+                        .Cast<AssemblyInstance>();
+
+                    foreach (AssemblyInstance assembly in assemblies)
+                    {
+                        if (assembly == null || !assembly.IsValidObject) continue;
+                        if (assembly.GetTypeId() == oldId)
+                        {
+                            try
+                            {
+                                assembly.ChangeTypeId(newId);
+                                result.InstancesCount++;
+                            }
+                            catch (Exception ex)
+                            {
+                                result.Warnings.Add($"Error changing type for assembly instance {assembly.Id}: {ex.Message}");
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                result.Errors.Add($"Error remapping assemblies: {ex.Message}");
+            }
+
+            // 1b. Swap in all writeable ElementId parameters of all elements (instances and types)
             try
             {
                 var instances = new FilteredElementCollector(doc)
