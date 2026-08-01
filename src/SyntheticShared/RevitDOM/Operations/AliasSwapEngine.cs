@@ -65,9 +65,43 @@ namespace Synthetic.RevitDOM.Operations
 
         private static void ExecuteSwapPhases(Document doc, ElementId oldId, ElementId newId, List<Category> allCats, RedirectionResultModel result)
         {
-            // 1. Swap in all writeable ElementId parameters of all elements (instances and types)
+            // 1. Swap FamilyInstance symbols and ElementId parameters of all elements
             try
             {
+                // 1a. Swap FamilyInstance symbols if newId resolves to a FamilySymbol
+                FamilySymbol targetSymbol = doc.GetElement(newId) as FamilySymbol;
+                if (targetSymbol != null)
+                {
+                    var familyInstances = new FilteredElementCollector(doc)
+                        .OfClass(typeof(FamilyInstance))
+                        .Cast<FamilyInstance>()
+                        .Where(fi => fi != null && fi.IsValidObject && oldId.Equals(fi.GetTypeId()))
+                        .ToList();
+
+                    if (familyInstances.Count > 0)
+                    {
+                        if (!targetSymbol.IsActive)
+                        {
+                            targetSymbol.Activate();
+                            doc.Regenerate();
+                        }
+
+                        foreach (FamilyInstance instance in familyInstances)
+                        {
+                            try
+                            {
+                                instance.Symbol = targetSymbol;
+                                result.InstancesCount++;
+                            }
+                            catch (Exception ex)
+                            {
+                                result.Warnings.Add($"Error setting FamilyInstance symbol on element {instance.Id}: {ex.Message}");
+                            }
+                        }
+                    }
+                }
+
+                // 1b. Swap in all writeable ElementId parameters of all elements (instances and types)
                 var instances = new FilteredElementCollector(doc)
                     .WhereElementIsNotElementType()
                     .ToElements();
@@ -79,14 +113,15 @@ namespace Synthetic.RevitDOM.Operations
 
                 foreach (Element elem in allElements)
                 {
-                    if (elem == null || !elem.IsValidObject) continue;
+                    if (elem == null || !elem.IsValidObject || elem.Parameters == null) continue;
 
                     bool elemModified = false;
                     foreach (Parameter param in elem.Parameters)
                     {
                         if (param != null && !param.IsReadOnly && param.StorageType == StorageType.ElementId)
                         {
-                            if (param.AsElementId() == oldId)
+                            ElementId valId = param.AsElementId();
+                            if (oldId.Equals(valId))
                             {
                                 try
                                 {
@@ -110,7 +145,7 @@ namespace Synthetic.RevitDOM.Operations
             }
             catch (Exception ex)
             {
-                result.Errors.Add($"Error swapping parameters: {ex.Message}");
+                result.Errors.Add($"Error swapping parameters or family instances: {ex.Message}");
             }
 
             // 2. Swap in Category default styles (Material, LinePatternId for cut/projection)
@@ -121,7 +156,7 @@ namespace Synthetic.RevitDOM.Operations
                     if (cat == null) continue;
 
                     // Swap Material reference
-                    if (cat.Material != null && cat.Material.Id == oldId)
+                    if (cat.Material != null && oldId.Equals(cat.Material.Id))
                     {
                         try
                         {
@@ -137,7 +172,7 @@ namespace Synthetic.RevitDOM.Operations
                     // Swap projection/cut LinePatternId references
                     try
                     {
-                        if (cat.GetLinePatternId(GraphicsStyleType.Projection) == oldId)
+                        if (oldId.Equals(cat.GetLinePatternId(GraphicsStyleType.Projection)))
                         {
                             cat.SetLinePatternId(newId, GraphicsStyleType.Projection);
                             result.CategoryStylesCount++;
@@ -150,7 +185,7 @@ namespace Synthetic.RevitDOM.Operations
 
                     try
                     {
-                        if (cat.GetLinePatternId(GraphicsStyleType.Cut) == oldId)
+                        if (oldId.Equals(cat.GetLinePatternId(GraphicsStyleType.Cut)))
                         {
                             cat.SetLinePatternId(newId, GraphicsStyleType.Cut);
                             result.CategoryStylesCount++;
@@ -188,13 +223,13 @@ namespace Synthetic.RevitDOM.Operations
                         for (int i = 0; i < layers.Count; i++)
                         {
                             CompoundStructureLayer layer = layers[i];
-                            if (layer.MaterialId == oldId)
+                            if (oldId.Equals(layer.MaterialId))
                             {
                                 layer.MaterialId = newId;
                                 changed = true;
                                 result.CompoundStructureLayersCount++;
                             }
-                            if (layer.DeckProfileId == oldId)
+                            if (oldId.Equals(layer.DeckProfileId))
                             {
                                 layer.DeckProfileId = newId;
                                 changed = true;
@@ -242,7 +277,7 @@ namespace Synthetic.RevitDOM.Operations
 
                 foreach (RevitView view in views)
                 {
-                    if (view == null || !view.IsValidObject) continue;
+                    if (view == null || !view.IsValidObject || !view.AreGraphicsOverridesAllowed()) continue;
 
                     if (view.IsTemplate || view.ViewType == ViewType.FloorPlan || view.ViewType == ViewType.CeilingPlan ||
                         view.ViewType == ViewType.Elevation || view.ViewType == ViewType.Section || view.ViewType == ViewType.ThreeD ||
@@ -260,7 +295,7 @@ namespace Synthetic.RevitDOM.Operations
 
                                     foreach (var (getPattern, setPattern) in patternCheckers)
                                     {
-                                        if (getPattern(settings) == oldId)
+                                        if (oldId.Equals(getPattern(settings)))
                                         {
                                             setPattern(settings, newId);
                                             changed = true;
@@ -288,7 +323,7 @@ namespace Synthetic.RevitDOM.Operations
             }
         }
 
-                /// <summary>
+        /// <summary>
         /// Recursively gathers all categories and subcategories in the document.
         /// </summary>
         private static List<Category> GetAllCategories(Document doc)
