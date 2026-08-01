@@ -15,6 +15,17 @@ namespace Synthetic.RevitDOM.Operations
     /// </summary>
     public static class AliasSwapEngine
     {
+        private static readonly (Func<OverrideGraphicSettings, ElementId> GetPattern, Action<OverrideGraphicSettings, ElementId> SetPattern)[] PatternCheckers =
+            new (Func<OverrideGraphicSettings, ElementId> GetPattern, Action<OverrideGraphicSettings, ElementId> SetPattern)[]
+            {
+                (s => s.ProjectionLinePatternId, (s, id) => s.SetProjectionLinePatternId(id)),
+                (s => s.CutLinePatternId, (s, id) => s.SetCutLinePatternId(id)),
+                (s => s.SurfaceForegroundPatternId, (s, id) => s.SetSurfaceForegroundPatternId(id)),
+                (s => s.SurfaceBackgroundPatternId, (s, id) => s.SetSurfaceBackgroundPatternId(id)),
+                (s => s.CutForegroundPatternId, (s, id) => s.SetCutForegroundPatternId(id)),
+                (s => s.CutBackgroundPatternId, (s, id) => s.SetCutBackgroundPatternId(id))
+            };
+
         /// <summary>
         /// Swaps references from an old element ID to a new element ID across parameters, category styles, compound structures, and view overrides.
         /// </summary>
@@ -44,7 +55,7 @@ namespace Synthetic.RevitDOM.Operations
             RedirectionResultModel result = new RedirectionResultModel();
             List<Category> allCats = GetAllCategories(doc);
 
-            bool isCallerManaged = trans != null && trans.GetStatus() == TransactionStatus.Started;
+            bool isCallerManaged = doc.IsModifiable || (trans != null && trans.GetStatus() == TransactionStatus.Started);
 
             if (isCallerManaged)
             {
@@ -65,7 +76,7 @@ namespace Synthetic.RevitDOM.Operations
 
         private static void ExecuteSwapPhases(Document doc, ElementId oldId, ElementId newId, List<Category> allCats, RedirectionResultModel result)
         {
-            // 1. Swap in all writeable ElementId parameters of all elements (instances and types)
+            // 1. Swap in all writeable ElementId parameters and instance type IDs of all elements (instances and types)
             try
             {
                 var instances = new FilteredElementCollector(doc)
@@ -75,7 +86,7 @@ namespace Synthetic.RevitDOM.Operations
                     .WhereElementIsElementType()
                     .ToElements();
 
-                var allElements = instances.Concat(types);
+                var allElements = instances.Concat(types).ToList();
 
                 foreach (Element elem in allElements)
                 {
@@ -99,6 +110,22 @@ namespace Synthetic.RevitDOM.Operations
                                     result.Warnings.Add($"Parameter set error on element {elem.Id}: {ex.Message}");
                                 }
                             }
+                        }
+                    }
+
+                    if (!(elem is ElementType))
+                    {
+                        try
+                        {
+                            if (elem.GetTypeId() == oldId && elem.IsValidType(newId))
+                            {
+                                elem.ChangeTypeId(newId);
+                                elemModified = true;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            result.Warnings.Add($"ChangeTypeId error on element {elem.Id}: {ex.Message}");
                         }
                     }
 
@@ -130,7 +157,7 @@ namespace Synthetic.RevitDOM.Operations
                         }
                         catch (Exception ex)
                         {
-                            result.Warnings.Add($"Error setting category material on category '{cat.Name}': {ex.Message}");
+                            result.Warnings.Add($"Error setting category material on category '{cat?.Name ?? "Unknown Category"}': {ex.Message}");
                         }
                     }
 
@@ -145,7 +172,7 @@ namespace Synthetic.RevitDOM.Operations
                     }
                     catch (Exception ex)
                     {
-                        result.Warnings.Add($"Error setting projection line pattern on category '{cat.Name}': {ex.Message}");
+                        result.Warnings.Add($"Error setting projection line pattern on category '{cat?.Name ?? "Unknown Category"}': {ex.Message}");
                     }
 
                     try
@@ -158,7 +185,7 @@ namespace Synthetic.RevitDOM.Operations
                     }
                     catch (Exception ex)
                     {
-                        result.Warnings.Add($"Error setting cut line pattern on category '{cat.Name}': {ex.Message}");
+                        result.Warnings.Add($"Error setting cut line pattern on category '{cat?.Name ?? "Unknown Category"}': {ex.Message}");
                     }
                 }
             }
@@ -230,15 +257,7 @@ namespace Synthetic.RevitDOM.Operations
                     .Cast<RevitView>()
                     .ToList();
 
-                var patternCheckers = new (Func<OverrideGraphicSettings, ElementId> GetPattern, Action<OverrideGraphicSettings, ElementId> SetPattern)[]
-                {
-                    (s => s.ProjectionLinePatternId, (s, id) => s.SetProjectionLinePatternId(id)),
-                    (s => s.CutLinePatternId, (s, id) => s.SetCutLinePatternId(id)),
-                    (s => s.SurfaceForegroundPatternId, (s, id) => s.SetSurfaceForegroundPatternId(id)),
-                    (s => s.SurfaceBackgroundPatternId, (s, id) => s.SetSurfaceBackgroundPatternId(id)),
-                    (s => s.CutForegroundPatternId, (s, id) => s.SetCutForegroundPatternId(id)),
-                    (s => s.CutBackgroundPatternId, (s, id) => s.SetCutBackgroundPatternId(id))
-                };
+
 
                 foreach (RevitView view in views)
                 {
@@ -258,7 +277,7 @@ namespace Synthetic.RevitDOM.Operations
                                 {
                                     bool changed = false;
 
-                                    foreach (var (getPattern, setPattern) in patternCheckers)
+                                    foreach (var (getPattern, setPattern) in PatternCheckers)
                                     {
                                         if (getPattern(settings) == oldId)
                                         {
@@ -276,7 +295,7 @@ namespace Synthetic.RevitDOM.Operations
                             }
                             catch (Exception ex)
                             {
-                                result.Warnings.Add($"Error applying view graphic override on view '{view.Name}' for category '{cat.Name}': {ex.Message}");
+                                result.Warnings.Add($"Error applying view graphic override on view '{view?.Name ?? "Unknown View"}' for category '{cat?.Name ?? "Unknown Category"}': {ex.Message}");
                             }
                         }
                     }
