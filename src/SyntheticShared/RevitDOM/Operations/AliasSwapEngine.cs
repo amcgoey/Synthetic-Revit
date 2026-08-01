@@ -244,9 +244,17 @@ namespace Synthetic.RevitDOM.Operations
                 {
                     if (view == null || !view.IsValidObject) continue;
 
-                    if (view.IsTemplate || view.ViewType == ViewType.FloorPlan || view.ViewType == ViewType.CeilingPlan ||
-                        view.ViewType == ViewType.Elevation || view.ViewType == ViewType.Section || view.ViewType == ViewType.ThreeD ||
-                        view.ViewType == ViewType.DraftingView || view.ViewType == ViewType.AreaPlan)
+                    bool supportsOverrides = false;
+                    try
+                    {
+                        supportsOverrides = view.IsTemplate || view.AreGraphicsOverridesAllowed();
+                    }
+                    catch
+                    {
+                        // Some view types throw on AreGraphicsOverridesAllowed
+                    }
+
+                    if (supportsOverrides)
                     {
                         foreach (Category cat in allCats)
                         {
@@ -254,30 +262,44 @@ namespace Synthetic.RevitDOM.Operations
                             try
                             {
                                 OverrideGraphicSettings settings = view.GetCategoryOverrides(cat.Id);
-                                if (settings != null)
+                                if (SwapPatternOverrides(settings, oldId, newId, result, patternCheckers))
                                 {
-                                    bool changed = false;
-
-                                    foreach (var (getPattern, setPattern) in patternCheckers)
-                                    {
-                                        if (getPattern(settings) == oldId)
-                                        {
-                                            setPattern(settings, newId);
-                                            changed = true;
-                                            result.ViewGraphicOverridesCount++;
-                                        }
-                                    }
-
-                                    if (changed)
-                                    {
-                                        view.SetCategoryOverrides(cat.Id, settings);
-                                    }
+                                    view.SetCategoryOverrides(cat.Id, settings);
                                 }
                             }
                             catch (Exception ex)
                             {
                                 result.Warnings.Add($"Error applying view graphic override on view '{view.Name}' for category '{cat.Name}': {ex.Message}");
                             }
+                        }
+
+                        // Filter overrides
+                        try
+                        {
+                            ICollection<ElementId> filterIds = view.GetFilters();
+                            if (filterIds != null && filterIds.Count > 0)
+                            {
+                                foreach (ElementId filterId in filterIds)
+                                {
+                                    if (filterId == null || filterId == ElementId.InvalidElementId) continue;
+                                    try
+                                    {
+                                        OverrideGraphicSettings settings = view.GetFilterOverrides(filterId);
+                                        if (SwapPatternOverrides(settings, oldId, newId, result, patternCheckers))
+                                        {
+                                            view.SetFilterOverrides(filterId, settings);
+                                        }
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        result.Warnings.Add($"Error applying view filter graphic override on view '{view.Name}' for filter '{filterId}': {ex.Message}");
+                                    }
+                                }
+                            }
+                        }
+                        catch
+                        {
+                            // Benign for view types that do not support filter retrieval
                         }
                     }
                 }
@@ -286,6 +308,27 @@ namespace Synthetic.RevitDOM.Operations
             {
                 result.Errors.Add($"Error swapping view overrides: {ex.Message}");
             }
+        }
+
+        private static bool SwapPatternOverrides(
+            OverrideGraphicSettings settings,
+            ElementId oldId,
+            ElementId newId,
+            RedirectionResultModel result,
+            (Func<OverrideGraphicSettings, ElementId> GetPattern, Action<OverrideGraphicSettings, ElementId> SetPattern)[] patternCheckers)
+        {
+            if (settings == null) return false;
+            bool changed = false;
+            foreach (var (getPattern, setPattern) in patternCheckers)
+            {
+                if (getPattern(settings) == oldId)
+                {
+                    setPattern(settings, newId);
+                    changed = true;
+                    result.ViewGraphicOverridesCount++;
+                }
+            }
+            return changed;
         }
 
                 /// <summary>
