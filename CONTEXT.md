@@ -68,11 +68,11 @@ The collection and user interface component holding elements selected from the S
 _Avoid_: Action Queue.
 
 **Duplicate Merging**:
-The process of identifying duplicate Revit elements (such as families, groups, or assemblies) using POCO-based matching rules, mapping aliases to their standard POCO counterparts, and performing an alias swap to redirect references and delete the redundant elements.
+The process of identifying duplicate Revit elements (such as family symbols, system types, annotation types, groups, or assemblies) using POCO-based matching rules, mapping aliases to their standard POCO counterparts, and performing an alias swap to redirect references and delete the redundant elements.
 _Avoid_: Duplicate deletion, element merging.
 
 **Alias Swapping**:
-The operation that scans a Revit document to redirect all parameter and style references pointing to an aliased element ID over to a target standard element ID.
+The operation that scans a Revit document to redirect all instance, parameter, category style, compound structure, and view override references pointing to an aliased element ID over to a target standard element ID.
 _Avoid_: Reference swapping, ID redirecting.
 
 **Identity Comparison**:

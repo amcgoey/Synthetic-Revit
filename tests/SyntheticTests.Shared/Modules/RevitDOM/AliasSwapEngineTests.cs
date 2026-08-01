@@ -71,6 +71,68 @@ namespace SyntheticTests
 
         #endregion
 
+        [Test]
+        public void SwapElementReferences_SwapsElementViewGraphicOverrides()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            Document doc = app.NewProjectDocument(UnitSystem.Metric);
+
+            try
+            {
+                using (var tg = new TransactionGroup(doc, "Swap Element View Overrides"))
+                {
+                    tg.Start();
+
+                    // Create line patterns & wall
+                    LinePatternElement sourceLinePattern, targetLinePattern;
+                    Wall wall;
+                    Level level1, level2;
+                    using (var t = new Transaction(doc, "Create Resources"))
+                    {
+                        t.Start();
+                        sourceLinePattern = CreateLinePattern(doc, "Pattern E1");
+                        targetLinePattern = CreateLinePattern(doc, "Pattern E2");
+                        wall = CreateWall(doc, out level1, out level2);
+                        t.Commit();
+                    }
+
+                    View view = new FilteredElementCollector(doc)
+                        .OfClass(typeof(View))
+                        .Cast<View>()
+                        .FirstOrDefault(v => !v.IsTemplate && v.ViewType == ViewType.FloorPlan);
+
+                    Assert.IsNotNull(view, "Floor plan view should exist.");
+
+                    using (var t = new Transaction(doc, "Set Element Override"))
+                    {
+                        t.Start();
+                        OverrideGraphicSettings ogs = new OverrideGraphicSettings();
+                        ogs.SetProjectionLinePatternId(sourceLinePattern.Id);
+                        ogs.SetCutLinePatternId(sourceLinePattern.Id);
+                        view.SetElementOverrides(wall.Id, ogs);
+                        t.Commit();
+                    }
+
+                    // Swap using AliasSwapEngine
+                    var result = AliasSwapEngine.SwapElementReferences(doc, sourceLinePattern.Id, targetLinePattern.Id);
+
+                    // Assert
+                    var settings = view.GetElementOverrides(wall.Id);
+                    Assert.AreEqual(targetLinePattern.Id, settings.ProjectionLinePatternId);
+                    Assert.AreEqual(targetLinePattern.Id, settings.CutLinePatternId);
+                    Assert.IsNotNull(result, "RedirectionResultModel should not be null.");
+                    Assert.AreEqual(2, result.ViewGraphicOverridesCount, "ViewGraphicOverridesCount should reflect both swapped patterns.");
+
+                    tg.RollBack();
+                }
+            }
+            finally
+            {
+                doc.Close(false);
+            }
+        }
+
         #region AliasSwapEngine Tests
 
         [Test]
