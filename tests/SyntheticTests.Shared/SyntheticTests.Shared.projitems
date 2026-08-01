@@ -10,6 +10,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="$(MSBuildThisFileDirectory)Modules\FailureProcessing\TargetIdFailureRuleTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\FailureProcessing\DocumentTransactionExtensionsTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Tier2_RevitSmokeTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\CategoryModelTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\FakeIdentityService.cs" />
