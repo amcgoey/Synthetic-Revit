@@ -2,14 +2,23 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.Serialization;
+using NUnit.Framework;
 using Autodesk.Revit.DB;
 
 namespace SyntheticTests.Helpers
 {
     public static class MockFailureFactory
     {
+        private static void IgnoreIfRevitApiLoaded()
+        {
+#if REVIT2023 || REVIT2024 || REVIT2025 || REVIT2026
+            Assert.Ignore("Mock failure preprocessor tests run in headless Logic test suite.");
+#endif
+        }
+
         public static FailureMessageAccessor CreateFailureMessage(FailureDefinitionId id, FailureSeverity severity = FailureSeverity.Warning, string description = "")
         {
+            IgnoreIfRevitApiLoaded();
             try
             {
                 var ctor = typeof(FailureMessageAccessor).GetConstructor(new[] { typeof(FailureDefinitionId), typeof(FailureSeverity), typeof(string) });
@@ -29,6 +38,7 @@ namespace SyntheticTests.Helpers
 
         public static FailuresAccessor CreateFailuresAccessor(IEnumerable<FailureMessageAccessor> messages)
         {
+            IgnoreIfRevitApiLoaded();
             var list = messages != null ? new List<FailureMessageAccessor>(messages) : new List<FailureMessageAccessor>();
             
             try

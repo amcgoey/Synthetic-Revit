@@ -210,6 +210,21 @@ namespace SyntheticTests.Modules.FailureProcessing
         }
 
         [Test]
+        public void SetContext_NullOrNonNull_SetsContextTagProperty()
+        {
+            // Arrange
+            CompositeFailuresPreprocessor preprocessor = new CompositeFailuresPreprocessor();
+
+            // Act & Assert - non-null
+            preprocessor.SetContext("Scope: Batch Purge");
+            Assert.AreEqual("Scope: Batch Purge", preprocessor.ContextTag);
+
+            // Act & Assert - null safety
+            preprocessor.SetContext(null);
+            Assert.AreEqual(string.Empty, preprocessor.ContextTag);
+        }
+
+        [Test]
         public void PreprocessFailures_WithContextTag_ShouldPropagateContextTagToFailureRecord()
         {
             // Arrange
@@ -229,6 +244,62 @@ namespace SyntheticTests.Modules.FailureProcessing
             // Assert
             Assert.AreEqual(1, preprocessor.Report.Records.Count);
             Assert.AreEqual("Batch family processing: Column.rfa", preprocessor.Report.Records[0].ContextTag);
+        }
+
+        [Test]
+        public void SetContext_AcrossBatchLoopIterations_PropagatesContextTagToFailureRecords()
+        {
+            // Arrange
+            CompositeFailuresPreprocessor preprocessor = new FailurePipelineBuilder()
+                .OnSeverity(FailureSeverity.Warning)
+                .Build();
+
+            string[] items = new[] { "Family: Door.rfa", "Family: Window.rfa", "Family: Desk.rfa" };
+
+            // Act - simulate batch loop iterations
+            for (int i = 0; i < items.Length; i++)
+            {
+                string tag = items[i];
+                preprocessor.SetContext(tag);
+
+                FailureMessageAccessor warning = MockFailureFactory.CreateFailureMessage(
+                    BuiltInFailures.RoomFailures.RoomNotEnclosed, FailureSeverity.Warning, $"Warning for {tag}");
+                FailuresAccessor accessor = MockFailureFactory.CreateFailuresAccessor(new[] { warning });
+
+                preprocessor.PreprocessFailures(accessor);
+            }
+
+            // Assert
+            Assert.AreEqual(3, preprocessor.Report.Records.Count);
+            Assert.AreEqual("Family: Door.rfa", preprocessor.Report.Records[0].ContextTag);
+            Assert.AreEqual("Family: Window.rfa", preprocessor.Report.Records[1].ContextTag);
+            Assert.AreEqual("Family: Desk.rfa", preprocessor.Report.Records[2].ContextTag);
+        }
+
+        [Test]
+        public void SetContext_MultipleFailuresInBatchIteration_TagsAllGeneratedRecords()
+        {
+            // Arrange
+            CompositeFailuresPreprocessor preprocessor = new FailurePipelineBuilder()
+                .OnSeverity(FailureSeverity.Warning)
+                .Build();
+
+            preprocessor.SetContext("Purging Element Batch 42");
+
+            FailureMessageAccessor msg1 = MockFailureFactory.CreateFailureMessage(
+                BuiltInFailures.RoomFailures.RoomNotEnclosed, FailureSeverity.Warning, "Warning 1");
+            FailureMessageAccessor msg2 = MockFailureFactory.CreateFailureMessage(
+                BuiltInFailures.EditingFailures.ElementsWillBeDeleted, FailureSeverity.Warning, "Warning 2");
+
+            FailuresAccessor accessor = MockFailureFactory.CreateFailuresAccessor(new[] { msg1, msg2 });
+
+            // Act
+            preprocessor.PreprocessFailures(accessor);
+
+            // Assert
+            Assert.AreEqual(2, preprocessor.Report.Records.Count);
+            Assert.AreEqual("Purging Element Batch 42", preprocessor.Report.Records[0].ContextTag);
+            Assert.AreEqual("Purging Element Batch 42", preprocessor.Report.Records[1].ContextTag);
         }
     }
 }
