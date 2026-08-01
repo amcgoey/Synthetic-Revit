@@ -152,7 +152,6 @@
     <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\StandardsExecutionPipeline.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Shared\RevitAPI\StorageUtil.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\FamilyManagement\Utilities\SafeFamilyLoadOptions.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\FamilyManagement\Utilities\PurgeFailuresPreprocessor.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ViewManagement\Models\ViewAutoNumModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ViewManagement\Utilities\ViewUtil.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\Diagnostics\StorageQuery.cs" />
