@@ -35,5 +35,17 @@ namespace Synthetic.Infrastructure.FailureProcessing
 
             return preprocessor;
         }
+
+        /// <summary>
+        /// Creates a failure preprocessor preset configured for blanket warning suppression.
+        /// </summary>
+        /// <returns>A configured CompositeFailuresPreprocessor instance.</returns>
+        public static CompositeFailuresPreprocessor DeleteWarnings()
+        {
+            return new CompositeFailuresPreprocessor
+            {
+                AllowBlanketSuppression = true
+            };
+        }
     }
 }

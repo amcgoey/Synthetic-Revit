@@ -145,5 +145,30 @@ namespace SyntheticTests.Modules.FailureProcessing
             CollectionAssert.Contains(deleted, purgeMsg);
             CollectionAssert.Contains(deleted, deleteMsg);
         }
+        [Test]
+        public void FailurePipelines_DeleteWarnings_ShouldSuppressAllWarnings()
+        {
+            // Arrange
+            CompositeFailuresPreprocessor pipeline = FailurePipelines.DeleteWarnings();
+
+            Assert.IsTrue(pipeline.AllowBlanketSuppression);
+
+            FailureMessageAccessor warning1 = MockFailureFactory.CreateFailureMessage(
+                BuiltInFailures.RoomFailures.RoomNotEnclosed, FailureSeverity.Warning, "Room warning");
+            FailureMessageAccessor warning2 = MockFailureFactory.CreateFailureMessage(
+                BuiltInFailures.EditingFailures.ElementsWillBeDeleted, FailureSeverity.Warning, "Elements warning");
+
+            FailuresAccessor accessor = MockFailureFactory.CreateFailuresAccessor(new[] { warning1, warning2 });
+
+            // Act
+            FailureProcessingResult result = pipeline.PreprocessFailures(accessor);
+
+            // Assert
+            Assert.AreEqual(FailureProcessingResult.ProceedWithCommit, result);
+            var deleted = MockFailureFactory.GetDeletedWarnings(accessor);
+            Assert.AreEqual(2, deleted.Count);
+            CollectionAssert.Contains(deleted, warning1);
+            CollectionAssert.Contains(deleted, warning2);
+        }
     }
 }
