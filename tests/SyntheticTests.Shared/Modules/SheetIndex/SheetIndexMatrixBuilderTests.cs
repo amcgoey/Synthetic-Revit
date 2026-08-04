@@ -161,5 +161,124 @@ namespace SyntheticTests.Shared.Modules.SheetIndex
                 }
             }
         }
+
+        [Test]
+        public void BuildMatrix_PreservesScheduleSortOrder()
+        {
+            // Arrange
+            var revisions = new List<SheetIndexRevisionModel>
+            {
+                new SheetIndexRevisionModel("rev-1", "Issue 1", "2026-01-01", 1)
+            };
+
+            // Custom schedule order (non-alphanumeric): S101 -> A101 -> C101
+            var sheets = new List<SheetIndexSheetModel>
+            {
+                new SheetIndexSheetModel("s-s1", "S101", "Foundation Plan"),
+                new SheetIndexSheetModel("s-a1", "A101", "Floor Plan"),
+                new SheetIndexSheetModel("s-c1", "C101", "Site Plan")
+            };
+
+            var builder = new SheetIndexMatrixBuilder();
+
+            // Act: preserveSheetOrder = true
+            var matrix = builder.BuildMatrix(sheets, revisions, preserveSheetOrder: true);
+
+            // Assert: order is preserved (S101, A101, C101) instead of sorted (A101, C101, S101)
+            Assert.AreEqual(3, matrix.Rows.Count);
+            Assert.AreEqual("S101", matrix.Rows[0].SheetNumber);
+            Assert.AreEqual("A101", matrix.Rows[1].SheetNumber);
+            Assert.AreEqual("C101", matrix.Rows[2].SheetNumber);
+        }
+
+        [Test]
+        public void BuildMatrix_InjectsSectionHeaderRows()
+        {
+            // Arrange
+            var revisions = new List<SheetIndexRevisionModel>
+            {
+                new SheetIndexRevisionModel("rev-1", "Permit", "2026-01-01", 1),
+                new SheetIndexRevisionModel("rev-2", "Bid", "2026-02-01", 2)
+            };
+
+            var sheets = new List<SheetIndexSheetModel>
+            {
+                new SheetIndexSheetModel("s-s1", "S101", "Foundation Plan", new[] { "rev-1" }) { SectionGroup = "STRUCTURAL" },
+                new SheetIndexSheetModel("s-s2", "S102", "Framing Plan", new[] { "rev-1", "rev-2" }) { SectionGroup = "STRUCTURAL" },
+                new SheetIndexSheetModel("s-a1", "A101", "Floor Plan", new[] { "rev-2" }) { SectionGroup = "ARCHITECTURAL" }
+            };
+
+            var builder = new SheetIndexMatrixBuilder();
+
+            // Act
+            var matrix = builder.BuildMatrix(sheets, revisions, preserveSheetOrder: true);
+
+            // Assert:
+            // Row 0: Section Header "STRUCTURAL"
+            // Row 1: S101
+            // Row 2: S102
+            // Row 3: Section Header "ARCHITECTURAL"
+            // Row 4: A101
+            Assert.AreEqual(5, matrix.Rows.Count);
+
+            Assert.IsTrue(matrix.Rows[0].IsSectionHeader);
+            Assert.AreEqual("STRUCTURAL", matrix.Rows[0].SheetNumber);
+            Assert.AreEqual(string.Empty, matrix.Rows[0].SheetName);
+            Assert.AreEqual(2, matrix.Rows[0].Cells.Count);
+            Assert.AreEqual(string.Empty, matrix.Rows[0].Cells[0]);
+
+            Assert.IsFalse(matrix.Rows[1].IsSectionHeader);
+            Assert.AreEqual("S101", matrix.Rows[1].SheetNumber);
+
+            Assert.IsFalse(matrix.Rows[2].IsSectionHeader);
+            Assert.AreEqual("S102", matrix.Rows[2].SheetNumber);
+
+            Assert.IsTrue(matrix.Rows[3].IsSectionHeader);
+            Assert.AreEqual("ARCHITECTURAL", matrix.Rows[3].SheetNumber);
+
+            Assert.IsFalse(matrix.Rows[4].IsSectionHeader);
+            Assert.AreEqual("A101", matrix.Rows[4].SheetNumber);
+        }
+
+        [Test]
+        public void ExportToExcel_WritesSectionHeaderRows()
+        {
+            // Arrange
+            var revisions = new List<SheetIndexRevisionModel>
+            {
+                new SheetIndexRevisionModel("rev-1", "Permit Submittal", "2026-01-15", 1)
+            };
+
+            var sheets = new List<SheetIndexSheetModel>
+            {
+                new SheetIndexSheetModel("s-s1", "S101", "Structural Plan", new[] { "rev-1" }) { SectionGroup = "STRUCTURAL" },
+                new SheetIndexSheetModel("s-a1", "A101", "Floor Plan", new[] { "rev-1" }) { SectionGroup = "ARCHITECTURAL" }
+            };
+
+            var builder = new SheetIndexMatrixBuilder();
+            var matrix = builder.BuildMatrix(sheets, revisions, preserveSheetOrder: true);
+
+            var tempFilePath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"SheetIndexSectionTest_{Guid.NewGuid():N}.xlsx");
+
+            try
+            {
+                var exporter = new SheetIndexExporterService();
+
+                // Act
+                exporter.ExportToExcel(matrix, tempFilePath);
+
+                // Assert
+                Assert.IsTrue(System.IO.File.Exists(tempFilePath));
+                var fileInfo = new System.IO.FileInfo(tempFilePath);
+                Assert.IsTrue(fileInfo.Length > 0);
+            }
+            finally
+            {
+                if (System.IO.File.Exists(tempFilePath))
+                {
+                    System.IO.File.Delete(tempFilePath);
+                }
+            }
+        }
     }
 }

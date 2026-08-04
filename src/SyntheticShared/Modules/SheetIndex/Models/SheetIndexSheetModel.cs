@@ -29,6 +29,11 @@ namespace Synthetic.Modules.SheetIndex.Models
         public HashSet<string> RevisionIds { get; set; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>
+        /// Gets or sets optional section grouping name derived from ViewSchedule sort/group fields (e.g. "STRUCTURAL", "ARCHITECTURAL").
+        /// </summary>
+        public string? SectionGroup { get; set; }
+
+        /// <summary>
         /// Default constructor.
         /// </summary>
         public SheetIndexSheetModel()

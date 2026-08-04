@@ -47,17 +47,7 @@ namespace Synthetic.Modules.SheetIndex.Commands
                 var sheetModels = new List<SheetIndexSheetModel>();
                 foreach (var sheet in sheetElements)
                 {
-                    var revIds = sheet.GetAllRevisionIds()
-                        .Select(id => doc.GetElement(id)?.UniqueId ?? id.ToString())
-                        .Where(id => !string.IsNullOrEmpty(id))
-                        .ToList();
-
-                    sheetModels.Add(new SheetIndexSheetModel(
-                        sheet.UniqueId,
-                        sheet.SheetNumber,
-                        sheet.Name,
-                        revIds
-                    ));
+                    sheetModels.Add(CreateSheetModel(sheet, doc, null));
                 }
 
                 // 2. Query revisions from Revit document
@@ -101,37 +91,106 @@ namespace Synthetic.Modules.SheetIndex.Commands
                     }
                 }
 
+                // 3. Query ViewSchedule sheet schedules from Revit document
                 var scheduleElements = new FilteredElementCollector(doc)
                     .OfClass(typeof(ViewSchedule))
                     .WhereElementIsNotElementType()
                     .Cast<ViewSchedule>()
-                    .Where(vs => !vs.IsTemplate && vs.Definition.CategoryId == new ElementId(BuiltInCategory.OST_Sheets))
+                    .Where(s => !s.IsTemplate && s.Definition != null && s.Definition.CategoryId == new ElementId(BuiltInCategory.OST_Sheets))
                     .ToList();
 
                 var scheduleSheetMap = new Dictionary<string, List<string>>();
-                foreach (var vs in scheduleElements)
+                var scheduleModels = new List<SheetIndexScheduleModel>();
+
+                foreach (var schedule in scheduleElements)
                 {
-                    if (!string.IsNullOrEmpty(vs.Name))
+                    if (string.IsNullOrEmpty(schedule.Name)) continue;
+
+                    var scheduledSheets = new FilteredElementCollector(doc, schedule.Id)
+                        .OfClass(typeof(ViewSheet))
+                        .Cast<ViewSheet>()
+                        .Where(s => !s.IsPlaceholder)
+                        .ToList();
+
+                    var ids = scheduledSheets.Select(s => s.UniqueId).ToList();
+                    scheduleSheetMap[schedule.Name] = ids;
+
+                    if (scheduledSheets.Count == 0) continue;
+
+                    // Inspect schedule definition for section header grouping fields and sort order
+                    string? groupParamName = null;
+                    var sortGroupFields = schedule.Definition.GetSortGroupFields();
+                    foreach (var field in sortGroupFields)
                     {
-                        var ids = new FilteredElementCollector(doc, vs.Id)
-                            .OfClass(typeof(ViewSheet))
-                            .WhereElementIsNotElementType()
-                            .Cast<ViewSheet>()
-                            .Select(s => s.UniqueId)
-                            .ToList();
-                        scheduleSheetMap[vs.Name] = ids;
+                        if (field.ShowHeader && groupParamName == null)
+                        {
+                            var schedField = schedule.Definition.GetField(field.FieldId);
+                            groupParamName = schedField?.GetName();
+                        }
                     }
+
+                    // Sort scheduled sheets according to all schedule sort/group fields if available
+                    if (sortGroupFields.Count > 0)
+                    {
+                        var comparer = new AlphanumericComparer();
+                        IOrderedEnumerable<ViewSheet>? orderedSheets = null;
+
+                        foreach (var field in sortGroupFields)
+                        {
+                            var schedField = schedule.Definition.GetField(field.FieldId);
+                            string? paramName = schedField?.GetName();
+                            if (string.IsNullOrEmpty(paramName)) continue;
+
+                            bool isAscending = field.SortOrder == ScheduleSortOrder.Ascending;
+
+                            if (orderedSheets == null)
+                            {
+                                orderedSheets = isAscending
+                                    ? scheduledSheets.OrderBy(s => s.LookupParameter(paramName)?.AsString() ?? string.Empty, comparer)
+                                    : scheduledSheets.OrderByDescending(s => s.LookupParameter(paramName)?.AsString() ?? string.Empty, comparer);
+                            }
+                            else
+                            {
+                                orderedSheets = isAscending
+                                    ? orderedSheets.ThenBy(s => s.LookupParameter(paramName)?.AsString() ?? string.Empty, comparer)
+                                    : orderedSheets.ThenByDescending(s => s.LookupParameter(paramName)?.AsString() ?? string.Empty, comparer);
+                            }
+                        }
+
+                        if (orderedSheets != null)
+                        {
+                            scheduledSheets = orderedSheets.ToList();
+                        }
+                    }
+
+                    var schedSheetModels = new List<SheetIndexSheetModel>();
+                    foreach (var sheet in scheduledSheets)
+                    {
+                        string? groupValue = null;
+                        if (!string.IsNullOrEmpty(groupParamName))
+                        {
+                            var param = sheet.LookupParameter(groupParamName);
+                            if (param != null && param.HasValue)
+                            {
+                                groupValue = param.AsString();
+                            }
+                        }
+
+                        schedSheetModels.Add(CreateSheetModel(sheet, doc, groupValue));
+                    }
+
+                    scheduleModels.Add(new SheetIndexScheduleModel(schedule.UniqueId, schedule.Name, schedSheetModels));
                 }
 
-                // 3. Launch WPF Selection UI
+                // 4. Launch WPF Selection UI
                 var viewModel = new ExportSheetIndexViewModel(
                     sheetModels,
                     revisionModels,
                     printSetSheetMap.Keys,
                     scheduleSheetMap.Keys,
                     printSetSheetMap,
-                    scheduleSheetMap);
-
+                    scheduleSheetMap,
+                    scheduleModels);
                 var window = new ExportSheetIndexWindow(viewModel, uiapp.MainWindowHandle);
 
                 bool? dialogResult = window.ShowDialog();
@@ -149,7 +208,7 @@ namespace Synthetic.Modules.SheetIndex.Commands
                     return Result.Succeeded;
                 }
 
-                // 4. Prompt for Save File Path using Revit FileSaveDialog
+                // 5. Prompt for Save File Path using Revit FileSaveDialog
                 string? savePath = null;
                 using (var saveFileDialog = new FileSaveDialog("Excel Files (*.xlsx)|*.xlsx"))
                 {
@@ -168,15 +227,15 @@ namespace Synthetic.Modules.SheetIndex.Commands
                     return Result.Cancelled;
                 }
 
-                // 5. Build 2D Sheet Index Matrix
+                // 6. Build 2D Sheet Index Matrix
                 var matrixBuilder = new SheetIndexMatrixBuilder();
-                var matrix = matrixBuilder.BuildMatrix(selectedSheets, selectedRevisions);
+                var matrix = matrixBuilder.BuildMatrix(selectedSheets, selectedRevisions, preserveSheetOrder: viewModel.PreserveSheetOrder);
 
-                // 6. Export to Excel
+                // 7. Export to Excel
                 var exporterService = new SheetIndexExporterService();
                 exporterService.ExportToExcel(matrix, savePath);
 
-                // 7. Show Post-Export Completion Dialog
+                // 8. Show Post-Export Completion Dialog
                 var completionWindow = new ExportCompletionWindow(savePath, uiapp.MainWindowHandle);
                 completionWindow.ShowDialog();
 
@@ -187,6 +246,21 @@ namespace Synthetic.Modules.SheetIndex.Commands
                 message = ex.Message + "\n" + ex.StackTrace;
                 return Result.Failed;
             }
+        }
+
+        private static SheetIndexSheetModel CreateSheetModel(ViewSheet sheet, Document doc, string? sectionGroup)
+        {
+            var revIds = sheet.GetAllRevisionIds()
+                .Select(id => doc.GetElement(id)?.UniqueId ?? id.ToString())
+                .Where(id => !string.IsNullOrEmpty(id))
+                .ToList();
+
+            return new SheetIndexSheetModel(
+                sheet.UniqueId,
+                sheet.SheetNumber,
+                sheet.Name,
+                revIds
+            ) { SectionGroup = sectionGroup };
         }
     }
 }
