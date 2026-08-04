@@ -381,6 +381,23 @@ namespace SyntheticTests.Shared.Modules.SheetIndex
                 Assert.IsTrue(System.IO.File.Exists(tempFilePath));
                 var fileInfo = new System.IO.FileInfo(tempFilePath);
                 Assert.IsTrue(fileInfo.Length > 0);
+
+                // Verify all XML entries inside the zip package are valid XML
+                using (var zip = System.IO.Compression.ZipFile.OpenRead(tempFilePath))
+                {
+                    Assert.IsTrue(zip.Entries.Count >= 5);
+                    foreach (var entry in zip.Entries)
+                    {
+                        if (entry.FullName.EndsWith(".xml") || entry.FullName.EndsWith(".rels"))
+                        {
+                            using (var stream = entry.Open())
+                            {
+                                var xmlDoc = new System.Xml.XmlDocument();
+                                xmlDoc.Load(stream);
+                            }
+                        }
+                    }
+                }
             }
             finally
             {

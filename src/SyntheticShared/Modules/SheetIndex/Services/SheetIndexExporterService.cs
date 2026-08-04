@@ -51,7 +51,7 @@ namespace Synthetic.Modules.SheetIndex.Services
             var entry = zip.CreateEntry("[Content_Types].xml");
             using (var writer = new StreamWriter(entry.Open(), Encoding.UTF8))
             {
-                writer.Write(@"<?xml opacity=""1.0"" encoding=""UTF-8"" standalone=""yes""?>
+                writer.Write(@"<?xml version=""1.0"" encoding=""UTF-8"" standalone=""yes""?>
 <Types xmlns=""http://schemas.openxmlformats.org/package/2006/content-types"">
   <Default Extension=""rels"" ContentType=""application/vnd.openxmlformats-package.relationships+xml""/>
   <Default Extension=""xml"" ContentType=""application/xml""/>
