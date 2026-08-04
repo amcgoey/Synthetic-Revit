@@ -129,16 +129,16 @@ namespace SyntheticTests.Logic.Modules.MergeDuplicates
         }
 
         [Test]
-        public void FindExistingElementType_ReturnsMatchingTypeOrNull()
+        public void FindExistingElementType_HandlesNullDocumentOrTargetType()
         {
             var wallType = CreateElement<WallType>();
             SetPropertyValue(wallType, "Name", "Generic - 8\" Masonry");
 
-            var nullResult = RevitMergeDataCollector.FindExistingElementType(null!, wallType, "Generic - 8\" Masonry");
-            Assert.IsNull(nullResult, "Null document should return null.");
+            var nullDocResult = RevitMergeDataCollector.FindExistingElementType(null!, wallType, "Generic - 8\" Masonry");
+            Assert.IsNull(nullDocResult, "Null document should return null.");
 
-            var emptyResult = RevitMergeDataCollector.FindExistingElementType(null!, wallType, string.Empty);
-            Assert.IsNull(emptyResult, "Empty target name should return null.");
+            var emptyNameResult = RevitMergeDataCollector.FindExistingElementType(null!, wallType, string.Empty);
+            Assert.IsNull(emptyNameResult, "Empty target name should return null.");
         }
 
         [Test]
