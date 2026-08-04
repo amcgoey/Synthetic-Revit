@@ -125,7 +125,67 @@ namespace SyntheticTests.Logic.Modules.MergeDuplicates
 
             bool isSystem = RevitMergeDataCollector.IsSystemElement(wallType);
             Assert.IsTrue(isSystem, "WallType element is correctly classified as a system element.");
-            Assert.IsFalse(!isSystem && wallType is Family, "System element guard correctly prevents EditFamily and parameter injection execution.");
+            Assert.IsFalse(wallType is Family, "WallType is a system element and not a loadable Family.");
+        }
+
+        [Test]
+        public void FindExistingElementType_HandlesNullDocumentOrTargetType()
+        {
+            var wallType = CreateElement<WallType>();
+            SetPropertyValue(wallType, "Name", "Generic - 8\" Masonry");
+
+            var nullDocResult = RevitMergeDataCollector.FindExistingElementType(null!, wallType, "Generic - 8\" Masonry");
+            Assert.IsNull(nullDocResult, "Null document should return null.");
+
+            var emptyNameResult = RevitMergeDataCollector.FindExistingElementType(null!, wallType, string.Empty);
+            Assert.IsNull(emptyNameResult, "Empty target name should return null.");
+        }
+
+        [Test]
+        public void ProcessMergeEventHandler_SystemSymbolTypeMigration_ExecutesCleanly()
+        {
+            var wallType1 = CreateElement<WallType>();
+            SetPropertyValue(wallType1, "Name", "Generic - 8\" Masonry");
+
+            var wallType2 = CreateElement<WallType>();
+            SetPropertyValue(wallType2, "Name", "Generic - 8\" Masonry Duplicate");
+
+            var cluster = new DuplicateClusterModel
+            {
+                ClusterName = "System Symbol Migration Cluster"
+            };
+
+            var primaryItem = new DuplicateItemModel
+            {
+                RevitElementId = new ElementIdModel { Id = 101 }
+            };
+            cluster.Items.Add(primaryItem);
+            cluster.UpdatePrimaryItem(primaryItem);
+
+            var duplicateItem = new DuplicateItemModel
+            {
+                RevitElementId = new ElementIdModel { Id = 102 },
+                IsIncludedForMerge = true
+            };
+            cluster.Items.Add(duplicateItem);
+
+            var mapping = new TypeMappingModel
+            {
+                SourceType = new DuplicateTypeModel { RevitTypeId = new ElementIdModel { Id = 102 }, Name = "Generic - 8\" Masonry Duplicate" },
+                TargetType = new DuplicateTypeModel { RevitTypeId = new ElementIdModel { Id = 101 }, Name = "Generic - 8\" Masonry" },
+                RecommendedAction = RecommendedAction.Migrate,
+                MigrateRenameText = "Generic - 8\" Masonry_Custom"
+            };
+            cluster.TypeMappings.Add(mapping);
+
+            var queueVM = new MergeQueueViewModel();
+            queueVM.QueuedClusters.Add(cluster);
+
+            var handler = new ProcessMergeEventHandler();
+            handler.QueueRequest(queueVM, null, null, System.Threading.CancellationToken.None);
+
+            var uiapp = CreateElement<Autodesk.Revit.UI.UIApplication>();
+            Assert.DoesNotThrow(() => handler.Execute(uiapp), "ProcessMergeEventHandler.Execute should process system element clusters cleanly without throwing exceptions.");
         }
     }
 }

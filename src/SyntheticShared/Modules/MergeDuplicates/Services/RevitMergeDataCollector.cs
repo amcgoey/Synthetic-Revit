@@ -95,6 +95,42 @@ namespace Synthetic.Modules.MergeDuplicates.Services
         }
 
         /// <summary>
+        /// Finds an existing ElementType in the document matching the given target type class, category, and name.
+        /// </summary>
+        public static ElementType? FindExistingElementType(Document doc, ElementType targetTypeElement, string targetName)
+        {
+            if (doc == null || targetTypeElement == null || string.IsNullOrWhiteSpace(targetName)) return null;
+
+            if (targetTypeElement.Name != null && targetTypeElement.Name.Equals(targetName, StringComparison.OrdinalIgnoreCase))
+            {
+                return targetTypeElement;
+            }
+
+            try
+            {
+                using (var typeCollector = new FilteredElementCollector(doc).OfClass(targetTypeElement.GetType()))
+                {
+                    if (targetTypeElement.Category != null && targetTypeElement.Category.Id != null)
+                    {
+                        typeCollector.OfCategoryId(targetTypeElement.Category.Id);
+                    }
+                    foreach (ElementType existingType in typeCollector.Cast<ElementType>())
+                    {
+                        if (existingType != null && existingType.Name != null && existingType.Name.Equals(targetName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return existingType;
+                        }
+                    }
+                }
+            }
+            catch (Exception queryException)
+            {
+                System.Diagnostics.Debug.WriteLine($"[FindExistingElementType] Error querying element types: {queryException.Message}");
+            }
+            return null;
+        }
+
+        /// <summary>
         /// Gets the category name of the specified Revit element.
         /// </summary>
         public static string GetElementCategoryName(Document doc, Element element)
