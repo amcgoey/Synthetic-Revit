@@ -84,6 +84,7 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
     public class ProcessMergeEventHandler : IExternalEventHandler
     {
         private const string MigratedSuffix = "_Migrated";
+        private const string MergeWarningPrefix = "[MERGE_WARNING]";
         private readonly object _lock = new object();
         private MergeQueueViewModel? _queueVM;
         private Window? _parentWindow;

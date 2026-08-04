@@ -101,7 +101,7 @@ namespace Synthetic.Modules.MergeDuplicates.Services
         {
             if (doc == null || targetTypeElement == null || string.IsNullOrWhiteSpace(targetName)) return null;
 
-            if (targetTypeElement.Name.Equals(targetName, StringComparison.OrdinalIgnoreCase))
+            if (targetTypeElement.Name != null && targetTypeElement.Name.Equals(targetName, StringComparison.OrdinalIgnoreCase))
             {
                 return targetTypeElement;
             }
@@ -110,22 +110,22 @@ namespace Synthetic.Modules.MergeDuplicates.Services
             {
                 using (var typeCollector = new FilteredElementCollector(doc).OfClass(targetTypeElement.GetType()))
                 {
-                    if (targetTypeElement.Category != null)
+                    if (targetTypeElement.Category != null && targetTypeElement.Category.Id != null)
                     {
                         typeCollector.OfCategoryId(targetTypeElement.Category.Id);
                     }
                     foreach (ElementType existingType in typeCollector.Cast<ElementType>())
                     {
-                        if (existingType.Name.Equals(targetName, StringComparison.OrdinalIgnoreCase))
+                        if (existingType != null && existingType.Name != null && existingType.Name.Equals(targetName, StringComparison.OrdinalIgnoreCase))
                         {
                             return existingType;
                         }
                     }
                 }
             }
-            catch (Exception ex)
+            catch (Exception queryException)
             {
-                System.Diagnostics.Debug.WriteLine($"[FindExistingElementType] Error querying element types: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[FindExistingElementType] Error querying element types: {queryException.Message}");
             }
             return null;
         }
