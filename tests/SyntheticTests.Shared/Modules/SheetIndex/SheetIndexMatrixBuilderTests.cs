@@ -4,6 +4,7 @@ using System.Linq;
 using NUnit.Framework;
 using Synthetic.Modules.SheetIndex.Models;
 using Synthetic.Modules.SheetIndex.Services;
+using Synthetic.Modules.SheetIndex.ViewModels;
 
 namespace SyntheticTests.Shared.Modules.SheetIndex
 {
@@ -68,6 +69,112 @@ namespace SyntheticTests.Shared.Modules.SheetIndex
             Assert.AreEqual("A10", matrix.Rows[2].SheetNumber);
             Assert.AreEqual("A100", matrix.Rows[3].SheetNumber);
             Assert.AreEqual("B101", matrix.Rows[4].SheetNumber);
+        }
+
+        [Test]
+        public void BuildMatrix_WithPrintOrderIndex_OrdersRowsByPrintOrder()
+        {
+            // Arrange
+            var revisions = new List<SheetIndexRevisionModel>
+            {
+                new SheetIndexRevisionModel("rev-1", "Issue 1", "2026-01-01", 1)
+            };
+
+            // Sheets in custom print order sequence (A105 is first, A101 is second, A103 is third)
+            var sheets = new List<SheetIndexSheetModel>
+            {
+                new SheetIndexSheetModel("s-103", "A103", "Roof Plan", printOrderIndex: 2),
+                new SheetIndexSheetModel("s-105", "A105", "Details", printOrderIndex: 0),
+                new SheetIndexSheetModel("s-101", "A101", "Floor Plan", printOrderIndex: 1)
+            };
+
+            var builder = new SheetIndexMatrixBuilder();
+
+            // Act
+            var matrix = builder.BuildMatrix(sheets, revisions);
+
+            // Assert
+            Assert.AreEqual(3, matrix.Rows.Count);
+            Assert.AreEqual("A105", matrix.Rows[0].SheetNumber);
+            Assert.AreEqual("A101", matrix.Rows[1].SheetNumber);
+            Assert.AreEqual("A103", matrix.Rows[2].SheetNumber);
+        }
+
+        [Test]
+        public void BuildMatrix_WithMixedPrintOrderIndex_SortsOrderedSheetsFirstThenAlphanumericFallback()
+        {
+            // Arrange
+            var revisions = new List<SheetIndexRevisionModel>
+            {
+                new SheetIndexRevisionModel("rev-1", "Issue 1", "2026-01-01", 1)
+            };
+
+            var sheets = new List<SheetIndexSheetModel>
+            {
+                new SheetIndexSheetModel("s-200", "G001", "General Notes", printOrderIndex: null),
+                new SheetIndexSheetModel("s-102", "A102", "Reflected Ceiling Plan", printOrderIndex: 0),
+                new SheetIndexSheetModel("s-101", "A101", "Floor Plan", printOrderIndex: 1),
+                new SheetIndexSheetModel("s-001", "C001", "Civil Cover", printOrderIndex: null)
+            };
+
+            var builder = new SheetIndexMatrixBuilder();
+
+            // Act
+            var matrix = builder.BuildMatrix(sheets, revisions);
+
+            // Assert
+            Assert.AreEqual(4, matrix.Rows.Count);
+            // Ordered first: printOrderIndex 0 (A102), then printOrderIndex 1 (A101)
+            Assert.AreEqual("A102", matrix.Rows[0].SheetNumber);
+            Assert.AreEqual("A101", matrix.Rows[1].SheetNumber);
+            // Fallback alphanumeric for null printOrderIndex: C001, G001
+            Assert.AreEqual("C001", matrix.Rows[2].SheetNumber);
+            Assert.AreEqual("G001", matrix.Rows[3].SheetNumber);
+        }
+
+        [Test]
+        public void FilterSheetsByPrintSet_FiltersAndAssignsPrintOrderSequence()
+        {
+            // Arrange
+            var revisions = new List<SheetIndexRevisionModel>
+            {
+                new SheetIndexRevisionModel("rev-1", "Issue 1", "2026-01-01", 1)
+            };
+
+            var allSheets = new List<SheetIndexSheetModel>
+            {
+                new SheetIndexSheetModel("s-1", "A101", "Floor Plan"),
+                new SheetIndexSheetModel("s-2", "A102", "Reflected Ceiling Plan"),
+                new SheetIndexSheetModel("s-3", "A103", "Roof Plan"),
+                new SheetIndexSheetModel("s-4", "A104", "Building Sections")
+            };
+
+            // Print set containing s-3 (index 0) and s-1 (index 1)
+            var printSets = new List<SheetIndexPrintSetModel>
+            {
+                new SheetIndexPrintSetModel("ps-1", "Permit Submittal", new[] { "s-3", "s-1" })
+            };
+
+            var viewModel = new ExportSheetIndexViewModel(allSheets, revisions, printSets);
+
+            // Act: Select Print Set source
+            viewModel.SelectedSourceType = "Print Set";
+
+            // Assert
+            Assert.IsTrue(viewModel.IsPrintSetSourceSelected);
+            Assert.AreEqual(2, viewModel.Sheets.Count);
+            Assert.AreEqual("A103", viewModel.Sheets[0].SheetNumber);
+            Assert.AreEqual(0, viewModel.Sheets[0].Model.PrintOrderIndex);
+            Assert.AreEqual("A101", viewModel.Sheets[1].SheetNumber);
+            Assert.AreEqual(1, viewModel.Sheets[1].Model.PrintOrderIndex);
+
+            // Act: Switch back to All Sheets
+            viewModel.SelectedSourceType = "All Sheets";
+
+            // Assert
+            Assert.IsFalse(viewModel.IsPrintSetSourceSelected);
+            Assert.AreEqual(4, viewModel.Sheets.Count);
+            Assert.IsNull(viewModel.Sheets[0].Model.PrintOrderIndex);
         }
 
         [Test]

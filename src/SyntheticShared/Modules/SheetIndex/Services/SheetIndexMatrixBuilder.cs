@@ -48,7 +48,7 @@ namespace Synthetic.Modules.SheetIndex.Services
         /// </summary>
         /// <param name="sheets">Collection of project sheet models.</param>
         /// <param name="revisions">Collection of project revision models selected for export.</param>
-        /// <returns>Formatted 2D sheet index matrix with chronological revision columns and alphanumeric sheet rows.</returns>
+        /// <returns>Formatted 2D sheet index matrix with chronological revision columns and sequenced sheet rows.</returns>
         public SheetIndexMatrix BuildMatrix(IEnumerable<SheetIndexSheetModel> sheets, IEnumerable<SheetIndexRevisionModel> revisions)
         {
             var matrix = new SheetIndexMatrix();
@@ -69,9 +69,10 @@ namespace Synthetic.Modules.SheetIndex.Services
                 matrix.RevisionHeaders.Add(new SheetIndexRevisionHeader(rev.UniqueId, rev.Name, rev.Date, rev.Sequence));
             }
 
-            // 2. Order sheets alphanumerically by SheetNumber
+            // 2. Order sheets by PrintOrderIndex if specified, falling back to natural alphanumeric SheetNumber sorting
             var sortedSheets = sheets
-                .OrderBy(s => s.SheetNumber ?? string.Empty, SheetComparer)
+                .OrderBy(s => s.PrintOrderIndex.HasValue ? s.PrintOrderIndex.Value : int.MaxValue)
+                .ThenBy(s => s.SheetNumber ?? string.Empty, SheetComparer)
                 .ToList();
 
             // 3. Build data rows

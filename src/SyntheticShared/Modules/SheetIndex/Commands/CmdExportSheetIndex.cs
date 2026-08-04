@@ -84,8 +84,34 @@ namespace Synthetic.Modules.SheetIndex.Commands
                     ));
                 }
 
-                // 3. Launch WPF Selection UI
-                var viewModel = new ExportSheetIndexViewModel(sheetModels, revisionModels);
+                // 3. Query print sets (ViewSheetSet) from Revit document
+                var printSetElements = new FilteredElementCollector(doc)
+                    .OfClass(typeof(ViewSheetSet))
+                    .Cast<ViewSheetSet>()
+                    .OrderBy(vs => vs.Name, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                var printSetModels = new List<SheetIndexPrintSetModel>();
+                foreach (var printSet in printSetElements)
+                {
+                    var sheetIdsInSet = new List<string>();
+                    foreach (Autodesk.Revit.DB.View v in printSet.Views)
+                    {
+                        if (v is ViewSheet sheet && !sheet.IsPlaceholder)
+                        {
+                            sheetIdsInSet.Add(sheet.UniqueId);
+                        }
+                    }
+
+                    printSetModels.Add(new SheetIndexPrintSetModel(
+                        printSet.UniqueId,
+                        printSet.Name,
+                        sheetIdsInSet
+                    ));
+                }
+
+                // 4. Launch WPF Selection UI
+                var viewModel = new ExportSheetIndexViewModel(sheetModels, revisionModels, printSetModels);
                 var window = new ExportSheetIndexWindow(viewModel, uiapp.MainWindowHandle);
 
                 bool? dialogResult = window.ShowDialog();
@@ -103,7 +129,7 @@ namespace Synthetic.Modules.SheetIndex.Commands
                     return Result.Succeeded;
                 }
 
-                // 4. Prompt for Save File Path using Revit FileSaveDialog
+                // 5. Prompt for Save File Path using Revit FileSaveDialog
                 string? savePath = null;
                 using (var saveFileDialog = new FileSaveDialog("Excel Files (*.xlsx)|*.xlsx"))
                 {
@@ -122,15 +148,15 @@ namespace Synthetic.Modules.SheetIndex.Commands
                     return Result.Cancelled;
                 }
 
-                // 5. Build 2D Sheet Index Matrix
+                // 6. Build 2D Sheet Index Matrix
                 var matrixBuilder = new SheetIndexMatrixBuilder();
                 var matrix = matrixBuilder.BuildMatrix(selectedSheets, selectedRevisions);
 
-                // 6. Export to Excel
+                // 7. Export to Excel
                 var exporterService = new SheetIndexExporterService();
                 exporterService.ExportToExcel(matrix, savePath);
 
-                // 7. Show Post-Export Completion Dialog
+                // 8. Show Post-Export Completion Dialog
                 var completionWindow = new ExportCompletionWindow(savePath, uiapp.MainWindowHandle);
                 completionWindow.ShowDialog();
 

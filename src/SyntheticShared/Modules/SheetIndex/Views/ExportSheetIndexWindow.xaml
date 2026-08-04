@@ -5,6 +5,10 @@
         WindowStartupLocation="CenterOwner" ResizeMode="CanResizeWithGrip" ShowInTaskbar="False"
         Background="#1E1E1E" Foreground="#FFFFFF">
 
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
+    </Window.Resources>
+
     <Grid Margin="15">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -32,17 +36,39 @@
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
                     <TextBlock Grid.Row="0" Text="Sheets" FontSize="14" FontWeight="SemiBold" Foreground="#FFFFFF" Margin="0,0,0,8"/>
 
-                    <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8">
+                    <!-- Source Selection Dropdown -->
+                    <Grid Grid.Row="1" Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Source:" VerticalAlignment="Center" Foreground="#FFFFFF" FontWeight="SemiBold" Margin="0,0,8,0"/>
+                        <ComboBox Grid.Column="1" ItemsSource="{Binding SourceTypes}" SelectedItem="{Binding SelectedSourceType}" Background="#333337" Foreground="#FFFFFF" BorderBrush="#555555" Height="26" VerticalContentAlignment="Center"/>
+                    </Grid>
+
+                    <!-- Print Set Dropdown (Visible when Print Set source selected) -->
+                    <Grid Grid.Row="2" Margin="0,0,0,8" Visibility="{Binding IsPrintSetSourceSelected, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Print Set:" VerticalAlignment="Center" Foreground="#FFFFFF" FontWeight="SemiBold" Margin="0,0,8,0"/>
+                        <ComboBox Grid.Column="1" ItemsSource="{Binding PrintSets}" SelectedItem="{Binding SelectedPrintSet}" DisplayMemberPath="Name" Background="#333337" Foreground="#FFFFFF" BorderBrush="#555555" Height="26" VerticalContentAlignment="Center"/>
+                    </Grid>
+
+                    <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,0,0,8">
                         <Button Content="Select All" Command="{Binding SelectAllSheetsCommand}" Padding="8,3" Margin="0,0,5,0" Background="#333337" Foreground="#FFFFFF" BorderBrush="#555555"/>
                         <Button Content="Deselect All" Command="{Binding DeselectAllSheetsCommand}" Padding="8,3" Background="#333337" Foreground="#FFFFFF" BorderBrush="#555555"/>
                     </StackPanel>
 
-                    <ListBox Grid.Row="2" ItemsSource="{Binding Sheets}" Background="#1E1E1E" BorderBrush="#3F3F46">
+                    <ListBox Grid.Row="4" ItemsSource="{Binding Sheets}" Background="#1E1E1E" BorderBrush="#3F3F46">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <CheckBox IsChecked="{Binding IsSelected}" Foreground="#FFFFFF" Margin="2,4">
