@@ -130,5 +130,50 @@ namespace SyntheticTests.Shared.Modules.SheetIndex
             Assert.AreEqual(1, selectedRevisions2.Count);
             Assert.AreEqual("rev-2", selectedRevisions2[0].UniqueId);
         }
+
+        [Test]
+        public void SourceModeSelection_FiltersSheetSelection_WhenPrintSetOrScheduleSelected()
+        {
+            var sheets = CreateSampleSheets();
+            var revisions = CreateSampleRevisions();
+            var printSets = new[] { "Arch Set" };
+            var printSetMap = new Dictionary<string, List<string>>
+            {
+                { "Arch Set", new List<string> { "s-101", "s-102" } }
+            };
+
+            var vm = new ExportSheetIndexViewModel(sheets, revisions, printSets, null, printSetMap, null);
+
+            // Change source mode to Print Set
+            vm.SelectedSourceMode = SheetSelectionSourceMode.ViewSheetSet;
+            vm.SelectedPrintSetName = "Arch Set";
+
+            var selected = vm.GetSelectedSheets();
+            Assert.AreEqual(2, selected.Count);
+            Assert.IsTrue(selected.All(s => s.UniqueId == "s-101" || s.UniqueId == "s-102"));
+
+            // Re-select All Sheets
+            vm.SelectedSourceMode = SheetSelectionSourceMode.AllSheets;
+            Assert.AreEqual(4, vm.GetSelectedSheets().Count);
+        }
+
+        [Test]
+        public void SessionPersistence_NewlyAddedSheetsDefaultToSelected()
+        {
+            var sheets = CreateSampleSheets();
+            var revisions = CreateSampleRevisions();
+
+            var vm1 = new ExportSheetIndexViewModel(sheets, revisions);
+            vm1.ExportCommand.Execute(null);
+
+            // Add a new sheet created later in session
+            sheets.Add(new SheetIndexSheetModel("s-999", "A999", "New Future Sheet"));
+
+            var vm2 = new ExportSheetIndexViewModel(sheets, revisions);
+            var selected2 = vm2.GetSelectedSheets();
+
+            Assert.IsTrue(selected2.Any(s => s.UniqueId == "s-999"));
+        }
     }
 }
+

@@ -19,6 +19,7 @@ namespace Synthetic.Modules.SheetIndex.ViewModels
         private SheetSelectionSourceMode _selectedSourceMode = SheetSelectionSourceMode.AllSheets;
         private string? _selectedPrintSetName;
         private string? _selectedScheduleName;
+        private bool _isApplyingSourceMode;
 
         public ObservableCollection<SheetItemViewModel> Sheets { get; } = new ObservableCollection<SheetItemViewModel>();
         public ObservableCollection<RevisionItemViewModel> Revisions { get; } = new ObservableCollection<RevisionItemViewModel>();
@@ -34,6 +35,9 @@ namespace Synthetic.Modules.SheetIndex.ViewModels
 
         public ObservableCollection<string> AvailablePrintSets { get; } = new ObservableCollection<string>();
         public ObservableCollection<string> AvailableSchedules { get; } = new ObservableCollection<string>();
+
+        public Dictionary<string, List<string>> PrintSetSheetMap { get; } = new Dictionary<string, List<string>>();
+        public Dictionary<string, List<string>> ScheduleSheetMap { get; } = new Dictionary<string, List<string>>();
 
         public string SearchText
         {
@@ -58,6 +62,9 @@ namespace Synthetic.Modules.SheetIndex.ViewModels
                 {
                     _selectedSourceMode = value;
                     OnPropertyChanged();
+                    OnPropertyChanged(nameof(IsPrintSetSource));
+                    OnPropertyChanged(nameof(IsScheduleSource));
+                    ApplySourceModeSelection();
                 }
             }
         }
@@ -71,6 +78,10 @@ namespace Synthetic.Modules.SheetIndex.ViewModels
                 {
                     _selectedPrintSetName = value;
                     OnPropertyChanged();
+                    if (SelectedSourceMode == SheetSelectionSourceMode.ViewSheetSet)
+                    {
+                        ApplySourceModeSelection();
+                    }
                 }
             }
         }
@@ -84,9 +95,16 @@ namespace Synthetic.Modules.SheetIndex.ViewModels
                 {
                     _selectedScheduleName = value;
                     OnPropertyChanged();
+                    if (SelectedSourceMode == SheetSelectionSourceMode.ViewSchedule)
+                    {
+                        ApplySourceModeSelection();
+                    }
                 }
             }
         }
+
+        public bool IsPrintSetSource => SelectedSourceMode == SheetSelectionSourceMode.ViewSheetSet;
+        public bool IsScheduleSource => SelectedSourceMode == SheetSelectionSourceMode.ViewSchedule;
 
         public ICommand SelectAllSheetsCommand { get; }
         public ICommand DeselectAllSheetsCommand { get; }
@@ -116,7 +134,9 @@ namespace Synthetic.Modules.SheetIndex.ViewModels
             IEnumerable<SheetIndexSheetModel> sheets,
             IEnumerable<SheetIndexRevisionModel> revisions,
             IEnumerable<string>? printSets = null,
-            IEnumerable<string>? schedules = null)
+            IEnumerable<string>? schedules = null,
+            Dictionary<string, List<string>>? printSetSheetMap = null,
+            Dictionary<string, List<string>>? scheduleSheetMap = null)
             : this()
         {
             if (printSets != null)
@@ -135,22 +155,39 @@ namespace Synthetic.Modules.SheetIndex.ViewModels
                 }
             }
 
+            if (printSetSheetMap != null)
+            {
+                foreach (var kvp in printSetSheetMap)
+                {
+                    PrintSetSheetMap[kvp.Key] = kvp.Value;
+                }
+            }
+
+            if (scheduleSheetMap != null)
+            {
+                foreach (var kvp in scheduleSheetMap)
+                {
+                    ScheduleSheetMap[kvp.Key] = kvp.Value;
+                }
+            }
+
             LoadData(sheets, revisions);
         }
 
         public void LoadData(IEnumerable<SheetIndexSheetModel> sheets, IEnumerable<SheetIndexRevisionModel> revisions)
         {
+            foreach (var s in Sheets) s.PropertyChanged -= OnItemSelectionChanged;
+            foreach (var r in Revisions) r.PropertyChanged -= OnItemSelectionChanged;
+
             Sheets.Clear();
             if (sheets != null)
             {
                 foreach (var sheet in sheets)
                 {
-                    bool isSelected = true;
-                    if (SheetIndexSessionState.HasSavedState && SheetIndexSessionState.SelectedSheetIds != null)
-                    {
-                        isSelected = SheetIndexSessionState.SelectedSheetIds.Contains(sheet.UniqueId);
-                    }
-                    Sheets.Add(new SheetItemViewModel(sheet, isSelected));
+                    bool isSelected = ResolveInitialSelection(sheet.UniqueId, SheetIndexSessionState.SelectedSheetIds);
+                    var item = new SheetItemViewModel(sheet, isSelected);
+                    item.PropertyChanged += OnItemSelectionChanged;
+                    Sheets.Add(item);
                 }
             }
 
@@ -159,34 +196,99 @@ namespace Synthetic.Modules.SheetIndex.ViewModels
             {
                 foreach (var rev in revisions)
                 {
-                    bool isSelected = true;
-                    if (SheetIndexSessionState.HasSavedState && SheetIndexSessionState.SelectedRevisionIds != null)
-                    {
-                        isSelected = SheetIndexSessionState.SelectedRevisionIds.Contains(rev.UniqueId);
-                    }
-                    Revisions.Add(new RevisionItemViewModel(rev, isSelected));
+                    bool isSelected = ResolveInitialSelection(rev.UniqueId, SheetIndexSessionState.SelectedRevisionIds);
+                    var item = new RevisionItemViewModel(rev, isSelected);
+                    item.PropertyChanged += OnItemSelectionChanged;
+                    Revisions.Add(item);
                 }
             }
 
             if (SheetIndexSessionState.HasSavedState)
             {
-                SelectedSourceMode = SheetIndexSessionState.SelectedSourceMode;
-                SelectedPrintSetName = SheetIndexSessionState.SelectedPrintSetName;
-                SelectedScheduleName = SheetIndexSessionState.SelectedScheduleName;
+                _selectedSourceMode = SheetIndexSessionState.SelectedSourceMode;
+                _selectedPrintSetName = SheetIndexSessionState.SelectedPrintSetName;
+                _selectedScheduleName = SheetIndexSessionState.SelectedScheduleName;
             }
             else
             {
-                if (AvailablePrintSets.Count > 0 && string.IsNullOrEmpty(SelectedPrintSetName))
+                if (AvailablePrintSets.Count > 0 && string.IsNullOrEmpty(_selectedPrintSetName))
                 {
-                    SelectedPrintSetName = AvailablePrintSets[0];
+                    _selectedPrintSetName = AvailablePrintSets[0];
                 }
-                if (AvailableSchedules.Count > 0 && string.IsNullOrEmpty(SelectedScheduleName))
+                if (AvailableSchedules.Count > 0 && string.IsNullOrEmpty(_selectedScheduleName))
                 {
-                    SelectedScheduleName = AvailableSchedules[0];
+                    _selectedScheduleName = AvailableSchedules[0];
                 }
             }
 
+            OnPropertyChanged(nameof(SelectedSourceMode));
+            OnPropertyChanged(nameof(SelectedPrintSetName));
+            OnPropertyChanged(nameof(SelectedScheduleName));
+            OnPropertyChanged(nameof(IsPrintSetSource));
+            OnPropertyChanged(nameof(IsScheduleSource));
+
             VisibleSheets.Refresh();
+            CommandManager.InvalidateRequerySuggested();
+        }
+
+        private bool ResolveInitialSelection(string id, HashSet<string>? savedIds)
+        {
+            if (!SheetIndexSessionState.HasSavedState || savedIds == null)
+            {
+                return true;
+            }
+            return savedIds.Contains(id);
+        }
+
+        private void OnItemSelectionChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(SheetItemViewModel.IsSelected))
+            {
+                CommandManager.InvalidateRequerySuggested();
+            }
+        }
+
+        private void ApplySourceModeSelection()
+        {
+            if (_isApplyingSourceMode) return;
+            _isApplyingSourceMode = true;
+            try
+            {
+                if (SelectedSourceMode == SheetSelectionSourceMode.AllSheets)
+                {
+                    foreach (var sheet in Sheets)
+                    {
+                        sheet.IsSelected = true;
+                    }
+                }
+                else if (SelectedSourceMode == SheetSelectionSourceMode.ViewSheetSet && !string.IsNullOrEmpty(SelectedPrintSetName))
+                {
+                    if (PrintSetSheetMap.TryGetValue(SelectedPrintSetName, out var validIds))
+                    {
+                        var set = new HashSet<string>(validIds);
+                        foreach (var sheet in Sheets)
+                        {
+                            sheet.IsSelected = set.Contains(sheet.Model.UniqueId);
+                        }
+                    }
+                }
+                else if (SelectedSourceMode == SheetSelectionSourceMode.ViewSchedule && !string.IsNullOrEmpty(SelectedScheduleName))
+                {
+                    if (ScheduleSheetMap.TryGetValue(SelectedScheduleName, out var validIds))
+                    {
+                        var set = new HashSet<string>(validIds);
+                        foreach (var sheet in Sheets)
+                        {
+                            sheet.IsSelected = set.Contains(sheet.Model.UniqueId);
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                _isApplyingSourceMode = false;
+                CommandManager.InvalidateRequerySuggested();
+            }
         }
 
         public List<SheetIndexSheetModel> GetSelectedSheets()
@@ -266,4 +368,5 @@ namespace Synthetic.Modules.SheetIndex.ViewModels
         }
     }
 }
+
 

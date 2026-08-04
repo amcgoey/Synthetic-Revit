@@ -85,23 +85,53 @@ namespace Synthetic.Modules.SheetIndex.Commands
                 }
 
                 // 2b. Query ViewSheetSets (Print Sets) and ViewSchedules (Sheet Schedules)
-                var printSets = new FilteredElementCollector(doc)
+                var printSetElements = new FilteredElementCollector(doc)
                     .OfClass(typeof(ViewSheetSet))
+                    .WhereElementIsNotElementType()
                     .Cast<ViewSheetSet>()
-                    .Select(vss => vss.Name)
-                    .Where(n => !string.IsNullOrEmpty(n))
                     .ToList();
 
-                var sheetSchedules = new FilteredElementCollector(doc)
+                var printSetSheetMap = new Dictionary<string, List<string>>();
+                foreach (var vss in printSetElements)
+                {
+                    if (!string.IsNullOrEmpty(vss.Name))
+                    {
+                        var ids = vss.Views.Cast<Autodesk.Revit.DB.View>().OfType<ViewSheet>().Select(s => s.UniqueId).ToList();
+                        printSetSheetMap[vss.Name] = ids;
+                    }
+                }
+
+                var scheduleElements = new FilteredElementCollector(doc)
                     .OfClass(typeof(ViewSchedule))
+                    .WhereElementIsNotElementType()
                     .Cast<ViewSchedule>()
                     .Where(vs => !vs.IsTemplate && vs.Definition.CategoryId == new ElementId(BuiltInCategory.OST_Sheets))
-                    .Select(vs => vs.Name)
-                    .Where(n => !string.IsNullOrEmpty(n))
                     .ToList();
 
+                var scheduleSheetMap = new Dictionary<string, List<string>>();
+                foreach (var vs in scheduleElements)
+                {
+                    if (!string.IsNullOrEmpty(vs.Name))
+                    {
+                        var ids = new FilteredElementCollector(doc, vs.Id)
+                            .OfClass(typeof(ViewSheet))
+                            .WhereElementIsNotElementType()
+                            .Cast<ViewSheet>()
+                            .Select(s => s.UniqueId)
+                            .ToList();
+                        scheduleSheetMap[vs.Name] = ids;
+                    }
+                }
+
                 // 3. Launch WPF Selection UI
-                var viewModel = new ExportSheetIndexViewModel(sheetModels, revisionModels, printSets, sheetSchedules);
+                var viewModel = new ExportSheetIndexViewModel(
+                    sheetModels,
+                    revisionModels,
+                    printSetSheetMap.Keys,
+                    scheduleSheetMap.Keys,
+                    printSetSheetMap,
+                    scheduleSheetMap);
+
                 var window = new ExportSheetIndexWindow(viewModel, uiapp.MainWindowHandle);
 
                 bool? dialogResult = window.ShowDialog();

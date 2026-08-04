@@ -4,18 +4,51 @@ using Synthetic.Modules.SheetIndex.Models;
 namespace Synthetic.Modules.SheetIndex.Services
 {
     /// <summary>
-    /// Stores user selection choices across command runs within the active Revit session.
+    /// Thread-safe store persisting user sheet index selection choices across command executions in the active Revit session.
     /// </summary>
     public static class SheetIndexSessionState
     {
         private static readonly object _lock = new object();
 
-        public static SheetSelectionSourceMode SelectedSourceMode { get; set; } = SheetSelectionSourceMode.AllSheets;
-        public static string? SelectedPrintSetName { get; set; }
-        public static string? SelectedScheduleName { get; set; }
-        public static HashSet<string>? SelectedRevisionIds { get; set; }
-        public static HashSet<string>? SelectedSheetIds { get; set; }
-        public static bool HasSavedState { get; private set; }
+        private static SheetSelectionSourceMode _selectedSourceMode = SheetSelectionSourceMode.AllSheets;
+        private static string? _selectedPrintSetName;
+        private static string? _selectedScheduleName;
+        private static HashSet<string>? _selectedRevisionIds;
+        private static HashSet<string>? _selectedSheetIds;
+        private static bool _hasSavedState;
+
+        public static SheetSelectionSourceMode SelectedSourceMode
+        {
+            get { lock (_lock) return _selectedSourceMode; }
+            set { lock (_lock) _selectedSourceMode = value; }
+        }
+
+        public static string? SelectedPrintSetName
+        {
+            get { lock (_lock) return _selectedPrintSetName; }
+            set { lock (_lock) _selectedPrintSetName = value; }
+        }
+
+        public static string? SelectedScheduleName
+        {
+            get { lock (_lock) return _selectedScheduleName; }
+            set { lock (_lock) _selectedScheduleName = value; }
+        }
+
+        public static HashSet<string>? SelectedRevisionIds
+        {
+            get { lock (_lock) return _selectedRevisionIds != null ? new HashSet<string>(_selectedRevisionIds) : null; }
+        }
+
+        public static HashSet<string>? SelectedSheetIds
+        {
+            get { lock (_lock) return _selectedSheetIds != null ? new HashSet<string>(_selectedSheetIds) : null; }
+        }
+
+        public static bool HasSavedState
+        {
+            get { lock (_lock) return _hasSavedState; }
+        }
 
         public static void SaveState(
             SheetSelectionSourceMode sourceMode,
@@ -26,13 +59,13 @@ namespace Synthetic.Modules.SheetIndex.Services
         {
             lock (_lock)
             {
-                SelectedSourceMode = sourceMode;
-                SelectedPrintSetName = printSetName;
-                SelectedScheduleName = scheduleName;
+                _selectedSourceMode = sourceMode;
+                _selectedPrintSetName = printSetName;
+                _selectedScheduleName = scheduleName;
 
-                SelectedRevisionIds = selectedRevisionIds != null ? new HashSet<string>(selectedRevisionIds) : null;
-                SelectedSheetIds = selectedSheetIds != null ? new HashSet<string>(selectedSheetIds) : null;
-                HasSavedState = true;
+                _selectedRevisionIds = selectedRevisionIds != null ? new HashSet<string>(selectedRevisionIds) : null;
+                _selectedSheetIds = selectedSheetIds != null ? new HashSet<string>(selectedSheetIds) : null;
+                _hasSavedState = true;
             }
         }
 
@@ -40,13 +73,14 @@ namespace Synthetic.Modules.SheetIndex.Services
         {
             lock (_lock)
             {
-                SelectedSourceMode = SheetSelectionSourceMode.AllSheets;
-                SelectedPrintSetName = null;
-                SelectedScheduleName = null;
-                SelectedRevisionIds = null;
-                SelectedSheetIds = null;
-                HasSavedState = false;
+                _selectedSourceMode = SheetSelectionSourceMode.AllSheets;
+                _selectedPrintSetName = null;
+                _selectedScheduleName = null;
+                _selectedRevisionIds = null;
+                _selectedSheetIds = null;
+                _hasSavedState = false;
             }
         }
     }
 }
+
