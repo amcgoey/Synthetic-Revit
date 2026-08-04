@@ -416,9 +416,9 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                     try
                     {
                         int totalInstancesSwapped = 0;
-                        foreach (var kvp in typeMap)
+                        if (typeMap != null && typeMap.Count > 0)
                         {
-                            var redirectionResult = AliasSwapEngine.SwapElementReferences(doc, kvp.Key, kvp.Value);
+                            var redirectionResult = AliasSwapEngine.SwapElementReferences(doc, typeMap);
                             if (redirectionResult != null)
                             {
                                 totalInstancesSwapped += redirectionResult.InstancesCount;
