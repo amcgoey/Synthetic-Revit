@@ -899,33 +899,33 @@ namespace SyntheticTests
                 {
                     tg.Start();
 
-                    LinePatternElement lp1, lp2;
-                    using (var t = new Transaction(doc, "Create Patterns"))
+                    LinePatternElement sourcePattern, targetPattern;
+                    using (var t = new Transaction(doc, "Create Patterns & Views"))
                     {
                         t.Start();
-                        lp1 = CreateLinePattern(doc, "Pattern NG1");
-                        lp2 = CreateLinePattern(doc, "Pattern NG2");
-                        t.Commit();
-                    }
+                        sourcePattern = CreateLinePattern(doc, "Pattern NG1");
+                        targetPattern = CreateLinePattern(doc, "Pattern NG2");
 
-                    using (var t = new Transaction(doc, "Create Schedule View"))
-                    {
-                        t.Start();
                         try
                         {
                             Category wallCat = doc.Settings.Categories.get_Item(BuiltInCategory.OST_Walls);
                             ViewSchedule.CreateSchedule(doc, wallCat.Id);
                         }
-                        catch
+                        catch { }
+
+                        try
                         {
+                            ViewDrafting.Create(doc, ElementId.InvalidElementId);
                         }
+                        catch { }
+
                         t.Commit();
                     }
 
                     RedirectionResultModel result = null!;
                     Assert.DoesNotThrow(() =>
                     {
-                        result = AliasSwapEngine.SwapElementReferences(doc, lp1.Id, lp2.Id);
+                        result = AliasSwapEngine.SwapElementReferences(doc, sourcePattern.Id, targetPattern.Id);
                     });
 
                     Assert.IsNotNull(result);

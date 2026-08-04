@@ -464,24 +464,24 @@ namespace Synthetic.RevitDOM.Operations
             }
         }
 
+        private static readonly HashSet<ViewType> AllowedGraphicalViewTypes = new HashSet<ViewType>
+        {
+            ViewType.FloorPlan,
+            ViewType.CeilingPlan,
+            ViewType.Elevation,
+            ViewType.Section,
+            ViewType.ThreeD,
+            ViewType.EngineeringPlan,
+            ViewType.AreaPlan,
+            ViewType.DraftingView,
+            ViewType.Detail,
+            ViewType.Rendering,
+            ViewType.Walkthrough
+        };
+
         private static bool IsAllowedGraphicalViewType(ViewType viewType)
         {
-            switch (viewType)
-            {
-                case ViewType.FloorPlan:
-                case ViewType.CeilingPlan:
-                case ViewType.Elevation:
-                case ViewType.Section:
-                case ViewType.ThreeD:
-                case ViewType.EngineeringPlan:
-                case ViewType.AreaPlan:
-                case ViewType.DraftingView:
-                case ViewType.Detail:
-                case ViewType.Rendering:
-                    return true;
-                default:
-                    return false;
-            }
+            return AllowedGraphicalViewTypes.Contains(viewType);
         }
 
         private static bool SwapPatternOverrides(
