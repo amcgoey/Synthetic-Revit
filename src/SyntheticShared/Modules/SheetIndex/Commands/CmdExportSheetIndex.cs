@@ -106,18 +106,37 @@ namespace Synthetic.Modules.SheetIndex.Commands
                         }
                     }
 
-                    // Sort scheduled sheets according to schedule sort/group fields if available
+                    // Sort scheduled sheets according to all schedule sort/group fields if available
                     if (sortGroupFields.Count > 0)
                     {
-                        var primarySortField = schedule.Definition.GetField(sortGroupFields[0].FieldId);
-                        string? primaryParamName = primarySortField?.GetName();
-                        if (!string.IsNullOrEmpty(primaryParamName))
+                        var comparer = new AlphanumericComparer();
+                        IOrderedEnumerable<ViewSheet>? orderedSheets = null;
+
+                        foreach (var field in sortGroupFields)
                         {
-                            var comparer = new AlphanumericComparer();
-                            bool isAscending = sortGroupFields[0].SortOrder == ScheduleSortOrder.Ascending;
-                            scheduledSheets = isAscending
-                                ? scheduledSheets.OrderBy(s => s.LookupParameter(primaryParamName)?.AsString() ?? string.Empty, comparer).ToList()
-                                : scheduledSheets.OrderByDescending(s => s.LookupParameter(primaryParamName)?.AsString() ?? string.Empty, comparer).ToList();
+                            var schedField = schedule.Definition.GetField(field.FieldId);
+                            string? paramName = schedField?.GetName();
+                            if (string.IsNullOrEmpty(paramName)) continue;
+
+                            bool isAscending = field.SortOrder == ScheduleSortOrder.Ascending;
+
+                            if (orderedSheets == null)
+                            {
+                                orderedSheets = isAscending
+                                    ? scheduledSheets.OrderBy(s => s.LookupParameter(paramName)?.AsString() ?? string.Empty, comparer)
+                                    : scheduledSheets.OrderByDescending(s => s.LookupParameter(paramName)?.AsString() ?? string.Empty, comparer);
+                            }
+                            else
+                            {
+                                orderedSheets = isAscending
+                                    ? orderedSheets.ThenBy(s => s.LookupParameter(paramName)?.AsString() ?? string.Empty, comparer)
+                                    : orderedSheets.ThenByDescending(s => s.LookupParameter(paramName)?.AsString() ?? string.Empty, comparer);
+                            }
+                        }
+
+                        if (orderedSheets != null)
+                        {
+                            scheduledSheets = orderedSheets.ToList();
                         }
                     }
 
