@@ -117,6 +117,22 @@ namespace Synthetic.Modules.SheetIndex.ViewModels
             }
         }
 
+        public string SelectedSourceType
+        {
+            get => SelectedSourceMode == SheetSelectionSourceMode.ViewSheetSet ? "Print Set" : "All Sheets";
+            set
+            {
+                if (value == "Print Set")
+                {
+                    SelectedSourceMode = SheetSelectionSourceMode.ViewSheetSet;
+                }
+                else
+                {
+                    SelectedSourceMode = SheetSelectionSourceMode.AllSheets;
+                }
+            }
+        }
+
         public string? SelectedPrintSetName
         {
             get => _selectedPrintSetName;
@@ -155,30 +171,6 @@ namespace Synthetic.Modules.SheetIndex.ViewModels
         public bool IsScheduleSource => SelectedSourceMode == SheetSelectionSourceMode.ViewSchedule;
         public bool IsPrintSetSourceSelected => SelectedSourceMode == SheetSelectionSourceMode.ViewSheetSet;
 
-        public string SelectedSourceType
-        {
-            get => SelectedSourceMode == SheetSelectionSourceMode.ViewSheetSet ? "Print Set" : "All Sheets";
-            set
-            {
-                if (value == "Print Set")
-                {
-                    SelectedSourceMode = SheetSelectionSourceMode.ViewSheetSet;
-                }
-                else
-                {
-                    SelectedSourceMode = SheetSelectionSourceMode.AllSheets;
-                }
-            }
-        }
-
-        public ExportSheetIndexViewModel(
-            IEnumerable<SheetIndexSheetModel> sheets,
-            IEnumerable<SheetIndexRevisionModel> revisions,
-            IEnumerable<SheetIndexPrintSetModel> printSetModels)
-            : this(sheets, revisions, null, null, null, null, null, printSetModels)
-        {
-        }
-
         public ICommand SelectAllSheetsCommand { get; }
         public ICommand DeselectAllSheetsCommand { get; }
         public ICommand SelectAllRevisionsCommand { get; }
@@ -201,6 +193,14 @@ namespace Synthetic.Modules.SheetIndex.ViewModels
             DeselectAllRevisionsCommand = new RelayCommand(_ => SetRevisionsSelected(false));
             ExportCommand = new RelayCommand(_ => ExecuteExport(), _ => CanExecuteExport());
             CancelCommand = new RelayCommand(_ => ExecuteCancel());
+        }
+
+        public ExportSheetIndexViewModel(
+            IEnumerable<SheetIndexSheetModel> sheets,
+            IEnumerable<SheetIndexRevisionModel> revisions,
+            IEnumerable<SheetIndexPrintSetModel> printSetModels)
+            : this(sheets, revisions, null, null, null, null, null, printSetModels)
+        {
         }
 
         public ExportSheetIndexViewModel(

@@ -158,7 +158,7 @@ namespace SyntheticTests.Shared.Modules.SheetIndex
             var viewModel = new ExportSheetIndexViewModel(allSheets, revisions, printSets);
 
             // Act: Select Print Set source
-            viewModel.SelectedSourceType = "Print Set";
+            viewModel.SelectedSourceType = SheetSelectionSourceType.PrintSet;
 
             // Assert
             Assert.IsTrue(viewModel.IsPrintSetSourceSelected);
@@ -169,7 +169,7 @@ namespace SyntheticTests.Shared.Modules.SheetIndex
             Assert.AreEqual(1, viewModel.Sheets[1].Model.PrintOrderIndex);
 
             // Act: Switch back to All Sheets
-            viewModel.SelectedSourceType = "All Sheets";
+            viewModel.SelectedSourceType = SheetSelectionSourceType.AllSheets;
 
             // Assert
             Assert.IsFalse(viewModel.IsPrintSetSourceSelected);

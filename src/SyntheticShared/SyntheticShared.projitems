@@ -27,6 +27,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Models\SheetIndexSheetModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Models\SheetIndexScheduleModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Models\SheetIndexPrintSetModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Models\SheetSelectionSourceType.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Models\SheetIndexRevisionModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Models\SheetIndexMatrix.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Models\SheetSelectionSourceMode.cs" />
