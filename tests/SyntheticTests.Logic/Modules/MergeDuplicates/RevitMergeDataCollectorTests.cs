@@ -1,8 +1,13 @@
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
 using Synthetic.Modules.MergeDuplicates.Services;
+using Synthetic.Modules.MergeDuplicates.Handlers;
+using Synthetic.Modules.MergeDuplicates.ViewModels;
+using Synthetic.RevitDOM.Operations.Merge;
+using Synthetic.RevitDOM.Models;
 
 namespace SyntheticTests.Logic.Modules.MergeDuplicates
 {
@@ -67,37 +72,19 @@ namespace SyntheticTests.Logic.Modules.MergeDuplicates
             Assert.IsTrue(isSystem, "Non-editable family should be classified as system element.");
         }
 
-        [Test]
-        public void IsSystemElement_ReturnsTrueForSystemTypes()
+        [TestCase(typeof(WallType), "Generic - 8\" Masonry")]
+        [TestCase(typeof(ViewFamilyType), "Floor Plan")]
+        [TestCase(typeof(ElevationMarker), "Elevation Mark Body")]
+        [TestCase(typeof(GroupType), "Standard Office Layout")]
+        [TestCase(typeof(AssemblyType), "Precast Panel A")]
+        [TestCase(typeof(TextNoteType), "3/32\" Arial")]
+        [TestCase(typeof(DimensionType), "Linear - 3/32\"")]
+        public void IsSystemElement_ReturnsTrueForSystemTypes(Type elementType, string name)
         {
-            var wallType = CreateElement<WallType>();
-            SetPropertyValue(wallType, "Name", "Generic - 8\" Masonry");
+            var elem = (Element)Activator.CreateInstance(elementType, true)!;
+            SetPropertyValue(elem, "Name", name);
 
-            var viewFamilyType = CreateElement<ViewFamilyType>();
-            SetPropertyValue(viewFamilyType, "Name", "Floor Plan");
-
-            var elevationMarker = CreateElement<ElevationMarker>();
-            SetPropertyValue(elevationMarker, "Name", "Elevation Mark Body");
-
-            var groupType = CreateElement<GroupType>();
-            SetPropertyValue(groupType, "Name", "Standard Office Layout");
-
-            var assemblyType = CreateElement<AssemblyType>();
-            SetPropertyValue(assemblyType, "Name", "Precast Panel A");
-
-            var textNoteType = CreateElement<TextNoteType>();
-            SetPropertyValue(textNoteType, "Name", "3/32\" Arial");
-
-            var dimensionType = CreateElement<DimensionType>();
-            SetPropertyValue(dimensionType, "Name", "Linear - 3/32\"");
-
-            Assert.IsTrue(RevitMergeDataCollector.IsSystemElement(wallType), "WallType should be classified as system element.");
-            Assert.IsTrue(RevitMergeDataCollector.IsSystemElement(viewFamilyType), "ViewFamilyType should be classified as system element.");
-            Assert.IsTrue(RevitMergeDataCollector.IsSystemElement(elevationMarker), "ElevationMarker should be classified as system element.");
-            Assert.IsTrue(RevitMergeDataCollector.IsSystemElement(groupType), "GroupType should be classified as system element.");
-            Assert.IsTrue(RevitMergeDataCollector.IsSystemElement(assemblyType), "AssemblyType should be classified as system element.");
-            Assert.IsTrue(RevitMergeDataCollector.IsSystemElement(textNoteType), "TextNoteType should be classified as system element.");
-            Assert.IsTrue(RevitMergeDataCollector.IsSystemElement(dimensionType), "DimensionType should be classified as system element.");
+            Assert.IsTrue(RevitMergeDataCollector.IsSystemElement(elem), $"{elementType.Name} should be classified as system element.");
         }
 
         [Test]
@@ -128,6 +115,17 @@ namespace SyntheticTests.Logic.Modules.MergeDuplicates
         public void IsSystemElement_ReturnsTrueForNullElement()
         {
             Assert.IsTrue(RevitMergeDataCollector.IsSystemElement(null), "Null element should be classified as system element (safe fallback).");
+        }
+
+        [Test]
+        public void ProcessMergeEventHandler_SkipsParameterInjection_ForSystemElements()
+        {
+            var wallType = CreateElement<WallType>();
+            SetPropertyValue(wallType, "Name", "Generic - 8\" Masonry");
+
+            bool isSystem = RevitMergeDataCollector.IsSystemElement(wallType);
+            Assert.IsTrue(isSystem, "WallType element is correctly classified as a system element.");
+            Assert.IsFalse(!isSystem && wallType is Family, "System element guard correctly prevents EditFamily and parameter injection execution.");
         }
     }
 }

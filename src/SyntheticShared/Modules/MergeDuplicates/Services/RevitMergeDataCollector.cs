@@ -34,7 +34,8 @@ namespace Synthetic.Modules.MergeDuplicates.Services
 
             if (element is FamilySymbol familySymbol)
             {
-                return familySymbol.Family == null || familySymbol.Family.IsInPlace || !familySymbol.Family.IsEditable;
+                var fam = familySymbol.Family;
+                return fam == null || fam.IsInPlace || !fam.IsEditable;
             }
 
             return true;
