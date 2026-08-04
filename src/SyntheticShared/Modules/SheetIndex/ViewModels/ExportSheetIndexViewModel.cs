@@ -159,6 +159,12 @@ namespace Synthetic.Modules.SheetIndex.ViewModels
         {
             Sheets.Clear();
 
+            // Reset PrintOrderIndex on all sheets before applying source filter
+            foreach (var sheet in _allSheets)
+            {
+                sheet.PrintOrderIndex = null;
+            }
+
             if (IsPrintSetSourceSelected && SelectedPrintSet != null)
             {
                 var printSetSheetIds = SelectedPrintSet.SheetIds ?? new List<string>();
@@ -191,7 +197,6 @@ namespace Synthetic.Modules.SheetIndex.ViewModels
                 // All Sheets source
                 foreach (var sheet in _allSheets)
                 {
-                    sheet.PrintOrderIndex = null;
                     Sheets.Add(new SheetItemViewModel(sheet) { IsSelected = true });
                 }
             }
