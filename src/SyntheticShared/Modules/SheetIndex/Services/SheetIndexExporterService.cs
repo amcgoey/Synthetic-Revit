@@ -9,6 +9,7 @@ namespace Synthetic.Modules.SheetIndex.Services
 {
     /// <summary>
     /// Headless Excel exporter service generating formatted .xlsx spreadsheets from a SheetIndexMatrix.
+    /// Matches standard drawing index layout styling (Arial font, 90-degree rotated revision headers, exact column dimensions, and centered dot indicators).
     /// </summary>
     public class SheetIndexExporterService
     {
@@ -34,8 +35,7 @@ namespace Synthetic.Modules.SheetIndex.Services
                 File.Delete(filePath);
             }
 
-            using (var fileStream = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.None))
-            using (var zip = new ZipArchive(fileStream, ZipArchiveMode.Create))
+            using (var zip = ZipFile.Open(filePath, ZipArchiveMode.Create))
             {
                 WriteContentTypes(zip);
                 WriteRootRels(zip);
@@ -51,7 +51,7 @@ namespace Synthetic.Modules.SheetIndex.Services
             var entry = zip.CreateEntry("[Content_Types].xml");
             using (var writer = new StreamWriter(entry.Open(), Encoding.UTF8))
             {
-                writer.Write(@"<?xml version=""1.0"" encoding=""UTF-8"" standalone=""yes""?>
+                writer.Write(@"<?xml opacity=""1.0"" encoding=""UTF-8"" standalone=""yes""?>
 <Types xmlns=""http://schemas.openxmlformats.org/package/2006/content-types"">
   <Default Extension=""rels"" ContentType=""application/vnd.openxmlformats-package.relationships+xml""/>
   <Default Extension=""xml"" ContentType=""application/xml""/>
@@ -107,41 +107,47 @@ namespace Synthetic.Modules.SheetIndex.Services
             using (var writer = new StreamWriter(entry.Open(), Encoding.UTF8))
             {
                 // Style IDs:
-                // 0 = Normal left
-                // 1 = Header left bold thin border
-                // 2 = Revision header centered bold thin border
+                // 0 = Normal left (Arial 10pt)
+                // 1 = Header left bold thin border (SHEET NUMBER / SHEET NAME)
+                // 2 = Revision header centered bold thin border (90 degree rotated text)
                 // 3 = Left data cell thin border
-                // 4 = Centered data cell thin border
-                // 5 = Section header bold thin border
+                // 4 = Centered data cell thin border (Dot indicator ●)
+                // 5 = Section header bold thin border (Light Gray Fill #E0E0E0)
+                // 6 = Left data cell zebra (Subtle Off-White #F8F9FA)
+                // 7 = Centered data cell zebra (Subtle Off-White #F8F9FA)
                 writer.Write(@"<?xml version=""1.0"" encoding=""UTF-8"" standalone=""yes""?>
 <styleSheet xmlns=""http://schemas.openxmlformats.org/spreadsheetml/2006/main"">
   <fonts count=""2"">
-    <font><sz val=""11""/><name val=""Calibri""/></font>
-    <font><b/><sz val=""11""/><name val=""Calibri""/></font>
+    <font><sz val=""10""/><name val=""Arial""/></font>
+    <font><b/><sz val=""10""/><name val=""Arial""/></font>
   </fonts>
-  <fills count=""2"">
+  <fills count=""4"">
     <fill><patternFill patternType=""none""/></fill>
     <fill><patternFill patternType=""gray125""/></fill>
+    <fill><patternFill patternType=""solid""><fgColor rgb=""FFE0E0E0""/></patternFill></fill>
+    <fill><patternFill patternType=""solid""><fgColor rgb=""FFF8F9FA""/></patternFill></fill>
   </fills>
   <borders count=""2"">
     <border><left/><right/><top/><bottom/></border>
     <border>
-      <left style=""thin""><color auto=""1""/></left>
-      <right style=""thin""><color auto=""1""/></right>
-      <top style=""thin""><color auto=""1""/></top>
-      <bottom style=""thin""><color auto=""1""/></bottom>
+      <left style=""thin""><color rgb=""FFD3D3D3""/></left>
+      <right style=""thin""><color rgb=""FFD3D3D3""/></right>
+      <top style=""thin""><color rgb=""FFD3D3D3""/></top>
+      <bottom style=""thin""><color rgb=""FFD3D3D3""/></bottom>
     </border>
   </borders>
   <cellStyleXfs count=""1"">
     <xf numFmtId=""0"" fontId=""0"" fillId=""0"" borderId=""0""/>
   </cellStyleXfs>
-  <cellXfs count=""6"">
+  <cellXfs count=""8"">
     <xf numFmtId=""0"" fontId=""0"" fillId=""0"" borderId=""0"" xfId=""0""/>
-    <xf numFmtId=""0"" fontId=""1"" fillId=""0"" borderId=""1"" xfId=""0""><alignment horizontal=""left"" vertical=""center""/></xf>
-    <xf numFmtId=""0"" fontId=""1"" fillId=""0"" borderId=""1"" xfId=""0""><alignment horizontal=""center"" vertical=""center""/></xf>
+    <xf numFmtId=""0"" fontId=""1"" fillId=""0"" borderId=""1"" xfId=""0""><alignment horizontal=""left"" vertical=""bottom""/></xf>
+    <xf numFmtId=""0"" fontId=""1"" fillId=""0"" borderId=""1"" xfId=""0""><alignment horizontal=""center"" vertical=""bottom"" textRotation=""90""/></xf>
     <xf numFmtId=""0"" fontId=""0"" fillId=""0"" borderId=""1"" xfId=""0""><alignment horizontal=""left"" vertical=""center""/></xf>
     <xf numFmtId=""0"" fontId=""0"" fillId=""0"" borderId=""1"" xfId=""0""><alignment horizontal=""center"" vertical=""center""/></xf>
-    <xf numFmtId=""0"" fontId=""1"" fillId=""0"" borderId=""1"" xfId=""0""><alignment horizontal=""left"" vertical=""center""/></xf>
+    <xf numFmtId=""0"" fontId=""1"" fillId=""2"" borderId=""1"" xfId=""0""><alignment horizontal=""left"" vertical=""center""/></xf>
+    <xf numFmtId=""0"" fontId=""0"" fillId=""3"" borderId=""1"" xfId=""0""><alignment horizontal=""left"" vertical=""center""/></xf>
+    <xf numFmtId=""0"" fontId=""0"" fillId=""3"" borderId=""1"" xfId=""0""><alignment horizontal=""center"" vertical=""center""/></xf>
   </cellXfs>
 </styleSheet>");
             }
@@ -153,6 +159,8 @@ namespace Synthetic.Modules.SheetIndex.Services
         private const int StyleDataLeft = 3;
         private const int StyleDataCenter = 4;
         private const int StyleSectionHeader = 5;
+        private const int StyleDataLeftZebra = 6;
+        private const int StyleDataCenterZebra = 7;
 
         private static void WriteWorksheet(ZipArchive zip, SheetIndexMatrix matrix)
         {
@@ -168,19 +176,20 @@ namespace Synthetic.Modules.SheetIndex.Services
   </sheetViews>
   <cols>
     <col min=""1"" max=""1"" width=""16"" customWidth=""1""/>
-    <col min=""2"" max=""2"" width=""36"" customWidth=""1""/>
-    <col min=""3"" max=""100"" width=""18"" customWidth=""1""/>
+    <col min=""2"" max=""2"" width=""45"" customWidth=""1""/>
+    <col min=""3"" max=""200"" width=""6"" customWidth=""1""/>
   </cols>
   <sheetData>");
 
                 int rowIndex = 1;
 
-                // Row 1: Left column names & Combined Revision Headers ("Revision Name - Revision Date")
-                writer.Write($"<row r=\"{rowIndex}\">");
+                // Row 1: Left column names & Combined Revision Headers ("Revision Name - Revision Date") with 90-degree text rotation
+                writer.Write($"<row r=\"{rowIndex}\" ht=\"140\" customHeight=\"1\">");
                 int colIndex = 1;
                 foreach (var leftCol in matrix.LeftColumns)
                 {
-                    writer.Write($"<c r=\"{GetColumnAddress(colIndex++)}{rowIndex}\" t=\"inlineStr\" s=\"{StyleHeaderLeft}\"><is><t>{EscapeXml(leftCol)}</t></is></c>");
+                    string headerName = leftCol.ToUpperInvariant();
+                    writer.Write($"<c r=\"{GetColumnAddress(colIndex++)}{rowIndex}\" t=\"inlineStr\" s=\"{StyleHeaderLeft}\"><is><t>{EscapeXml(headerName)}</t></is></c>");
                 }
                 foreach (var revHeader in matrix.RevisionHeaders)
                 {
@@ -189,10 +198,12 @@ namespace Synthetic.Modules.SheetIndex.Services
                 writer.Write("</row>");
                 rowIndex++;
 
+                int dataRowCounter = 0;
+
                 // Data Rows
                 foreach (var row in matrix.Rows)
                 {
-                    writer.Write($"<row r=\"{rowIndex}\">");
+                    writer.Write($"<row r=\"{rowIndex}\" ht=\"20\" customHeight=\"1\">");
                     colIndex = 1;
 
                     if (row.IsSectionHeader)
@@ -207,13 +218,19 @@ namespace Synthetic.Modules.SheetIndex.Services
                     }
                     else
                     {
-                        writer.Write($"<c r=\"{GetColumnAddress(colIndex++)}{rowIndex}\" t=\"inlineStr\" s=\"{StyleDataLeft}\"><is><t>{EscapeXml(row.SheetNumber)}</t></is></c>");
-                        writer.Write($"<c r=\"{GetColumnAddress(colIndex++)}{rowIndex}\" t=\"inlineStr\" s=\"{StyleDataLeft}\"><is><t>{EscapeXml(row.SheetName)}</t></is></c>");
+                        bool isZebra = (dataRowCounter % 2 == 1);
+                        int styleLeft = isZebra ? StyleDataLeftZebra : StyleDataLeft;
+                        int styleCenter = isZebra ? StyleDataCenterZebra : StyleDataCenter;
+
+                        writer.Write($"<c r=\"{GetColumnAddress(colIndex++)}{rowIndex}\" t=\"inlineStr\" s=\"{styleLeft}\"><is><t>{EscapeXml(row.SheetNumber)}</t></is></c>");
+                        writer.Write($"<c r=\"{GetColumnAddress(colIndex++)}{rowIndex}\" t=\"inlineStr\" s=\"{styleLeft}\"><is><t>{EscapeXml(row.SheetName)}</t></is></c>");
 
                         foreach (var cellVal in row.Cells)
                         {
-                            writer.Write($"<c r=\"{GetColumnAddress(colIndex++)}{rowIndex}\" t=\"inlineStr\" s=\"{StyleDataCenter}\"><is><t>{EscapeXml(cellVal)}</t></is></c>");
+                            writer.Write($"<c r=\"{GetColumnAddress(colIndex++)}{rowIndex}\" t=\"inlineStr\" s=\"{styleCenter}\"><is><t>{EscapeXml(cellVal)}</t></is></c>");
                         }
+
+                        dataRowCounter++;
                     }
 
                     writer.Write("</row>");
