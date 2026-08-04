@@ -33,17 +33,23 @@ namespace Synthetic.Modules.SheetIndex.Models
         public string SheetName { get; set; } = string.Empty;
 
         /// <summary>
+        /// Gets or sets whether this row represents a section grouping header (e.g. "STRUCTURAL", "ARCHITECTURAL").
+        /// </summary>
+        public bool IsSectionHeader { get; set; }
+
+        /// <summary>
         /// Cell values corresponding to each Issuance Column. Solid bullet "●" when present, empty string "" when excluded.
         /// </summary>
         public List<string> Cells { get; set; } = new List<string>();
 
         public SheetIndexRow() { }
 
-        public SheetIndexRow(string sheetNumber, string sheetName, List<string> cells)
+        public SheetIndexRow(string sheetNumber, string sheetName, List<string> cells, bool isSectionHeader = false)
         {
             SheetNumber = sheetNumber;
             SheetName = sheetName;
             Cells = cells ?? new List<string>();
+            IsSectionHeader = isSectionHeader;
         }
     }
 

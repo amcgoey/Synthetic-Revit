@@ -13,8 +13,40 @@ namespace Synthetic.Modules.SheetIndex.ViewModels
 {
     public class ExportSheetIndexViewModel : INotifyPropertyChanged
     {
+        private List<SheetIndexSheetModel> _allProjectSheets = new List<SheetIndexSheetModel>();
+        private SheetIndexScheduleModel? _selectedSchedule;
+        private bool _preserveSheetOrder;
+
         public ObservableCollection<SheetItemViewModel> Sheets { get; } = new ObservableCollection<SheetItemViewModel>();
         public ObservableCollection<RevisionItemViewModel> Revisions { get; } = new ObservableCollection<RevisionItemViewModel>();
+        public ObservableCollection<SheetIndexScheduleModel> Schedules { get; } = new ObservableCollection<SheetIndexScheduleModel>();
+
+        public SheetIndexScheduleModel? SelectedSchedule
+        {
+            get => _selectedSchedule;
+            set
+            {
+                if (_selectedSchedule != value)
+                {
+                    _selectedSchedule = value;
+                    OnPropertyChanged();
+                    OnScheduleSelectionChanged();
+                }
+            }
+        }
+
+        public bool PreserveSheetOrder
+        {
+            get => _preserveSheetOrder;
+            set
+            {
+                if (_preserveSheetOrder != value)
+                {
+                    _preserveSheetOrder = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
 
         public ICommand SelectAllSheetsCommand { get; }
         public ICommand DeselectAllSheetsCommand { get; }
@@ -37,20 +69,28 @@ namespace Synthetic.Modules.SheetIndex.ViewModels
             CancelCommand = new RelayCommand(_ => ExecuteCancel());
         }
 
-        public ExportSheetIndexViewModel(IEnumerable<SheetIndexSheetModel> sheets, IEnumerable<SheetIndexRevisionModel> revisions)
+        public ExportSheetIndexViewModel(
+            IEnumerable<SheetIndexSheetModel> sheets,
+            IEnumerable<SheetIndexRevisionModel> revisions,
+            IEnumerable<SheetIndexScheduleModel>? schedules = null)
             : this()
         {
-            LoadData(sheets, revisions);
+            LoadData(sheets, revisions, schedules);
         }
 
-        public void LoadData(IEnumerable<SheetIndexSheetModel> sheets, IEnumerable<SheetIndexRevisionModel> revisions)
+        public void LoadData(
+            IEnumerable<SheetIndexSheetModel> sheets,
+            IEnumerable<SheetIndexRevisionModel> revisions,
+            IEnumerable<SheetIndexScheduleModel>? schedules = null)
         {
-            Sheets.Clear();
-            if (sheets != null)
+            _allProjectSheets = sheets != null ? sheets.ToList() : new List<SheetIndexSheetModel>();
+
+            Schedules.Clear();
+            if (schedules != null)
             {
-                foreach (var sheet in sheets)
+                foreach (var schedule in schedules)
                 {
-                    Sheets.Add(new SheetItemViewModel(sheet));
+                    Schedules.Add(schedule);
                 }
             }
 
@@ -62,6 +102,34 @@ namespace Synthetic.Modules.SheetIndex.ViewModels
                     Revisions.Add(new RevisionItemViewModel(rev));
                 }
             }
+
+            // Default to all sheets
+            PopulateSheets(_allProjectSheets, preserveOrder: false);
+        }
+
+        private void OnScheduleSelectionChanged()
+        {
+            if (SelectedSchedule != null && SelectedSchedule.Sheets.Count > 0)
+            {
+                PopulateSheets(SelectedSchedule.Sheets, preserveOrder: true);
+            }
+            else
+            {
+                PopulateSheets(_allProjectSheets, preserveOrder: false);
+            }
+        }
+
+        private void PopulateSheets(IEnumerable<SheetIndexSheetModel> sheets, bool preserveOrder)
+        {
+            Sheets.Clear();
+            if (sheets != null)
+            {
+                foreach (var sheet in sheets)
+                {
+                    Sheets.Add(new SheetItemViewModel(sheet));
+                }
+            }
+            PreserveSheetOrder = preserveOrder;
         }
 
         public List<SheetIndexSheetModel> GetSelectedSheets()

@@ -48,8 +48,9 @@ namespace Synthetic.Modules.SheetIndex.Services
         /// </summary>
         /// <param name="sheets">Collection of project sheet models.</param>
         /// <param name="revisions">Collection of project revision models selected for export.</param>
-        /// <returns>Formatted 2D sheet index matrix with chronological revision columns and alphanumeric sheet rows.</returns>
-        public SheetIndexMatrix BuildMatrix(IEnumerable<SheetIndexSheetModel> sheets, IEnumerable<SheetIndexRevisionModel> revisions)
+        /// <param name="preserveSheetOrder">If true, preserves input sheet sequence (e.g. from ViewSchedule); otherwise sorts alphanumerically.</param>
+        /// <returns>Formatted 2D sheet index matrix with chronological revision columns and ordered sheet rows with section headers.</returns>
+        public SheetIndexMatrix BuildMatrix(IEnumerable<SheetIndexSheetModel> sheets, IEnumerable<SheetIndexRevisionModel> revisions, bool preserveSheetOrder = false)
         {
             var matrix = new SheetIndexMatrix();
 
@@ -69,14 +70,25 @@ namespace Synthetic.Modules.SheetIndex.Services
                 matrix.RevisionHeaders.Add(new SheetIndexRevisionHeader(rev.UniqueId, rev.Name, rev.Date, rev.Sequence));
             }
 
-            // 2. Order sheets alphanumerically by SheetNumber
-            var sortedSheets = sheets
-                .OrderBy(s => s.SheetNumber ?? string.Empty, SheetComparer)
-                .ToList();
+            // 2. Order sheets by strategy (schedule sequence vs fallback alphanumeric sorting)
+            List<SheetIndexSheetModel> sortedSheets = preserveSheetOrder
+                ? sheets.ToList()
+                : sheets.OrderBy(s => s.SheetNumber ?? string.Empty, SheetComparer).ToList();
 
-            // 3. Build data rows
+            // 3. Build data rows and inject section headers when SectionGroup changes
+            string? currentSectionGroup = null;
+
             foreach (var sheet in sortedSheets)
             {
+                // Inject section header row when SectionGroup changes
+                if (!string.IsNullOrWhiteSpace(sheet.SectionGroup) &&
+                    !string.Equals(sheet.SectionGroup, currentSectionGroup, StringComparison.OrdinalIgnoreCase))
+                {
+                    var headerCells = matrix.RevisionHeaders.Select(_ => string.Empty).ToList();
+                    matrix.Rows.Add(new SheetIndexRow(sheet.SectionGroup, string.Empty, headerCells, isSectionHeader: true));
+                    currentSectionGroup = sheet.SectionGroup;
+                }
+
                 var rowCells = new List<string>();
                 foreach (var revHeader in matrix.RevisionHeaders)
                 {

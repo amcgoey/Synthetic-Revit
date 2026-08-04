@@ -84,8 +84,69 @@ namespace Synthetic.Modules.SheetIndex.Commands
                     ));
                 }
 
-                // 3. Launch WPF Selection UI
-                var viewModel = new ExportSheetIndexViewModel(sheetModels, revisionModels);
+                // 3. Query ViewSchedule sheet schedules from Revit document
+                var scheduleElements = new FilteredElementCollector(doc)
+                    .OfClass(typeof(ViewSchedule))
+                    .Cast<ViewSchedule>()
+                    .Where(s => !s.IsTemplate && s.Definition != null && s.Definition.CategoryId == new ElementId(BuiltInCategory.OST_Sheets))
+                    .ToList();
+
+                var scheduleModels = new List<SheetIndexScheduleModel>();
+
+                foreach (var schedule in scheduleElements)
+                {
+                    var scheduledSheets = new FilteredElementCollector(doc, schedule.Id)
+                        .OfClass(typeof(ViewSheet))
+                        .Cast<ViewSheet>()
+                        .Where(s => !s.IsPlaceholder)
+                        .ToList();
+
+                    if (scheduledSheets.Count == 0) continue;
+
+                    // Inspect schedule definition for section header grouping fields
+                    string? groupParamName = null;
+                    var sortGroupFields = schedule.Definition.GetSortGroupFields();
+                    foreach (var field in sortGroupFields)
+                    {
+                        if (field.ShowHeader)
+                        {
+                            var schedField = schedule.Definition.GetField(field.FieldId);
+                            groupParamName = schedField?.GetName();
+                            break;
+                        }
+                    }
+
+                    var schedSheetModels = new List<SheetIndexSheetModel>();
+                    foreach (var sheet in scheduledSheets)
+                    {
+                        var revIds = sheet.GetAllRevisionIds()
+                            .Select(id => doc.GetElement(id)?.UniqueId ?? id.ToString())
+                            .Where(id => !string.IsNullOrEmpty(id))
+                            .ToList();
+
+                        string? groupValue = null;
+                        if (!string.IsNullOrEmpty(groupParamName))
+                        {
+                            var param = sheet.LookupParameter(groupParamName);
+                            if (param != null && param.HasValue)
+                            {
+                                groupValue = param.AsString();
+                            }
+                        }
+
+                        schedSheetModels.Add(new SheetIndexSheetModel(
+                            sheet.UniqueId,
+                            sheet.SheetNumber,
+                            sheet.Name,
+                            revIds
+                        ) { SectionGroup = groupValue });
+                    }
+
+                    scheduleModels.Add(new SheetIndexScheduleModel(schedule.UniqueId, schedule.Name, schedSheetModels));
+                }
+
+                // 4. Launch WPF Selection UI
+                var viewModel = new ExportSheetIndexViewModel(sheetModels, revisionModels, scheduleModels);
                 var window = new ExportSheetIndexWindow(viewModel, uiapp.MainWindowHandle);
 
                 bool? dialogResult = window.ShowDialog();
@@ -103,7 +164,7 @@ namespace Synthetic.Modules.SheetIndex.Commands
                     return Result.Succeeded;
                 }
 
-                // 4. Prompt for Save File Path using Revit FileSaveDialog
+                // 5. Prompt for Save File Path using Revit FileSaveDialog
                 string? savePath = null;
                 using (var saveFileDialog = new FileSaveDialog("Excel Files (*.xlsx)|*.xlsx"))
                 {
@@ -122,9 +183,9 @@ namespace Synthetic.Modules.SheetIndex.Commands
                     return Result.Cancelled;
                 }
 
-                // 5. Build 2D Sheet Index Matrix
+                // 6. Build 2D Sheet Index Matrix
                 var matrixBuilder = new SheetIndexMatrixBuilder();
-                var matrix = matrixBuilder.BuildMatrix(selectedSheets, selectedRevisions);
+                var matrix = matrixBuilder.BuildMatrix(selectedSheets, selectedRevisions, preserveSheetOrder: viewModel.PreserveSheetOrder);
 
                 // 6. Export to Excel
                 var exporterService = new SheetIndexExporterService();

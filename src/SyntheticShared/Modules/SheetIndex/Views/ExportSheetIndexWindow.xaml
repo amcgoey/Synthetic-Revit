@@ -32,17 +32,24 @@
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
-                    <TextBlock Grid.Row="0" Text="Sheets" FontSize="14" FontWeight="SemiBold" Foreground="#FFFFFF" Margin="0,0,0,8"/>
+                    <TextBlock Grid.Row="0" Text="Sheets" FontSize="14" FontWeight="SemiBold" Foreground="#FFFFFF" Margin="0,0,0,6"/>
 
-                    <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8">
+                    <StackPanel Grid.Row="1" Margin="0,0,0,8">
+                        <TextBlock Text="Sheet Schedule Source:" FontSize="11" Foreground="#AAAAAA" Margin="0,0,0,3"/>
+                        <ComboBox ItemsSource="{Binding Schedules}" SelectedItem="{Binding SelectedSchedule}" DisplayMemberPath="Name"
+                                  Background="#333337" Foreground="#FFFFFF" BorderBrush="#555555" Height="26"/>
+                    </StackPanel>
+
+                    <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,8">
                         <Button Content="Select All" Command="{Binding SelectAllSheetsCommand}" Padding="8,3" Margin="0,0,5,0" Background="#333337" Foreground="#FFFFFF" BorderBrush="#555555"/>
                         <Button Content="Deselect All" Command="{Binding DeselectAllSheetsCommand}" Padding="8,3" Background="#333337" Foreground="#FFFFFF" BorderBrush="#555555"/>
                     </StackPanel>
 
-                    <ListBox Grid.Row="2" ItemsSource="{Binding Sheets}" Background="#1E1E1E" BorderBrush="#3F3F46">
+                    <ListBox Grid.Row="3" ItemsSource="{Binding Sheets}" Background="#1E1E1E" BorderBrush="#3F3F46">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <CheckBox IsChecked="{Binding IsSelected}" Foreground="#FFFFFF" Margin="2,4">

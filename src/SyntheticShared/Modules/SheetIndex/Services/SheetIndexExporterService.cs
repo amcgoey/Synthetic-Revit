@@ -112,6 +112,7 @@ namespace Synthetic.Modules.SheetIndex.Services
                 // 2 = Revision header centered bold thin border
                 // 3 = Left data cell thin border
                 // 4 = Centered data cell thin border
+                // 5 = Section header bold thin border
                 writer.Write(@"<?xml version=""1.0"" encoding=""UTF-8"" standalone=""yes""?>
 <styleSheet xmlns=""http://schemas.openxmlformats.org/spreadsheetml/2006/main"">
   <fonts count=""2"">
@@ -134,12 +135,13 @@ namespace Synthetic.Modules.SheetIndex.Services
   <cellStyleXfs count=""1"">
     <xf numFmtId=""0"" fontId=""0"" fillId=""0"" borderId=""0""/>
   </cellStyleXfs>
-  <cellXfs count=""5"">
+  <cellXfs count=""6"">
     <xf numFmtId=""0"" fontId=""0"" fillId=""0"" borderId=""0"" xfId=""0""/>
     <xf numFmtId=""0"" fontId=""1"" fillId=""0"" borderId=""1"" xfId=""0""><alignment horizontal=""left"" vertical=""center""/></xf>
     <xf numFmtId=""0"" fontId=""1"" fillId=""0"" borderId=""1"" xfId=""0""><alignment horizontal=""center"" vertical=""center""/></xf>
     <xf numFmtId=""0"" fontId=""0"" fillId=""0"" borderId=""1"" xfId=""0""><alignment horizontal=""left"" vertical=""center""/></xf>
     <xf numFmtId=""0"" fontId=""0"" fillId=""0"" borderId=""1"" xfId=""0""><alignment horizontal=""center"" vertical=""center""/></xf>
+    <xf numFmtId=""0"" fontId=""1"" fillId=""0"" borderId=""1"" xfId=""0""><alignment horizontal=""left"" vertical=""center""/></xf>
   </cellXfs>
 </styleSheet>");
             }
@@ -150,6 +152,7 @@ namespace Synthetic.Modules.SheetIndex.Services
         private const int StyleHeaderCenter = 2;
         private const int StyleDataLeft = 3;
         private const int StyleDataCenter = 4;
+        private const int StyleSectionHeader = 5;
 
         private static void WriteWorksheet(ZipArchive zip, SheetIndexMatrix matrix)
         {
@@ -205,13 +208,28 @@ namespace Synthetic.Modules.SheetIndex.Services
                 {
                     writer.Write($"<row r=\"{rowIndex}\">");
                     colIndex = 1;
-                    writer.Write($"<c r=\"{GetColumnAddress(colIndex++)}{rowIndex}\" t=\"inlineStr\" s=\"{StyleDataLeft}\"><is><t>{EscapeXml(row.SheetNumber)}</t></is></c>");
-                    writer.Write($"<c r=\"{GetColumnAddress(colIndex++)}{rowIndex}\" t=\"inlineStr\" s=\"{StyleDataLeft}\"><is><t>{EscapeXml(row.SheetName)}</t></is></c>");
 
-                    foreach (var cellVal in row.Cells)
+                    if (row.IsSectionHeader)
                     {
-                        writer.Write($"<c r=\"{GetColumnAddress(colIndex++)}{rowIndex}\" t=\"inlineStr\" s=\"{StyleDataCenter}\"><is><t>{EscapeXml(cellVal)}</t></is></c>");
+                        writer.Write($"<c r=\"{GetColumnAddress(colIndex++)}{rowIndex}\" t=\"inlineStr\" s=\"{StyleSectionHeader}\"><is><t>{EscapeXml(row.SheetNumber)}</t></is></c>");
+                        writer.Write($"<c r=\"{GetColumnAddress(colIndex++)}{rowIndex}\" t=\"inlineStr\" s=\"{StyleSectionHeader}\"><is><t></t></is></c>");
+
+                        foreach (var _ in matrix.RevisionHeaders)
+                        {
+                            writer.Write($"<c r=\"{GetColumnAddress(colIndex++)}{rowIndex}\" t=\"inlineStr\" s=\"{StyleSectionHeader}\"><is><t></t></is></c>");
+                        }
                     }
+                    else
+                    {
+                        writer.Write($"<c r=\"{GetColumnAddress(colIndex++)}{rowIndex}\" t=\"inlineStr\" s=\"{StyleDataLeft}\"><is><t>{EscapeXml(row.SheetNumber)}</t></is></c>");
+                        writer.Write($"<c r=\"{GetColumnAddress(colIndex++)}{rowIndex}\" t=\"inlineStr\" s=\"{StyleDataLeft}\"><is><t>{EscapeXml(row.SheetName)}</t></is></c>");
+
+                        foreach (var cellVal in row.Cells)
+                        {
+                            writer.Write($"<c r=\"{GetColumnAddress(colIndex++)}{rowIndex}\" t=\"inlineStr\" s=\"{StyleDataCenter}\"><is><t>{EscapeXml(cellVal)}</t></is></c>");
+                        }
+                    }
+
                     writer.Write("</row>");
                     rowIndex++;
                 }
