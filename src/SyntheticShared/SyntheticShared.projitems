@@ -23,6 +23,21 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\BatchPrint\Commands\PrintBatchMultiDoc.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\Worksets\Commands\ElementsOnWorksetRecord.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\Worksets\Commands\ScopeBoxesMoveToWorkset.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Commands\CmdExportSheetIndex.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Models\SheetIndexSheetModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Models\SheetIndexRevisionModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Models\SheetIndexMatrix.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Services\SheetIndexMatrixBuilder.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Services\SheetIndexExporterService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\ViewModels\SheetItemViewModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\ViewModels\RevisionItemViewModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\ViewModels\ExportSheetIndexViewModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Views\ExportSheetIndexWindow.xaml.cs">
+      <DependentUpon>ExportSheetIndexWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Views\ExportCompletionWindow.xaml.cs">
+      <DependentUpon>ExportCompletionWindow.xaml</DependentUpon>
+    </Compile>
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\Diagnostics\StorageDelete.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ViewManagement\Commands\ViewAutoNumberConfig.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\Worksets\Commands\WorksetStartView.cs" />
@@ -429,6 +444,14 @@
       <SubType>Designer</SubType>
     </Page>
     <Page Include="$(MSBuildThisFileDirectory)Shared\UI\GuardrailPromptWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Views\ExportSheetIndexWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Views\ExportCompletionWindow.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>

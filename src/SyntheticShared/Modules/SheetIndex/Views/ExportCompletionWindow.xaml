@@ -1,0 +1,28 @@
+<Window x:Class="Synthetic.Modules.SheetIndex.Views.ExportCompletionWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Export Complete" Height="220" Width="500"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize" ShowInTaskbar="False"
+        Background="#1E1E1E" Foreground="#FFFFFF">
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,10">
+            <TextBlock Text="✓" FontSize="20" FontWeight="Bold" Foreground="#4EC9B0" Margin="0,0,10,0"/>
+            <TextBlock Text="Sheet Index Export Complete" FontSize="16" FontWeight="Bold" Foreground="#FFFFFF" VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <TextBlock Grid.Row="1" x:Name="TxtFilePath" TextTrimming="CharacterEllipsis" TextWrapping="Wrap" FontSize="12" Foreground="#CCCCCC" Margin="0,5,0,10"/>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="BtnOpenFile" Content="Open File" Click="BtnOpenFile_Click" Width="100" Height="30" Margin="0,0,10,0" Background="#007ACC" Foreground="#FFFFFF" FontWeight="SemiBold" BorderThickness="0"/>
+            <Button x:Name="BtnOpenFolder" Content="Open Folder" Click="BtnOpenFolder_Click" Width="100" Height="30" Margin="0,0,10,0" Background="#3E3E42" Foreground="#FFFFFF" BorderThickness="0"/>
+            <Button x:Name="BtnClose" Content="Close" Click="BtnClose_Click" Width="80" Height="30" Background="#3E3E42" Foreground="#FFFFFF" BorderThickness="0"/>
+        </StackPanel>
+    </Grid>
+</Window>

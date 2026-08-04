@@ -241,6 +241,16 @@
           "tooltip": "Prints a view set in multiple documents",
           "large_image": "print_32.png",
           "image": "print_16.png"
+        },
+        {
+          "type": "PushButton",
+          "name": "Synthetic.Modules.SheetIndex.Commands.CmdExportSheetIndex",
+          "text": " Export Dot\n Sheet Index ",
+          "class": "Synthetic.Modules.SheetIndex.Commands.CmdExportSheetIndex",
+          "tooltip": "Export Dot Sheet Index matrix spreadsheet to Excel.",
+          "large_image": "print_32.png",
+          "image": "print_16.png"
+        }
         }
       ]
     },
