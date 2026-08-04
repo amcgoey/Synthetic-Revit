@@ -886,6 +886,60 @@ namespace SyntheticTests
             }
         }
 
+        [Test]
+        public void SwapElementReferences_SkipsNonGraphicalAndSystemViews_WithoutExceptions()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            Document doc = app.NewProjectDocument(UnitSystem.Metric);
+
+            try
+            {
+                using (var tg = new TransactionGroup(doc, "Non Graphical Views Test"))
+                {
+                    tg.Start();
+
+                    LinePatternElement sourcePattern, targetPattern;
+                    using (var t = new Transaction(doc, "Create Patterns & Views"))
+                    {
+                        t.Start();
+                        sourcePattern = CreateLinePattern(doc, "Pattern NG1");
+                        targetPattern = CreateLinePattern(doc, "Pattern NG2");
+
+                        try
+                        {
+                            Category wallCat = doc.Settings.Categories.get_Item(BuiltInCategory.OST_Walls);
+                            ViewSchedule.CreateSchedule(doc, wallCat.Id);
+                        }
+                        catch { }
+
+                        try
+                        {
+                            ViewDrafting.Create(doc, ElementId.InvalidElementId);
+                        }
+                        catch { }
+
+                        t.Commit();
+                    }
+
+                    RedirectionResultModel result = null!;
+                    Assert.DoesNotThrow(() =>
+                    {
+                        result = AliasSwapEngine.SwapElementReferences(doc, sourcePattern.Id, targetPattern.Id);
+                    });
+
+                    Assert.IsNotNull(result);
+                    Assert.IsEmpty(result.Errors, "Should not produce errors on non-graphical/system views.");
+
+                    tg.RollBack();
+                }
+            }
+            finally
+            {
+                doc.Close(false);
+            }
+        }
+
         #endregion
     }
 }
