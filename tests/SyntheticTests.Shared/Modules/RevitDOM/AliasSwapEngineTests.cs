@@ -980,6 +980,85 @@ namespace SyntheticTests
             }
         }
 
+        [Test]
+        public void SwapElementReferences_MultiTypeBatchedDictionary_RedirectsAllReferencesInSinglePass()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            Document doc = app.NewProjectDocument(UnitSystem.Metric);
+
+            try
+            {
+                using (var tg = new TransactionGroup(doc, "Multi-Type Batched Redirection Test"))
+                {
+                    tg.Start();
+
+                    LinePatternElement sourcePattern1, targetPattern1;
+                    LinePatternElement sourcePattern2, targetPattern2;
+
+                    using (var t = new Transaction(doc, "Create Patterns"))
+                    {
+                        t.Start();
+                        sourcePattern1 = CreateLinePattern(doc, "Pattern Multi 1A");
+                        targetPattern1 = CreateLinePattern(doc, "Pattern Multi 1B");
+                        sourcePattern2 = CreateLinePattern(doc, "Pattern Multi 2A");
+                        targetPattern2 = CreateLinePattern(doc, "Pattern Multi 2B");
+                        t.Commit();
+                    }
+
+                    var map = new Dictionary<ElementId, ElementId>
+                    {
+                        { sourcePattern1.Id, targetPattern1.Id },
+                        { sourcePattern2.Id, targetPattern2.Id }
+                    };
+
+                    RedirectionResultModel result = null!;
+                    Assert.DoesNotThrow(() =>
+                    {
+                        result = AliasSwapEngine.SwapElementReferences(doc, map);
+                    });
+
+                    Assert.IsNotNull(result);
+                    Assert.IsEmpty(result.Errors, "Batched multi-type redirection should execute cleanly without errors.");
+
+                    tg.RollBack();
+                }
+            }
+            finally
+            {
+                doc.Close(false);
+            }
+        }
+
+        [Test]
+        public void SwapElementReferences_MultiTypeBatchedDictionary_HandlesEmptyAndNullMapsSafely()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            Document doc = app.NewProjectDocument(UnitSystem.Metric);
+
+            try
+            {
+                var emptyMap = new Dictionary<ElementId, ElementId>();
+                RedirectionResultModel emptyResult = null!;
+                Assert.DoesNotThrow(() =>
+                {
+                    emptyResult = AliasSwapEngine.SwapElementReferences(doc, emptyMap);
+                });
+                Assert.IsNotNull(emptyResult);
+                Assert.AreEqual(0, emptyResult.InstancesCount);
+
+                Assert.Throws<ArgumentNullException>(() =>
+                {
+                    AliasSwapEngine.SwapElementReferences(doc, (IDictionary<ElementId, ElementId>)null!);
+                });
+            }
+            finally
+            {
+                doc.Close(false);
+            }
+        }
+
         #endregion
     }
 }
