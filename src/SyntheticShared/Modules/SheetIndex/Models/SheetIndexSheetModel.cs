@@ -34,6 +34,11 @@ namespace Synthetic.Modules.SheetIndex.Models
         public string? SectionGroup { get; set; }
 
         /// <summary>
+        /// Gets or sets the optional 0-based print order sequence index when sourced from a print set.
+        /// </summary>
+        public int? PrintOrderIndex { get; set; }
+
+        /// <summary>
         /// Default constructor.
         /// </summary>
         public SheetIndexSheetModel()
@@ -43,11 +48,12 @@ namespace Synthetic.Modules.SheetIndex.Models
         /// <summary>
         /// Initializing constructor.
         /// </summary>
-        public SheetIndexSheetModel(string uniqueId, string sheetNumber, string sheetName, IEnumerable<string>? revisionIds = null)
+        public SheetIndexSheetModel(string uniqueId, string sheetNumber, string sheetName, IEnumerable<string>? revisionIds = null, int? printOrderIndex = null)
         {
             UniqueId = uniqueId;
             SheetNumber = sheetNumber;
             SheetName = sheetName;
+            PrintOrderIndex = printOrderIndex;
             if (revisionIds != null)
             {
                 foreach (var revId in revisionIds)

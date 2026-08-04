@@ -79,16 +79,29 @@ namespace Synthetic.Modules.SheetIndex.Commands
                     .OfClass(typeof(ViewSheetSet))
                     .WhereElementIsNotElementType()
                     .Cast<ViewSheetSet>()
+                    .OrderBy(vs => vs.Name, StringComparer.OrdinalIgnoreCase)
                     .ToList();
 
+                var printSetModels = new List<SheetIndexPrintSetModel>();
                 var printSetSheetMap = new Dictionary<string, List<string>>();
-                foreach (var vss in printSetElements)
+                foreach (var printSet in printSetElements)
                 {
-                    if (!string.IsNullOrEmpty(vss.Name))
+                    if (string.IsNullOrEmpty(printSet.Name)) continue;
+                    var sheetIdsInSet = new List<string>();
+                    foreach (Autodesk.Revit.DB.View v in printSet.Views)
                     {
-                        var ids = vss.Views.Cast<Autodesk.Revit.DB.View>().OfType<ViewSheet>().Select(s => s.UniqueId).ToList();
-                        printSetSheetMap[vss.Name] = ids;
+                        if (v is ViewSheet sheet && !sheet.IsPlaceholder)
+                        {
+                            sheetIdsInSet.Add(sheet.UniqueId);
+                        }
                     }
+
+                    printSetSheetMap[printSet.Name] = sheetIdsInSet;
+                    printSetModels.Add(new SheetIndexPrintSetModel(
+                        printSet.UniqueId,
+                        printSet.Name,
+                        sheetIdsInSet
+                    ));
                 }
 
                 // 3. Query ViewSchedule sheet schedules from Revit document
@@ -190,7 +203,8 @@ namespace Synthetic.Modules.SheetIndex.Commands
                     scheduleSheetMap.Keys,
                     printSetSheetMap,
                     scheduleSheetMap,
-                    scheduleModels);
+                    scheduleModels,
+                    printSetModels);
                 var window = new ExportSheetIndexWindow(viewModel, uiapp.MainWindowHandle);
 
                 bool? dialogResult = window.ShowDialog();
