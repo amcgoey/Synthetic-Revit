@@ -33,7 +33,7 @@ namespace Synthetic.Modules.SheetIndex.Models
         public string SheetName { get; set; } = string.Empty;
 
         /// <summary>
-        /// Cell values corresponding to each revision column. Solid bullet "●" when present, empty string "" when excluded.
+        /// Cell values corresponding to each Issuance Column. Solid bullet "●" when present, empty string "" when excluded.
         /// </summary>
         public List<string> Cells { get; set; } = new List<string>();
 
@@ -63,7 +63,7 @@ namespace Synthetic.Modules.SheetIndex.Models
         public List<string> LeftColumns { get; set; } = new List<string> { "Sheet Number", "Sheet Name" };
 
         /// <summary>
-        /// Revision columns ordered chronologically.
+        /// Issuance Columns ordered chronologically.
         /// </summary>
         public List<SheetIndexRevisionHeader> RevisionHeaders { get; set; } = new List<SheetIndexRevisionHeader>();
 

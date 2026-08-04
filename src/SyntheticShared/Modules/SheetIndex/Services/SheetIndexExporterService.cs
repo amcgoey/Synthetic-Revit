@@ -145,6 +145,12 @@ namespace Synthetic.Modules.SheetIndex.Services
             }
         }
 
+        private const int StyleNormalLeft = 0;
+        private const int StyleHeaderLeft = 1;
+        private const int StyleHeaderCenter = 2;
+        private const int StyleDataLeft = 3;
+        private const int StyleDataCenter = 4;
+
         private static void WriteWorksheet(ZipArchive zip, SheetIndexMatrix matrix)
         {
             var entry = zip.CreateEntry("xl/worksheets/sheet1.xml");
@@ -171,11 +177,11 @@ namespace Synthetic.Modules.SheetIndex.Services
                 int colIndex = 1;
                 foreach (var leftCol in matrix.LeftColumns)
                 {
-                    writer.Write($"<c r=\"{GetColumnAddress(colIndex++)}{rowIndex}\" t=\"inlineStr\" s=\"1\"><is><t>{EscapeXml(leftCol)}</t></is></c>");
+                    writer.Write($"<c r=\"{GetColumnAddress(colIndex++)}{rowIndex}\" t=\"inlineStr\" s=\"{StyleHeaderLeft}\"><is><t>{EscapeXml(leftCol)}</t></is></c>");
                 }
                 foreach (var revHeader in matrix.RevisionHeaders)
                 {
-                    writer.Write($"<c r=\"{GetColumnAddress(colIndex++)}{rowIndex}\" t=\"inlineStr\" s=\"2\"><is><t>{EscapeXml(revHeader.Name)}</t></is></c>");
+                    writer.Write($"<c r=\"{GetColumnAddress(colIndex++)}{rowIndex}\" t=\"inlineStr\" s=\"{StyleHeaderCenter}\"><is><t>{EscapeXml(revHeader.Name)}</t></is></c>");
                 }
                 writer.Write("</row>");
                 rowIndex++;
@@ -185,11 +191,11 @@ namespace Synthetic.Modules.SheetIndex.Services
                 colIndex = 1;
                 foreach (var leftCol in matrix.LeftColumns)
                 {
-                    writer.Write($"<c r=\"{GetColumnAddress(colIndex++)}{rowIndex}\" t=\"inlineStr\" s=\"1\"><is><t></t></is></c>");
+                    writer.Write($"<c r=\"{GetColumnAddress(colIndex++)}{rowIndex}\" t=\"inlineStr\" s=\"{StyleHeaderLeft}\"><is><t></t></is></c>");
                 }
                 foreach (var revHeader in matrix.RevisionHeaders)
                 {
-                    writer.Write($"<c r=\"{GetColumnAddress(colIndex++)}{rowIndex}\" t=\"inlineStr\" s=\"2\"><is><t>{EscapeXml(revHeader.Date)}</t></is></c>");
+                    writer.Write($"<c r=\"{GetColumnAddress(colIndex++)}{rowIndex}\" t=\"inlineStr\" s=\"{StyleHeaderCenter}\"><is><t>{EscapeXml(revHeader.Date)}</t></is></c>");
                 }
                 writer.Write("</row>");
                 rowIndex++;
@@ -199,12 +205,12 @@ namespace Synthetic.Modules.SheetIndex.Services
                 {
                     writer.Write($"<row r=\"{rowIndex}\">");
                     colIndex = 1;
-                    writer.Write($"<c r=\"{GetColumnAddress(colIndex++)}{rowIndex}\" t=\"inlineStr\" s=\"3\"><is><t>{EscapeXml(row.SheetNumber)}</t></is></c>");
-                    writer.Write($"<c r=\"{GetColumnAddress(colIndex++)}{rowIndex}\" t=\"inlineStr\" s=\"3\"><is><t>{EscapeXml(row.SheetName)}</t></is></c>");
+                    writer.Write($"<c r=\"{GetColumnAddress(colIndex++)}{rowIndex}\" t=\"inlineStr\" s=\"{StyleDataLeft}\"><is><t>{EscapeXml(row.SheetNumber)}</t></is></c>");
+                    writer.Write($"<c r=\"{GetColumnAddress(colIndex++)}{rowIndex}\" t=\"inlineStr\" s=\"{StyleDataLeft}\"><is><t>{EscapeXml(row.SheetName)}</t></is></c>");
 
                     foreach (var cellVal in row.Cells)
                     {
-                        writer.Write($"<c r=\"{GetColumnAddress(colIndex++)}{rowIndex}\" t=\"inlineStr\" s=\"4\"><is><t>{EscapeXml(cellVal)}</t></is></c>");
+                        writer.Write($"<c r=\"{GetColumnAddress(colIndex++)}{rowIndex}\" t=\"inlineStr\" s=\"{StyleDataCenter}\"><is><t>{EscapeXml(cellVal)}</t></is></c>");
                     }
                     writer.Write("</row>");
                     rowIndex++;

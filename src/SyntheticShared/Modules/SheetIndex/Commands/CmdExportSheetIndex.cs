@@ -48,7 +48,8 @@ namespace Synthetic.Modules.SheetIndex.Commands
                 foreach (var sheet in sheetElements)
                 {
                     var revIds = sheet.GetAllRevisionIds()
-                        .Select(id => id.ToString())
+                        .Select(id => doc.GetElement(id)?.UniqueId ?? id.ToString())
+                        .Where(id => !string.IsNullOrEmpty(id))
                         .ToList();
 
                     sheetModels.Add(new SheetIndexSheetModel(
