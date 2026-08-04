@@ -357,11 +357,14 @@ namespace Synthetic.RevitDOM.Operations
                     .Cast<RevitView>()
                     .ToList();
 
-
-
                 foreach (RevitView view in views)
                 {
                     if (view == null || !view.IsValidObject) continue;
+
+                    if (!IsAllowedGraphicalViewType(view.ViewType))
+                    {
+                        continue;
+                    }
 
                     bool supportsOverrides = false;
                     try
@@ -373,53 +376,52 @@ namespace Synthetic.RevitDOM.Operations
                         // Some view types throw on AreGraphicsOverridesAllowed
                     }
 
-                    if (supportsOverrides)
-                    {
-                        foreach (Category cat in allCats)
-                        {
-                            if (cat == null) continue;
-                            try
-                            {
-                                OverrideGraphicSettings settings = view.GetCategoryOverrides(cat.Id);
-                                if (SwapPatternOverrides(settings, oldId, newId, result, PatternCheckers))
-                                {
-                                    view.SetCategoryOverrides(cat.Id, settings);
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                result.Warnings.Add($"Error applying view graphic override on view '{view?.Name ?? "Unknown View"}' for category '{cat?.Name ?? "Unknown Category"}': {ex.Message}");
-                            }
-                        }
+                    if (!supportsOverrides) continue;
 
-                        // Filter overrides
+                    foreach (Category cat in allCats)
+                    {
+                        if (cat == null) continue;
                         try
                         {
-                            ICollection<ElementId> filterIds = view.GetFilters();
-                            if (filterIds != null && filterIds.Count > 0)
+                            OverrideGraphicSettings settings = view.GetCategoryOverrides(cat.Id);
+                            if (SwapPatternOverrides(settings, oldId, newId, result, PatternCheckers))
                             {
-                                foreach (ElementId filterId in filterIds)
+                                view.SetCategoryOverrides(cat.Id, settings);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            result.Warnings.Add($"Error applying view graphic override on view '{view?.Name ?? "Unknown View"}' for category '{cat?.Name ?? "Unknown Category"}': {ex.Message}");
+                        }
+                    }
+
+                    // Filter overrides
+                    try
+                    {
+                        ICollection<ElementId> filterIds = view.GetFilters();
+                        if (filterIds != null && filterIds.Count > 0)
+                        {
+                            foreach (ElementId filterId in filterIds)
+                            {
+                                if (filterId == null || filterId == ElementId.InvalidElementId) continue;
+                                try
                                 {
-                                    if (filterId == null || filterId == ElementId.InvalidElementId) continue;
-                                    try
+                                    OverrideGraphicSettings settings = view.GetFilterOverrides(filterId);
+                                    if (SwapPatternOverrides(settings, oldId, newId, result, PatternCheckers))
                                     {
-                                        OverrideGraphicSettings settings = view.GetFilterOverrides(filterId);
-                                        if (SwapPatternOverrides(settings, oldId, newId, result, PatternCheckers))
-                                        {
-                                            view.SetFilterOverrides(filterId, settings);
-                                        }
+                                        view.SetFilterOverrides(filterId, settings);
                                     }
-                                    catch (Exception ex)
-                                    {
-                                        result.Warnings.Add($"Error applying view filter graphic override on view '{view.Name}' for filter '{filterId}': {ex.Message}");
-                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    result.Warnings.Add($"Error applying view filter graphic override on view '{view.Name}' for filter '{filterId}': {ex.Message}");
                                 }
                             }
                         }
-                        catch
-                        {
-                            // Benign for view types that do not support filter retrieval
-                        }
+                    }
+                    catch
+                    {
+                        // Benign for view types that do not support filter retrieval
                     }
 
                     // 4b. Element-Level Graphic Overrides
@@ -459,6 +461,26 @@ namespace Synthetic.RevitDOM.Operations
             catch (Exception ex)
             {
                 result.Errors.Add($"Error swapping view overrides: {ex.Message}");
+            }
+        }
+
+        private static bool IsAllowedGraphicalViewType(ViewType viewType)
+        {
+            switch (viewType)
+            {
+                case ViewType.FloorPlan:
+                case ViewType.CeilingPlan:
+                case ViewType.Elevation:
+                case ViewType.Section:
+                case ViewType.ThreeD:
+                case ViewType.EngineeringPlan:
+                case ViewType.AreaPlan:
+                case ViewType.DraftingView:
+                case ViewType.Detail:
+                case ViewType.Rendering:
+                    return true;
+                default:
+                    return false;
             }
         }
 
