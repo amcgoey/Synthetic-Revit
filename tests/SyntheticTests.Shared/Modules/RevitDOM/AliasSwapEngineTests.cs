@@ -940,6 +940,46 @@ namespace SyntheticTests
             }
         }
 
+        [Test]
+        public void SwapElementReferences_ElementGraphicOverrides_SafelyHandlesUnsupportedOrCorruptElements()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            Document doc = app.NewProjectDocument(UnitSystem.Metric);
+
+            try
+            {
+                using (var tg = new TransactionGroup(doc, "Element Overrides Exception Safety Test"))
+                {
+                    tg.Start();
+
+                    LinePatternElement sourcePattern, targetPattern;
+                    using (var t = new Transaction(doc, "Create Patterns"))
+                    {
+                        t.Start();
+                        sourcePattern = CreateLinePattern(doc, "Pattern E1");
+                        targetPattern = CreateLinePattern(doc, "Pattern E2");
+                        t.Commit();
+                    }
+
+                    RedirectionResultModel result = null!;
+                    Assert.DoesNotThrow(() =>
+                    {
+                        result = AliasSwapEngine.SwapElementReferences(doc, sourcePattern.Id, targetPattern.Id);
+                    });
+
+                    Assert.IsNotNull(result);
+                    Assert.IsEmpty(result.Errors, "Element-level override collection should complete without fatal errors.");
+
+                    tg.RollBack();
+                }
+            }
+            finally
+            {
+                doc.Close(false);
+            }
+        }
+
         #endregion
     }
 }
