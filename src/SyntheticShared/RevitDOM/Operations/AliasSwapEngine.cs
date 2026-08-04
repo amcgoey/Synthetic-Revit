@@ -427,33 +427,43 @@ namespace Synthetic.RevitDOM.Operations
                     // 4b. Element-Level Graphic Overrides
                     if (!view.IsTemplate)
                     {
+                        string viewName = "Unknown View";
                         try
                         {
-                            var elementsInView = new FilteredElementCollector(doc, view.Id)
-                                .WhereElementIsNotElementType()
-                                .ToElements();
+                            viewName = view.Name;
+                        }
+                        catch { }
 
-                            foreach (Element elem in elementsInView)
+                        try
+                        {
+                            ICollection<ElementId> elementIdsInView = new FilteredElementCollector(doc, view.Id)
+                                .WhereElementIsNotElementType()
+                                .ToElementIds();
+
+                            foreach (ElementId elemId in elementIdsInView)
                             {
-                                if (elem == null || !elem.IsValidObject) continue;
+                                if (elemId == null || elemId == ElementId.InvalidElementId) continue;
 
                                 try
                                 {
-                                    OverrideGraphicSettings settings = view.GetElementOverrides(elem.Id);
+                                    Element elem = doc.GetElement(elemId);
+                                    if (elem == null || !elem.IsValidObject) continue;
+
+                                    OverrideGraphicSettings settings = view.GetElementOverrides(elemId);
                                     if (SwapPatternOverrides(settings, oldId, newId, result, PatternCheckers))
                                     {
-                                        view.SetElementOverrides(elem.Id, settings);
+                                        view.SetElementOverrides(elemId, settings);
                                     }
                                 }
                                 catch (Exception ex)
                                 {
-                                    result.Warnings.Add($"Error applying element graphic override on view '{view.Name}' for element '{elem.Id}': {ex.Message}");
+                                    result.Warnings.Add($"Error applying element graphic override on view '{viewName}' for element '{elemId}': {ex.Message}");
                                 }
                             }
                         }
                         catch (Exception ex)
                         {
-                            result.Warnings.Add($"Error retrieving elements in view '{view.Name}': {ex.Message}");
+                            result.Warnings.Add($"Error retrieving elements in view '{viewName}': {ex.Message}");
                         }
                     }
                 }
