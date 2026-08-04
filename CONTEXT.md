@@ -87,8 +87,41 @@ _Avoid_: Identity check, POCO comparison.
 The Revit-connected collector service responsible for querying the active Revit document via FilteredElementCollector to harvest duplicate candidate elements and convert them into pure ElementModel POCOs for headless duplicate analysis.
 _Avoid_: Revit merge scanner, document merge collector.
 
-**Parameter Definition Spec**:
-A cohesive value object encapsulating the parameter group and parameter spec/type definitions, providing unified metadata for parameter injection and schema validation across Revit versions.
-_Avoid_: Parameter group/type tuple, paramGroup object.
+
+**Sheet Index Exporter**:
+The command and service responsible for harvesting Revit sheets and revision history, converting issuance data into matrix columns, and exporting a formatted Excel spreadsheet.
+_Avoid_: Sheet revision exporter, revision matrix generator
+
+**Sheet Selection Source**:
+The mechanism (Print Set, Sheet Schedule, or manual checkbox selection) used by the user to select which Revit sheets are harvested for the sheet index.
+_Avoid_: Sheet filter mode, sheet picker source
+
+**Issuance Column**:
+A vertical column in the exported Sheet Index Excel matrix corresponding to a selected project Revision, displaying issue metadata in header rows and sheet revision marks in sheet data rows.
+_Avoid_: Issue column, revision column
+
+**Issuance Indicator**:
+The character symbol placed in an Issuance Column cell to indicate that a sheet was included in that specific Revision. In this project, it is the bullet symbol `"●"`.
+_Avoid_: Revision mark, checkmark, issue symbol
+
+**Sheet Index Ordering Strategy**:
+The tiered strategy for determining row sequence and grouping in the exported sheet index: (1) ViewSchedule layout & grouping, (2) native ViewSheetSet print order (if supported), and (3) alphanumeric Sheet Number fallback.
+_Avoid_: Sheet sort mode, row ordering rule
+
+**Export Completion Dialog**:
+The post-export user interface prompt that offers buttons to open the newly generated Excel file or open its containing folder in Windows File Explorer.
+_Avoid_: Save confirmation modal, completion popup
+
+**Dot Sheet Index**:
+The exported sheet index spreadsheet containing sheet metadata and revision issuance columns marked with bullet indicators ("●"), generated to match standard project matrix layouts.
+_Avoid_: Dot matrix index, sheet revision table
+
+
+
+
+
+
+
+
 
 
