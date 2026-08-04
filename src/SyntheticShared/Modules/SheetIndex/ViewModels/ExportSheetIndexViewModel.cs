@@ -11,26 +11,59 @@ using Synthetic.Shared.UI;
 
 namespace Synthetic.Modules.SheetIndex.ViewModels
 {
+    public class SheetSelectionSourceOption
+    {
+        public SheetSelectionSourceType SourceType { get; set; }
+        public string DisplayName { get; set; } = string.Empty;
+
+        public SheetSelectionSourceOption(SheetSelectionSourceType sourceType, string displayName)
+        {
+            SourceType = sourceType;
+            DisplayName = displayName;
+        }
+
+        public override string ToString() => DisplayName;
+    }
+
     public class ExportSheetIndexViewModel : INotifyPropertyChanged
     {
         private readonly List<SheetIndexSheetModel> _allSheets = new List<SheetIndexSheetModel>();
         private readonly List<SheetIndexPrintSetModel> _allPrintSets = new List<SheetIndexPrintSetModel>();
 
-        public ObservableCollection<string> SourceTypes { get; } = new ObservableCollection<string> { "All Sheets", "Print Set" };
+        public ObservableCollection<SheetSelectionSourceOption> SourceOptions { get; } = new ObservableCollection<SheetSelectionSourceOption>
+        {
+            new SheetSelectionSourceOption(SheetSelectionSourceType.AllSheets, "All Sheets"),
+            new SheetSelectionSourceOption(SheetSelectionSourceType.PrintSet, "Print Set")
+        };
+
         public ObservableCollection<SheetIndexPrintSetModel> PrintSets { get; } = new ObservableCollection<SheetIndexPrintSetModel>();
 
-        private string _selectedSourceType = "All Sheets";
-        public string SelectedSourceType
+        private SheetSelectionSourceOption _selectedSourceOption;
+        public SheetSelectionSourceOption SelectedSourceOption
         {
-            get => _selectedSourceType;
+            get => _selectedSourceOption;
             set
             {
-                if (_selectedSourceType != value)
+                if (_selectedSourceOption != value && value != null)
                 {
-                    _selectedSourceType = value;
+                    _selectedSourceOption = value;
                     OnPropertyChanged();
                     OnPropertyChanged(nameof(IsPrintSetSourceSelected));
-                    ApplySheetFilter();
+                    OnPropertyChanged(nameof(SelectedSourceType));
+                    ApplySheetSelectionSource();
+                }
+            }
+        }
+
+        public SheetSelectionSourceType SelectedSourceType
+        {
+            get => SelectedSourceOption?.SourceType ?? SheetSelectionSourceType.AllSheets;
+            set
+            {
+                var option = SourceOptions.FirstOrDefault(o => o.SourceType == value);
+                if (option != null)
+                {
+                    SelectedSourceOption = option;
                 }
             }
         }
@@ -47,13 +80,13 @@ namespace Synthetic.Modules.SheetIndex.ViewModels
                     OnPropertyChanged();
                     if (IsPrintSetSourceSelected)
                     {
-                        ApplySheetFilter();
+                        ApplySheetSelectionSource();
                     }
                 }
             }
         }
 
-        public bool IsPrintSetSourceSelected => string.Equals(SelectedSourceType, "Print Set", StringComparison.OrdinalIgnoreCase);
+        public bool IsPrintSetSourceSelected => SelectedSourceType == SheetSelectionSourceType.PrintSet;
 
         public ObservableCollection<SheetItemViewModel> Sheets { get; } = new ObservableCollection<SheetItemViewModel>();
         public ObservableCollection<RevisionItemViewModel> Revisions { get; } = new ObservableCollection<RevisionItemViewModel>();
@@ -71,6 +104,7 @@ namespace Synthetic.Modules.SheetIndex.ViewModels
 
         public ExportSheetIndexViewModel()
         {
+            _selectedSourceOption = SourceOptions[0];
             SelectAllSheetsCommand = new RelayCommand(_ => SetSheetsSelected(true));
             DeselectAllSheetsCommand = new RelayCommand(_ => SetSheetsSelected(false));
             SelectAllRevisionsCommand = new RelayCommand(_ => SetRevisionsSelected(true));
@@ -118,10 +152,10 @@ namespace Synthetic.Modules.SheetIndex.ViewModels
                 _selectedPrintSet = _allPrintSets[0];
             }
 
-            ApplySheetFilter();
+            ApplySheetSelectionSource();
         }
 
-        public void ApplySheetFilter()
+        public void ApplySheetSelectionSource()
         {
             Sheets.Clear();
 

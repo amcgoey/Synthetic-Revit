@@ -50,7 +50,7 @@
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="Source:" VerticalAlignment="Center" Foreground="#FFFFFF" FontWeight="SemiBold" Margin="0,0,8,0"/>
-                        <ComboBox Grid.Column="1" ItemsSource="{Binding SourceTypes}" SelectedItem="{Binding SelectedSourceType}" Background="#333337" Foreground="#FFFFFF" BorderBrush="#555555" Height="26" VerticalContentAlignment="Center"/>
+                        <ComboBox Grid.Column="1" ItemsSource="{Binding SourceOptions}" SelectedItem="{Binding SelectedSourceOption}" DisplayMemberPath="DisplayName" Background="#333337" Foreground="#FFFFFF" BorderBrush="#555555" Height="26" VerticalContentAlignment="Center"/>
                     </Grid>
 
                     <!-- Print Set Dropdown (Visible when Print Set source selected) -->

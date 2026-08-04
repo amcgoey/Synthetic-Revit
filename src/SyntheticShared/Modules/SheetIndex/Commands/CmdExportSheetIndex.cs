@@ -94,19 +94,23 @@ namespace Synthetic.Modules.SheetIndex.Commands
                 var printSetModels = new List<SheetIndexPrintSetModel>();
                 foreach (var printSet in printSetElements)
                 {
-                    var sheetIdsInSet = new List<string>();
+                    var sheetsInSet = new List<ViewSheet>();
                     foreach (Autodesk.Revit.DB.View v in printSet.Views)
                     {
                         if (v is ViewSheet sheet && !sheet.IsPlaceholder)
                         {
-                            sheetIdsInSet.Add(sheet.UniqueId);
+                            sheetsInSet.Add(sheet);
                         }
                     }
+
+                    var orderedSheetIds = sheetsInSet
+                        .Select(s => s.UniqueId)
+                        .ToList();
 
                     printSetModels.Add(new SheetIndexPrintSetModel(
                         printSet.UniqueId,
                         printSet.Name,
-                        sheetIdsInSet
+                        orderedSheetIds
                     ));
                 }
 
