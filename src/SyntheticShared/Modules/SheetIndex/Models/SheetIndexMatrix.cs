@@ -13,6 +13,22 @@ namespace Synthetic.Modules.SheetIndex.Models
         public string Date { get; set; } = string.Empty;
         public int Sequence { get; set; }
 
+        public string DisplayName
+        {
+            get
+            {
+                if (!string.IsNullOrWhiteSpace(Name) && !string.IsNullOrWhiteSpace(Date))
+                {
+                    return $"{Name} - {Date}";
+                }
+                if (!string.IsNullOrWhiteSpace(Name))
+                {
+                    return Name;
+                }
+                return Date ?? string.Empty;
+            }
+        }
+
         public SheetIndexRevisionHeader() { }
 
         public SheetIndexRevisionHeader(string uniqueId, string name, string date, int sequence)

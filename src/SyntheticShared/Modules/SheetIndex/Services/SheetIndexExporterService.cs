@@ -175,7 +175,7 @@ namespace Synthetic.Modules.SheetIndex.Services
 
                 int rowIndex = 1;
 
-                // Row 1: Left column names & Revision Names
+                // Row 1: Left column names & Combined Revision Headers ("Revision Name - Revision Date")
                 writer.Write($"<row r=\"{rowIndex}\">");
                 int colIndex = 1;
                 foreach (var leftCol in matrix.LeftColumns)
@@ -184,21 +184,7 @@ namespace Synthetic.Modules.SheetIndex.Services
                 }
                 foreach (var revHeader in matrix.RevisionHeaders)
                 {
-                    writer.Write($"<c r=\"{GetColumnAddress(colIndex++)}{rowIndex}\" t=\"inlineStr\" s=\"{StyleHeaderCenter}\"><is><t>{EscapeXml(revHeader.Name)}</t></is></c>");
-                }
-                writer.Write("</row>");
-                rowIndex++;
-
-                // Row 2: Revision Dates under revision headers (left cells blank)
-                writer.Write($"<row r=\"{rowIndex}\">");
-                colIndex = 1;
-                foreach (var leftCol in matrix.LeftColumns)
-                {
-                    writer.Write($"<c r=\"{GetColumnAddress(colIndex++)}{rowIndex}\" t=\"inlineStr\" s=\"{StyleHeaderLeft}\"><is><t></t></is></c>");
-                }
-                foreach (var revHeader in matrix.RevisionHeaders)
-                {
-                    writer.Write($"<c r=\"{GetColumnAddress(colIndex++)}{rowIndex}\" t=\"inlineStr\" s=\"{StyleHeaderCenter}\"><is><t>{EscapeXml(revHeader.Date)}</t></is></c>");
+                    writer.Write($"<c r=\"{GetColumnAddress(colIndex++)}{rowIndex}\" t=\"inlineStr\" s=\"{StyleHeaderCenter}\"><is><t>{EscapeXml(revHeader.DisplayName)}</t></is></c>");
                 }
                 writer.Write("</row>");
                 rowIndex++;

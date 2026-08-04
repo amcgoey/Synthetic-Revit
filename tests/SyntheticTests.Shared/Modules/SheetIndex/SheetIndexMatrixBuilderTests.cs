@@ -35,8 +35,11 @@ namespace SyntheticTests.Shared.Modules.SheetIndex
             // Assert
             Assert.AreEqual(3, matrix.RevisionHeaders.Count);
             Assert.AreEqual("rev-1", matrix.RevisionHeaders[0].UniqueId);
+            Assert.AreEqual("Issue 1 - 2026-01-01", matrix.RevisionHeaders[0].DisplayName);
             Assert.AreEqual("rev-2", matrix.RevisionHeaders[1].UniqueId);
+            Assert.AreEqual("Issue 2 - 2026-02-01", matrix.RevisionHeaders[1].DisplayName);
             Assert.AreEqual("rev-3", matrix.RevisionHeaders[2].UniqueId);
+            Assert.AreEqual("Issue 3 - 2026-03-01", matrix.RevisionHeaders[2].DisplayName);
         }
 
         [Test]
