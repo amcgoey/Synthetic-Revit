@@ -125,7 +125,7 @@ namespace SyntheticTests.Logic.Modules.MergeDuplicates
 
             bool isSystem = RevitMergeDataCollector.IsSystemElement(wallType);
             Assert.IsTrue(isSystem, "WallType element is correctly classified as a system element.");
-            Assert.IsFalse(!isSystem && wallType is Family, "System element guard correctly prevents EditFamily and parameter injection execution.");
+            Assert.IsFalse(wallType is Family, "WallType is a system element and not a loadable Family.");
         }
 
         [Test]

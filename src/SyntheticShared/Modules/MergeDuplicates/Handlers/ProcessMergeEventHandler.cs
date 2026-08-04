@@ -330,7 +330,7 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                                                     {
                                                         duplicatedType = targetTypeElement.Duplicate(fallbackName);
                                                     }
-                                                    catch (Exception)
+                                                    catch (Exception fallbackException)
                                                     {
                                                         int suffixCounter = 1;
                                                         while (duplicatedType == null && suffixCounter <= 10)
@@ -339,7 +339,7 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                                                             {
                                                                 duplicatedType = targetTypeElement.Duplicate($"{targetName}{MigratedSuffix}_{suffixCounter}");
                                                             }
-                                                            catch
+                                                            catch (Exception suffixException)
                                                             {
                                                                 suffixCounter++;
                                                             }

@@ -108,23 +108,24 @@ namespace Synthetic.Modules.MergeDuplicates.Services
 
             try
             {
-                FilteredElementCollector typeCollector = new FilteredElementCollector(doc)
-                    .OfClass(targetTypeElement.GetType());
-                if (targetTypeElement.Category != null)
+                using (var typeCollector = new FilteredElementCollector(doc).OfClass(targetTypeElement.GetType()))
                 {
-                    typeCollector.OfCategoryId(targetTypeElement.Category.Id);
-                }
-                foreach (ElementType existingType in typeCollector.Cast<ElementType>())
-                {
-                    if (existingType.Name.Equals(targetName, StringComparison.OrdinalIgnoreCase))
+                    if (targetTypeElement.Category != null)
                     {
-                        return existingType;
+                        typeCollector.OfCategoryId(targetTypeElement.Category.Id);
+                    }
+                    foreach (ElementType existingType in typeCollector.Cast<ElementType>())
+                    {
+                        if (existingType.Name.Equals(targetName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return existingType;
+                        }
                     }
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // Fall back cleanly if collector query fails
+                System.Diagnostics.Debug.WriteLine($"[FindExistingElementType] Error querying element types: {ex.Message}");
             }
             return null;
         }
