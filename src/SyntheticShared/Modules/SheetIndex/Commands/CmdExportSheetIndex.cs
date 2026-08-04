@@ -44,8 +44,13 @@ namespace Synthetic.Modules.SheetIndex.Commands
                     return Result.Succeeded;
                 }
 
+                var sheetComparer = new AlphanumericComparer();
+                var sortedSheetElements = sheetElements
+                    .OrderBy(s => s.SheetNumber ?? string.Empty, sheetComparer)
+                    .ToList();
+
                 var sheetModels = new List<SheetIndexSheetModel>();
-                foreach (var sheet in sheetElements)
+                foreach (var sheet in sortedSheetElements)
                 {
                     sheetModels.Add(CreateSheetModel(sheet, doc, null));
                 }
@@ -87,14 +92,20 @@ namespace Synthetic.Modules.SheetIndex.Commands
                 foreach (var printSet in printSetElements)
                 {
                     if (string.IsNullOrEmpty(printSet.Name)) continue;
-                    var sheetIdsInSet = new List<string>();
+                    var sheetsInSet = new List<ViewSheet>();
                     foreach (Autodesk.Revit.DB.View v in printSet.Views)
                     {
                         if (v is ViewSheet sheet && !sheet.IsPlaceholder)
                         {
-                            sheetIdsInSet.Add(sheet.UniqueId);
+                            sheetsInSet.Add(sheet);
                         }
                     }
+
+                    sheetsInSet = sheetsInSet
+                        .OrderBy(s => s.SheetNumber ?? string.Empty, sheetComparer)
+                        .ToList();
+
+                    var sheetIdsInSet = sheetsInSet.Select(s => s.UniqueId).ToList();
 
                     printSetSheetMap[printSet.Name] = sheetIdsInSet;
                     printSetModels.Add(new SheetIndexPrintSetModel(

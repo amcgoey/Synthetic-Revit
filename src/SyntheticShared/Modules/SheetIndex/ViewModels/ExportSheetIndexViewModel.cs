@@ -359,7 +359,7 @@ namespace Synthetic.Modules.SheetIndex.ViewModels
                     }
                 }
 
-                PopulateSheets(orderedSheets, preserveOrder: false);
+                PopulateSheets(orderedSheets, preserveOrder: true);
             }
             else
             {
