@@ -826,7 +826,14 @@ namespace Autodesk.Revit.DB
         public double Elevation { get; set; }
     }
     public class TextNoteType : ElementType { }
-    public class FamilySymbol : ElementType { }
+    public class ViewFamilyType : ElementType { }
+    public class ElevationMarker : Element { }
+    public class GroupType : ElementType { }
+    public class AssemblyType : ElementType { }
+    public class FamilySymbol : ElementType
+    {
+        public Family? Family { get; set; }
+    }
 
     public enum BuiltInCategory
     {
@@ -855,6 +862,7 @@ namespace Autodesk.Revit.DB
     public class Family : Element
     {
         public bool IsEditable { get; set; } = true;
+        public bool IsInPlace { get; set; } = false;
         public Category? FamilyCategory { get; set; }
         public WorksetId WorksetId { get; set; } = WorksetId.InvalidWorksetId;
         public Document? MockFamilyDocument { get; set; }

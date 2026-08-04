@@ -17,6 +17,8 @@ using Synthetic.Modules.MergeDuplicates.ViewModels;
 using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Shared.RevitAPI;
+using Synthetic.Modules.MergeDuplicates.Services;
+
 namespace Synthetic.Modules.MergeDuplicates.Handlers
 {
     /// <summary>
@@ -201,8 +203,8 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                             Element primElement = doc.GetElement(primaryItem.RevitElementId.ToElementId());
                             if (primElement != null)
                             {
-                                // 1. Schema Parameter Injection
-                                if (primElement is Family primFamily)
+                                // 1. Schema Parameter Injection (bypassed for system elements and non-loadable families)
+                                if (!RevitMergeDataCollector.IsSystemElement(primElement) && primElement is Family primFamily)
                                 {
                                     var parametersToInject = new List<string>();
                                     foreach (var mapping in cluster.TypeMappings)
@@ -701,6 +703,3 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
         }
     }
 }
-
-
-

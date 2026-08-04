@@ -19,6 +19,28 @@ namespace Synthetic.Modules.MergeDuplicates.Services
     public static class RevitMergeDataCollector
     {
         /// <summary>
+        /// Classifies whether a Revit element is a system element or non-loadable type 
+        /// (e.g. WallType, ViewFamilyType, ElevationMarker, GroupType, AssemblyType, or non-editable/in-place Family).
+        /// Loadable editable families return false; system types and non-editable families return true.
+        /// </summary>
+        public static bool IsSystemElement(Element? element)
+        {
+            if (element == null) return true;
+
+            if (element is Family family)
+            {
+                return family.IsInPlace || !family.IsEditable;
+            }
+
+            if (element is FamilySymbol familySymbol)
+            {
+                return familySymbol.Family == null || familySymbol.Family.IsInPlace || !familySymbol.Family.IsEditable;
+            }
+
+            return true;
+        }
+
+        /// <summary>
         /// Gets a string representation of a Revit Parameter's storage type and value.
         /// </summary>
         public static string GetParameterValueString(Parameter parameter, Document? doc = null)
@@ -444,5 +466,3 @@ namespace Synthetic.Modules.MergeDuplicates.Services
         }
     }
 }
-
-
