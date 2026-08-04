@@ -117,12 +117,12 @@ namespace Synthetic.Modules.SheetIndex.ViewModels
             }
         }
 
-        public string SelectedSourceType
+        public SheetSelectionSourceType SelectedSourceType
         {
-            get => SelectedSourceMode == SheetSelectionSourceMode.ViewSheetSet ? "Print Set" : "All Sheets";
+            get => SelectedSourceMode == SheetSelectionSourceMode.ViewSheetSet ? SheetSelectionSourceType.PrintSet : SheetSelectionSourceType.AllSheets;
             set
             {
-                if (value == "Print Set")
+                if (value == SheetSelectionSourceType.PrintSet)
                 {
                     SelectedSourceMode = SheetSelectionSourceMode.ViewSheetSet;
                 }
