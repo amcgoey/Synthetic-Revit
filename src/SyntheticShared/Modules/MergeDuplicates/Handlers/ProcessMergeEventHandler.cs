@@ -282,7 +282,7 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                                     if (mapping.RecommendedAction == RecommendedAction.Exclude) continue;
                                     if (mapping.SourceType == null || mapping.TargetType == null) continue;
                                     ElementId resolvedTargetTypeId = mapping.TargetType.RevitTypeId.ToElementId();
-                                    if (mapping.RecommendedAction == RecommendedAction.Migrate && primElement is Family)
+                                    if (mapping.RecommendedAction == RecommendedAction.Migrate)
                                     {
                                         ElementType? targetTypeElement = doc.GetElement(mapping.TargetType.RevitTypeId.ToElementId()) as ElementType;
                                         if (targetTypeElement != null)
@@ -293,7 +293,7 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                                                 targetName = mapping.SourceType.Name;
                                             }
                                             targetName = SanitizeRevitTypeName(targetName);
-                                            FamilySymbol? existingSymbol = null;
+                                            ElementType? existingSymbol = null;
                                             if (primElement is Family f)
                                             {
                                                 foreach (ElementId symbolId in f.GetFamilySymbolIds())
@@ -303,6 +303,37 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                                                     {
                                                         existingSymbol = sym;
                                                         break;
+                                                    }
+                                                }
+                                            }
+                                            else
+                                            {
+                                                if (targetTypeElement.Name.Equals(targetName, StringComparison.OrdinalIgnoreCase))
+                                                {
+                                                    existingSymbol = targetTypeElement;
+                                                }
+                                                else
+                                                {
+                                                    try
+                                                    {
+                                                        FilteredElementCollector typeCollector = new FilteredElementCollector(doc)
+                                                            .OfClass(targetTypeElement.GetType());
+                                                        if (targetTypeElement.Category != null)
+                                                        {
+                                                            typeCollector.OfCategoryId(targetTypeElement.Category.Id);
+                                                        }
+                                                        foreach (ElementType et in typeCollector.Cast<ElementType>())
+                                                        {
+                                                            if (et.Name.Equals(targetName, StringComparison.OrdinalIgnoreCase))
+                                                            {
+                                                                existingSymbol = et;
+                                                                break;
+                                                            }
+                                                        }
+                                                    }
+                                                    catch
+                                                    {
+                                                        // Fall back cleanly if collector query fails
                                                     }
                                                 }
                                             }
@@ -317,8 +348,9 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                                                 {
                                                     duplicatedType = targetTypeElement.Duplicate(targetName);
                                                 }
-                                                catch (Exception)
+                                                catch (Exception exDup)
                                                 {
+                                                    app.Application.WriteJournalComment($"[MERGE_WARNING] Duplicate('{targetName}') failed: {exDup.Message}. Trying fallback name.", true);
                                                     string fallbackName = SanitizeRevitTypeName(targetName + "_Migrated");
                                                     try
                                                     {
@@ -338,18 +370,30 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                                                                 suffixCounter++;
                                                             }
                                                         }
-                                                        if (duplicatedType == null)
-                                                        {
-                                                            throw new InvalidOperationException($"Failed to duplicate type '{targetName}' after multiple suffix attempts.", exInner);
-                                                        }
                                                     }
                                                 }
+
+                                                // Safe Fallback Renaming if Duplication is unsupported or fails (e.g. system symbol / native archive exception)
+                                                if (duplicatedType == null)
+                                                {
+                                                    app.Application.WriteJournalComment($"[MERGE_WARNING] Unable to duplicate type '{targetName}'. Attempting direct rename/fallback on target type '{targetTypeElement.Name}'.", true);
+                                                    try
+                                                    {
+                                                        targetTypeElement.Name = targetName;
+                                                    }
+                                                    catch (Exception renameEx)
+                                                    {
+                                                        app.Application.WriteJournalComment($"[MERGE_WARNING] Direct rename of system type failed: {renameEx.Message}. Using target type as-is.", true);
+                                                    }
+                                                    duplicatedType = targetTypeElement;
+                                                }
+
                                                 if (duplicatedType != null)
                                                 {
                                                     resolvedTargetTypeId = duplicatedType.Id;
                                                     // Copy all parameters from source type to the duplicated type
                                                     Element sourceSymbol = doc.GetElement(mapping.SourceType.RevitTypeId.ToElementId());
-                                                    if (sourceSymbol != null)
+                                                    if (sourceSymbol != null && sourceSymbol.Id != duplicatedType.Id)
                                                     {
                                                         foreach (Parameter sourceParam in sourceSymbol.Parameters)
                                                         {
