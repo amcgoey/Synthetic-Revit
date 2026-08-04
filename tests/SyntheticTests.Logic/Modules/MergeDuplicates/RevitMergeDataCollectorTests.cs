@@ -142,22 +142,50 @@ namespace SyntheticTests.Logic.Modules.MergeDuplicates
         }
 
         [Test]
-        public void ProcessMergeEventHandler_SystemSymbolTypeMigration_EvaluatesSafely()
+        public void ProcessMergeEventHandler_SystemSymbolTypeMigration_ExecutesCleanly()
         {
-            var wallType = CreateElement<WallType>();
-            SetPropertyValue(wallType, "Name", "Generic - 8\" Masonry");
+            var wallType1 = CreateElement<WallType>();
+            SetPropertyValue(wallType1, "Name", "Generic - 8\" Masonry");
 
-            bool isSystem = RevitMergeDataCollector.IsSystemElement(wallType);
-            Assert.IsTrue(isSystem, "WallType is classified as system element.");
+            var wallType2 = CreateElement<WallType>();
+            SetPropertyValue(wallType2, "Name", "Generic - 8\" Masonry Duplicate");
+
+            var cluster = new DuplicateClusterModel
+            {
+                ClusterName = "System Symbol Migration Cluster"
+            };
+
+            var primaryItem = new DuplicateItemModel
+            {
+                RevitElementId = new ElementIdModel { Id = 101 }
+            };
+            cluster.Items.Add(primaryItem);
+            cluster.UpdatePrimaryItem(primaryItem);
+
+            var duplicateItem = new DuplicateItemModel
+            {
+                RevitElementId = new ElementIdModel { Id = 102 },
+                IsIncludedForMerge = true
+            };
+            cluster.Items.Add(duplicateItem);
 
             var mapping = new TypeMappingModel
             {
+                SourceType = new DuplicateTypeModel { RevitTypeId = new ElementIdModel { Id = 102 }, Name = "Generic - 8\" Masonry Duplicate" },
+                TargetType = new DuplicateTypeModel { RevitTypeId = new ElementIdModel { Id = 101 }, Name = "Generic - 8\" Masonry" },
                 RecommendedAction = RecommendedAction.Migrate,
                 MigrateRenameText = "Generic - 8\" Masonry_Custom"
             };
+            cluster.TypeMappings.Add(mapping);
 
-            Assert.AreEqual(RecommendedAction.Migrate, mapping.RecommendedAction);
-            Assert.AreEqual("Generic - 8\" Masonry_Custom", mapping.MigrateRenameText);
+            var queueVM = new MergeQueueViewModel();
+            queueVM.QueuedClusters.Add(cluster);
+
+            var handler = new ProcessMergeEventHandler();
+            handler.QueueRequest(queueVM, null, null, System.Threading.CancellationToken.None);
+
+            var uiapp = CreateElement<Autodesk.Revit.UI.UIApplication>();
+            Assert.DoesNotThrow(() => handler.Execute(uiapp), "ProcessMergeEventHandler.Execute should process system element clusters cleanly without throwing exceptions.");
         }
     }
 }
