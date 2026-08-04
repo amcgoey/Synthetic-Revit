@@ -122,7 +122,14 @@
             string pattern = "(?i)<Assembly>.*?</Assembly>";
             string replacement = "<Assembly>" + NewPath.Replace("$", "$$") + "</Assembly>";
             string newContent = Regex.Replace(content, pattern, replacement);
-            File.WriteAllText(OutputFile, newContent);
+            for (int i = 0; i < 5; i++) {
+                try {
+                    File.WriteAllText(OutputFile, newContent);
+                    break;
+                } catch (IOException) {
+                    System.Threading.Thread.Sleep(100);
+                }
+            }
         } catch (Exception ex) {
             Log.LogError("Error replacing addin path: " + ex.Message);
             return false;

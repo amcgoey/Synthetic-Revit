@@ -186,7 +186,7 @@ namespace SyntheticTests
         {
             if (famManager == null) return false;
 
-#if REVIT2022 || REVIT2023
+#if REVIT2022
             famManager.AddParameter(paramName, BuiltInParameterGroup.PG_DATA, ParameterType.Text, false);
             return true;
 #else

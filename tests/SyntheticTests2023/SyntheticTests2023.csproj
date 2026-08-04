@@ -19,6 +19,10 @@
     <PackageReference Include="ricaun.RevitTest.TestAdapter" Version="1.11.1" />
     <PackageReference Include="Revit_All_Main_Versions_API_x64" Version="2023.0.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <Reference Include="PresentationCore" />
+    <Reference Include="PresentationFramework" />
+    <Reference Include="System.Xaml" />
+    <Reference Include="WindowsBase" />
   </ItemGroup>
 
   <ItemGroup>
