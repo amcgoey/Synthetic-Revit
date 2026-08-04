@@ -27,8 +27,10 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Models\SheetIndexSheetModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Models\SheetIndexRevisionModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Models\SheetIndexMatrix.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Models\SheetSelectionSourceMode.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Services\SheetIndexMatrixBuilder.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Services\SheetIndexExporterService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Services\SheetIndexSessionState.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\ViewModels\SheetItemViewModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\ViewModels\RevisionItemViewModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\ViewModels\ExportSheetIndexViewModel.cs" />

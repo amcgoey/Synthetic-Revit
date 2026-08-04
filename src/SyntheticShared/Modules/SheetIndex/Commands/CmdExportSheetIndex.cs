@@ -84,8 +84,24 @@ namespace Synthetic.Modules.SheetIndex.Commands
                     ));
                 }
 
+                // 2b. Query ViewSheetSets (Print Sets) and ViewSchedules (Sheet Schedules)
+                var printSets = new FilteredElementCollector(doc)
+                    .OfClass(typeof(ViewSheetSet))
+                    .Cast<ViewSheetSet>()
+                    .Select(vss => vss.Name)
+                    .Where(n => !string.IsNullOrEmpty(n))
+                    .ToList();
+
+                var sheetSchedules = new FilteredElementCollector(doc)
+                    .OfClass(typeof(ViewSchedule))
+                    .Cast<ViewSchedule>()
+                    .Where(vs => !vs.IsTemplate && vs.Definition.CategoryId == new ElementId(BuiltInCategory.OST_Sheets))
+                    .Select(vs => vs.Name)
+                    .Where(n => !string.IsNullOrEmpty(n))
+                    .ToList();
+
                 // 3. Launch WPF Selection UI
-                var viewModel = new ExportSheetIndexViewModel(sheetModels, revisionModels);
+                var viewModel = new ExportSheetIndexViewModel(sheetModels, revisionModels, printSets, sheetSchedules);
                 var window = new ExportSheetIndexWindow(viewModel, uiapp.MainWindowHandle);
 
                 bool? dialogResult = window.ShowDialog();
