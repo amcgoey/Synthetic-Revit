@@ -86,6 +86,9 @@ namespace Synthetic.Modules.SheetIndex.ViewModels
             _allProjectSheets = sheets != null ? sheets.ToList() : new List<SheetIndexSheetModel>();
 
             Schedules.Clear();
+            var allSheetsOption = new SheetIndexScheduleModel(string.Empty, "<All Project Sheets>", _allProjectSheets);
+            Schedules.Add(allSheetsOption);
+
             if (schedules != null)
             {
                 foreach (var schedule in schedules)
@@ -103,13 +106,13 @@ namespace Synthetic.Modules.SheetIndex.ViewModels
                 }
             }
 
-            // Default to all sheets
-            PopulateSheets(_allProjectSheets, preserveOrder: false);
+            // Default selection: All Project Sheets
+            SelectedSchedule = allSheetsOption;
         }
 
         private void OnScheduleSelectionChanged()
         {
-            if (SelectedSchedule != null && SelectedSchedule.Sheets.Count > 0)
+            if (SelectedSchedule != null && !string.IsNullOrEmpty(SelectedSchedule.UniqueId) && SelectedSchedule.Sheets.Count > 0)
             {
                 PopulateSheets(SelectedSchedule.Sheets, preserveOrder: true);
             }

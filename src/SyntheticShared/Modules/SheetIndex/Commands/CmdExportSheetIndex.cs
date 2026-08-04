@@ -47,17 +47,7 @@ namespace Synthetic.Modules.SheetIndex.Commands
                 var sheetModels = new List<SheetIndexSheetModel>();
                 foreach (var sheet in sheetElements)
                 {
-                    var revIds = sheet.GetAllRevisionIds()
-                        .Select(id => doc.GetElement(id)?.UniqueId ?? id.ToString())
-                        .Where(id => !string.IsNullOrEmpty(id))
-                        .ToList();
-
-                    sheetModels.Add(new SheetIndexSheetModel(
-                        sheet.UniqueId,
-                        sheet.SheetNumber,
-                        sheet.Name,
-                        revIds
-                    ));
+                    sheetModels.Add(CreateSheetModel(sheet, doc, null));
                 }
 
                 // 2. Query revisions from Revit document
@@ -87,6 +77,7 @@ namespace Synthetic.Modules.SheetIndex.Commands
                 // 3. Query ViewSchedule sheet schedules from Revit document
                 var scheduleElements = new FilteredElementCollector(doc)
                     .OfClass(typeof(ViewSchedule))
+                    .WhereElementIsNotElementType()
                     .Cast<ViewSchedule>()
                     .Where(s => !s.IsTemplate && s.Definition != null && s.Definition.CategoryId == new ElementId(BuiltInCategory.OST_Sheets))
                     .ToList();
@@ -103,27 +94,36 @@ namespace Synthetic.Modules.SheetIndex.Commands
 
                     if (scheduledSheets.Count == 0) continue;
 
-                    // Inspect schedule definition for section header grouping fields
+                    // Inspect schedule definition for section header grouping fields and sort order
                     string? groupParamName = null;
                     var sortGroupFields = schedule.Definition.GetSortGroupFields();
                     foreach (var field in sortGroupFields)
                     {
-                        if (field.ShowHeader)
+                        if (field.ShowHeader && groupParamName == null)
                         {
                             var schedField = schedule.Definition.GetField(field.FieldId);
                             groupParamName = schedField?.GetName();
-                            break;
+                        }
+                    }
+
+                    // Sort scheduled sheets according to schedule sort/group fields if available
+                    if (sortGroupFields.Count > 0)
+                    {
+                        var primarySortField = schedule.Definition.GetField(sortGroupFields[0].FieldId);
+                        string? primaryParamName = primarySortField?.GetName();
+                        if (!string.IsNullOrEmpty(primaryParamName))
+                        {
+                            var comparer = new AlphanumericComparer();
+                            bool isAscending = sortGroupFields[0].SortOrder == ScheduleSortOrder.Ascending;
+                            scheduledSheets = isAscending
+                                ? scheduledSheets.OrderBy(s => s.LookupParameter(primaryParamName)?.AsString() ?? string.Empty, comparer).ToList()
+                                : scheduledSheets.OrderByDescending(s => s.LookupParameter(primaryParamName)?.AsString() ?? string.Empty, comparer).ToList();
                         }
                     }
 
                     var schedSheetModels = new List<SheetIndexSheetModel>();
                     foreach (var sheet in scheduledSheets)
                     {
-                        var revIds = sheet.GetAllRevisionIds()
-                            .Select(id => doc.GetElement(id)?.UniqueId ?? id.ToString())
-                            .Where(id => !string.IsNullOrEmpty(id))
-                            .ToList();
-
                         string? groupValue = null;
                         if (!string.IsNullOrEmpty(groupParamName))
                         {
@@ -134,12 +134,7 @@ namespace Synthetic.Modules.SheetIndex.Commands
                             }
                         }
 
-                        schedSheetModels.Add(new SheetIndexSheetModel(
-                            sheet.UniqueId,
-                            sheet.SheetNumber,
-                            sheet.Name,
-                            revIds
-                        ) { SectionGroup = groupValue });
+                        schedSheetModels.Add(CreateSheetModel(sheet, doc, groupValue));
                     }
 
                     scheduleModels.Add(new SheetIndexScheduleModel(schedule.UniqueId, schedule.Name, schedSheetModels));
@@ -187,11 +182,11 @@ namespace Synthetic.Modules.SheetIndex.Commands
                 var matrixBuilder = new SheetIndexMatrixBuilder();
                 var matrix = matrixBuilder.BuildMatrix(selectedSheets, selectedRevisions, preserveSheetOrder: viewModel.PreserveSheetOrder);
 
-                // 6. Export to Excel
+                // 7. Export to Excel
                 var exporterService = new SheetIndexExporterService();
                 exporterService.ExportToExcel(matrix, savePath);
 
-                // 7. Show Post-Export Completion Dialog
+                // 8. Show Post-Export Completion Dialog
                 var completionWindow = new ExportCompletionWindow(savePath, uiapp.MainWindowHandle);
                 completionWindow.ShowDialog();
 
@@ -202,6 +197,21 @@ namespace Synthetic.Modules.SheetIndex.Commands
                 message = ex.Message + "\n" + ex.StackTrace;
                 return Result.Failed;
             }
+        }
+
+        private static SheetIndexSheetModel CreateSheetModel(ViewSheet sheet, Document doc, string? sectionGroup)
+        {
+            var revIds = sheet.GetAllRevisionIds()
+                .Select(id => doc.GetElement(id)?.UniqueId ?? id.ToString())
+                .Where(id => !string.IsNullOrEmpty(id))
+                .ToList();
+
+            return new SheetIndexSheetModel(
+                sheet.UniqueId,
+                sheet.SheetNumber,
+                sheet.Name,
+                revIds
+            ) { SectionGroup = sectionGroup };
         }
     }
 }
