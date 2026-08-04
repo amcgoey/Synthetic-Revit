@@ -129,7 +129,20 @@ namespace SyntheticTests.Logic.Modules.MergeDuplicates
         }
 
         [Test]
-        public void ProcessMergeEventHandler_SystemSymbolTypeMigration_ExecutesWithoutException()
+        public void FindExistingElementType_ReturnsMatchingTypeOrNull()
+        {
+            var wallType = CreateElement<WallType>();
+            SetPropertyValue(wallType, "Name", "Generic - 8\" Masonry");
+
+            var nullResult = RevitMergeDataCollector.FindExistingElementType(null!, wallType, "Generic - 8\" Masonry");
+            Assert.IsNull(nullResult, "Null document should return null.");
+
+            var emptyResult = RevitMergeDataCollector.FindExistingElementType(null!, wallType, string.Empty);
+            Assert.IsNull(emptyResult, "Empty target name should return null.");
+        }
+
+        [Test]
+        public void ProcessMergeEventHandler_SystemSymbolTypeMigration_EvaluatesSafely()
         {
             var wallType = CreateElement<WallType>();
             SetPropertyValue(wallType, "Name", "Generic - 8\" Masonry");
@@ -145,39 +158,6 @@ namespace SyntheticTests.Logic.Modules.MergeDuplicates
 
             Assert.AreEqual(RecommendedAction.Migrate, mapping.RecommendedAction);
             Assert.AreEqual("Generic - 8\" Masonry_Custom", mapping.MigrateRenameText);
-        }
-
-        [Test]
-        public void ProcessMergeEventHandler_SystemSymbolFallbackRenaming_HandlesDuplicateFailureGracefully()
-        {
-            var textNoteType = CreateElement<TextNoteType>();
-            SetPropertyValue(textNoteType, "Name", "3/32\" Arial");
-
-            Assert.IsTrue(RevitMergeDataCollector.IsSystemElement(textNoteType), "TextNoteType is classified as system element.");
-
-            bool duplicateFailed = false;
-            try
-            {
-                throw new InvalidOperationException("Native C++ ArchiveException on Duplicate()");
-            }
-            catch (Exception)
-            {
-                duplicateFailed = true;
-            }
-
-            Assert.IsTrue(duplicateFailed, "Exception simulated on Duplicate().");
-
-            string targetName = "3/32\" Arial_Migrated";
-            try
-            {
-                SetPropertyValue(textNoteType, "Name", targetName);
-            }
-            catch
-            {
-                // Fallback direct reuse without throwing exception
-            }
-
-            Assert.AreEqual("3/32\" Arial_Migrated", textNoteType.Name, "System type fallback renaming should update target element name cleanly.");
         }
     }
 }
