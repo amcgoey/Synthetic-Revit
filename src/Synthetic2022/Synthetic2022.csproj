@@ -79,6 +79,8 @@
       <Private>False</Private>
     </Reference>
     <Reference Include="System" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
     <Reference Include="System.Windows.Forms" />
     <Reference Include="UIFramework, Version=22.0.0.0, Culture=neutral, processorArchitecture=AMD64">
       <HintPath>..\packages\Revit_All_Main_Versions_API_x64.2022.1.0\lib\net48\UIFramework.dll</HintPath>
