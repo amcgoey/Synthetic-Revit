@@ -616,6 +616,63 @@ namespace SyntheticTests
         }
 
         [Test]
+        public void SwapElementReferences_HandlesElementsInsideGroupsWithoutCorruptingGroupState()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            Document doc = app.NewProjectDocument(UnitSystem.Metric);
+
+            try
+            {
+                using (var tg = new TransactionGroup(doc, "Group Member Reference Swap Test"))
+                {
+                    tg.Start();
+
+                    Group group1;
+                    TextNoteType textType1, textType2;
+
+                    using (var t = new Transaction(doc, "Create Group with Annotation Member"))
+                    {
+                        t.Start();
+                        var textTypes = new FilteredElementCollector(doc)
+                            .OfClass(typeof(TextNoteType))
+                            .Cast<TextNoteType>()
+                            .ToList();
+
+                        textType1 = textTypes[0];
+                        textType2 = (TextNoteType)textType1.Duplicate("Duplicated Text Type Group Member " + Guid.NewGuid().ToString().Substring(0, 8));
+
+                        View view = new FilteredElementCollector(doc)
+                            .OfClass(typeof(View))
+                            .Cast<View>()
+                            .First(v => !v.IsTemplate && v.ViewType == ViewType.FloorPlan);
+
+                        TextNote note = TextNote.Create(doc, view.Id, XYZ.Zero, "Sample Group Note", textType1.Id);
+                        group1 = doc.Create.NewGroup(new List<ElementId> { note.Id });
+                        t.Commit();
+                    }
+
+                    Assert.IsNotNull(group1, "Group should be created.");
+                    Assert.IsNotNull(textType1, "Source TextNoteType should exist.");
+                    Assert.IsNotNull(textType2, "Target TextNoteType should exist.");
+
+                    // Act - Swap textType1.Id to textType2.Id while note is inside a group
+                    RedirectionResultModel result = AliasSwapEngine.SwapElementReferences(doc, textType1.Id, textType2.Id);
+
+                    // Assert
+                    Assert.IsNotNull(result, "RedirectionResultModel should not be null.");
+                    Assert.IsEmpty(result.Errors, "Errors should be empty.");
+
+                    tg.RollBack();
+                }
+            }
+            finally
+            {
+                doc.Close(false);
+            }
+        }
+
+        [Test]
         public void SwapElementReferences_RemapsSystemFamilyTypes()
         {
             Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");

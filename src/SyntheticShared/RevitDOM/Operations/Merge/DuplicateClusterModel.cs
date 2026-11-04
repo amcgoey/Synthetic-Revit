@@ -105,6 +105,11 @@ namespace Synthetic.RevitDOM.Operations.Merge
         }
 
         /// <summary>
+        /// Gets the count of items included for merge in this cluster.
+        /// </summary>
+        public int IncludedItemsCount => Items?.Count(i => i.IsIncludedForMerge) ?? 0;
+
+        /// <summary>
         /// Gets or sets the duplicate item designated as the primary/surviving element.
         /// </summary>
         public DuplicateItemModel? SelectedPrimary
@@ -179,6 +184,7 @@ namespace Synthetic.RevitDOM.Operations.Merge
                 }
             }
             OnPropertyChanged(nameof(SelectedPrimary));
+            OnPropertyChanged(nameof(IncludedItemsCount));
         }
 
         private void OnItemPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -198,6 +204,10 @@ namespace Synthetic.RevitDOM.Operations.Merge
                     SubscribeToItems();
                     OnPropertyChanged(nameof(SelectedPrimary));
                 }
+            }
+            else if (e.PropertyName == nameof(DuplicateItemModel.IsIncludedForMerge))
+            {
+                OnPropertyChanged(nameof(IncludedItemsCount));
             }
         }
 

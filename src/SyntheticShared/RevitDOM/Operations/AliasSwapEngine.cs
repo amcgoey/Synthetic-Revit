@@ -118,6 +118,7 @@ namespace Synthetic.RevitDOM.Operations
                     .OfClass(typeof(Group))
                     .Cast<Group>();
 
+                bool groupsChanged = false;
                 foreach (Group group in groups)
                 {
                     if (group == null || !group.IsValidObject) continue;
@@ -131,6 +132,7 @@ namespace Synthetic.RevitDOM.Operations
                             {
                                 group.GroupType = targetGroupType;
                                 result.InstancesCount++;
+                                groupsChanged = true;
                             }
                             catch (Exception ex)
                             {
@@ -138,6 +140,11 @@ namespace Synthetic.RevitDOM.Operations
                             }
                         }
                     }
+                }
+
+                if (groupsChanged)
+                {
+                    doc.Regenerate();
                 }
             }
             catch (Exception ex)
@@ -151,6 +158,7 @@ namespace Synthetic.RevitDOM.Operations
                     .OfClass(typeof(AssemblyInstance))
                     .Cast<AssemblyInstance>();
 
+                bool assembliesChanged = false;
                 foreach (AssemblyInstance assembly in assemblies)
                 {
                     if (assembly == null || !assembly.IsValidObject) continue;
@@ -164,6 +172,7 @@ namespace Synthetic.RevitDOM.Operations
                             {
                                 assembly.ChangeTypeId(targetId);
                                 result.InstancesCount++;
+                                assembliesChanged = true;
                             }
                             catch (Exception ex)
                             {
@@ -171,6 +180,11 @@ namespace Synthetic.RevitDOM.Operations
                             }
                         }
                     }
+                }
+
+                if (assembliesChanged)
+                {
+                    doc.Regenerate();
                 }
             }
             catch (Exception ex)
@@ -191,6 +205,9 @@ namespace Synthetic.RevitDOM.Operations
 
                 foreach (FamilyInstance fi in familyInstances)
                 {
+                    // Skip family instances inside a group to prevent group definition corruption
+                    if (fi.GroupId != null && fi.GroupId != ElementId.InvalidElementId) continue;
+
                     ElementId currentTypeId = fi.GetTypeId();
                     if (currentTypeId != null && oldIdToNewIdMap.TryGetValue(currentTypeId, out ElementId targetId))
                     {
@@ -229,13 +246,75 @@ namespace Synthetic.RevitDOM.Operations
 
                 foreach (Element elem in allElements)
                 {
-                    if (elem == null || !elem.IsValidObject || elem.Parameters == null) continue;
+                    if (elem == null || !elem.IsValidObject) continue;
+
+                    // Skip internal C++ unmanaged elements or elements without valid categories
+                    try
+                    {
+                        if (elem.Category == null) continue;
+                    }
+                    catch
+                    {
+                        continue;
+                    }
+
+                    // Skip Group instances, Group types, Assemblies, and member elements inside a group to avoid corrupting group definition consistency
+                    if (elem is Group || elem is GroupType || elem is AssemblyInstance || elem is AssemblyType) continue;
+                    try
+                    {
+                        if (elem.GroupId != null && elem.GroupId != ElementId.InvalidElementId) continue;
+                    }
+                    catch
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        ElementId catId = elem.Category.Id;
+                        if (catId == new ElementId(BuiltInCategory.OST_IOSModelGroups) ||
+                            catId == new ElementId(BuiltInCategory.OST_IOSDetailGroups))
+                        {
+                            continue;
+                        }
+                    }
+                    catch
+                    {
+                        continue;
+                    }
+
+                    ParameterSet? paramSet = null;
+                    try
+                    {
+                        paramSet = elem.Parameters;
+                    }
+                    catch
+                    {
+                        continue;
+                    }
+
+                    if (paramSet == null) continue;
 
                     bool elemModified = false;
-                    foreach (Parameter param in elem.Parameters)
+                    foreach (Parameter param in paramSet)
                     {
-                        if (param != null && !param.IsReadOnly && param.StorageType == StorageType.ElementId)
+                        try
                         {
+                            if (param == null || !param.HasValue || param.IsReadOnly || param.StorageType != StorageType.ElementId) continue;
+
+                            // Skip internal group management or type definition built-in parameters
+                            if (param.Definition is InternalDefinition internalDef)
+                            {
+                                BuiltInParameter bip = internalDef.BuiltInParameter;
+                                if (bip == BuiltInParameter.ELEM_TYPE_PARAM ||
+                                    bip == BuiltInParameter.ELEM_CATEGORY_PARAM ||
+                                    bip == BuiltInParameter.ELEM_FAMILY_PARAM ||
+                                    bip == BuiltInParameter.ELEM_FAMILY_AND_TYPE_PARAM)
+                                {
+                                    continue;
+                                }
+                            }
+
                             ElementId valId = param.AsElementId();
                             if (valId != null && oldIdToNewIdMap.TryGetValue(valId, out ElementId targetId))
                             {
@@ -250,6 +329,11 @@ namespace Synthetic.RevitDOM.Operations
                                     result.Warnings.Add($"Parameter set error on element {elem.Id}: {ex.Message}");
                                 }
                             }
+                        }
+                        catch
+                        {
+                            // Skip any unmanaged native C++ parameter read failures safely
+                            continue;
                         }
                     }
 
@@ -395,15 +479,24 @@ namespace Synthetic.RevitDOM.Operations
                 result.Errors.Add($"Error swapping compound structures: {ex.Message}");
             }
 
-            // 4. Swap in View Graphic Overrides
+            // 4. Swap in View Graphic Overrides (only if map contains LinePattern or FillPattern elements)
             try
             {
-                var views = new FilteredElementCollector(doc)
-                    .OfClass(typeof(RevitView))
-                    .Cast<RevitView>()
-                    .ToList();
+                bool hasPatternKeys = oldIdToNewIdMap.Keys.Any(id =>
+                {
+                    if (id == null || id == ElementId.InvalidElementId) return false;
+                    Element e = doc.GetElement(id);
+                    return e is LinePatternElement || e is FillPatternElement;
+                });
 
-                foreach (RevitView view in views)
+                if (hasPatternKeys)
+                {
+                    var views = new FilteredElementCollector(doc)
+                        .OfClass(typeof(RevitView))
+                        .Cast<RevitView>()
+                        .ToList();
+
+                    foreach (RevitView view in views)
                 {
                     if (view == null || !view.IsValidObject) continue;
 
@@ -495,6 +588,9 @@ namespace Synthetic.RevitDOM.Operations
                                     Element elem = doc.GetElement(elemId);
                                     if (elem == null || !elem.IsValidObject) continue;
 
+                                    // Skip Group instances and elements inside groups as they do not support individual view graphic overrides
+                                    if (elem is Group || (elem.GroupId != null && elem.GroupId != ElementId.InvalidElementId)) continue;
+
                                     OverrideGraphicSettings settings = view.GetElementOverrides(elemId);
                                     if (SwapPatternOverrides(settings, oldIdToNewIdMap, result, PatternCheckers))
                                     {
@@ -514,7 +610,8 @@ namespace Synthetic.RevitDOM.Operations
                     }
                 }
             }
-            catch (Exception ex)
+        }
+        catch (Exception ex)
             {
                 result.Errors.Add($"Error swapping view overrides: {ex.Message}");
             }
