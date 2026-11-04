@@ -132,6 +132,31 @@
               "image": "paint_16.png"
             }
           ]
+        },
+        {
+          "type": "SplitButton",
+          "name": "Synthetic.Split.SharedCoordinates",
+          "text": "Shared\nSites",
+          "sub_items": [
+            {
+              "type": "PushButton",
+              "name": "Synthetic.Modules.SharedCoordinates.Commands.CmdSyncSharedSites",
+              "text": "Sync Sites\nto Levels",
+              "class": "Synthetic.Modules.SharedCoordinates.Commands.CmdSyncSharedSites",
+              "tooltip": "Create or update Level-Based Shared Sites from a loaded linked host model in the active unit model.",
+              "large_image": "scopebox_32.png",
+              "image": "scopebox_16.png"
+            },
+            {
+              "type": "PushButton",
+              "name": "Synthetic.Modules.SharedCoordinates.Commands.CmdMoveLinksToSharedSites",
+              "text": "Move Links\nto Sites",
+              "class": "Synthetic.Modules.SharedCoordinates.Commands.CmdMoveLinksToSharedSites",
+              "tooltip": "Reposition linked unit model instances to match their assigned Shared Sites in full 3D coordinates.",
+              "large_image": "scopebox_32.png",
+              "image": "scopebox_16.png"
+            }
+          ]
         }
       ],
       "slideout_items": [
