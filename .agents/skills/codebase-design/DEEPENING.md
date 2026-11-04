@@ -1,6 +1,6 @@
 # Deepening
 
-How to deepen a cluster of shallow modules safely, given its dependencies. Assumes the vocabulary in [SKILL.md](SKILL.md) — **module**, **interface**, **seam**, **adapter**.
+How to deepen a cluster of shallow modules safely, given its dependencies. Assumes the vocabulary in [SKILL.md](SKILL.md): **module**, **interface**, **seam**, **adapter**.
 
 ## Dependency categories
 
@@ -8,21 +8,21 @@ When assessing a candidate for deepening, classify its dependencies. The categor
 
 ### 1. In-process
 
-Pure computation, in-memory state, no I/O. Always deepenable — merge the modules and test through the new interface directly. No adapter needed.
+Pure C# models and computation, in-memory state, no I/O. In Synthetic: `RevitDOM` models (`ElementModel`, `ParameterModel`, `CategoryModel`), comparison engines (`IdentityComparison`, `DeepDiffComparison`), and merge state machines. Always deepenable: merge the shallow helpers and test through the new interface directly in `SyntheticLogic.Tests`. No adapter needed.
 
 ### 2. Local-substitutable
 
-Dependencies that have local test stand-ins (PGLite for Postgres, in-memory filesystem). Deepenable if the stand-in exists. The deepened module is tested with the stand-in running in the test suite. The seam is internal; no port at the module's external interface.
+Dependencies that have local test stand-ins (local JSON settings/template serialization via `Newtonsoft.Json`, file system operations, and Excel export via `Dot Sheet Index`). Deepenable if the stand-in exists. The deepened module is tested using local temp directories or memory streams. The seam is internal; no port at the module's external interface.
 
 ### 3. Remote but owned (Ports & Adapters)
 
-Your own services across a network boundary (microservices, internal APIs). Define a **port** (interface) at the seam. The deep module owns the logic; the transport is injected as an **adapter**. Tests use an in-memory adapter. Production uses an HTTP/gRPC/queue adapter.
+Revit database operations across the unmanaged C++ boundary (`Autodesk.Revit.DB.Document`, `FilteredElementCollector`, `Transaction`, `ExtensibleStorage`). Define a **port** (interface) at the seam. The deep module owns the BIM logic; `RevitDOM` translators act as the adapter. In headless tests, fake/in-memory adapters (`FakeIdentityService`, `PocoIdentityService`) or POCO fixtures are used; in `Synthetic.Tests`, real Revit documents verify the adapter inside the Revit process.
 
-Recommendation shape: *"Define a port at the seam, implement an HTTP adapter for production and an in-memory adapter for testing, so the logic sits in one deep module even though it's deployed across a network."*
+Recommendation shape: *"Define a port at the RevitDOM seam, implement a Revit database adapter for production and a POCO adapter for headless testing, so the BIM standards logic sits in one deep module."*
 
-### 4. True external (Mock)
+### 4. True external / Thread boundary (Mock)
 
-Third-party services (Stripe, Twilio, etc.) you don't control. The deepened module takes the external dependency as an injected port; tests provide a mock adapter.
+Platform thread boundaries and third-party APIs (`UIApplication`, `IExternalEventHandler` / `ExternalEvent`, WPF `Dispatcher`, Google Drive cloud APIs) that you don't control. The deepened module takes the external dependency as an injected port; tests provide a mock or stub adapter.
 
 ## Seam discipline
 
@@ -31,7 +31,7 @@ Third-party services (Stripe, Twilio, etc.) you don't control. The deepened modu
 
 ## Testing strategy: replace, don't layer
 
-- Old unit tests on shallow modules become waste once tests at the deepened module's interface exist — delete them.
+- Old unit tests on shallow modules become waste once tests at the deepened module's interface exist; delete them.
 - Write new tests at the deepened module's interface. The **interface is the test surface**.
 - Tests assert on observable outcomes through the interface, not internal state.
-- Tests should survive internal refactors — they describe behaviour, not implementation. If a test has to change when the implementation changes, it's testing past the interface.
+- Tests should survive internal refactors, since they describe behaviour, not implementation. If a test has to change when the implementation changes, it's testing past the interface.

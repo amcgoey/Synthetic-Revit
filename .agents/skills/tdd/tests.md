@@ -2,22 +2,62 @@
 
 ## Good Tests
 
-**Integration-style**: Test through real interfaces, not mocks of internal parts.
+**Integration-style**: Test through real public interfaces, not mocks of internal parts.
 
-```typescript
-// GOOD: Tests observable behavior
-test("user can checkout with valid cart", async () => {
-  const cart = createCart();
-  cart.add(product);
-  const result = await checkout(cart, paymentMethod);
-  expect(result.status).toBe("confirmed");
-});
+### Headless RevitDOM POCO Seam (`SyntheticLogic.Tests`)
+
+Tests domain logic over pure C# models headlessly without Revit dependencies:
+
+```csharp
+// GOOD: Tests observable behavior through the public interface of StandardsMerge
+[Test]
+public void Merge_WhenDuplicateElementEncountered_AppendsAliasToSurvivorAndPurgesDuplicate()
+{
+    var survivor = new ElementModel { Class = "Autodesk.Revit.DB.Material", Name = "Material - Oak" };
+    var duplicate = new ElementModel { Class = "Autodesk.Revit.DB.Material", Name = "Material - Pine" };
+    var engine = new StandardsMergeEngine();
+
+    var result = engine.Merge(new[] { survivor, duplicate }, primarySelector: m => m.Name == "Material - Oak");
+
+    Assert.That(result.RemainingElements, Has.Count.EqualTo(1));
+    Assert.That(result.RemainingElements[0].Name, Is.EqualTo("Material - Oak"));
+    Assert.That(result.RemainingElements[0].Aliases, Does.Contain("Material - Pine"));
+}
 ```
 
-Characteristics:
+### Revit Database Seam (`Synthetic.Tests` / `SyntheticTests.Shared`)
 
-- Tests behavior users/callers care about
-- Uses public API only
+Tests live database modifications against a real Revit `Document`:
+
+```csharp
+// GOOD: Tests observable Revit database state through public translation interface
+[Test]
+public void StandardSerializationEngine_ApplyTemplate_CreatesMaterialInDocument()
+{
+    var template = new MaterialModel { Name = "Synthetic Finish 01", Color = new ColorModel(255, 0, 0) };
+    var engine = new StandardSerializationEngine(_doc);
+
+    using (var trans = new Transaction(_doc, "Apply Material"))
+    {
+        trans.Start();
+        engine.Apply(template);
+        trans.Commit();
+    }
+
+    var created = new FilteredElementCollector(_doc)
+        .OfClass(typeof(Material))
+        .Cast<Material>()
+        .FirstOrDefault(m => m.Name == "Synthetic Finish 01");
+
+    Assert.That(created, Is.Not.Null);
+    Assert.That(created.Color.Red, Is.EqualTo(255));
+}
+```
+
+Characteristics of good tests:
+
+- Tests behavior users and callers care about
+- Uses public interface only
 - Survives internal refactors
 - Describes WHAT, not HOW
 - One logical assertion per test
@@ -26,52 +66,74 @@ Characteristics:
 
 **Implementation-detail tests**: Coupled to internal structure.
 
-```typescript
-// BAD: Tests implementation details
-test("checkout calls paymentService.process", async () => {
-  const mockPayment = jest.mock(paymentService);
-  await checkout(cart, payment);
-  expect(mockPayment.process).toHaveBeenCalledWith(cart.total);
-});
+```csharp
+// BAD: Tests internal collaborator calls instead of observable outcome
+[Test]
+public void MergeQueueItems_CallsInternalPurgeHelper()
+{
+    var mockPurgeService = new Mock<IInternalPurgeService>();
+    var vm = new ProjectStandardsDashboardViewModel(_doc, mockPurgeService.Object);
+
+    vm.ExecuteMerge();
+
+    mockPurgeService.Verify(p => p.PurgeUnreferencedInternal(It.IsAny<string>()), Times.Once());
+}
 ```
 
 Red flags:
 
 - Mocking internal collaborators
-- Testing private methods
-- Asserting on call counts/order
-- Test breaks when refactoring without behavior change
-- Test name describes HOW not WHAT
-- Verifying through external means instead of interface
+- Testing private methods or internal state
+- Asserting on internal call counts or execution order
+- Test breaks when refactoring even though public behavior hasn't changed
+- Test name describes HOW, not WHAT
 
-```typescript
-// BAD: Bypasses interface to verify
-test("createUser saves to database", async () => {
-  await createUser({ name: "Alice" });
-  const row = await db.query("SELECT * FROM users WHERE name = ?", ["Alice"]);
-  expect(row).toBeDefined();
-});
+```csharp
+// BAD: Bypasses the module interface to inspect private dictionaries or backing stores
+[Test]
+public void RegisterElement_AddsToInternalDictionary()
+{
+    var identityService = new PocoIdentityService();
+    identityService.Register("KEY-123", new ElementModel { Name = "Door" });
 
-// GOOD: Verifies through interface
-test("createUser makes user retrievable", async () => {
-  const user = await createUser({ name: "Alice" });
-  const retrieved = await getUser(user.id);
-  expect(retrieved.name).toBe("Alice");
-});
+    var internalMap = (Dictionary<string, ElementModel>)typeof(PocoIdentityService)
+        .GetField("_cache", BindingFlags.NonPublic | BindingFlags.Instance)
+        .GetValue(identityService);
+
+    Assert.That(internalMap.ContainsKey("KEY-123"), Is.True);
+}
+
+// GOOD: Verifies through the public interface
+[Test]
+public void RegisterElement_MakesElementResolvableByKey()
+{
+    var identityService = new PocoIdentityService();
+    var element = new ElementModel { Name = "Door" };
+
+    identityService.Register("KEY-123", element);
+    var resolved = identityService.Resolve("KEY-123");
+
+    Assert.That(resolved, Is.SameAs(element));
+}
 ```
 
 **Tautological tests**: Expected value restates the implementation, so the test passes by construction.
 
-```typescript
+```csharp
 // BAD: Expected value is recomputed the way the code computes it
-test("calculateTotal sums line items", () => {
-  const items = [{ price: 10 }, { price: 5 }];
-  const expected = items.reduce((sum, i) => sum + i.price, 0);
-  expect(calculateTotal(items)).toBe(expected);
-});
+[Test]
+public void ComputeStandardElementKey_FormatsClassAndName()
+{
+    var model = new ElementModel { Class = "WallType", Name = "Exterior 8in" };
+    var expected = $"{model.Class}::{model.Name}"; // Re-computing implementation logic!
+    Assert.That(IdentityUtility.ComputeKey(model), Is.EqualTo(expected));
+}
 
-// GOOD: Expected value is an independent, known literal
-test("calculateTotal sums line items", () => {
-  expect(calculateTotal([{ price: 10 }, { price: 5 }])).toBe(15);
-});
+// GOOD: Expected value is an independent, known-good literal
+[Test]
+public void ComputeStandardElementKey_FormatsClassAndName()
+{
+    var model = new ElementModel { Class = "WallType", Name = "Exterior 8in" };
+    Assert.That(IdentityUtility.ComputeKey(model), Is.EqualTo("WallType::Exterior 8in"));
+}
 ```

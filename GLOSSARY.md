@@ -116,12 +116,18 @@ _Avoid_: Save confirmation modal, completion popup
 The exported sheet index spreadsheet containing sheet metadata and revision issuance columns marked with bullet indicators ("●"), generated to match standard project matrix layouts.
 _Avoid_: Dot matrix index, sheet revision table
 
+**Level-Based Shared Site**:
+A named Revit `ProjectLocation` (Shared Site) inside a unit or floor-plate model that corresponds 1-to-1 by exact name with a target `Level` from a linked host model, storing the shared coordinate elevation required to place the unit model at that level.
+_Avoid_: Level location, floor site, custom coordinate preset
 
+**Reference Datum Level**:
+The `Level` in the active unit model whose internal elevation acts as the local vertical datum aligned to each selected target `Level`'s shared coordinate elevation when generating or updating **Level-Based Shared Sites** (defaulting to the level closest to internal `0'-0"`).
+_Avoid_: Base level, zero level, origin level
 
+**Shared Site Sync**:
+The operation executed inside a unit model that reads selected `Level` elevations from a linked host model and creates or updates the corresponding **Level-Based Shared Sites** (`ProjectLocation`s) while preserving existing East/West, North/South, and True North Angle coordinates.
+_Avoid_: Survey point mover, site generator
 
-
-
-
-
-
-
+**Shared Site Link Repositioning**:
+The operation executed inside a host (main) model that inspects loaded `RevitLinkInstance` elements, resolves each instance's assigned Shared Site (`ProjectLocation`) in its linked document, computes the target 3D shared-coordinate transform, and moves/rotates out-of-sync link instances (temporarily unpinning and re-pinning as needed) into alignment.
+_Avoid_: Link reset, origin move, coordinate re-acquire

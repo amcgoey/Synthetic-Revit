@@ -6,33 +6,59 @@ Issues and PRDs for this repo live as GitHub issues. You can use either the `git
 - **Owner**: `amcgoey`
 - **Repo**: `Synthetic-Revit`
 
+File issues only into the user's repo (`amcgoey/Synthetic-Revit`). Never file into `mattpocock/skills`. In a fork or clone, confirm target with `gh repo view --json nameWithOwner` before the first issue creation.
+
 ## Conventions
 
 For all operations, prefer the `github` MCP server tools if available. Otherwise, fall back to the `gh` CLI.
 
 ### Create an issue
-- **MCP Server**: Call `issue_write` with `method: "create"`, `owner`, `repo`, `title`, `body`.
+- **MCP Server**: Call `issue_write` with `method: "create"`, `owner: "amcgoey"`, `repo: "Synthetic-Revit"`, `title`, `body`.
 - **`gh` CLI**: `gh issue create --title "..." --body "..."`. Use a heredoc for multi-line bodies.
 
 ### Read an issue
-- **MCP Server**: Call `issue_read` with `method: "get"`, `owner`, `repo`, `issue_number`. Call `issue_read` with `method: "get_comments"` to retrieve comments.
-- **`gh` CLI**: `gh issue view <number> --comments`, filtering comments by `jq` and also fetching labels.
+- **MCP Server**: Call `issue_read` with `method: "get"`, `owner: "amcgoey"`, `repo: "Synthetic-Revit"`, `issue_number`. Call `issue_read` with `method: "get_comments"` to retrieve comments.
+- **`gh` CLI**: `gh issue view <number> --json number,title,body,labels,comments` (or `gh issue view <number> --comments`).
 
 ### List issues
-- **MCP Server**: Call `list_issues` or `search_issues` with `owner`, `repo`, and filters (e.g. `state: "open"`, `labels: ["..."]`).
+- **MCP Server**: Call `list_issues` or `search_issues` with `owner: "amcgoey"`, `repo: "Synthetic-Revit"`, and filters (e.g. `state: "open"`, `labels: ["..."]`).
 - **`gh` CLI**: `gh issue list --state open --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'` with appropriate `--label` and `--state` filters.
 
+### Make an issue a sub-issue of a parent
+- **MCP Server**: Call `sub_issue_write` with `method: "add"`, `owner: "amcgoey"`, `repo: "Synthetic-Revit"`, `issue_number: <parent-number>`, `sub_issue_id: <child-database-id>`. (Obtain `<child-database-id>` from `.id` in the response of `issue_read` for the child).
+- **`gh` CLI (`gh` 2.94+)**: `gh issue create --parent <parent> ...`, or `gh issue edit <parent> --add-sub-issue <child>` afterwards.
+- **Older `gh` CLI**: `gh api --method POST repos/amcgoey/Synthetic-Revit/issues/<parent>/sub_issues -F sub_issue_id=<child-db-id>`.
+- **Fallback**: Where sub-issues aren't enabled, put `Part of #<parent>` at the top of the child body.
+
+### Blocking (Issue Dependencies)
+GitHub's **native issue dependencies** are the canonical, UI-visible representation.
+- **`gh` CLI (`gh` 2.94+)**:
+  - Add blocking edge: `gh issue create --blocked-by <n>,<n> ...` or `gh issue edit <child> --add-blocked-by <blocker>`
+  - Remove blocking edge: `gh issue edit <child> --remove-blocked-by <blocker>`
+  - Overwrite/Set: `gh issue edit <child> --blocked-by <blocker>`
+- **Older `gh` CLI**: `gh api --method POST repos/amcgoey/Synthetic-Revit/issues/<child>/dependencies/blocked_by -F issue_id=<blocker-db-id>`, where `<blocker-db-id>` is the blocker's numeric database id (`gh api repos/amcgoey/Synthetic-Revit/issues/<n> --jq .id`, not `#number` or `node_id`).
+- **Fallback**: Where dependencies aren't available, fall back to a `Blocked by: #<n>, #<n>` line at the top of the child body. A ticket is unblocked when every blocker is closed.
+
+### Count open blockers
+- **`gh` API**: `gh api repos/amcgoey/Synthetic-Revit/issues/<n> --jq .issue_dependencies_summary.blocked_by` (open blockers only; 0 means startable).
+- **`gh` CLI alternative**: `gh issue view <n> --json blockedBy --jq '[.blockedBy.nodes[] | select(.state == "OPEN")] | length'`.
+
 ### Comment on an issue
-- **MCP Server**: Call `add_issue_comment` with `owner`, `repo`, `issue_number`, `body`.
+- **MCP Server**: Call `add_issue_comment` with `owner: "amcgoey"`, `repo: "Synthetic-Revit"`, `issue_number`, `body`.
 - **`gh` CLI**: `gh issue comment <number> --body "..."`
 
 ### Apply / remove labels
-- **MCP Server**: Call `issue_write` with `method: "update"`, `owner`, `repo`, `issue_number`, and `labels: ["label1", "label2"]` containing the complete list of desired labels.
+- **MCP Server**: Call `issue_write` with `method: "update"`, `owner: "amcgoey"`, `repo: "Synthetic-Revit"`, `issue_number`, and `labels: ["label1", "label2"]` containing the complete list of desired labels.
 - **`gh` CLI**: `gh issue edit <number> --add-label "..."` / `--remove-label "..."`
 
-### Close an issue
-- **MCP Server**: Call `issue_write` with `method: "update"`, `owner`, `repo`, `issue_number`, `state: "closed"`, `state_reason: "completed"` (or `"not_planned"`). Add comment beforehand using `add_issue_comment` if a comment is needed.
-- **`gh` CLI**: `gh issue close <number> --comment "..."`
+### Close an issue (Safe Close Convention)
+Always post the explanation comment first, then close the issue. (On an already-closed issue, `gh issue close --comment` drops the comment and still exits 0).
+- **MCP Server**:
+  1. Comment: Call `add_issue_comment` with `owner: "amcgoey"`, `repo: "Synthetic-Revit"`, `issue_number`, `body`.
+  2. Close: Call `issue_write` with `method: "update"`, `owner: "amcgoey"`, `repo: "Synthetic-Revit"`, `issue_number`, `state: "closed"`, `state_reason: "completed"` (or `"not_planned"`).
+- **`gh` CLI**:
+  1. Comment: `gh issue comment <number> --body "..."`
+  2. Close: `gh issue close <number>`
 
 ---
 
@@ -54,7 +80,7 @@ Create a GitHub issue using either `issue_write` (MCP) or `gh issue create`.
 
 ## When a skill says "fetch the relevant ticket"
 
-Fetch issue details and comments using either `issue_read` (MCP) or `gh issue view <number> --comments`.
+Fetch issue details and comments using either `issue_read` (MCP) or `gh issue view <number> --comments` / `--json number,title,body,labels,comments`.
 
 ---
 
@@ -65,19 +91,12 @@ Used by `/wayfinder`. The **map** is a single issue with **child** issues as tic
 - **Map**: a single issue labelled `wayfinder:map`, holding the Notes / Decisions-so-far / Fog body.
   - **MCP**: `issue_write` with `method: "create"`, `title`, `body`, `labels: ["wayfinder:map"]`.
   - **`gh` CLI**: `gh issue create --label wayfinder:map`.
-- **Child ticket**: an issue linked to the map as a GitHub sub-issue.
-  - **MCP**: Call `sub_issue_write` with `method: "add"`, `owner`, `repo`, `issue_number: <parent-number>`, `sub_issue_id: <child-database-id>`. (Obtain `<child-database-id>` from `.id` in the response of `issue_read` for the child).
-  - **`gh` CLI**: `gh api` on the sub-issues endpoint.
+- **Child ticket**: an issue linked to the map as a GitHub sub-issue (see **Make an issue a sub-issue of a parent**).
+  - **MCP**: Call `sub_issue_write` with `method: "add"`, `owner: "amcgoey"`, `repo: "Synthetic-Revit"`, `issue_number: <parent-number>`, `sub_issue_id: <child-database-id>`. (Obtain `<child-database-id>` from `.id` in the response of `issue_read` for the child).
+  - **`gh` CLI**: `gh issue create --parent <parent-number>` or `gh issue edit <parent-number> --add-sub-issue <child-number>`.
   - **Fallback**: Where sub-issues aren't enabled, add the child to a task list in the map body and put `Part of #<map>` at the top of the child body. Labels: `wayfinder:<type>` (`research`/`prototype`/`grilling`/`task`). Once claimed, the ticket is assigned to the driving dev.
-- **Blocking**: GitHub's **native issue dependencies** — the canonical, UI-visible representation.
-  - **`gh` CLI**: Use the `gh issue edit` command with the appropriate dependency flags:
-    - Add blocking edge: `gh issue edit <child-number> --add-blocked-by <blocker-number>`
-    - Remove blocking edge: `gh issue edit <child-number> --remove-blocked-by <blocker-number>`
-    - Overwrite/Set: `gh issue edit <child-number> --blocked-by <blocker-number>`
-  - **Fallback**: Where dependencies aren't available, fall back to a `Blocked by: #<n>, #<n>` line at the top of the child body. A ticket is unblocked when every blocker is closed.
-- **Frontier query**: list the map's open children.
-  - **MCP**: Call `issue_read` with `method: "get_sub_issues"` (if sub-issues are enabled). Otherwise use `list_issues` or `search_issues` and parse bodies.
-  - **`gh` CLI**: `gh issue list --state open`, scoped to the map's sub-issues / task list.
+- **Blocking**: GitHub's **native issue dependencies** — the canonical, UI-visible representation (see **Blocking** under Conventions).
+- **Frontier query**: list the map's open children (`gh issue list --state open`, scoped to the map's sub-issues / task list).
   - Drop any with an open blocker (`issue_dependencies_summary.blocked_by > 0`, or an open issue in the `Blocked by` line) or an assignee; first in map order wins.
 - **Claim**: Assign to the driving dev.
   - **MCP**: Call `get_me` to find the current user's login, then call `issue_write` with `method: "update"`, `issue_number`, `assignees: ["<username>"]`.

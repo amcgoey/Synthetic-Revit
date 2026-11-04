@@ -23,9 +23,7 @@ The build automatically executes the custom MSBuild task `ReplaceAddinPath` to u
 To bypass Revit's publisher warnings, MSBuild automatically executes `signtool.exe` to sign the Debug DLL with a local self-signed certificate named `"Synthetic"`.
 
 ### Debug Manifest Deployment
-To load the debug build in Revit:
-* Copy the modified `.addin` manifest file from `output/Synthetic/` to the Revit Addins folder.
-* *Note: A task is underway to automate copying the debug `.addin` to `%APPDATA%\Autodesk\Revit\Addins\<Year>\` to avoid ProgramData write permission issues.*
+On successful compilation, the Debug build automatically deploys the modified `.addin` manifest to `%APPDATA%\Autodesk\Revit\Addins\<Year>\` (**Local Deployment**). Revit loads the add-in automatically on startup without requiring elevated permissions or manual file copying.
 
 ## 3. Release Build Profile
 
@@ -36,7 +34,7 @@ The build updates the `<Assembly>` tag in the `.addin` manifest to point to the 
 `C:\ProgramData\Autodesk\Revit\Addins\Synthetic\Synthetic202X.dll`
 
 ### Code Signing
-Release builds do **not** require any code signing.
+Release builds are signed during the external production release pipeline; local MSBuild does not sign Release assemblies.
 
 ### Production Deployment
 To deploy release builds to the production UNC server:

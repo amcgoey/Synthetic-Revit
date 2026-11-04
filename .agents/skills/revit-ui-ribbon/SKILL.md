@@ -1,6 +1,6 @@
 ---
 name: revit-ui-ribbon
-description: Use when modifying or building the Revit ribbon interface.
+description: "JSON-driven Revit ribbon configuration (ribbon_config.json) and missing-command/icon fallback recovery. Use when adding or modifying ribbon tabs, panels, buttons, or startup ribbon loading."
 ---
 
 # Revit UI Ribbon Playbook (`revit-ui-ribbon`)
@@ -10,7 +10,7 @@ Use these rules to build and maintain the Revit application ribbon programmatica
 ## 1. Unified UI Ribbon Mapping
 
 To keep the UI configuration stable and easily editable across all Revit target versions:
-* **No Preprocessor Directives:** Preprocessor compilation directives (like `#if REVIT2025`) are **strictly prohibited** inside the ribbon assembly logic.
+* **Preprocessor Directives:** Keep ribbon assembly logic free of preprocessor compilation directives (like `#if REVIT2025`).
 * **Configuration Location:** Define the ribbon layout in a loose JSON file named `ribbon_config.json` inside the `Assets/` directory next to the compiled assembly.
 
 ## 2. Structured JSON Schema

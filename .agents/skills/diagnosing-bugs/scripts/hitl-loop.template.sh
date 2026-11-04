@@ -11,6 +11,9 @@
 #   capture VAR "<question>"      → show question, read response into VAR
 #
 # At the end, captured values are printed as KEY=VALUE for the agent to parse.
+#
+# `capture` prints its value back to the terminal, where the agent reads it,
+# so capture observations, and leave signing in to the user as a `step`.
 
 set -euo pipefail
 
@@ -28,11 +31,11 @@ capture() {
 
 # --- edit below ---------------------------------------------------------
 
-step "Open the app at http://localhost:3000 and sign in."
+step "Open Revit and click the custom Synthetic tab on the ribbon."
 
-capture ERRORED "Click the 'Export' button. Did it throw an error? (y/n)"
+capture ERRORED "Click the 'Project Standards Dashboard' button. Did it throw an unhandled exception dialog? (y/n)"
 
-capture ERROR_MSG "Paste the error message (or 'none'):"
+capture ERROR_MSG "Paste the error message from the dialog or journal (or 'none'):"
 
 # --- edit above ---------------------------------------------------------
 

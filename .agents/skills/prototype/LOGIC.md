@@ -1,79 +1,64 @@
 # Logic Prototype
 
-A tiny interactive terminal app that lets the user drive a state model by hand. Use this when the question is about **business logic, state transitions, or data shape** — the kind of thing that looks reasonable on paper but only feels wrong once you push it through real cases.
+A throwaway harness that lets anyone drive a state model and observe the outcomes. Use this when the question is about **business logic, state transitions, or data shape**: the kind of thing that looks reasonable on paper but only feels wrong once you push it through real cases.
+
+In this repository, choose between two execution formats based on dependencies:
+- **Shareable HTML Demo (Preferred for zero setup)**: A single self-contained HTML file that lets anyone (developer, PM, domain expert) push buttons and watch state change without compiling or installing tools.
+- **Headless C# / NUnit Harness**: A lightweight NUnit test fixture or scratch console harness in `SyntheticLogic.Tests` when the prototype must call existing `RevitDOM` C# types directly.
 
 ## When this is the right shape
 
 - "I'm not sure if this state machine handles the edge case where X then Y."
 - "Does this data model actually let me represent the case where..."
 - "I want to feel out what the API should look like before writing it."
-- Anything where the user wants to **press buttons and watch state change**.
+- Anything where someone wants to **trigger transitions and watch state change**.
 
-If the question is "what should this look like" — wrong branch. Use [UI.md](UI.md).
+If the question is "what should this look like," this is the wrong branch. Use [UI.md](UI.md).
 
-## Process
+## Process: Shareable HTML Demo
 
 ### 1. State the question
 
-Before writing code, write down what state model and what question you're prototyping. One paragraph, in the prototype's README or a comment at the top of the file. A logic prototype that answers the wrong question is pure waste — make the question explicit so it can be checked later, whether the user is watching now or returning to it AFK.
+Before writing code, write down what state model and what question you're prototyping. One paragraph, at the top of the demo (in a visible intro, not just a comment). A logic prototype that answers the wrong question is pure waste.
 
-### 2. Pick the language
+### 2. Isolate the logic in a portable module
 
-Use whatever the host project uses. If the project has no obvious runtime (e.g. a docs repo), ask.
-
-Match the project's existing conventions for tooling — don't add a new package manager or runtime just for the prototype.
-
-### 3. Isolate the logic in a portable module
-
-Put the actual logic — the bit that's answering the question — behind a small, pure interface that could be lifted out and dropped into the real codebase later. The TUI around it is throwaway; the logic module shouldn't be.
+Put the actual logic in a single `<script>` block written as a small, pure module that could be lifted out and translated to C# later. Keep it pure: no DOM, no `document`, no button handlers reaching inside it. The page calls into it; nothing flows the other direction.
 
 The right shape depends on the question:
+- **A pure reducer**: `(state, action) => state`.
+- **A state machine**: explicit states and transitions.
+- **A set of pure functions** over a plain data type.
 
-- **A pure reducer** — `(state, action) => state`. Good when actions are discrete events and state is a single value.
-- **A state machine** — explicit states and transitions. Good when "which actions are even legal right now" is part of the question.
-- **A small set of pure functions** over a plain data type. Good when there's no implicit current state — just transformations.
-- **A class or module with a clear method surface** when the logic genuinely owns ongoing internal state.
+### 3. Build the shareable HTML file
 
-Pick whichever shape best fits the question being asked, *not* whichever is easiest to wire to a TUI. Keep it pure: no I/O, no terminal code, no `console.log` for control flow. The TUI imports it and calls into it; nothing flows the other direction.
+One file, plain HTML/CSS/JS: no framework, no bundler, no server, double-clickable from Windows Explorer:
 
-This is what makes the prototype useful past its own lifetime: when the question's been answered, the validated reducer / machine / function set can be lifted into the real module on its own.
+1. **Title and one-line explanation** of what this demo lets you explore.
+2. **Current state panel**: the full relevant state rendered as readable fields, re-rendered after every click.
+3. **Free-play buttons**: one button per action, always available, so anyone can poke at the model in any order.
+4. **Guided walkthroughs**: a set of **scenarios**, one per tab. Each tab holds a plain-language description of the scenario and the ordered buttons to press. Starting a walkthrough resets to a known initial state.
 
-### 4. Build the smallest TUI that exposes the state
+---
 
-Build it as a **lightweight TUI** — on every tick, clear the screen (`console.clear()` / `print("\033[2J\033[H")` / equivalent) and re-render the whole frame. The user should always see one stable view, not an ever-growing scrollback.
+## Process: Headless C# Harness (RevitDOM)
 
-Each frame has two parts, in this order:
+When the logic must directly exercise existing C# domain classes (`Synthetic.Core`, `RevitDOM` POCO models):
 
-1. **Current state**, pretty-printed and diff-friendly (one field per line, or formatted JSON). Use **bold** for field names or section headers and **dim** for less important context (timestamps, IDs, derived values). Native ANSI escape codes are fine — `\x1b[1m` bold, `\x1b[2m` dim, `\x1b[0m` reset. No need to pull in a styling library unless one is already in the project.
-2. **Keyboard shortcuts**, listed at the bottom: `[a] add user  [d] delete user  [t] tick clock  [q] quit`. Bold the key, dim the description, or vice-versa — whatever reads cleanly.
+1. **Create a scratch fixture**: Add a single `[TestFixture]` class in `SyntheticLogic.Tests/Scratch/` (e.g. `Prototype_ParameterResolution_Harness.cs`).
+2. **Isolate domain state**: Keep tests completely headless — interact only with `RevitDOM` POCO models and services, avoiding `Autodesk.Revit.DB` dependencies.
+3. **Print state transitions**: Use `TestContext.WriteLine` or console output to dump the state after each transition so the execution trace is visible.
+4. **Run quickly**: Execute with `python .agents/skills/revit-tests/scripts/test_executor.py --version Logic --filter <FixtureName>`.
 
-Behaviour:
+---
 
-1. **Initialise state** — a single in-memory object/struct. Render the first frame on start.
-2. **Read one keystroke (or one line)** at a time, dispatch to a handler that mutates state.
-3. **Re-render** the full frame after every action — don't append, replace.
-4. **Loop until quit.**
+## Hand it over and capture
 
-The whole frame should fit on one screen.
-
-### 5. Make it runnable in one command
-
-Add a script to the project's existing task runner (`package.json` scripts, `Makefile`, `justfile`, `pyproject.toml`). The user should run `pnpm run <prototype-name>` or equivalent — never need to remember a path.
-
-If the host project has no task runner, just put the command at the top of the prototype's README.
-
-### 6. Hand it over
-
-Give the user the run command. They'll drive it themselves; the interesting moments are when they say "wait, that shouldn't be possible" or "huh, I assumed X would be different" — those are the bugs in the _idea_, which is the whole point. If they want new actions added, add them. Prototypes evolve.
-
-### 7. Capture the answer and the prototype
-
-Once the prototype has answered its question, capture the answer, then capture the prototype the way the [SKILL](SKILL.md) describes. The logic-specific mapping: the validated reducer / machine / function set lifts into the real module (the decision, absorbed); the TUI shell rides along to the throwaway branch that keeps the prototype as a primary source.
+1. **Review outcomes**: Present the HTML demo or test run output to the user. Look for unexpected states or edge-case breakdowns.
+2. **Capture**: Once the question is answered, lift the validated logic into production code. Move the prototype artifact onto a throwaway git branch (`prototype/<name>`) as a primary source, and note the verdict in the implementation issue or spec.
 
 ## Anti-patterns
 
-- **Don't add tests.** A prototype that needs tests is no longer a prototype.
-- **Don't wire it to the real database.** Use an in-memory store unless the question is specifically about persistence.
-- **Don't generalise.** No "what if we wanted to support X later." The prototype answers one question.
-- **Don't blur the logic and the TUI together.** If the reducer / state machine references `console.log`, prompts, or terminal escape codes, it's no longer portable. Keep the TUI as a thin shell over a pure module.
-- **Don't ship the TUI shell into production.** The shell is optimised for being driven by hand from a terminal. The logic module behind it is the bit worth keeping.
+- **Don't wire to live Revit API**: Keep logic prototypes headless. If a live Revit `Document` is needed, that is an integration test, not a quick logic prototype.
+- **Don't add production polish**: No comprehensive error hierarchies, logging frameworks, or complex abstractions.
+- **Don't blur logic and presentation**: In HTML, keep the logic module distinct from UI buttons. In C#, keep logic distinct from WPF views.

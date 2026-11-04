@@ -36,7 +36,7 @@ Follow the same inverted preprocessor hierarchy when handling differences betwee
 
 ## 3. Version Upgrade Protocol
 
-Do not automatically refactor files when a new version target is introduced. Perform checks only at startup, `/finalize`, or during the `/check-version` command.
+Audit version targets whenever a new `.csproj` compilation target is added to the repository or when requested by the user. Keep existing source files untouched until the user approves the baseline upgrade.
 
 1. **Audit:** Scan all `.csproj` files in the repository. Compare the highest version suffix against `CURRENT_LATEST_VERSION` in `docs/agents/revit-config.md`.
 2. **Flag:** If a higher-version project target is discovered (e.g., `Synthetic2027.csproj` when `CURRENT_LATEST_VERSION` is `2026`):
