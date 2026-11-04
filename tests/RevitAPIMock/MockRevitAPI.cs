@@ -180,6 +180,7 @@ namespace Autodesk.Revit.DB
         public string Title { get; set; } = "Mock Document";
         public string PathName { get; set; } = "ActiveDoc";
         public bool IsWorkshared { get; set; } = false;
+        public ProjectLocation ActiveProjectLocation { get; set; } = new ProjectLocation { Name = "Internal" };
         private readonly Dictionary<string, Element> _elementsByUniqueId = new Dictionary<string, Element>();
         private readonly Dictionary<ElementId, Element> _elementsById = new Dictionary<ElementId, Element>();
 
@@ -824,6 +825,7 @@ namespace Autodesk.Revit.DB
     public class Level : Element
     {
         public double Elevation { get; set; }
+        public double ProjectElevation { get => Elevation; set => Elevation = value; }
     }
     public class TextNoteType : ElementType { }
     public class ViewFamilyType : ElementType { }
@@ -1112,7 +1114,57 @@ namespace Autodesk.Revit.DB
     public class InternalOrigin : Element { }
     public class BasePoint : Element { }
     public class SketchPlane : Element { }
-    public class ProjectLocation : Element { }
+    public class ProjectPosition
+    {
+        public double EastWest { get; set; }
+        public double NorthSouth { get; set; }
+        public double Elevation { get; set; }
+        public double Angle { get; set; }
+
+        public ProjectPosition() { }
+        public ProjectPosition(double eastWest, double northSouth, double elevation, double angle)
+        {
+            EastWest = eastWest;
+            NorthSouth = northSouth;
+            Elevation = elevation;
+            Angle = angle;
+        }
+    }
+
+    public class ProjectLocation : Element
+    {
+        private ProjectPosition _position = new ProjectPosition();
+
+        public ProjectPosition GetProjectPosition(XYZ point) => _position;
+        public void SetProjectPosition(XYZ point, ProjectPosition position) => _position = position;
+        public ProjectLocation Duplicate(string name)
+        {
+            var dup = new ProjectLocation
+            {
+                Name = name,
+                _position = new ProjectPosition(_position.EastWest, _position.NorthSouth, _position.Elevation, _position.Angle)
+            };
+            if (Document != null)
+            {
+                Document.AddElement(dup, new ElementId(new Random().Next(100000, 999999)));
+            }
+            return dup;
+        }
+        public Transform GetTotalTransform() => Transform.Identity;
+    }
+
+    public class Instance : Element { }
+
+    public class RevitLinkInstance : Instance
+    {
+        public Document? MockLinkDocument { get; set; }
+        public Document? GetLinkDocument() => MockLinkDocument;
+        public Transform MockTransform { get; set; } = Transform.Identity;
+        public Transform GetTransform() => MockTransform;
+        public bool Pinned { get; set; }
+    }
+
+    public class RevitLinkType : ElementType { }
     public class NumberingSchema : Element { }
     public class PhaseFilter : Element { }
     public class Phase : Element { }
