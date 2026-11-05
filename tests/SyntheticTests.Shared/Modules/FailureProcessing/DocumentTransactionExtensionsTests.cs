@@ -60,6 +60,38 @@ namespace SyntheticTests.Modules.FailureProcessing
                 FailureHandlingOptions options = trans.GetFailureHandlingOptions();
                 Assert.IsNotNull(options);
                 Assert.IsNull(options.GetFailuresPreprocessor());
+                Assert.IsFalse(options.GetClearAfterRollback());
+            }
+        }
+
+        [Test]
+        public void CreateTransaction_WithClearAfterRollbackTrue_ShouldSetClearAfterRollbackOnOptions()
+        {
+            // Act
+            using (Transaction trans = _doc.CreateTransaction("ClearRollback Transaction", clearAfterRollback: true))
+            {
+                // Assert
+                Assert.IsNotNull(trans);
+                FailureHandlingOptions options = trans.GetFailureHandlingOptions();
+                Assert.IsNotNull(options);
+                Assert.IsTrue(options.GetClearAfterRollback());
+            }
+        }
+
+        [Test]
+        public void CreateTransaction_WithPreprocessorAndClearAfterRollback_ShouldConfigureBoth()
+        {
+            IFailuresPreprocessor preprocessor = FailurePipelines.DeleteWarnings();
+
+            // Act
+            using (Transaction trans = _doc.CreateTransaction("Composite ClearRollback Transaction", preprocessor, clearAfterRollback: true))
+            {
+                // Assert
+                Assert.IsNotNull(trans);
+                FailureHandlingOptions options = trans.GetFailureHandlingOptions();
+                Assert.IsNotNull(options);
+                Assert.AreSame(preprocessor, options.GetFailuresPreprocessor());
+                Assert.IsTrue(options.GetClearAfterRollback());
             }
         }
 
