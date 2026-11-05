@@ -222,15 +222,299 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
         /// <inheritdoc />
         public IReadOnlyList<LinkRepositionGroupItem> GetLinkRepositionGroups()
         {
-            // Placeholder stub for Ticket #128 (Shared Site Link Repositioning)
-            return new List<LinkRepositionGroupItem>();
+            var linkInstances = new FilteredElementCollector(_doc)
+                .OfClass(typeof(RevitLinkInstance))
+                .Cast<RevitLinkInstance>()
+                .ToList();
+
+            if (linkInstances.Count == 0)
+            {
+                return new List<LinkRepositionGroupItem>();
+            }
+
+            var hostActiveLoc = _doc.ActiveProjectLocation;
+            Transform hostToSharedTransform = hostActiveLoc != null ? hostActiveLoc.GetTotalTransform() : Transform.Identity;
+
+            var groupedInstances = linkInstances.GroupBy(inst => inst.GetTypeId());
+            var result = new List<LinkRepositionGroupItem>();
+
+            foreach (var group in groupedInstances)
+            {
+                var typeId = group.Key;
+                var linkType = _doc.GetElement(typeId) as RevitLinkType;
+                string typeName = linkType?.Name ?? $"Link Type {typeId}";
+
+                int totalInstances = 0;
+                int outOfSyncCount = 0;
+                int unassignedCount = 0;
+                var instanceItems = new List<LinkRepositionInstanceItem>();
+
+                foreach (var instance in group)
+                {
+                    totalInstances++;
+
+                    string? siteName = null;
+                    try
+                    {
+                        var geoParam = instance.get_Parameter(BuiltInParameter.GEO_LOCATION);
+                        siteName = geoParam?.AsValueString();
+                        if (string.IsNullOrWhiteSpace(siteName))
+                        {
+                            siteName = geoParam?.AsString();
+                        }
+                    }
+                    catch
+                    {
+                        // Fallback if parameter cannot be read
+                    }
+
+                    bool isAssigned = !string.IsNullOrWhiteSpace(siteName) &&
+                                     !string.Equals(siteName, "<Not Shared>", StringComparison.OrdinalIgnoreCase);
+
+                    if (!isAssigned)
+                    {
+                        unassignedCount++;
+                        instanceItems.Add(new LinkRepositionInstanceItem
+                        {
+                            InstanceId = instance.Id.ToString(),
+                            InstanceName = instance.Name,
+                            TypeId = typeId.ToString(),
+                            TypeName = typeName,
+                            AssignedSiteName = siteName ?? "<Not Shared>",
+                            IsAssigned = false,
+                            IsPinned = instance.Pinned,
+                            IsOutOfSync = false
+                        });
+                        continue;
+                    }
+
+                    var linkDoc = instance.GetLinkDocument();
+                    if (linkDoc == null)
+                    {
+                        unassignedCount++;
+                        instanceItems.Add(new LinkRepositionInstanceItem
+                        {
+                            InstanceId = instance.Id.ToString(),
+                            InstanceName = instance.Name,
+                            TypeId = typeId.ToString(),
+                            TypeName = typeName,
+                            AssignedSiteName = siteName!,
+                            IsAssigned = false,
+                            IsPinned = instance.Pinned,
+                            IsOutOfSync = false
+                        });
+                        continue;
+                    }
+
+                    var linkedLocations = new FilteredElementCollector(linkDoc)
+                        .OfClass(typeof(ProjectLocation))
+                        .Cast<ProjectLocation>();
+
+                    var targetLoc = linkedLocations.FirstOrDefault(loc =>
+                        string.Equals(loc.Name, siteName, StringComparison.OrdinalIgnoreCase));
+
+                    if (targetLoc == null)
+                    {
+                        unassignedCount++;
+                        instanceItems.Add(new LinkRepositionInstanceItem
+                        {
+                            InstanceId = instance.Id.ToString(),
+                            InstanceName = instance.Name,
+                            TypeId = typeId.ToString(),
+                            TypeName = typeName,
+                            AssignedSiteName = siteName!,
+                            IsAssigned = false,
+                            IsPinned = instance.Pinned,
+                            IsOutOfSync = false
+                        });
+                        continue;
+                    }
+
+                    Transform linkToSharedTransform = targetLoc.GetTotalTransform();
+                    Transform currentTransform = instance.GetTransform();
+
+                    var alignment = SharedCoordinatesMath.ComputeAlignment(
+                        hostToSharedTransform,
+                        linkToSharedTransform,
+                        currentTransform);
+
+                    if (alignment.IsOutOfSync)
+                    {
+                        outOfSyncCount++;
+                    }
+
+                    instanceItems.Add(new LinkRepositionInstanceItem
+                    {
+                        InstanceId = instance.Id.ToString(),
+                        InstanceName = instance.Name,
+                        TypeId = typeId.ToString(),
+                        TypeName = typeName,
+                        AssignedSiteName = siteName!,
+                        IsAssigned = true,
+                        IsPinned = instance.Pinned,
+                        IsOutOfSync = alignment.IsOutOfSync,
+                        DeltaAngle = alignment.DeltaAngle,
+                        DeltaX = alignment.DeltaTranslation.X,
+                        DeltaY = alignment.DeltaTranslation.Y,
+                        DeltaZ = alignment.DeltaTranslation.Z,
+                        DeltaTranslationLength = alignment.DeltaTranslationLength
+                    });
+                }
+
+                result.Add(new LinkRepositionGroupItem
+                {
+                    TypeId = typeId.ToString(),
+                    TypeName = typeName,
+                    TotalInstanceCount = totalInstances,
+                    OutOfSyncCount = outOfSyncCount,
+                    UnassignedCount = unassignedCount,
+                    IsChecked = true,
+                    Instances = instanceItems
+                });
+            }
+
+            return result.OrderBy(g => g.TypeName).ToList();
         }
 
         /// <inheritdoc />
         public RepositionLinksSummary RepositionLinks(RepositionLinksRequest request)
         {
-            // Placeholder stub for Ticket #128 (Shared Site Link Repositioning)
-            return new RepositionLinksSummary();
+            if (request == null) throw new ArgumentNullException(nameof(request));
+
+            var summary = new RepositionLinksSummary();
+            var repositionedNames = new List<string>();
+            var skippedNames = new List<string>();
+            var errors = new List<string>();
+            int alreadyAlignedCount = 0;
+
+            if (request.SelectedTypeIds == null || request.SelectedTypeIds.Count == 0)
+            {
+                return summary;
+            }
+
+            var selectedTypeSet = new HashSet<string>(request.SelectedTypeIds, StringComparer.OrdinalIgnoreCase);
+
+            using (var trans = new Transaction(_doc, "Move Links to Shared Sites"))
+            {
+                trans.Start();
+
+                try
+                {
+                    var hostActiveLoc = _doc.ActiveProjectLocation;
+                    Transform hostToSharedTransform = hostActiveLoc != null ? hostActiveLoc.GetTotalTransform() : Transform.Identity;
+
+                    var linkInstances = new FilteredElementCollector(_doc)
+                        .OfClass(typeof(RevitLinkInstance))
+                        .Cast<RevitLinkInstance>()
+                        .Where(inst => selectedTypeSet.Contains(inst.GetTypeId().ToString()))
+                        .ToList();
+
+                    foreach (var instance in linkInstances)
+                    {
+                        string? siteName = null;
+                        try
+                        {
+                            var geoParam = instance.get_Parameter(BuiltInParameter.GEO_LOCATION);
+                            siteName = geoParam?.AsValueString();
+                            if (string.IsNullOrWhiteSpace(siteName))
+                            {
+                                siteName = geoParam?.AsString();
+                            }
+                        }
+                        catch
+                        {
+                            // Skip on read failure
+                        }
+
+                        bool isAssigned = !string.IsNullOrWhiteSpace(siteName) &&
+                                         !string.Equals(siteName, "<Not Shared>", StringComparison.OrdinalIgnoreCase);
+
+                        if (!isAssigned)
+                        {
+                            skippedNames.Add(instance.Name);
+                            continue;
+                        }
+
+                        var linkDoc = instance.GetLinkDocument();
+                        if (linkDoc == null)
+                        {
+                            skippedNames.Add(instance.Name);
+                            continue;
+                        }
+
+                        var linkedLocations = new FilteredElementCollector(linkDoc)
+                            .OfClass(typeof(ProjectLocation))
+                            .Cast<ProjectLocation>();
+
+                        var targetLoc = linkedLocations.FirstOrDefault(loc =>
+                            string.Equals(loc.Name, siteName, StringComparison.OrdinalIgnoreCase));
+
+                        if (targetLoc == null)
+                        {
+                            skippedNames.Add(instance.Name);
+                            continue;
+                        }
+
+                        Transform linkToSharedTransform = targetLoc.GetTotalTransform();
+                        Transform currentTransform = instance.GetTransform();
+
+                        var alignment = SharedCoordinatesMath.ComputeAlignment(
+                            hostToSharedTransform,
+                            linkToSharedTransform,
+                            currentTransform);
+
+                        if (!alignment.IsOutOfSync)
+                        {
+                            alreadyAlignedCount++;
+                            continue;
+                        }
+
+                        bool wasPinned = instance.Pinned;
+                        if (wasPinned)
+                        {
+                            instance.Pinned = false;
+                        }
+
+                        if (Math.Abs(alignment.DeltaAngle) > SharedCoordinatesMath.Tolerance)
+                        {
+                            XYZ center = currentTransform.Origin;
+                            Line axis = Line.CreateBound(center, center + XYZ.BasisZ);
+                            ElementTransformUtils.RotateElement(_doc, instance.Id, axis, alignment.DeltaAngle);
+                        }
+
+                        if (alignment.DeltaTranslationLength > SharedCoordinatesMath.Tolerance)
+                        {
+                            ElementTransformUtils.MoveElement(_doc, instance.Id, alignment.DeltaTranslation);
+                        }
+
+                        if (wasPinned)
+                        {
+                            instance.Pinned = true;
+                        }
+
+                        repositionedNames.Add(instance.Name);
+                    }
+
+                    trans.Commit();
+                }
+                catch (Exception ex)
+                {
+                    if (trans.GetStatus() == TransactionStatus.Started)
+                    {
+                        trans.RollBack();
+                    }
+                    errors.Add(ex.Message);
+                }
+            }
+
+            summary.RepositionedCount = repositionedNames.Count;
+            summary.AlreadyAlignedCount = alreadyAlignedCount;
+            summary.SkippedCount = skippedNames.Count;
+            summary.RepositionedInstanceNames = repositionedNames;
+            summary.SkippedInstanceNames = skippedNames;
+            summary.ErrorMessages = errors;
+
+            return summary;
         }
     }
 }

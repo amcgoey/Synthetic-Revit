@@ -75,6 +75,7 @@ namespace Autodesk.Revit.DB
         public double AsDouble() => DoubleValue;
         public int AsInteger() => IntegerValue;
         public string AsString() => StringValue;
+        public string AsValueString() => StringValue;
         public ElementId AsElementId() => ElementIdValue;
 
         // Set tracking properties
@@ -254,9 +255,9 @@ namespace Autodesk.Revit.DB
 
         public Parameter? LookupParameter(string name) => null;
         public Parameter? get_Parameter(Guid guid) => null;
-        public Parameter? get_Parameter(BuiltInParameter bip) => null;
+        public virtual Parameter? get_Parameter(BuiltInParameter bip) => null;
         public Parameter? get_Parameter(Definition def) => null;
-        public ElementId GetTypeId() => ElementId.InvalidElementId;
+        public virtual ElementId GetTypeId() => ElementId.InvalidElementId;
     }
 
     public enum CategoryType
@@ -461,10 +462,61 @@ namespace Autodesk.Revit.DB
     public class Transform
     {
         public XYZ Origin { get; set; } = new XYZ();
-        public XYZ BasisX { get; set; } = new XYZ();
-        public XYZ BasisY { get; set; } = new XYZ();
-        public XYZ BasisZ { get; set; } = new XYZ();
-        public static Transform Identity { get; } = new Transform();
+        public XYZ BasisX { get; set; } = new XYZ(1, 0, 0);
+        public XYZ BasisY { get; set; } = new XYZ(0, 1, 0);
+        public XYZ BasisZ { get; set; } = new XYZ(0, 0, 1);
+        public static Transform Identity => new Transform
+        {
+            Origin = new XYZ(0, 0, 0),
+            BasisX = new XYZ(1, 0, 0),
+            BasisY = new XYZ(0, 1, 0),
+            BasisZ = new XYZ(0, 0, 1)
+        };
+
+        public XYZ OfPoint(XYZ point)
+        {
+            return Origin + (BasisX * point.X) + (BasisY * point.Y) + (BasisZ * point.Z);
+        }
+
+        public XYZ OfVector(XYZ vector)
+        {
+            return (BasisX * vector.X) + (BasisY * vector.Y) + (BasisZ * vector.Z);
+        }
+
+        public Transform Multiply(Transform right)
+        {
+            return new Transform
+            {
+                Origin = OfPoint(right.Origin),
+                BasisX = OfVector(right.BasisX),
+                BasisY = OfVector(right.BasisY),
+                BasisZ = OfVector(right.BasisZ)
+            };
+        }
+
+        public Transform Inverse
+        {
+            get
+            {
+                var invBasisX = new XYZ(BasisX.X, BasisY.X, BasisZ.X);
+                var invBasisY = new XYZ(BasisX.Y, BasisY.Y, BasisZ.Y);
+                var invBasisZ = new XYZ(BasisX.Z, BasisY.Z, BasisZ.Z);
+
+                var invOrigin = new XYZ(
+                    -(invBasisX.X * Origin.X + invBasisX.Y * Origin.Y + invBasisX.Z * Origin.Z),
+                    -(invBasisY.X * Origin.X + invBasisY.Y * Origin.Y + invBasisY.Z * Origin.Z),
+                    -(invBasisZ.X * Origin.X + invBasisZ.Y * Origin.Y + invBasisZ.Z * Origin.Z)
+                );
+
+                return new Transform
+                {
+                    BasisX = invBasisX,
+                    BasisY = invBasisY,
+                    BasisZ = invBasisZ,
+                    Origin = invOrigin
+                };
+            }
+        }
     }
 
     public class BoundingBoxXYZ
@@ -693,6 +745,16 @@ namespace Autodesk.Revit.DB
         public double X { get; set; }
         public double Y { get; set; }
         public double Z { get; set; }
+
+        public static XYZ Zero => new XYZ(0, 0, 0);
+        public static XYZ BasisX => new XYZ(1, 0, 0);
+        public static XYZ BasisY => new XYZ(0, 1, 0);
+        public static XYZ BasisZ => new XYZ(0, 0, 1);
+        public double GetLength() => Math.Sqrt(X * X + Y * Y + Z * Z);
+        public static XYZ operator +(XYZ a, XYZ b) => new XYZ(a.X + b.X, a.Y + b.Y, a.Z + b.Z);
+        public static XYZ operator -(XYZ a, XYZ b) => new XYZ(a.X - b.X, a.Y - b.Y, a.Z - b.Z);
+        public static XYZ operator *(XYZ a, double s) => new XYZ(a.X * s, a.Y * s, a.Z * s);
+        public static XYZ operator *(double s, XYZ a) => new XYZ(a.X * s, a.Y * s, a.Z * s);
     }
 
     public class StructuralAsset : APIObject
@@ -846,7 +908,8 @@ namespace Autodesk.Revit.DB
 
     public enum BuiltInParameter
     {
-        INVALID = -1
+        INVALID = -1,
+        GEO_LOCATION = -1005157
     }
 
     public enum FamilySource
@@ -1150,7 +1213,8 @@ namespace Autodesk.Revit.DB
             }
             return dup;
         }
-        public Transform GetTotalTransform() => Transform.Identity;
+        public Transform MockTotalTransform { get; set; } = Transform.Identity;
+        public Transform GetTotalTransform() => MockTotalTransform ?? Transform.Identity;
     }
 
     public class Instance : Element { }
@@ -1162,9 +1226,57 @@ namespace Autodesk.Revit.DB
         public Transform MockTransform { get; set; } = Transform.Identity;
         public Transform GetTransform() => MockTransform;
         public bool Pinned { get; set; }
+        public ElementId MockTypeId { get; set; } = new ElementId(999);
+        public override ElementId GetTypeId() => MockTypeId;
+        public string MockSiteName { get; set; } = "<Not Shared>";
+        public override Parameter? get_Parameter(BuiltInParameter bip)
+        {
+            if (bip == BuiltInParameter.GEO_LOCATION)
+            {
+                return new Parameter { StringValue = MockSiteName, HasValue = true };
+            }
+            return base.get_Parameter(bip);
+        }
     }
 
     public class RevitLinkType : ElementType { }
+
+    public class Line : APIObject
+    {
+        public XYZ StartPoint { get; set; } = new XYZ();
+        public XYZ EndPoint { get; set; } = new XYZ();
+        public Line() { }
+        public Line(XYZ p1, XYZ p2) { StartPoint = p1; EndPoint = p2; }
+        public static Line CreateBound(XYZ p1, XYZ p2) => new Line(p1, p2);
+    }
+
+    public static class ElementTransformUtils
+    {
+        public static void MoveElement(Document doc, ElementId elementId, XYZ translation)
+        {
+            var elem = doc.GetElement(elementId);
+            if (elem is RevitLinkInstance rli)
+            {
+                if (rli.Pinned) throw new InvalidOperationException("Element is pinned.");
+                rli.MockTransform.Origin = rli.MockTransform.Origin + translation;
+            }
+        }
+
+        public static void RotateElement(Document doc, ElementId elementId, Line axis, double angle)
+        {
+            var elem = doc.GetElement(elementId);
+            if (elem is RevitLinkInstance rli)
+            {
+                if (rli.Pinned) throw new InvalidOperationException("Element is pinned.");
+                double cos = Math.Cos(angle);
+                double sin = Math.Sin(angle);
+                double curX = rli.MockTransform.BasisX.X;
+                double curY = rli.MockTransform.BasisX.Y;
+                rli.MockTransform.BasisX = new XYZ(curX * cos - curY * sin, curX * sin + curY * cos, 0);
+                rli.MockTransform.BasisY = new XYZ(-rli.MockTransform.BasisX.Y, rli.MockTransform.BasisX.X, 0);
+            }
+        }
+    }
     public class NumberingSchema : Element { }
     public class PhaseFilter : Element { }
     public class Phase : Element { }
