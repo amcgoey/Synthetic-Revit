@@ -91,6 +91,9 @@ class TempConfigureRevitAddins:
 def find_msbuild():
     paths = [
         r"C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe",
+        r"C:\Program Files\Microsoft Visual Studio\18\BuildTools\MSBuild\Current\Bin\amd64\MSBuild.exe",
+        r"C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Current\Bin\amd64\MSBuild.exe",
+        r"C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Current\Bin\MSBuild.exe",
         r"C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe",
         r"C:\Program Files\Microsoft Visual Studio\2022\Professional\MSBuild\Current\Bin\MSBuild.exe",
         r"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe",
@@ -100,11 +103,48 @@ def find_msbuild():
             return p
     return "msbuild"  # fallback to PATH
 
+def configure_dotnet_environment():
+    local_dotnet = os.path.join(
+        os.environ.get("LOCALAPPDATA", os.path.expanduser("~\\AppData\\Local")),
+        "Microsoft",
+        "dotnet"
+    )
+    sdk_root = os.path.join(local_dotnet, "sdk")
+    if os.path.exists(sdk_root):
+        os.environ["DOTNET_ROOT"] = local_dotnet
+        os.environ["PATH"] = local_dotnet + os.pathsep + os.environ.get("PATH", "")
+        sdks = sorted(
+            [d for d in os.listdir(sdk_root) if os.path.isdir(os.path.join(sdk_root, d))]
+        )
+        if sdks:
+            sdks_path = os.path.join(sdk_root, sdks[-1], "Sdks")
+            if os.path.exists(sdks_path):
+                os.environ["MSBuildSdksPath"] = sdks_path
+                os.environ["MSBuildEnableWorkloadResolver"] = "false"
+
+    system_net48 = r"C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.8"
+    if not os.path.exists(system_net48):
+        nuget_net48_root = os.path.join(
+            os.path.expanduser("~"),
+            ".nuget",
+            "packages",
+            "microsoft.netframework.referenceassemblies.net48"
+        )
+        if os.path.exists(nuget_net48_root):
+            versions = sorted(
+                [d for d in os.listdir(nuget_net48_root) if os.path.isdir(os.path.join(nuget_net48_root, d))]
+            )
+            if versions:
+                build_dir = os.path.join(nuget_net48_root, versions[-1], "build") + os.sep
+                if os.path.exists(build_dir):
+                    os.environ["TargetFrameworkRootPath"] = build_dir
+
 def run_test_suite(target_class, target_version):
     workspace_path = os.getcwd()
     solution_path = os.path.join(workspace_path, "src", "Synthetic.sln")
     
     os.environ["SYNTHETIC_PROJECT_ROOT"] = workspace_path
+    configure_dotnet_environment()
 
     # Self-heal any previously disabled add-ins across all versions on start
     for v in ["2023", "2024", "2025", "2026"]:
@@ -124,6 +164,7 @@ def run_test_suite(target_class, target_version):
         print(f"[ERROR] NuGet restore failed: {e}")
         sys.exit(1)
 
+    configure_dotnet_environment()
     msbuild_path = find_msbuild()
 
     # 2. Discover test projects dynamically
@@ -177,7 +218,7 @@ def run_test_suite(target_class, target_version):
             
         try:
             subprocess.run(
-                [msbuild_path, csproj_path, "/t:Build", "/p:Configuration=Debug", "/p:Platform=x64"],
+                [msbuild_path, csproj_path, "/t:Build", "/p:Configuration=Debug", "/p:Platform=x64", "/v:minimal", "/clp:ErrorsOnly;Summary"],
                 check=True
             )
             print(f"[TESTS] Build succeeded for {ver}.")

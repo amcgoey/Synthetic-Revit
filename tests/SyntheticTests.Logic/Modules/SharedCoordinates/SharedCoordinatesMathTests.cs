@@ -8,6 +8,16 @@ namespace SyntheticTests.Modules.SharedCoordinates
     [TestFixture]
     public class SharedCoordinatesMathTests
     {
+        private static Transform CreateTransform(XYZ? origin = null, XYZ? basisX = null, XYZ? basisY = null, XYZ? basisZ = null)
+        {
+            var t = Transform.Identity;
+            if (origin != null) t.Origin = origin;
+            if (basisX != null) t.set_Basis(0, basisX);
+            if (basisY != null) t.set_Basis(1, basisY);
+            if (basisZ != null) t.set_Basis(2, basisZ);
+            return t;
+        }
+
         [Test]
         public void ComputeExpectedTransform_BothIdentity_ReturnsIdentity()
         {
@@ -27,22 +37,18 @@ namespace SyntheticTests.Modules.SharedCoordinates
         public void ComputeExpectedTransform_HostAndLinkPureTranslations_DerivesRelativeTranslation()
         {
             // Host survey point at (100, 200, 0)
-            var host = new Transform
-            {
-                Origin = new XYZ(100.0, 200.0, 0.0),
-                BasisX = new XYZ(1, 0, 0),
-                BasisY = new XYZ(0, 1, 0),
-                BasisZ = new XYZ(0, 0, 1)
-            };
+            var host = CreateTransform(
+                new XYZ(100.0, 200.0, 0.0),
+                new XYZ(1, 0, 0),
+                new XYZ(0, 1, 0),
+                new XYZ(0, 0, 1));
 
             // Link survey point at (150, 230, 25)
-            var link = new Transform
-            {
-                Origin = new XYZ(150.0, 230.0, 25.0),
-                BasisX = new XYZ(1, 0, 0),
-                BasisY = new XYZ(0, 1, 0),
-                BasisZ = new XYZ(0, 0, 1)
-            };
+            var link = CreateTransform(
+                new XYZ(150.0, 230.0, 25.0),
+                new XYZ(1, 0, 0),
+                new XYZ(0, 1, 0),
+                new XYZ(0, 0, 1));
 
             var expected = SharedCoordinatesMath.ComputeExpectedTransform(host, link);
 
@@ -66,8 +72,8 @@ namespace SyntheticTests.Modules.SharedCoordinates
         [Test]
         public void ComputeDeltaAngle_QuarterTurnRotation_ReturnsPiOverTwo()
         {
-            var cur = new Transform { BasisX = new XYZ(1, 0, 0), BasisY = new XYZ(0, 1, 0), BasisZ = new XYZ(0, 0, 1) };
-            var exp = new Transform { BasisX = new XYZ(0, 1, 0), BasisY = new XYZ(-1, 0, 0), BasisZ = new XYZ(0, 0, 1) };
+            var cur = CreateTransform(XYZ.Zero, new XYZ(1, 0, 0), new XYZ(0, 1, 0), new XYZ(0, 0, 1));
+            var exp = CreateTransform(XYZ.Zero, new XYZ(0, 1, 0), new XYZ(-1, 0, 0), new XYZ(0, 0, 1));
 
             double delta = SharedCoordinatesMath.ComputeDeltaAngle(cur, exp);
 
@@ -79,21 +85,19 @@ namespace SyntheticTests.Modules.SharedCoordinates
         {
             // Current angle = +179 degrees (+3.124139 rad)
             double angleCur = 179.0 * Math.PI / 180.0;
-            var cur = new Transform
-            {
-                BasisX = new XYZ(Math.Cos(angleCur), Math.Sin(angleCur), 0),
-                BasisY = new XYZ(-Math.Sin(angleCur), Math.Cos(angleCur), 0),
-                BasisZ = new XYZ(0, 0, 1)
-            };
+            var cur = CreateTransform(
+                XYZ.Zero,
+                new XYZ(Math.Cos(angleCur), Math.Sin(angleCur), 0),
+                new XYZ(-Math.Sin(angleCur), Math.Cos(angleCur), 0),
+                new XYZ(0, 0, 1));
 
             // Expected angle = -179 degrees (-3.124139 rad)
             double angleExp = -179.0 * Math.PI / 180.0;
-            var exp = new Transform
-            {
-                BasisX = new XYZ(Math.Cos(angleExp), Math.Sin(angleExp), 0),
-                BasisY = new XYZ(-Math.Sin(angleExp), Math.Cos(angleExp), 0),
-                BasisZ = new XYZ(0, 0, 1)
-            };
+            var exp = CreateTransform(
+                XYZ.Zero,
+                new XYZ(Math.Cos(angleExp), Math.Sin(angleExp), 0),
+                new XYZ(-Math.Sin(angleExp), Math.Cos(angleExp), 0),
+                new XYZ(0, 0, 1));
 
             double delta = SharedCoordinatesMath.ComputeDeltaAngle(cur, exp);
 
@@ -105,8 +109,8 @@ namespace SyntheticTests.Modules.SharedCoordinates
         [Test]
         public void ComputeDeltaTranslation_CalculatesAccurateVector()
         {
-            var cur = new Transform { Origin = new XYZ(10.0, 20.0, 30.0) };
-            var exp = new Transform { Origin = new XYZ(15.0, 18.0, 42.0) };
+            var cur = CreateTransform(new XYZ(10.0, 20.0, 30.0));
+            var exp = CreateTransform(new XYZ(15.0, 18.0, 42.0));
 
             var delta = SharedCoordinatesMath.ComputeDeltaTranslation(cur, exp);
 
@@ -119,8 +123,8 @@ namespace SyntheticTests.Modules.SharedCoordinates
         public void ComputeAlignment_AlreadyAligned_FlagsNotOutOfSync()
         {
             var host = Transform.Identity;
-            var link = new Transform { Origin = new XYZ(10, 20, 30) };
-            var cur = new Transform { Origin = new XYZ(10, 20, 30) };
+            var link = CreateTransform(new XYZ(10, 20, 30));
+            var cur = CreateTransform(new XYZ(10, 20, 30));
 
             var result = SharedCoordinatesMath.ComputeAlignment(host, link, cur);
 
@@ -133,8 +137,8 @@ namespace SyntheticTests.Modules.SharedCoordinates
         public void ComputeAlignment_PerturbationBelowTolerance_ConsideredAlreadyAligned()
         {
             // 1e-6 perturbation is strictly less than 1e-5 tolerance
-            var cur = new Transform { Origin = new XYZ(0.0, 0.0, 0.0) };
-            var exp = new Transform { Origin = new XYZ(1e-6, 0.0, 0.0) };
+            var cur = CreateTransform(new XYZ(0.0, 0.0, 0.0));
+            var exp = CreateTransform(new XYZ(1e-6, 0.0, 0.0));
 
             var result = SharedCoordinatesMath.ComputeAlignmentFromExpected(cur, exp);
 
@@ -145,8 +149,8 @@ namespace SyntheticTests.Modules.SharedCoordinates
         public void ComputeAlignment_PerturbationAboveTolerance_FlagsOutOfSync()
         {
             // 2e-5 perturbation is greater than 1e-5 tolerance
-            var cur = new Transform { Origin = new XYZ(0.0, 0.0, 0.0) };
-            var exp = new Transform { Origin = new XYZ(2e-5, 0.0, 0.0) };
+            var cur = CreateTransform(new XYZ(0.0, 0.0, 0.0));
+            var exp = CreateTransform(new XYZ(2e-5, 0.0, 0.0));
 
             var result = SharedCoordinatesMath.ComputeAlignmentFromExpected(cur, exp);
 

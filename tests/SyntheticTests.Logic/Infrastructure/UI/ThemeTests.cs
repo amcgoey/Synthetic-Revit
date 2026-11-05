@@ -136,6 +136,19 @@ namespace SyntheticTests.Infrastructure.UI
                 dir = Path.GetDirectoryName(typeof(ThemeTests).Assembly.Location);
             }
 
+            if (!string.IsNullOrEmpty(dir))
+            {
+                string localTarget = Path.Combine(dir, "SyntheticTheme.xaml");
+                if (File.Exists(localTarget)) return Path.GetFullPath(localTarget);
+            }
+
+            string? envRoot = Environment.GetEnvironmentVariable("SYNTHETIC_PROJECT_ROOT");
+            if (!string.IsNullOrEmpty(envRoot))
+            {
+                string envTarget = Path.Combine(envRoot, "src", "SyntheticShared", "Shared", "UI", "SyntheticTheme.xaml");
+                if (File.Exists(envTarget)) return Path.GetFullPath(envTarget);
+            }
+
             while (dir is not null)
             {
                 string target1 = Path.Combine(dir, "src", "SyntheticShared", "Shared", "UI", "SyntheticTheme.xaml");

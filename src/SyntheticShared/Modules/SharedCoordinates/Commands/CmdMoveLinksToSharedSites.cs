@@ -38,7 +38,7 @@ namespace Synthetic.Modules.SharedCoordinates.Commands
 
                 if (groups.Count == 0)
                 {
-                    TaskDialog.Show(
+                    Autodesk.Revit.UI.TaskDialog.Show(
                         "Move Links to Shared Sites",
                         "No loaded linked models found in the active project.\nPlease link a model to reposition links to shared sites.");
                     return Result.Succeeded;

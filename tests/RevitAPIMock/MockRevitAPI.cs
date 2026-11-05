@@ -177,6 +177,7 @@ namespace Autodesk.Revit.DB
     {
         public Autodesk.Revit.ApplicationServices.Application Application { get; } = new Autodesk.Revit.ApplicationServices.Application();
         public Settings Settings { get; } = new Settings();
+        public FamilyManager FamilyManager { get; } = new FamilyManager();
         public bool IsFamilyDocument { get; set; } = false;
         public string Title { get; set; } = "Mock Document";
         public string PathName { get; set; } = "ActiveDoc";
@@ -249,7 +250,7 @@ namespace Autodesk.Revit.DB
         public string UniqueId { get; set; } = string.Empty;
         public Category? Category { get; set; }
         public ParameterSet Parameters { get; set; } = new ParameterSet();
-        public Document Document { get; set; } = new Document();
+        public Document Document { get; set; } = null!;
         public ElementId Id { get; set; } = ElementId.InvalidElementId;
         public Autodesk.Revit.DB.ExtensibleStorage.Entity GetEntity(Autodesk.Revit.DB.ExtensibleStorage.Schema schema) => new Autodesk.Revit.DB.ExtensibleStorage.Entity();
 
@@ -465,6 +466,21 @@ namespace Autodesk.Revit.DB
         public XYZ BasisX { get; set; } = new XYZ(1, 0, 0);
         public XYZ BasisY { get; set; } = new XYZ(0, 1, 0);
         public XYZ BasisZ { get; set; } = new XYZ(0, 0, 1);
+
+        public void set_Basis(int index, XYZ value)
+        {
+            if (index == 0) BasisX = value;
+            else if (index == 1) BasisY = value;
+            else if (index == 2) BasisZ = value;
+        }
+
+        public XYZ get_Basis(int index)
+        {
+            if (index == 0) return BasisX;
+            if (index == 1) return BasisY;
+            if (index == 2) return BasisZ;
+            throw new ArgumentOutOfRangeException(nameof(index));
+        }
         public static Transform Identity => new Transform
         {
             Origin = new XYZ(0, 0, 0),
@@ -924,6 +940,24 @@ namespace Autodesk.Revit.DB
         bool OnSharedFamilyFound(Family sharedFamily, bool familyInUse, out FamilySource source, out bool overwriteParameterValues);
     }
 
+    public class FamilyParameter : APIObject
+    {
+        public Definition Definition { get; set; } = new Definition();
+    }
+
+    public class FamilyParameterSet : APIObject, System.Collections.IEnumerable
+    {
+        private readonly List<FamilyParameter> _parameters = new List<FamilyParameter>();
+        public void Add(FamilyParameter param) => _parameters.Add(param);
+        public bool Insert(FamilyParameter param) { _parameters.Add(param); return true; }
+        public System.Collections.IEnumerator GetEnumerator() => _parameters.GetEnumerator();
+    }
+
+    public class FamilyManager : APIObject
+    {
+        public FamilyParameterSet Parameters { get; } = new FamilyParameterSet();
+    }
+
     public class Family : Element
     {
         public bool IsEditable { get; set; } = true;
@@ -931,6 +965,11 @@ namespace Autodesk.Revit.DB
         public Category? FamilyCategory { get; set; }
         public WorksetId WorksetId { get; set; } = WorksetId.InvalidWorksetId;
         public Document? MockFamilyDocument { get; set; }
+
+        public System.Collections.Generic.ISet<ElementId> GetFamilySymbolIds()
+        {
+            return new System.Collections.Generic.HashSet<ElementId>();
+        }
     }
 
     public static class WorksharingUtils
@@ -994,6 +1033,12 @@ namespace Autodesk.Revit.DB
         public FilteredElementCollector OfClass(Type type)
         {
             var filtered = _elements.Where(e => type.IsAssignableFrom(e.GetType())).ToList();
+            return new FilteredElementCollector(filtered);
+        }
+
+        public FilteredElementCollector OfCategoryId(ElementId categoryId)
+        {
+            var filtered = _elements.Where(e => e.Category != null && e.Category.Id == categoryId).ToList();
             return new FilteredElementCollector(filtered);
         }
 
@@ -1144,6 +1189,10 @@ namespace Autodesk.Revit.ApplicationServices
         }
 
         public DocumentSet Documents { get; set; } = new DocumentSet();
+
+        public void WriteJournalComment(string comment, bool timeStamp)
+        {
+        }
 
         public event EventHandler<global::Autodesk.Revit.DB.Events.FailuresProcessingEventArgs>? FailuresProcessing;
     }

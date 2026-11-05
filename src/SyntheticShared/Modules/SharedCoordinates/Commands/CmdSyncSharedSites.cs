@@ -37,7 +37,7 @@ namespace Synthetic.Modules.SharedCoordinates.Commands
 
                 if (loadedLinks.Count == 0)
                 {
-                    TaskDialog.Show(
+                    Autodesk.Revit.UI.TaskDialog.Show(
                         "Sync Shared Sites to Levels",
                         "No loaded linked models found in the active project.\nPlease link a host model to synchronize shared sites to levels.");
                     return Result.Succeeded;

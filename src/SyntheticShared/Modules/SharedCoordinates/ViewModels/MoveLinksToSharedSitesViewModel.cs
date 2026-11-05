@@ -227,9 +227,9 @@ namespace Synthetic.Modules.SharedCoordinates.ViewModels
                 StatusMessage = $"{selectedOutOfSync} out-of-sync instance(s) ready to reposition across {checkedCount} link type(s).";
             }
 
-            (RepositionCommand as RelayCommand)?.RaiseCanExecuteChanged();
-            (SelectAllCommand as RelayCommand)?.RaiseCanExecuteChanged();
-            (SelectNoneCommand as RelayCommand)?.RaiseCanExecuteChanged();
+            CommandManager.InvalidateRequerySuggested();
+
+
         }
     }
 }
