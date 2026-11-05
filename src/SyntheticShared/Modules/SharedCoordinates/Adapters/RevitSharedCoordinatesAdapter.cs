@@ -47,20 +47,24 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
             }
 
             var result = new List<LinkedModelItem>();
+            var groupedInstances = linkInstances.GroupBy(inst => inst.GetTypeId());
 
-            foreach (var instance in linkInstances)
+            foreach (var group in groupedInstances)
             {
-                var linkDoc = instance.GetLinkDocument();
-                if (linkDoc == null) continue; // Skip unloaded linked models
+                if (!group.Any(i => i.GetLinkDocument() != null)) continue;
 
-                var linkType = _doc.GetElement(instance.GetTypeId()) as RevitLinkType;
-                string displayName = linkType?.Name ?? instance.Name;
+                bool isSelected = selectedIds != null && group.Any(i => selectedIds.Contains(i.Id));
 
-                bool isSelected = selectedIds != null && selectedIds.Contains(instance.Id);
+                var repInstance = (selectedIds != null ? group.FirstOrDefault(i => selectedIds.Contains(i.Id) && i.GetLinkDocument() != null) : null)
+                    ?? group.FirstOrDefault(i => i.GetLinkDocument() != null)
+                    ?? group.First();
+
+                var linkType = _doc.GetElement(group.Key) as RevitLinkType;
+                string displayName = linkType?.Name ?? repInstance.Name;
 
                 result.Add(new LinkedModelItem
                 {
-                    Id = instance.Id.ToString(),
+                    Id = repInstance.Id.ToString(),
                     Name = displayName,
                     IsSelected = isSelected
                 });
@@ -79,8 +83,8 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
                 {
                     Id = l.Id.ToString(),
                     Name = l.Name,
-                    Elevation = l.ProjectElevation,
-                    SharedElevation = l.ProjectElevation
+                    Elevation = l.Elevation,
+                    SharedElevation = l.Elevation
                 })
                 .OrderBy(l => l.Elevation)
                 .ToList();
@@ -89,10 +93,13 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
         /// <inheritdoc />
         public IReadOnlyList<LevelItem> GetLinkedModelLevels(string linkedModelId)
         {
-            var linkInstance = new FilteredElementCollector(_doc)
-                .OfClass(typeof(RevitLinkInstance))
-                .Cast<RevitLinkInstance>()
-                .FirstOrDefault(inst => inst.Id.ToString() == linkedModelId);
+#if REVIT2022 || REVIT2023
+            if (!int.TryParse(linkedModelId, out int idVal)) return new List<LevelItem>();
+            var linkInstance = _doc.GetElement(new ElementId(idVal)) as RevitLinkInstance;
+#else
+            if (!long.TryParse(linkedModelId, out long idVal)) return new List<LevelItem>();
+            var linkInstance = _doc.GetElement(new ElementId(idVal)) as RevitLinkInstance;
+#endif
 
             if (linkInstance == null) return new List<LevelItem>();
 
@@ -107,13 +114,13 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
                 .Cast<Level>()
                 .Select(l =>
                 {
-                    XYZ internalPt = new XYZ(0, 0, l.ProjectElevation);
+                    XYZ internalPt = new XYZ(0, 0, l.Elevation);
                     XYZ sharedPt = linkToSharedTransform.OfPoint(internalPt);
                     return new LevelItem
                     {
                         Id = l.Id.ToString(),
                         Name = l.Name,
-                        Elevation = l.ProjectElevation,
+                        Elevation = l.Elevation,
                         SharedElevation = sharedPt.Z
                     };
                 })
@@ -175,7 +182,7 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
                         {
                             // Update existing site: modify only Elevation, preserving EastWest, NorthSouth, Angle
                             var curPos = existingLoc.GetProjectPosition(XYZ.Zero);
-                            var newPos = new ProjectPosition(
+                            var newPos = CreateProjectPosition(
                                 curPos.EastWest,
                                 curPos.NorthSouth,
                                 targetElevation,
@@ -188,7 +195,7 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
                             // Create new site: duplicate active ProjectLocation with target level name
                             var duplicatedLoc = activeLoc.Duplicate(target.LevelName);
                             var curPos = duplicatedLoc.GetProjectPosition(XYZ.Zero);
-                            var newPos = new ProjectPosition(
+                            var newPos = CreateProjectPosition(
                                 curPos.EastWest,
                                 curPos.NorthSouth,
                                 targetElevation,
@@ -253,20 +260,7 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
                 {
                     totalInstances++;
 
-                    string? siteName = null;
-                    try
-                    {
-                        var geoParam = instance.get_Parameter(BuiltInParameter.GEO_LOCATION);
-                        siteName = geoParam?.AsValueString();
-                        if (string.IsNullOrWhiteSpace(siteName))
-                        {
-                            siteName = geoParam?.AsString();
-                        }
-                    }
-                    catch
-                    {
-                        // Fallback if parameter cannot be read
-                    }
+                    string? siteName = GetAssignedSiteName(instance);
 
                     bool isAssigned = !string.IsNullOrWhiteSpace(siteName) &&
                                      !string.Equals(siteName, "<Not Shared>", StringComparison.OrdinalIgnoreCase);
@@ -306,13 +300,7 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
                         continue;
                     }
 
-                    var linkedLocations = new FilteredElementCollector(linkDoc)
-                        .OfClass(typeof(ProjectLocation))
-                        .Cast<ProjectLocation>();
-
-                    var targetLoc = linkedLocations.FirstOrDefault(loc =>
-                        string.Equals(loc.Name, siteName, StringComparison.OrdinalIgnoreCase));
-
+                    var targetLoc = ResolveAssignedLocation(linkDoc, siteName!);
                     if (targetLoc == null)
                     {
                         unassignedCount++;
@@ -411,20 +399,7 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
 
                     foreach (var instance in linkInstances)
                     {
-                        string? siteName = null;
-                        try
-                        {
-                            var geoParam = instance.get_Parameter(BuiltInParameter.GEO_LOCATION);
-                            siteName = geoParam?.AsValueString();
-                            if (string.IsNullOrWhiteSpace(siteName))
-                            {
-                                siteName = geoParam?.AsString();
-                            }
-                        }
-                        catch
-                        {
-                            // Skip on read failure
-                        }
+                        string? siteName = GetAssignedSiteName(instance);
 
                         bool isAssigned = !string.IsNullOrWhiteSpace(siteName) &&
                                          !string.Equals(siteName, "<Not Shared>", StringComparison.OrdinalIgnoreCase);
@@ -442,13 +417,7 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
                             continue;
                         }
 
-                        var linkedLocations = new FilteredElementCollector(linkDoc)
-                            .OfClass(typeof(ProjectLocation))
-                            .Cast<ProjectLocation>();
-
-                        var targetLoc = linkedLocations.FirstOrDefault(loc =>
-                            string.Equals(loc.Name, siteName, StringComparison.OrdinalIgnoreCase));
-
+                        var targetLoc = ResolveAssignedLocation(linkDoc, siteName!);
                         if (targetLoc == null)
                         {
                             skippedNames.Add(instance.Name);
@@ -515,6 +484,46 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
             summary.ErrorMessages = errors;
 
             return summary;
+        }
+
+        private ProjectPosition CreateProjectPosition(double eastWest, double northSouth, double elevation, double angle)
+        {
+#if REVIT2022 || REVIT2023
+            return _doc.Application.Create.NewProjectPosition(eastWest, northSouth, elevation, angle);
+#else
+            return new ProjectPosition(eastWest, northSouth, elevation, angle);
+#endif
+        }
+
+        private static string? GetAssignedSiteName(RevitLinkInstance instance)
+        {
+            try
+            {
+                var geoParam = instance.get_Parameter(BuiltInParameter.GEO_LOCATION);
+                string? siteName = geoParam?.AsValueString();
+                if (string.IsNullOrWhiteSpace(siteName))
+                {
+                    siteName = geoParam?.AsString();
+                }
+                return siteName;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static ProjectLocation? ResolveAssignedLocation(Document linkDoc, string siteName)
+        {
+            if (linkDoc == null || string.IsNullOrWhiteSpace(siteName))
+            {
+                return null;
+            }
+
+            return new FilteredElementCollector(linkDoc)
+                .OfClass(typeof(ProjectLocation))
+                .Cast<ProjectLocation>()
+                .FirstOrDefault(loc => string.Equals(loc.Name, siteName, StringComparison.OrdinalIgnoreCase));
         }
     }
 }

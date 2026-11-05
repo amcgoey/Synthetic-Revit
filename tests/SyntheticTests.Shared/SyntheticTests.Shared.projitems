@@ -57,6 +57,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)Helpers\PocoSnapshotExporter.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Tier2_MergeDuplicatesHeadlessTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Tier2_MergeDuplicatesIntegrationTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Tier2_SharedCoordinatesIntegrationTests.cs" />
 
 
   </ItemGroup>

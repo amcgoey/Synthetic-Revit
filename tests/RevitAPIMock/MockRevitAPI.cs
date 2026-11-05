@@ -148,6 +148,7 @@ namespace Autodesk.Revit.DB
 
         public static ElementId GetSolidPatternId() => new ElementId();
         public static ElementId InvalidElementId { get; } = new ElementId(-1);
+        public override string ToString() => Value.ToString();
 
         public static bool operator ==(ElementId? left, ElementId? right)
         {
@@ -188,6 +189,7 @@ namespace Autodesk.Revit.DB
 
         public void AddElement(Element elem, ElementId id)
         {
+            elem.Id = id;
             _elementsById[id] = elem;
             if (!string.IsNullOrEmpty(elem.UniqueId))
             {
@@ -252,6 +254,8 @@ namespace Autodesk.Revit.DB
         public ParameterSet Parameters { get; set; } = new ParameterSet();
         public Document Document { get; set; } = null!;
         public ElementId Id { get; set; } = ElementId.InvalidElementId;
+        public bool Pinned { get; set; }
+
         public Autodesk.Revit.DB.ExtensibleStorage.Entity GetEntity(Autodesk.Revit.DB.ExtensibleStorage.Schema schema) => new Autodesk.Revit.DB.ExtensibleStorage.Entity();
 
         public Parameter? LookupParameter(string name) => null;
@@ -917,6 +921,7 @@ namespace Autodesk.Revit.DB
 
     public enum BuiltInCategory
     {
+        OST_Walls = -2000011,
         OST_TitleBlocks = -2000280,
         OST_DetailComponents = -2000180,
         OST_ProfileFamilies = -2005022
@@ -925,7 +930,7 @@ namespace Autodesk.Revit.DB
     public enum BuiltInParameter
     {
         INVALID = -1,
-        GEO_LOCATION = -1005157
+        GEO_LOCATION = -1007720
     }
 
     public enum FamilySource
@@ -1177,12 +1182,27 @@ namespace Autodesk.Revit.DB.ExtensibleStorage
     }
 }
 
+namespace Autodesk.Revit.Creation
+{
+    using Autodesk.Revit.DB;
+
+    public class Application
+    {
+        public ProjectPosition NewProjectPosition(double eastWest, double northSouth, double elevation, double angle)
+        {
+            return new ProjectPosition(eastWest, northSouth, elevation, angle);
+        }
+    }
+}
+
 namespace Autodesk.Revit.ApplicationServices
 {
     using Autodesk.Revit.DB;
 
     public class Application : APIObject
     {
+        public Autodesk.Revit.Creation.Application Create { get; set; } = new Autodesk.Revit.Creation.Application();
+
         public System.Collections.Generic.IList<global::Autodesk.Revit.DB.Visual.Asset> GetAssets(global::Autodesk.Revit.DB.Visual.AssetType type)
         {
             return new System.Collections.Generic.List<global::Autodesk.Revit.DB.Visual.Asset> { new global::Autodesk.Revit.DB.Visual.Asset() };
@@ -1243,7 +1263,13 @@ namespace Autodesk.Revit.DB
         }
     }
 
-    public class ProjectLocation : Element
+    public class Instance : Element
+    {
+        public virtual Transform GetTotalTransform() => Transform.Identity;
+        public virtual Transform GetTransform() => Transform.Identity;
+    }
+
+    public class ProjectLocation : Instance
     {
         private ProjectPosition _position = new ProjectPosition();
 
@@ -1263,23 +1289,24 @@ namespace Autodesk.Revit.DB
             return dup;
         }
         public Transform MockTotalTransform { get; set; } = Transform.Identity;
-        public Transform GetTotalTransform() => MockTotalTransform ?? Transform.Identity;
+        public override Transform GetTotalTransform() => MockTotalTransform ?? Transform.Identity;
     }
 
-    public class Instance : Element { }
+
 
     public class RevitLinkInstance : Instance
     {
         public Document? MockLinkDocument { get; set; }
         public Document? GetLinkDocument() => MockLinkDocument;
         public Transform MockTransform { get; set; } = Transform.Identity;
-        public Transform GetTransform() => MockTransform;
-        public bool Pinned { get; set; }
+        public override Transform GetTransform() => MockTransform;
+
         public ElementId MockTypeId { get; set; } = new ElementId(999);
         public override ElementId GetTypeId() => MockTypeId;
         public string MockSiteName { get; set; } = "<Not Shared>";
         public override Parameter? get_Parameter(BuiltInParameter bip)
         {
+
             if (bip == BuiltInParameter.GEO_LOCATION)
             {
                 return new Parameter { StringValue = MockSiteName, HasValue = true };
