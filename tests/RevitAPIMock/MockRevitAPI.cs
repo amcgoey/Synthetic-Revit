@@ -1228,6 +1228,7 @@ namespace Autodesk.Revit.ApplicationServices
 
     public class Application : APIObject
     {
+        public double ShortCurveTolerance { get; set; } = 0.0026;
         public Autodesk.Revit.Creation.Application Create { get; set; } = new Autodesk.Revit.Creation.Application();
 
         public System.Collections.Generic.IList<global::Autodesk.Revit.DB.Visual.Asset> GetAssets(global::Autodesk.Revit.DB.Visual.AssetType type)
@@ -1363,6 +1364,8 @@ namespace Autodesk.Revit.DB
         public override ElementId GetTypeId() => MockTypeId;
         public Parameter? MockGeoLocationParameter { get; set; }
         public string? MockSiteName { get; set; } = "<Not Shared>";
+        public Action<RevitLinkInstance, Line, double>? OnRotated { get; set; }
+        public XYZ? MockPostRotateDrift { get; set; }
         public override Parameter? get_Parameter(BuiltInParameter bip)
         {
 
@@ -1391,11 +1394,19 @@ namespace Autodesk.Revit.DB
         public Line() { }
         public Line(XYZ p1, XYZ p2) { StartPoint = p1; EndPoint = p2; }
         public static Line CreateBound(XYZ p1, XYZ p2) => new Line(p1, p2);
+        public XYZ GetEndPoint(int index) => index == 0 ? StartPoint : EndPoint;
     }
 
     public static class ElementTransformUtils
     {
         public static void MoveElement(Document doc, ElementId elementId, XYZ translation)
+        {
+            double minTol = doc?.Application?.ShortCurveTolerance ?? 0.0026;
+            if (translation.GetLength() < minTol) throw new ArgumentException("Translation vector is too small.", nameof(translation));
+            MoveElementImpl(doc, elementId, translation);
+        }
+
+        private static void MoveElementImpl(Document doc, ElementId elementId, XYZ translation)
         {
             var elem = doc.GetElement(elementId);
             if (elem is RevitLinkInstance rli)
@@ -1417,6 +1428,21 @@ namespace Autodesk.Revit.DB
                 double curY = rli.MockTransform.BasisX.Y;
                 rli.MockTransform.BasisX = new XYZ(curX * cos - curY * sin, curX * sin + curY * cos, 0);
                 rli.MockTransform.BasisY = new XYZ(-rli.MockTransform.BasisX.Y, rli.MockTransform.BasisX.X, 0);
+
+                XYZ pAxis = axis?.GetEndPoint(0) ?? axis?.StartPoint ?? XYZ.Zero;
+                XYZ currentOrigin = rli.MockTransform.Origin;
+                XYZ offset = currentOrigin - pAxis;
+                if (offset.GetLength() > 1e-9)
+                {
+                    XYZ rotatedOffset = new XYZ(offset.X * cos - offset.Y * sin, offset.X * sin + offset.Y * cos, offset.Z);
+                    rli.MockTransform.Origin = pAxis + rotatedOffset;
+                }
+
+                rli.OnRotated?.Invoke(rli, axis, angle);
+                if (rli.MockPostRotateDrift != null)
+                {
+                    rli.MockTransform.Origin = rli.MockTransform.Origin + rli.MockPostRotateDrift;
+                }
             }
         }
     }

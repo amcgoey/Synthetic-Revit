@@ -446,14 +446,18 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
 
                         if (Math.Abs(alignment.DeltaAngle) > SharedCoordinatesMath.Tolerance)
                         {
-                            XYZ center = currentTransform.Origin;
-                            Line axis = Line.CreateBound(center, center + XYZ.BasisZ);
+                            XYZ currentOrigin = instance.GetTransform().Origin;
+                            Line axis = Line.CreateBound(currentOrigin, currentOrigin + XYZ.BasisZ);
                             ElementTransformUtils.RotateElement(_doc, instance.Id, axis, alignment.DeltaAngle);
                         }
 
-                        if (alignment.DeltaTranslationLength > SharedCoordinatesMath.Tolerance)
+                        Transform postRotateTransform = instance.GetTransform();
+                        XYZ remainingTranslation = alignment.ExpectedTransform.Origin - postRotateTransform.Origin;
+                        double minMoveTolerance = Math.Max(SharedCoordinatesMath.Tolerance, _doc.Application?.ShortCurveTolerance ?? 1e-4);
+
+                        if (remainingTranslation.GetLength() > minMoveTolerance)
                         {
-                            ElementTransformUtils.MoveElement(_doc, instance.Id, alignment.DeltaTranslation);
+                            ElementTransformUtils.MoveElement(_doc, instance.Id, remainingTranslation);
                         }
 
                         if (wasPinned)
