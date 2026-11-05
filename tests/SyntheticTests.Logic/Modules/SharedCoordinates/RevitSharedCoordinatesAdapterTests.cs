@@ -114,14 +114,8 @@ namespace SyntheticTests.Modules.SharedCoordinates
 
             var linkDoc = new Document { Title = "Linked Doc" };
             var linkActiveLoc = new ProjectLocation { Name = "Shared Loc" };
-            // Z translation of +50.0 in link project location
-            linkActiveLoc.MockTotalTransform = new Transform
-            {
-                Origin = new XYZ(10.0, 20.0, 50.0),
-                BasisX = new XYZ(1, 0, 0),
-                BasisY = new XYZ(0, 1, 0),
-                BasisZ = new XYZ(0, 0, 1)
-            };
+            // Shared elevation = +50.0 in link project location
+            linkActiveLoc.SetProjectPosition(XYZ.Zero, new ProjectPosition(10.0, 20.0, 50.0, 0.0));
             linkDoc.ActiveProjectLocation = linkActiveLoc;
 
             var lvl1 = new Level { Name = "Level 1", Elevation = 0.0 };
@@ -263,20 +257,13 @@ namespace SyntheticTests.Modules.SharedCoordinates
         [Test]
         public void GetLinkRepositionGroups_DetectsOutOfSyncAndUnassignedInstances()
         {
-
             var type1 = new RevitLinkType { Name = "Building A" };
             var typeId1 = new ElementId(1201);
             _doc.AddElement(type1, typeId1);
 
             var linkDoc = new Document { Title = "Doc A" };
             var sharedLoc = new ProjectLocation { Name = "SharedSite1" };
-            sharedLoc.MockTotalTransform = new Transform
-            {
-                Origin = new XYZ(50.0, 50.0, 10.0),
-                BasisX = new XYZ(1, 0, 0),
-                BasisY = new XYZ(0, 1, 0),
-                BasisZ = new XYZ(0, 0, 1)
-            };
+            sharedLoc.SetProjectPosition(XYZ.Zero, new ProjectPosition(50.0, 50.0, 10.0, 0.0));
             linkDoc.AddElement(sharedLoc, new ElementId(1301));
 
             // Instance 1: assigned, but displaced (out of sync)
@@ -289,7 +276,6 @@ namespace SyntheticTests.Modules.SharedCoordinates
                 MockTransform = new Transform { Origin = new XYZ(0.0, 0.0, 0.0) }
             };
             _doc.AddElement(inst1, new ElementId(1401));
-
 
             // Instance 2: unassigned (<Not Shared>)
             var inst2 = new RevitLinkInstance
@@ -320,18 +306,12 @@ namespace SyntheticTests.Modules.SharedCoordinates
             _doc.AddElement(type1, typeId1);
 
             // Active doc transform is Identity (survey point at 0,0,0)
-            _doc.ActiveProjectLocation.MockTotalTransform = Transform.Identity;
+            _doc.ActiveProjectLocation.SetProjectPosition(XYZ.Zero, new ProjectPosition(0.0, 0.0, 0.0, 0.0));
 
             var linkDoc = new Document { Title = "TowerDoc" };
             var sharedLoc = new ProjectLocation { Name = "TowerSite" };
             // Shared site expects link at (30.0, 40.0, 10.0)
-            sharedLoc.MockTotalTransform = new Transform
-            {
-                Origin = new XYZ(30.0, 40.0, 10.0),
-                BasisX = new XYZ(1, 0, 0),
-                BasisY = new XYZ(0, 1, 0),
-                BasisZ = new XYZ(0, 0, 1)
-            };
+            sharedLoc.SetProjectPosition(XYZ.Zero, new ProjectPosition(30.0, 40.0, 10.0, 0.0));
             linkDoc.AddElement(sharedLoc, new ElementId(1601));
 
             // Link is currently at (0, 0, 0) and pinned
@@ -353,7 +333,6 @@ namespace SyntheticTests.Modules.SharedCoordinates
 
             var summary = _adapter.RepositionLinks(request);
 
-
             Assert.AreEqual(1, summary.RepositionedCount);
             CollectionAssert.Contains(summary.RepositionedInstanceNames, "Tower Instance 1");
 
@@ -369,6 +348,89 @@ namespace SyntheticTests.Modules.SharedCoordinates
             var secondSummary = _adapter.RepositionLinks(request);
             Assert.AreEqual(0, secondSummary.RepositionedCount);
             Assert.AreEqual(1, secondSummary.AlreadyAlignedCount);
+        }
+
+        [Test]
+        public void EndToEnd_RoundTrip_SyncSharedSitesAndRepositionLinks_MovesInstanceToPositiveSharedElevation()
+        {
+            // 1. Host document with active project location at internal origin (0, 0, 0)
+            var hostDoc = new Document { Title = "HostDoc" };
+            hostDoc.ActiveProjectLocation = new ProjectLocation { Name = "Host Active Site" };
+            hostDoc.ActiveProjectLocation.SetProjectPosition(XYZ.Zero, new ProjectPosition(0.0, 0.0, 0.0, 0.0));
+            hostDoc.AddElement(hostDoc.ActiveProjectLocation, new ElementId(2001));
+
+            var linkType = new RevitLinkType { Name = "Unit A Type" };
+            var linkTypeId = new ElementId(2101);
+            hostDoc.AddElement(linkType, linkTypeId);
+
+            // 2. Unit document with a reference datum level at internal elevation 0.0
+            var unitDoc = new Document { Title = "UnitDoc" };
+            var unitActiveLoc = new ProjectLocation { Name = "Default Site" };
+            unitActiveLoc.SetProjectPosition(XYZ.Zero, new ProjectPosition(0.0, 0.0, 0.0, 0.0));
+            unitDoc.ActiveProjectLocation = unitActiveLoc;
+            unitDoc.AddElement(unitActiveLoc, new ElementId(3001));
+
+            var unitRefDatum = new Level { Name = "Level 1 Reference", Elevation = 0.0 };
+            unitDoc.AddElement(unitRefDatum, new ElementId(3101));
+
+            // Sync shared sites in unit model for host Level 3 at SharedElevation +50.0
+            var unitAdapter = new RevitSharedCoordinatesAdapter(unitDoc);
+            var syncRequest = new SyncSharedSitesRequest
+            {
+                ReferenceDatumLevel = new LevelItem
+                {
+                    Name = "Level 1 Reference",
+                    Elevation = 0.0,
+                    SharedElevation = 0.0
+                },
+                TargetSites = new List<SharedSiteSyncTarget>
+                {
+                    new SharedSiteSyncTarget
+                    {
+                        LevelName = "Level 3",
+                        SharedElevation = 50.0,
+                        IsChecked = true
+                    }
+                }
+            };
+            var syncSummary = unitAdapter.SyncSharedSites(syncRequest);
+            Assert.AreEqual(1, syncSummary.CreatedCount);
+            CollectionAssert.Contains(syncSummary.CreatedSiteNames, "Level 3");
+
+            // 3. In host document: create link instance assigned to "Level 3"
+            var linkInst = new RevitLinkInstance
+            {
+                Name = "Unit A Instance 1",
+                MockTypeId = linkTypeId,
+                MockLinkDocument = unitDoc,
+                MockSiteName = "Level 3",
+                Pinned = true,
+                MockTransform = new Transform { Origin = new XYZ(0.0, 0.0, 0.0) }
+            };
+            hostDoc.AddElement(linkInst, new ElementId(2201));
+
+            var hostAdapter = new RevitSharedCoordinatesAdapter(hostDoc);
+
+            // 4. Verify GetLinkRepositionGroups flags it as out-of-sync
+            var groups = hostAdapter.GetLinkRepositionGroups();
+            Assert.AreEqual(1, groups.Count);
+            Assert.AreEqual(1, groups[0].OutOfSyncCount);
+
+            // 5. Reposition links in host
+            var repoRequest = new RepositionLinksRequest
+            {
+                SelectedTypeIds = new List<string> { "2101" }
+            };
+            var repoSummary = hostAdapter.RepositionLinks(repoRequest);
+
+            Assert.AreEqual(1, repoSummary.RepositionedCount);
+            Assert.IsEmpty(repoSummary.ErrorMessages);
+            Assert.IsTrue(linkInst.Pinned, "Link instance should be pinned after repositioning.");
+
+            // Crucial assertion: link instance was moved to +50.0 Z (NOT -50.0 Z)
+            Assert.AreEqual(0.0, linkInst.MockTransform.Origin.X, 1e-4);
+            Assert.AreEqual(0.0, linkInst.MockTransform.Origin.Y, 1e-4);
+            Assert.AreEqual(50.0, linkInst.MockTransform.Origin.Z, 1e-4);
         }
 
         #endregion

@@ -107,7 +107,7 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
             if (linkDoc == null) return new List<LevelItem>();
 
             var activeLoc = linkDoc.ActiveProjectLocation;
-            Transform linkToSharedTransform = activeLoc != null ? activeLoc.GetTotalTransform() : Transform.Identity;
+            Transform linkTotalTransform = activeLoc != null ? activeLoc.GetTotalTransform() : Transform.Identity;
 
             return new FilteredElementCollector(linkDoc)
                 .OfClass(typeof(Level))
@@ -115,7 +115,7 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
                 .Select(l =>
                 {
                     XYZ internalPt = new XYZ(0, 0, l.Elevation);
-                    XYZ sharedPt = linkToSharedTransform.OfPoint(internalPt);
+                    XYZ sharedPt = linkTotalTransform.Inverse.OfPoint(internalPt);
                     return new LevelItem
                     {
                         Id = l.Id.ToString(),
@@ -240,7 +240,7 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
             }
 
             var hostActiveLoc = _doc.ActiveProjectLocation;
-            Transform hostToSharedTransform = hostActiveLoc != null ? hostActiveLoc.GetTotalTransform() : Transform.Identity;
+            Transform hostTotalTransform = hostActiveLoc != null ? hostActiveLoc.GetTotalTransform() : Transform.Identity;
 
             var groupedInstances = linkInstances.GroupBy(inst => inst.GetTypeId());
             var result = new List<LinkRepositionGroupItem>();
@@ -318,12 +318,12 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
                         continue;
                     }
 
-                    Transform linkToSharedTransform = targetLoc.GetTotalTransform();
+                    Transform linkTotalTransform = targetLoc.GetTotalTransform();
                     Transform currentTransform = instance.GetTransform();
 
                     var alignment = SharedCoordinatesMath.ComputeAlignment(
-                        hostToSharedTransform,
-                        linkToSharedTransform,
+                        hostTotalTransform,
+                        linkTotalTransform,
                         currentTransform);
 
                     if (alignment.IsOutOfSync)
@@ -389,7 +389,7 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
                 try
                 {
                     var hostActiveLoc = _doc.ActiveProjectLocation;
-                    Transform hostToSharedTransform = hostActiveLoc != null ? hostActiveLoc.GetTotalTransform() : Transform.Identity;
+                    Transform hostTotalTransform = hostActiveLoc != null ? hostActiveLoc.GetTotalTransform() : Transform.Identity;
 
                     var linkInstances = new FilteredElementCollector(_doc)
                         .OfClass(typeof(RevitLinkInstance))
@@ -424,12 +424,12 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
                             continue;
                         }
 
-                        Transform linkToSharedTransform = targetLoc.GetTotalTransform();
+                        Transform linkTotalTransform = targetLoc.GetTotalTransform();
                         Transform currentTransform = instance.GetTransform();
 
                         var alignment = SharedCoordinatesMath.ComputeAlignment(
-                            hostToSharedTransform,
-                            linkToSharedTransform,
+                            hostTotalTransform,
+                            linkTotalTransform,
                             currentTransform);
 
                         if (!alignment.IsOutOfSync)

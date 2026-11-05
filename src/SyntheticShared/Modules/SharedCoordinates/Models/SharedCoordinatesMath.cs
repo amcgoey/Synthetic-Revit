@@ -18,17 +18,17 @@ namespace Synthetic.Modules.SharedCoordinates.Models
 
         /// <summary>
         /// Computes the expected link instance placement transform in the host model:
-        /// T_expected = T_hostToShared^-1 * T_linkToShared
+        /// T_expected = T_hostTotal * T_linkTotal^-1
         /// </summary>
-        /// <param name="hostToShared">The total transform of the active host ProjectLocation.</param>
-        /// <param name="linkToShared">The total transform of the assigned linked ProjectLocation.</param>
-        /// <returns>The expected placement transform for the linked model instance.</returns>
-        public static Transform ComputeExpectedTransform(Transform hostToShared, Transform linkToShared)
+        /// <param name="hostTotalTransform">The total transform of the active host ProjectLocation (Shared-to-Internal).</param>
+        /// <param name="linkTotalTransform">The total transform of the assigned linked ProjectLocation (Shared-to-Internal).</param>
+        /// <returns>The expected placement transform for the linked model instance in host internal coordinates.</returns>
+        public static Transform ComputeExpectedTransform(Transform hostTotalTransform, Transform linkTotalTransform)
         {
-            if (hostToShared == null) throw new ArgumentNullException(nameof(hostToShared));
-            if (linkToShared == null) throw new ArgumentNullException(nameof(linkToShared));
+            if (hostTotalTransform == null) throw new ArgumentNullException(nameof(hostTotalTransform));
+            if (linkTotalTransform == null) throw new ArgumentNullException(nameof(linkTotalTransform));
 
-            return hostToShared.Inverse.Multiply(linkToShared);
+            return hostTotalTransform.Multiply(linkTotalTransform.Inverse);
         }
 
         /// <summary>
@@ -72,16 +72,16 @@ namespace Synthetic.Modules.SharedCoordinates.Models
         /// <summary>
         /// Computes the full 3D alignment result comparing current placement against host and link project locations.
         /// </summary>
-        /// <param name="hostToShared">The total transform of the active host ProjectLocation.</param>
-        /// <param name="linkToShared">The total transform of the assigned linked ProjectLocation.</param>
+        /// <param name="hostTotalTransform">The total transform of the active host ProjectLocation (Shared-to-Internal).</param>
+        /// <param name="linkTotalTransform">The total transform of the assigned linked ProjectLocation (Shared-to-Internal).</param>
         /// <param name="currentTransform">The current placement transform of the link instance.</param>
         /// <returns>A <see cref="CoordinateTransformResult"/> containing deltas and sync status.</returns>
         public static CoordinateTransformResult ComputeAlignment(
-            Transform hostToShared,
-            Transform linkToShared,
+            Transform hostTotalTransform,
+            Transform linkTotalTransform,
             Transform currentTransform)
         {
-            var expected = ComputeExpectedTransform(hostToShared, linkToShared);
+            var expected = ComputeExpectedTransform(hostTotalTransform, linkTotalTransform);
             return ComputeAlignmentFromExpected(currentTransform, expected);
         }
 
