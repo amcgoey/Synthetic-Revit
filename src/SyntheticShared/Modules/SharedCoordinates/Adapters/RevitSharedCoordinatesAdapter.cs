@@ -191,39 +191,21 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
                                 itemTrans.Start();
 
                                 double targetElevation = target.SharedElevation - refDatumInternalElevation;
+                                ProjectLocation targetLoc = isUpdate
+                                    ? existingLocations[target.LevelName]
+                                    : (duplicatedLoc = activeLoc.Duplicate(target.LevelName));
 
-                                if (isUpdate)
-                                {
-                                    var existingLoc = existingLocations[target.LevelName];
-                                    var curPos = existingLoc.GetProjectPosition(XYZ.Zero);
-                                    var newPos = CreateProjectPosition(
-                                        curPos.EastWest,
-                                        curPos.NorthSouth,
-                                        targetElevation,
-                                        curPos.Angle);
-                                    existingLoc.SetProjectPosition(XYZ.Zero, newPos);
-                                }
-                                else
-                                {
-                                    duplicatedLoc = activeLoc.Duplicate(target.LevelName);
-                                    var curPos = duplicatedLoc.GetProjectPosition(XYZ.Zero);
-                                    var newPos = CreateProjectPosition(
-                                        curPos.EastWest,
-                                        curPos.NorthSouth,
-                                        targetElevation,
-                                        curPos.Angle);
-                                    duplicatedLoc.SetProjectPosition(XYZ.Zero, newPos);
-                                }
+                                var curPos = targetLoc.GetProjectPosition(XYZ.Zero);
+                                var newPos = CreateProjectPosition(
+                                    curPos.EastWest,
+                                    curPos.NorthSouth,
+                                    targetElevation,
+                                    curPos.Angle);
+                                targetLoc.SetProjectPosition(XYZ.Zero, newPos);
 
                                 TransactionStatus status = itemTrans.Commit();
 
-                                for (int i = priorRecordCount; i < preprocessor.Report.Records.Count; i++)
-                                {
-                                    var rec = preprocessor.Report.Records[i];
-                                    errors.Add(string.IsNullOrWhiteSpace(rec.ContextTag)
-                                        ? $"[{rec.Severity}] {rec.DescriptionText}"
-                                        : $"[{rec.Severity}] ({rec.ContextTag}) {rec.DescriptionText}");
-                                }
+                                AppendFailureRecords(preprocessor, priorRecordCount, errors);
 
                                 if (status == TransactionStatus.Committed)
                                 {
@@ -256,13 +238,7 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
                                     itemTrans.RollBack();
                                 }
 
-                                for (int i = priorRecordCount; i < preprocessor.Report.Records.Count; i++)
-                                {
-                                    var rec = preprocessor.Report.Records[i];
-                                    errors.Add(string.IsNullOrWhiteSpace(rec.ContextTag)
-                                        ? $"[{rec.Severity}] {rec.DescriptionText}"
-                                        : $"[{rec.Severity}] ({rec.ContextTag}) {rec.DescriptionText}");
-                                }
+                                AppendFailureRecords(preprocessor, priorRecordCount, errors);
 
                                 errors.Add(ex.Message);
                             }
@@ -548,13 +524,7 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
 
                                 TransactionStatus status = itemTrans.Commit();
 
-                                for (int i = priorRecordCount; i < preprocessor.Report.Records.Count; i++)
-                                {
-                                    var rec = preprocessor.Report.Records[i];
-                                    errors.Add(string.IsNullOrWhiteSpace(rec.ContextTag)
-                                        ? $"[{rec.Severity}] {rec.DescriptionText}"
-                                        : $"[{rec.Severity}] ({rec.ContextTag}) {rec.DescriptionText}");
-                                }
+                                AppendFailureRecords(preprocessor, priorRecordCount, errors);
 
                                 if (status == TransactionStatus.Committed)
                                 {
@@ -576,13 +546,7 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
                                     itemTrans.RollBack();
                                 }
 
-                                for (int i = priorRecordCount; i < preprocessor.Report.Records.Count; i++)
-                                {
-                                    var rec = preprocessor.Report.Records[i];
-                                    errors.Add(string.IsNullOrWhiteSpace(rec.ContextTag)
-                                        ? $"[{rec.Severity}] {rec.DescriptionText}"
-                                        : $"[{rec.Severity}] ({rec.ContextTag}) {rec.DescriptionText}");
-                                }
+                                AppendFailureRecords(preprocessor, priorRecordCount, errors);
 
                                 errors.Add(ex.Message);
                             }
@@ -616,6 +580,20 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
             summary.ErrorMessages = errors;
 
             return summary;
+        }
+
+        private static void AppendFailureRecords(
+            CompositeFailuresPreprocessor preprocessor,
+            int priorRecordCount,
+            List<string> errors)
+        {
+            for (int i = priorRecordCount; i < preprocessor.Report.Records.Count; i++)
+            {
+                var rec = preprocessor.Report.Records[i];
+                errors.Add(string.IsNullOrWhiteSpace(rec.ContextTag)
+                    ? $"[{rec.Severity}] {rec.DescriptionText}"
+                    : $"[{rec.Severity}] ({rec.ContextTag}) {rec.DescriptionText}");
+            }
         }
 
         private ProjectPosition CreateProjectPosition(double eastWest, double northSouth, double elevation, double angle)
@@ -673,45 +651,32 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
                 string instanceName = instance.Name;
                 if (!string.IsNullOrWhiteSpace(instanceName))
                 {
-                    // If instanceName ends with Revit's default unshared suffix, strip it
-                    string cleanedName = instanceName;
-                    if (cleanedName.EndsWith(" : location <Not Shared>", StringComparison.OrdinalIgnoreCase))
-                    {
-                        cleanedName = cleanedName.Substring(0, cleanedName.Length - " : location <Not Shared>".Length).Trim();
-                    }
-                    else if (cleanedName.EndsWith(" : <Not Shared>", StringComparison.OrdinalIgnoreCase))
-                    {
-                        cleanedName = cleanedName.Substring(0, cleanedName.Length - " : <Not Shared>".Length).Trim();
-                    }
-                    else if (string.Equals(cleanedName, "<Not Shared>", StringComparison.OrdinalIgnoreCase))
-                    {
-                        return null;
-                    }
-
-                    // Check if cleaned name explicitly represents <Not Shared> (case-insensitive)
-                    if (cleanedName.IndexOf("<Not Shared>", StringComparison.OrdinalIgnoreCase) >= 0)
-                    {
-                        return null;
-                    }
-
-                    // Next check if cleanedName contains " : location " (case-insensitive)
-                    int locIdx = cleanedName.IndexOf(" : location ", StringComparison.OrdinalIgnoreCase);
+                    // 2a. Check if instanceName contains " : location " (case-insensitive)
+                    int locIdx = instanceName.IndexOf(" : location ", StringComparison.OrdinalIgnoreCase);
                     if (locIdx >= 0)
                     {
-                        string sitePart = cleanedName.Substring(locIdx + " : location ".Length).Trim();
-                        if (!string.IsNullOrWhiteSpace(sitePart) &&
-                            !string.Equals(sitePart, "<Not Shared>", StringComparison.OrdinalIgnoreCase))
+                        string afterLoc = instanceName.Substring(locIdx + " : location ".Length);
+                        int nextSep = afterLoc.IndexOf(" : ", StringComparison.Ordinal);
+                        string candidate = (nextSep >= 0 ? afterLoc.Substring(0, nextSep) : afterLoc).Trim();
+                        if (!string.IsNullOrWhiteSpace(candidate) &&
+                            !string.Equals(candidate, "<Not Shared>", StringComparison.OrdinalIgnoreCase))
                         {
-                            return sitePart;
+                            return candidate;
                         }
                     }
 
-                    // Otherwise, if cleanedName contains " : ", extract the final segment after the last " : " (trimmed)
-                    // and check whether it matches any ProjectLocation.Name (case-insensitive) in linkDoc; if so, return that matching name.
-                    if (cleanedName.Contains(" : ") && linkDoc != null)
+                    // 2b. Reject any name containing <Not Shared>
+                    if (instanceName.IndexOf("<Not Shared>", StringComparison.OrdinalIgnoreCase) >= 0)
                     {
-                        int lastColonIdx = cleanedName.LastIndexOf(" : ", StringComparison.Ordinal);
-                        string candidate = cleanedName.Substring(lastColonIdx + " : ".Length).Trim();
+                        return null;
+                    }
+
+                    // 2c. If instanceName contains " : ", extract the final segment after the last " : " (trimmed)
+                    // and check whether it matches any ProjectLocation.Name (case-insensitive) in linkDoc; if so, return that matching name.
+                    if (instanceName.Contains(" : ") && linkDoc != null)
+                    {
+                        int lastColonIdx = instanceName.LastIndexOf(" : ", StringComparison.Ordinal);
+                        string candidate = instanceName.Substring(lastColonIdx + " : ".Length).Trim();
                         if (!string.IsNullOrWhiteSpace(candidate) &&
                             !string.Equals(candidate, "<Not Shared>", StringComparison.OrdinalIgnoreCase))
                         {

@@ -702,6 +702,42 @@ namespace SyntheticTests.Modules.SharedCoordinates
         }
 
         [Test]
+        public void GetAssignedSiteName_InstanceNameEndsWithNotShared_WhenLinkedDocHasMatchingNumericSite_ReturnsNull()
+        {
+            var linkDoc = new Document { Title = "Linked Doc" };
+            var siteLoc = new ProjectLocation { Name = "1" };
+            linkDoc.AddElement(siteLoc, new ElementId(803));
+
+            var inst = new RevitLinkInstance
+            {
+                Name = "Unit.rvt : 1 : <Not Shared>",
+                MockLinkDocument = linkDoc,
+                MockSiteName = null
+            };
+
+            var resolved = _adapter.GetAssignedSiteName(inst, linkDoc);
+            Assert.IsNull(resolved, "Instances with <Not Shared> must return null, avoiding falling through to check numeric site name '1'.");
+        }
+
+        [Test]
+        public void GetAssignedSiteName_CompositeInstanceNameWithLocationAndTrailingNotShared_ResolvesLocationName()
+        {
+            var linkDoc = new Document { Title = "Linked Doc" };
+            var siteLoc = new ProjectLocation { Name = "Floor_3_Test" };
+            linkDoc.AddElement(siteLoc, new ElementId(804));
+
+            var inst = new RevitLinkInstance
+            {
+                Name = "UnitModel.rvt : 1 : location Floor_3_Test : location <Not Shared>",
+                MockLinkDocument = linkDoc,
+                MockSiteName = null
+            };
+
+            var resolved = _adapter.GetAssignedSiteName(inst, linkDoc);
+            Assert.AreEqual("Floor_3_Test", resolved);
+        }
+
+        [Test]
         public void GetLinkRepositionGroups_MultiStepResolution_CorrectlyClassifiesInstances()
         {
             var linkType = new RevitLinkType { Name = "MultiStep Type" };

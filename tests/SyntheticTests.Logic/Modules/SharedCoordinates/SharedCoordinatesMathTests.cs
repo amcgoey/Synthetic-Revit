@@ -239,5 +239,33 @@ namespace SyntheticTests.Modules.SharedCoordinates
             double expectedDelta = 2.0 * Math.PI / 180.0;
             Assert.AreEqual(expectedDelta, result.DeltaAngle, 1e-4);
         }
+
+        [Test]
+        public void EvaluateLinkAlignment_MatchesComputeAlignmentResult()
+        {
+            var hostLoc = new ProjectLocation { Name = "HostSite" };
+            hostLoc.SetProjectPosition(XYZ.Zero, new ProjectPosition(50.0, 50.0, 10.0, 0.0));
+
+            var linkLoc = new ProjectLocation { Name = "LinkSite" };
+            linkLoc.SetProjectPosition(XYZ.Zero, new ProjectPosition(20.0, 10.0, 0.0, 0.0));
+
+            var current = Transform.Identity;
+
+            var computeResult = SharedCoordinatesMath.ComputeAlignment(
+                hostLoc.GetTotalTransform(),
+                linkLoc.GetTotalTransform(),
+                current);
+
+            var evaluateResult = SharedCoordinatesMath.EvaluateLinkAlignment(
+                hostLoc.GetTotalTransform(),
+                linkLoc.GetTotalTransform(),
+                current);
+
+            Assert.AreEqual(computeResult.IsOutOfSync, evaluateResult.IsOutOfSync);
+            Assert.AreEqual(computeResult.DeltaAngle, evaluateResult.DeltaAngle, 1e-6);
+            Assert.AreEqual(computeResult.DeltaTranslation.X, evaluateResult.DeltaTranslation.X, 1e-6);
+            Assert.AreEqual(computeResult.DeltaTranslation.Y, evaluateResult.DeltaTranslation.Y, 1e-6);
+            Assert.AreEqual(computeResult.DeltaTranslation.Z, evaluateResult.DeltaTranslation.Z, 1e-6);
+        }
     }
 }

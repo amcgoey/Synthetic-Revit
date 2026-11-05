@@ -86,6 +86,19 @@ namespace Synthetic.Modules.SharedCoordinates.Models
         }
 
         /// <summary>
+        /// Evaluates link instance alignment against expected transform derived from host and link project locations.
+        /// Alias for <see cref="ComputeAlignment(Transform, Transform, Transform)"/>.
+        /// </summary>
+        /// <param name="hostTotalTransform">The total transform of the active host ProjectLocation (Shared-to-Internal).</param>
+        /// <param name="linkTotalTransform">The total transform of the assigned linked ProjectLocation (Shared-to-Internal).</param>
+        /// <param name="linkInstanceTransform">The current placement transform of the link instance.</param>
+        /// <returns>A <see cref="CoordinateTransformResult"/> containing deltas and sync status.</returns>
+        public static CoordinateTransformResult EvaluateLinkAlignment(
+            Transform hostTotalTransform,
+            Transform linkTotalTransform,
+            Transform linkInstanceTransform) => ComputeAlignment(hostTotalTransform, linkTotalTransform, linkInstanceTransform);
+
+        /// <summary>
         /// Computes the full 3D alignment result comparing current placement against an expected transform.
         /// </summary>
         /// <param name="currentTransform">The current placement transform of the link instance.</param>
