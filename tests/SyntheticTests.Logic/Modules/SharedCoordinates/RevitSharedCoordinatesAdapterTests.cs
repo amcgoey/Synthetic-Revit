@@ -351,6 +351,121 @@ namespace SyntheticTests.Modules.SharedCoordinates
         }
 
         [Test]
+        public void RepositionLinks_CombinedRotationAndTranslation_ReReadsPostRotationOriginAndCompensates()
+        {
+            var type = new RevitLinkType { Name = "BuildingType" };
+            var typeId = new ElementId(5501);
+            _doc.AddElement(type, typeId);
+
+            _doc.ActiveProjectLocation.SetProjectPosition(XYZ.Zero, new ProjectPosition(0.0, 0.0, 0.0, 0.0));
+
+            var linkDoc = new Document { Title = "BuildingDoc" };
+            var targetLoc = new ProjectLocation { Name = "TargetSite" };
+            // Expected position: origin (10.0, 20.0, 5.0) and angle PI/2 (90 deg)
+            targetLoc.SetProjectPosition(XYZ.Zero, new ProjectPosition(10.0, 20.0, 5.0, Math.PI / 2));
+            linkDoc.AddElement(targetLoc, new ElementId(5601));
+
+            var inst = new RevitLinkInstance
+            {
+                Name = "Building Instance 1",
+                MockTypeId = typeId,
+                MockLinkDocument = linkDoc,
+                MockSiteName = "TargetSite",
+                Pinned = true,
+                MockTransform = new Transform { Origin = new XYZ(0.0, 0.0, 0.0) },
+                // Simulate pivot-induced origin drift during RotateElement (e.g., origin shifts by (2.0, 3.0, 0.0))
+                MockPostRotateDrift = new XYZ(2.0, 3.0, 0.0)
+            };
+            _doc.AddElement(inst, new ElementId(5701));
+
+            var request = new RepositionLinksRequest { SelectedTypeIds = new List<string> { "5501" } };
+            var summary = _adapter.RepositionLinks(request);
+
+            Assert.AreEqual(1, summary.RepositionedCount);
+            Assert.IsEmpty(summary.ErrorMessages);
+            Assert.IsTrue(inst.Pinned, "Pinned state must be restored.");
+
+            // Expected placement transform has origin = (10, 20, 5)
+            // Even though rotation shifted origin to (2, 3, 0), post-rotation re-read ensured remaining translation = (8, 17, 5),
+            // leading to exact match at (10, 20, 5).
+            Assert.AreEqual(10.0, inst.MockTransform.Origin.X, 1e-4);
+            Assert.AreEqual(20.0, inst.MockTransform.Origin.Y, 1e-4);
+            Assert.AreEqual(5.0, inst.MockTransform.Origin.Z, 1e-4);
+        }
+
+        [Test]
+        public void RepositionLinks_SubShortCurveToleranceTranslationRemainder_SkipsMoveElementWithoutException()
+        {
+            var type = new RevitLinkType { Name = "SmallRemainderType" };
+            var typeId = new ElementId(5801);
+            _doc.AddElement(type, typeId);
+
+            _doc.ActiveProjectLocation.SetProjectPosition(XYZ.Zero, new ProjectPosition(0.0, 0.0, 0.0, 0.0));
+
+            var linkDoc = new Document { Title = "SmallDoc" };
+            var targetLoc = new ProjectLocation { Name = "SmallSite" };
+            // Expected position: origin (0.0, 0.0, 0.0) and angle PI/4
+            targetLoc.SetProjectPosition(XYZ.Zero, new ProjectPosition(0.0, 0.0, 0.0, Math.PI / 4));
+            linkDoc.AddElement(targetLoc, new ElementId(5901));
+
+            var inst = new RevitLinkInstance
+            {
+                Name = "Small Instance 1",
+                MockTypeId = typeId,
+                MockLinkDocument = linkDoc,
+                MockSiteName = "SmallSite",
+                Pinned = true,
+                MockTransform = new Transform { Origin = new XYZ(0.0, 0.0, 0.0) },
+                // Simulate tiny sub-ShortCurveTolerance drift (0.001 ft < 0.0026 ft)
+                MockPostRotateDrift = new XYZ(0.001, 0.0, 0.0)
+            };
+            _doc.AddElement(inst, new ElementId(6001));
+
+            var request = new RepositionLinksRequest { SelectedTypeIds = new List<string> { "5801" } };
+            var summary = _adapter.RepositionLinks(request);
+
+            Assert.AreEqual(1, summary.RepositionedCount);
+            Assert.IsEmpty(summary.ErrorMessages);
+            Assert.IsTrue(inst.Pinned, "Pinned state must be restored.");
+        }
+
+        [Test]
+        public void RepositionLinks_PureSubShortCurveToleranceOffset_SkipsMoveElementAndCountsAsRepositioned()
+        {
+            var type = new RevitLinkType { Name = "SubTolerancePureType" };
+            var typeId = new ElementId(6101);
+            _doc.AddElement(type, typeId);
+
+            _doc.ActiveProjectLocation.SetProjectPosition(XYZ.Zero, new ProjectPosition(0.0, 0.0, 0.0, 0.0));
+
+            var linkDoc = new Document { Title = "SubDoc" };
+            var targetLoc = new ProjectLocation { Name = "SubSite" };
+            // Target is at (0, 0, 0)
+            targetLoc.SetProjectPosition(XYZ.Zero, new ProjectPosition(0.0, 0.0, 0.0, 0.0));
+            linkDoc.AddElement(targetLoc, new ElementId(6201));
+
+            // Instance is at (0.001, 0.0, 0.0) - out of sync because 0.001 > SharedCoordinatesMath.Tolerance (1e-5),
+            // but remaining translation 0.001 is <= Application.ShortCurveTolerance (0.0026).
+            var inst = new RevitLinkInstance
+            {
+                Name = "Sub Instance 1",
+                MockTypeId = typeId,
+                MockLinkDocument = linkDoc,
+                MockSiteName = "SubSite",
+                Pinned = true,
+                MockTransform = new Transform { Origin = new XYZ(0.001, 0.0, 0.0) }
+            };
+            _doc.AddElement(inst, new ElementId(6301));
+
+            var request = new RepositionLinksRequest { SelectedTypeIds = new List<string> { "6101" } };
+            var summary = _adapter.RepositionLinks(request);
+
+            Assert.AreEqual(1, summary.RepositionedCount);
+            Assert.IsEmpty(summary.ErrorMessages);
+            Assert.IsTrue(inst.Pinned, "Pinned state must be restored.");
+        }
+
+        [Test]
         public void EndToEnd_RoundTrip_SyncSharedSitesAndRepositionLinks_MovesInstanceToPositiveSharedElevation()
         {
             // 1. Host document with active project location at internal origin (0, 0, 0)
