@@ -434,5 +434,220 @@ namespace SyntheticTests.Modules.SharedCoordinates
         }
 
         #endregion
+
+        #region Assigned Site Resolution Tests (Ticket #131)
+
+        [Test]
+        public void GetAssignedSiteName_GeoLocationElementIdInLinkDoc_ResolvesSiteName()
+        {
+            var linkDoc = new Document { Title = "Linked Doc" };
+            var siteLoc = new ProjectLocation { Name = "Floor 3" };
+            var siteId = new ElementId(501);
+            linkDoc.AddElement(siteLoc, siteId);
+
+            var inst = new RevitLinkInstance
+            {
+                Name = "Unit_A.rvt : 1",
+                MockLinkDocument = linkDoc,
+                MockGeoLocationParameter = new Parameter
+                {
+                    StorageType = StorageType.ElementId,
+                    ElementIdValue = siteId,
+                    HasValue = true
+                }
+            };
+
+            var resolved = _adapter.GetAssignedSiteName(inst, linkDoc);
+            Assert.AreEqual("Floor 3", resolved);
+        }
+
+        [Test]
+        public void GetAssignedSiteName_GeoLocationElementIdInHostDoc_ResolvesSiteName()
+        {
+            var hostSiteLoc = new ProjectLocation { Name = "Floor 4 Host" };
+            var hostSiteId = new ElementId(601);
+            _doc.AddElement(hostSiteLoc, hostSiteId);
+
+            var linkDoc = new Document { Title = "Linked Doc" };
+            var inst = new RevitLinkInstance
+            {
+                Name = "Unit_B.rvt : 1",
+                MockLinkDocument = linkDoc,
+                MockGeoLocationParameter = new Parameter
+                {
+                    StorageType = StorageType.ElementId,
+                    ElementIdValue = hostSiteId,
+                    HasValue = true
+                }
+            };
+
+            var resolved = _adapter.GetAssignedSiteName(inst, linkDoc);
+            Assert.AreEqual("Floor 4 Host", resolved);
+        }
+
+        [Test]
+        public void GetAssignedSiteName_GeoLocationElementIdNotShared_FallsBackToInstanceNameLocation()
+        {
+            var notSharedLoc = new ProjectLocation { Name = "<Not Shared>" };
+            var notSharedId = new ElementId(701);
+            _doc.AddElement(notSharedLoc, notSharedId);
+
+            var linkDoc = new Document { Title = "Linked Doc" };
+            var inst = new RevitLinkInstance
+            {
+                Name = "Unit_A.rvt : 1 : location Floor 3",
+                MockLinkDocument = linkDoc,
+                MockGeoLocationParameter = new Parameter
+                {
+                    StorageType = StorageType.ElementId,
+                    ElementIdValue = notSharedId,
+                    HasValue = true
+                }
+            };
+
+            var resolved = _adapter.GetAssignedSiteName(inst, linkDoc);
+            Assert.AreEqual("Floor 3", resolved);
+        }
+
+        [Test]
+        public void GetAssignedSiteName_GeoLocationEmpty_InstanceNameHasLocationKeyword_ExtractsSiteName()
+        {
+            var linkDoc = new Document { Title = "Linked Doc" };
+            var inst = new RevitLinkInstance
+            {
+                Name = "Unit_A.rvt : 1 : location Floor 3",
+                MockLinkDocument = linkDoc,
+                MockSiteName = null
+            };
+
+            var resolved = _adapter.GetAssignedSiteName(inst, linkDoc);
+            Assert.AreEqual("Floor 3", resolved);
+        }
+
+        [Test]
+        public void GetAssignedSiteName_GeoLocationEmpty_TrailingSegmentMatchesLinkedProjectLocation_ResolvesSiteName()
+        {
+            var linkDoc = new Document { Title = "Linked Doc" };
+            var siteLoc = new ProjectLocation { Name = "Floor 3" };
+            linkDoc.AddElement(siteLoc, new ElementId(801));
+
+            var inst = new RevitLinkInstance
+            {
+                Name = "Unit_A.rvt : 1 : Floor 3",
+                MockLinkDocument = linkDoc,
+                MockSiteName = null
+            };
+
+            var resolved = _adapter.GetAssignedSiteName(inst, linkDoc);
+            Assert.AreEqual("Floor 3", resolved);
+        }
+
+        [Test]
+        public void GetAssignedSiteName_GeoLocationEmpty_TrailingSegmentDoesNotMatchLinkedProjectLocation_ReturnsNull()
+        {
+            var linkDoc = new Document { Title = "Linked Doc" };
+            var siteLoc = new ProjectLocation { Name = "Different Site" };
+            linkDoc.AddElement(siteLoc, new ElementId(802));
+
+            var inst = new RevitLinkInstance
+            {
+                Name = "Unit_A.rvt : 1 : Floor 3",
+                MockLinkDocument = linkDoc,
+                MockSiteName = null
+            };
+
+            var resolved = _adapter.GetAssignedSiteName(inst, linkDoc);
+            Assert.IsNull(resolved);
+        }
+
+        [Test]
+        public void GetAssignedSiteName_InstanceNameExplicitNotShared_ReturnsNull()
+        {
+            var linkDoc = new Document { Title = "Linked Doc" };
+            var inst = new RevitLinkInstance
+            {
+                Name = "Unit_A.rvt : 2 : <Not Shared>",
+                MockLinkDocument = linkDoc,
+                MockSiteName = null
+            };
+
+            var resolved = _adapter.GetAssignedSiteName(inst, linkDoc);
+            Assert.IsNull(resolved);
+        }
+
+        [Test]
+        public void GetLinkRepositionGroups_MultiStepResolution_CorrectlyClassifiesInstances()
+        {
+            var linkType = new RevitLinkType { Name = "MultiStep Type" };
+            var typeId = new ElementId(4001);
+            _doc.AddElement(linkType, typeId);
+
+            var linkDoc = new Document { Title = "MultiStep Doc" };
+            var site1 = new ProjectLocation { Name = "Floor 1" };
+            site1.SetProjectPosition(XYZ.Zero, new ProjectPosition(10.0, 0.0, 0.0, 0.0));
+            var siteId1 = new ElementId(4101);
+            linkDoc.AddElement(site1, siteId1);
+
+            var site2 = new ProjectLocation { Name = "Floor 2" };
+            site2.SetProjectPosition(XYZ.Zero, new ProjectPosition(0.0, 0.0, 0.0, 0.0));
+            var siteId2 = new ElementId(4102);
+            linkDoc.AddElement(site2, siteId2);
+
+            _doc.ActiveProjectLocation.SetProjectPosition(XYZ.Zero, new ProjectPosition(0.0, 0.0, 0.0, 0.0));
+
+            // Instance 1: GEO_LOCATION ElementId -> "Floor 1", placed at origin -> Out of sync
+            var inst1 = new RevitLinkInstance
+            {
+                Name = "Unit : 1",
+                MockTypeId = typeId,
+                MockLinkDocument = linkDoc,
+                MockTransform = Transform.Identity,
+                MockGeoLocationParameter = new Parameter
+                {
+                    StorageType = StorageType.ElementId,
+                    ElementIdValue = siteId1,
+                    HasValue = true
+                }
+            };
+            _doc.AddElement(inst1, new ElementId(4201));
+
+            // Instance 2: Name contains " : location Floor 2", placed at (0,0,0) -> In sync
+            var inst2 = new RevitLinkInstance
+            {
+                Name = "Unit : 2 : location Floor 2",
+                MockTypeId = typeId,
+                MockLinkDocument = linkDoc,
+                MockSiteName = null,
+                MockTransform = Transform.Identity
+            };
+            _doc.AddElement(inst2, new ElementId(4202));
+
+            // Instance 3: Name contains "<Not Shared>" -> Unassigned (skipped)
+            var inst3 = new RevitLinkInstance
+            {
+                Name = "Unit : 3 : <Not Shared>",
+                MockTypeId = typeId,
+                MockLinkDocument = linkDoc,
+                MockSiteName = null,
+                MockTransform = Transform.Identity
+            };
+            _doc.AddElement(inst3, new ElementId(4203));
+
+            var groups = _adapter.GetLinkRepositionGroups();
+            Assert.AreEqual(1, groups.Count);
+            var group = groups[0];
+            Assert.AreEqual(3, group.TotalInstanceCount);
+            Assert.AreEqual(1, group.OutOfSyncCount);
+            Assert.AreEqual(1, group.UnassignedCount);
+
+            var summary = _adapter.RepositionLinks(new RepositionLinksRequest { SelectedTypeIds = new List<string> { "4001" } });
+            Assert.AreEqual(1, summary.RepositionedCount);
+            Assert.AreEqual(1, summary.AlreadyAlignedCount);
+            Assert.AreEqual(1, summary.SkippedCount);
+            CollectionAssert.Contains(summary.RepositionedInstanceNames, "Unit : 1");
+            CollectionAssert.Contains(summary.SkippedInstanceNames, "Unit : 3 : <Not Shared>");
+        }
+
+        #endregion
     }
 }

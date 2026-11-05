@@ -260,7 +260,8 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
                 {
                     totalInstances++;
 
-                    string? siteName = GetAssignedSiteName(instance);
+                    var linkDoc = instance.GetLinkDocument();
+                    string? siteName = GetAssignedSiteName(instance, linkDoc);
 
                     bool isAssigned = !string.IsNullOrWhiteSpace(siteName) &&
                                      !string.Equals(siteName, "<Not Shared>", StringComparison.OrdinalIgnoreCase);
@@ -282,7 +283,6 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
                         continue;
                     }
 
-                    var linkDoc = instance.GetLinkDocument();
                     if (linkDoc == null)
                     {
                         unassignedCount++;
@@ -399,7 +399,8 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
 
                     foreach (var instance in linkInstances)
                     {
-                        string? siteName = GetAssignedSiteName(instance);
+                        var linkDoc = instance.GetLinkDocument();
+                        string? siteName = GetAssignedSiteName(instance, linkDoc);
 
                         bool isAssigned = !string.IsNullOrWhiteSpace(siteName) &&
                                          !string.Equals(siteName, "<Not Shared>", StringComparison.OrdinalIgnoreCase);
@@ -410,7 +411,6 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
                             continue;
                         }
 
-                        var linkDoc = instance.GetLinkDocument();
                         if (linkDoc == null)
                         {
                             skippedNames.Add(instance.Name);
@@ -495,17 +495,104 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
 #endif
         }
 
-        private static string? GetAssignedSiteName(RevitLinkInstance instance)
+        internal string? GetAssignedSiteName(RevitLinkInstance instance, Document? linkDoc)
         {
+            if (instance == null) return null;
+
             try
             {
+                // 1. Check BuiltInParameter.GEO_LOCATION
                 var geoParam = instance.get_Parameter(BuiltInParameter.GEO_LOCATION);
-                string? siteName = geoParam?.AsValueString();
-                if (string.IsNullOrWhiteSpace(siteName))
+                if (geoParam != null)
                 {
-                    siteName = geoParam?.AsString();
+                    if (geoParam.StorageType == StorageType.ElementId)
+                    {
+                        ElementId siteElemId = geoParam.AsElementId();
+                        if (siteElemId != null && siteElemId != ElementId.InvalidElementId)
+                        {
+                            Element? siteElem = linkDoc?.GetElement(siteElemId) ?? _doc.GetElement(siteElemId);
+                            if (siteElem != null && !string.IsNullOrWhiteSpace(siteElem.Name))
+                            {
+                                string trimmedName = siteElem.Name.Trim();
+                                if (!string.Equals(trimmedName, "<Not Shared>", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    return trimmedName;
+                                }
+                            }
+                        }
+                    }
+
+                    string? valString = geoParam.AsValueString();
+                    if (!string.IsNullOrWhiteSpace(valString) &&
+                        valString.IndexOf("<Not Shared>", StringComparison.OrdinalIgnoreCase) < 0)
+                    {
+                        return valString.Trim();
+                    }
+
+                    string? strVal = geoParam.AsString();
+                    if (!string.IsNullOrWhiteSpace(strVal) &&
+                        strVal.IndexOf("<Not Shared>", StringComparison.OrdinalIgnoreCase) < 0)
+                    {
+                        return strVal.Trim();
+                    }
                 }
-                return siteName;
+
+                // 2. Fallback to instance.Name inspection
+                string instanceName = instance.Name;
+                if (!string.IsNullOrWhiteSpace(instanceName))
+                {
+                    // If instanceName ends with Revit's default unshared suffix, strip it
+                    string cleanedName = instanceName;
+                    if (cleanedName.EndsWith(" : location <Not Shared>", StringComparison.OrdinalIgnoreCase))
+                    {
+                        cleanedName = cleanedName.Substring(0, cleanedName.Length - " : location <Not Shared>".Length).Trim();
+                    }
+                    else if (cleanedName.EndsWith(" : <Not Shared>", StringComparison.OrdinalIgnoreCase))
+                    {
+                        cleanedName = cleanedName.Substring(0, cleanedName.Length - " : <Not Shared>".Length).Trim();
+                    }
+                    else if (string.Equals(cleanedName, "<Not Shared>", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return null;
+                    }
+
+                    // Check if cleaned name explicitly represents <Not Shared> (case-insensitive)
+                    if (cleanedName.IndexOf("<Not Shared>", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        return null;
+                    }
+
+                    // Next check if cleanedName contains " : location " (case-insensitive)
+                    int locIdx = cleanedName.IndexOf(" : location ", StringComparison.OrdinalIgnoreCase);
+                    if (locIdx >= 0)
+                    {
+                        string sitePart = cleanedName.Substring(locIdx + " : location ".Length).Trim();
+                        if (!string.IsNullOrWhiteSpace(sitePart) &&
+                            !string.Equals(sitePart, "<Not Shared>", StringComparison.OrdinalIgnoreCase))
+                        {
+                            return sitePart;
+                        }
+                    }
+
+                    // Otherwise, if cleanedName contains " : ", extract the final segment after the last " : " (trimmed)
+                    // and check whether it matches any ProjectLocation.Name (case-insensitive) in linkDoc; if so, return that matching name.
+                    if (cleanedName.Contains(" : ") && linkDoc != null)
+                    {
+                        int lastColonIdx = cleanedName.LastIndexOf(" : ", StringComparison.Ordinal);
+                        string candidate = cleanedName.Substring(lastColonIdx + " : ".Length).Trim();
+                        if (!string.IsNullOrWhiteSpace(candidate) &&
+                            !string.Equals(candidate, "<Not Shared>", StringComparison.OrdinalIgnoreCase))
+                        {
+                            var matchedLoc = ResolveAssignedLocation(linkDoc, candidate);
+                            if (matchedLoc != null)
+                            {
+                                return matchedLoc.Name;
+                            }
+                        }
+                    }
+                }
+
+                return null;
             }
             catch
             {

@@ -184,6 +184,7 @@ namespace Autodesk.Revit.DB
         public string PathName { get; set; } = "ActiveDoc";
         public bool IsWorkshared { get; set; } = false;
         public ProjectLocation ActiveProjectLocation { get; set; } = new ProjectLocation { Name = "Internal" };
+        public List<ProjectLocation> MockProjectLocations { get; } = new List<ProjectLocation>();
         private readonly Dictionary<string, Element> _elementsByUniqueId = new Dictionary<string, Element>();
         private readonly Dictionary<ElementId, Element> _elementsById = new Dictionary<ElementId, Element>();
 
@@ -205,7 +206,18 @@ namespace Autodesk.Revit.DB
 
         public Element? GetElement(ElementId id)
         {
-            return _elementsById.TryGetValue(id, out var elem) ? elem : null;
+            if (id == null || id == ElementId.InvalidElementId) return null;
+            if (_elementsById.TryGetValue(id, out var elem))
+            {
+                return elem;
+            }
+            var loc = MockProjectLocations.FirstOrDefault(p => p.Id == id);
+            if (loc != null) return loc;
+            if (ActiveProjectLocation != null && ActiveProjectLocation.Id == id)
+            {
+                return ActiveProjectLocation;
+            }
+            return null;
         }
 
         public Document EditFamily(Family family)
@@ -243,7 +255,22 @@ namespace Autodesk.Revit.DB
             return deletedIds;
         }
 
-        internal System.Collections.Generic.IEnumerable<Element> GetElements() => _elementsById.Values;
+        internal System.Collections.Generic.IEnumerable<Element> GetElements()
+        {
+            var list = new List<Element>(_elementsById.Values);
+            foreach (var pl in MockProjectLocations)
+            {
+                if (!_elementsById.ContainsKey(pl.Id))
+                {
+                    list.Add(pl);
+                }
+            }
+            if (ActiveProjectLocation != null && !_elementsById.ContainsKey(ActiveProjectLocation.Id))
+            {
+                list.Add(ActiveProjectLocation);
+            }
+            return list;
+        }
     }
 
     public class Element : APIObject
@@ -1334,13 +1361,22 @@ namespace Autodesk.Revit.DB
 
         public ElementId MockTypeId { get; set; } = new ElementId(999);
         public override ElementId GetTypeId() => MockTypeId;
-        public string MockSiteName { get; set; } = "<Not Shared>";
+        public Parameter? MockGeoLocationParameter { get; set; }
+        public string? MockSiteName { get; set; } = "<Not Shared>";
         public override Parameter? get_Parameter(BuiltInParameter bip)
         {
 
             if (bip == BuiltInParameter.GEO_LOCATION)
             {
-                return new Parameter { StringValue = MockSiteName, HasValue = true };
+                if (MockGeoLocationParameter != null)
+                {
+                    return MockGeoLocationParameter;
+                }
+                if (MockSiteName == null)
+                {
+                    return null;
+                }
+                return new Parameter { StringValue = MockSiteName, StorageType = StorageType.String, HasValue = true };
             }
             return base.get_Parameter(bip);
         }

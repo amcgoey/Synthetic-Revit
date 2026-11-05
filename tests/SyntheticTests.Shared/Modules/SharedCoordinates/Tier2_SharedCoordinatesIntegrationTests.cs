@@ -234,5 +234,129 @@ namespace SyntheticTests
                 doc.Close(false);
             }
         }
+
+        [Test]
+        public void RevitSharedCoordinates_RepositionLinks_MovesDisplacedPinnedInstanceToSharedSite()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context must not be null.");
+            var app = _uiapp!.Application;
+
+            string tempUnitPath = Path.Combine(Path.GetTempPath(), $"UnitModel_{Guid.NewGuid():N}.rvt");
+            try
+            {
+                // 1. Create temporary .rvt unit model on disk with named ProjectLocation "Floor_3_Test"
+                Document unitDoc = app.NewProjectDocument(UnitSystem.Imperial);
+                unitDoc.SaveAs(tempUnitPath);
+
+                using (var tx = new Transaction(unitDoc, "Create Shared Site"))
+                {
+                    tx.Start();
+                    var activeLoc = unitDoc.ActiveProjectLocation;
+                    var newLoc = activeLoc.Duplicate("Floor_3_Test");
+#if REVIT2022 || REVIT2023
+                    var newPos = app.Create.NewProjectPosition(10.0, 20.0, 35.0, 0.0);
+#else
+                    var newPos = new ProjectPosition(10.0, 20.0, 35.0, 0.0);
+#endif
+                    newLoc.SetProjectPosition(XYZ.Zero, newPos);
+                    tx.Commit();
+                }
+                unitDoc.Save();
+                unitDoc.Close(false);
+
+                // 2. Open disposable host document from test template
+                Document hostDoc = OpenTestTemplate(app);
+                try
+                {
+                    RevitLinkInstance linkInstance;
+                    using (var tx = new Transaction(hostDoc, "Link Unit Model"))
+                    {
+                        tx.Start();
+                        ModelPath modelPath = ModelPathUtils.ConvertUserVisiblePathToModelPath(tempUnitPath);
+                        var linkOptions = new RevitLinkOptions(false);
+                        var loadResult = RevitLinkType.Create(hostDoc, modelPath, linkOptions);
+                        linkInstance = RevitLinkInstance.Create(hostDoc, loadResult.ElementId);
+
+                        string linkedDocName = Path.GetFileNameWithoutExtension(tempUnitPath);
+                        try
+                        {
+                            linkInstance.Name = $"{linkedDocName} : 1 : location Floor_3_Test";
+                        }
+                        catch
+                        {
+                            var nameParam = linkInstance.get_Parameter(BuiltInParameter.RVT_LINK_INSTANCE_NAME);
+                            if (nameParam != null && !nameParam.IsReadOnly)
+                            {
+                                nameParam.Set("1 : location Floor_3_Test");
+                            }
+                        }
+
+                        // Displace instance from true location:
+                        ElementTransformUtils.MoveElement(hostDoc, linkInstance.Id, new XYZ(15.0, -10.0, 0.0));
+                        linkInstance.Pinned = true;
+                        tx.Commit();
+                    }
+
+                    // 3. Act: Discover groups
+                    var adapter = new RevitSharedCoordinatesAdapter(hostDoc, null);
+                    var groups = adapter.GetLinkRepositionGroups();
+                    Assert.IsNotNull(groups);
+                    Assert.AreEqual(1, groups.Count);
+                    Assert.AreEqual(1, groups[0].TotalInstanceCount);
+                    Assert.AreEqual(1, groups[0].OutOfSyncCount);
+                    Assert.AreEqual(0, groups[0].UnassignedCount);
+
+                    // 4. Act: Reposition links
+                    var repoRequest = new RepositionLinksRequest
+                    {
+                        SelectedTypeIds = new List<string> { linkInstance.GetTypeId().ToString() }
+                    };
+                    var summary = adapter.RepositionLinks(repoRequest);
+
+                    // 5. Assert: Summary & Pinned status
+                    Assert.IsEmpty(summary.ErrorMessages, $"RepositionLinks should not encounter errors: {string.Join("; ", summary.ErrorMessages)}");
+                    Assert.AreEqual(1, summary.RepositionedCount);
+                    Assert.IsTrue(linkInstance.Pinned, "Link instance should be pinned after repositioning.");
+
+                    // 6. Assert: Transform matches expected hostTotal * linkTotal^-1
+                    Document? linkedDoc = linkInstance.GetLinkDocument();
+                    Assert.IsNotNull(linkedDoc, "Linked document must be loaded.");
+                    var linkLoc = new FilteredElementCollector(linkedDoc)
+                        .OfClass(typeof(ProjectLocation))
+                        .Cast<ProjectLocation>()
+                        .FirstOrDefault(loc => string.Equals(loc.Name, "Floor_3_Test", StringComparison.OrdinalIgnoreCase));
+                    Assert.IsNotNull(linkLoc, "ProjectLocation 'Floor_3_Test' must exist in linked document.");
+
+                    Transform expected = SharedCoordinatesMath.ComputeExpectedTransform(
+                        hostDoc.ActiveProjectLocation.GetTotalTransform(),
+                        linkLoc.GetTotalTransform());
+                    Transform actual = linkInstance.GetTransform();
+
+                    Assert.AreEqual(expected.Origin.X, actual.Origin.X, 1e-3, "Origin.X mismatch");
+                    Assert.AreEqual(expected.Origin.Y, actual.Origin.Y, 1e-3, "Origin.Y mismatch");
+                    Assert.AreEqual(expected.Origin.Z, actual.Origin.Z, 1e-3, "Origin.Z mismatch");
+                    Assert.AreEqual(expected.BasisX.X, actual.BasisX.X, 1e-3, "BasisX.X mismatch");
+                    Assert.AreEqual(expected.BasisX.Y, actual.BasisX.Y, 1e-3, "BasisX.Y mismatch");
+                    Assert.AreEqual(expected.BasisY.X, actual.BasisY.X, 1e-3, "BasisY.X mismatch");
+                    Assert.AreEqual(expected.BasisY.Y, actual.BasisY.Y, 1e-3, "BasisY.Y mismatch");
+                }
+                finally
+                {
+                    // Close hostDoc before attempting disk cleanup to release file lock on tempUnitPath
+                    hostDoc.Close(false);
+                }
+            }
+            finally
+            {
+                try
+                {
+                    if (File.Exists(tempUnitPath))
+                    {
+                        File.Delete(tempUnitPath);
+                    }
+                }
+                catch { /* Suppress temporary cleanup locks */ }
+            }
+        }
     }
 }
