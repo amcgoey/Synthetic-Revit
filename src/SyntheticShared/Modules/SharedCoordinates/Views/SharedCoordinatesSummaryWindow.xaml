@@ -2,7 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:Synthetic.Shared.UI"
-        Title="Shared Site Sync Summary"
+        Title="Shared Coordinates Summary"
         Height="420" Width="480" MinHeight="350" MinWidth="400"
         WindowStartupLocation="CenterOwner" ResizeMode="CanResizeWithGrip" ShowInTaskbar="False"
         Style="{DynamicResource SyntheticWindowStyle}"
@@ -25,28 +25,37 @@
         </Grid.RowDefinitions>
 
         <!-- 0. Header -->
-        <TextBlock Grid.Row="0"
-                   Text="Shared Site Sync Complete"
+        <TextBlock x:Name="TxtSummaryTitle"
+                   Grid.Row="0"
+                   Text="Shared Coordinates Complete"
                    FontSize="16" FontWeight="Bold"
                    Foreground="{DynamicResource Synthetic.Brushes.TextPrimary}"
                    Margin="0,0,0,14"/>
 
         <!-- 1. High-Level Stat Cards -->
-        <UniformGrid Grid.Row="1" Columns="2" Margin="0,0,0,14">
-            <!-- Created Card -->
-            <Border Background="{DynamicResource Synthetic.Brushes.ControlSurface}"
+        <Grid Grid.Row="1" Margin="0,0,0,14">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition x:Name="ColStat3" Width="0"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Stat 1 Card -->
+            <Border Grid.Column="0"
+                    Background="{DynamicResource Synthetic.Brushes.ControlSurface}"
                     BorderBrush="{DynamicResource Synthetic.Brushes.BorderNormal}"
                     BorderThickness="1"
                     CornerRadius="4"
-                    Margin="0,0,6,0"
+                    Margin="0,0,4,0"
                     Padding="12">
                 <StackPanel HorizontalAlignment="Center">
-                    <TextBlock x:Name="TxtCreatedCount"
+                    <TextBlock x:Name="TxtStat1Count"
                                Text="0"
                                FontSize="28" FontWeight="Bold"
                                Foreground="{DynamicResource Synthetic.Brushes.Success}"
                                HorizontalAlignment="Center"/>
-                    <TextBlock Text="Sites Created"
+                    <TextBlock x:Name="TxtStat1Label"
+                               Text="Stat 1"
                                FontSize="12"
                                Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
                                HorizontalAlignment="Center"
@@ -54,27 +63,54 @@
                 </StackPanel>
             </Border>
 
-            <!-- Updated Card -->
-            <Border Background="{DynamicResource Synthetic.Brushes.ControlSurface}"
+            <!-- Stat 2 Card -->
+            <Border Grid.Column="1"
+                    Background="{DynamicResource Synthetic.Brushes.ControlSurface}"
                     BorderBrush="{DynamicResource Synthetic.Brushes.BorderNormal}"
                     BorderThickness="1"
                     CornerRadius="4"
-                    Margin="6,0,0,0"
+                    Margin="2,0,2,0"
                     Padding="12">
                 <StackPanel HorizontalAlignment="Center">
-                    <TextBlock x:Name="TxtUpdatedCount"
+                    <TextBlock x:Name="TxtStat2Count"
                                Text="0"
                                FontSize="28" FontWeight="Bold"
                                Foreground="{DynamicResource Synthetic.Brushes.AccentActive}"
                                HorizontalAlignment="Center"/>
-                    <TextBlock Text="Sites Updated"
+                    <TextBlock x:Name="TxtStat2Label"
+                               Text="Stat 2"
                                FontSize="12"
                                Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
                                HorizontalAlignment="Center"
                                Margin="0,2,0,0"/>
                 </StackPanel>
             </Border>
-        </UniformGrid>
+
+            <!-- Stat 3 Card (Used for Repositioning) -->
+            <Border x:Name="BorderStat3"
+                    Grid.Column="2"
+                    Background="{DynamicResource Synthetic.Brushes.ControlSurface}"
+                    BorderBrush="{DynamicResource Synthetic.Brushes.BorderNormal}"
+                    BorderThickness="1"
+                    CornerRadius="4"
+                    Margin="4,0,0,0"
+                    Padding="12"
+                    Visibility="Collapsed">
+                <StackPanel HorizontalAlignment="Center">
+                    <TextBlock x:Name="TxtStat3Count"
+                               Text="0"
+                               FontSize="28" FontWeight="Bold"
+                               Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
+                               HorizontalAlignment="Center"/>
+                    <TextBlock x:Name="TxtStat3Label"
+                               Text="Skipped"
+                               FontSize="12"
+                               Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
+                               HorizontalAlignment="Center"
+                               Margin="0,2,0,0"/>
+                </StackPanel>
+            </Border>
+        </Grid>
 
         <!-- 2. Details Log Area -->
         <Border Grid.Row="2"

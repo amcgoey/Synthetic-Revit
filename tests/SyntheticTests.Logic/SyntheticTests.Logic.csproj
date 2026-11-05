@@ -33,6 +33,7 @@
     <Compile Include="..\SyntheticTests.Shared\Modules\MergeDuplicates\Tier2_MergeDuplicatesHeadlessTests.cs" Link="Modules\MergeDuplicates\Tier2_MergeDuplicatesHeadlessTests.cs" />
     <Compile Include="..\SyntheticTests.Shared\Modules\SheetIndex\SheetIndexMatrixBuilderTests.cs" Link="Modules\SheetIndex\SheetIndexMatrixBuilderTests.cs" />
     <Compile Include="..\SyntheticTests.Shared\Modules\SharedCoordinates\SharedCoordinatesAdapterTests.cs" Link="Modules\SharedCoordinates\SharedCoordinatesAdapterTests.cs" />
+    <Compile Include="..\SyntheticTests.Shared\Modules\SharedCoordinates\SharedCoordinatesRepositionIntegrationTests.cs" Link="Modules\SharedCoordinates\SharedCoordinatesRepositionIntegrationTests.cs" />
     <Compile Remove="Infrastructure\UI\RibbonTests.cs" />
     <Compile Include="Infrastructure\UI\RibbonTests.cs" />
     <None Include="..\..\src\SyntheticShared\Shared\UI\SyntheticTheme.xaml" Link="SyntheticTheme.xaml" CopyToOutputDirectory="PreserveNewest" />

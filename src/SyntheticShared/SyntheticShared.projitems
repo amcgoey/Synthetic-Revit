@@ -330,15 +330,22 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Models\SyncSharedSitesRequest.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Models\SyncSharedSitesSummary.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Models\LinkRepositionGroupItem.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Models\LinkRepositionInstanceItem.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Models\CoordinateTransformResult.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Models\SharedCoordinatesMath.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Models\RepositionLinksRequest.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Models\RepositionLinksSummary.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Adapters\ISharedCoordinatesAdapter.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Adapters\RevitSharedCoordinatesAdapter.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\ViewModels\SyncSharedSitesViewModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\ViewModels\MoveLinksToSharedSitesViewModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Commands\CmdSyncSharedSites.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Commands\CmdMoveLinksToSharedSites.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Views\SyncSharedSitesWindow.xaml.cs">
       <DependentUpon>SyncSharedSitesWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Views\MoveLinksToSharedSitesWindow.xaml.cs">
+      <DependentUpon>MoveLinksToSharedSitesWindow.xaml</DependentUpon>
     </Compile>
     <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Views\SharedCoordinatesSummaryWindow.xaml.cs">
       <DependentUpon>SharedCoordinatesSummaryWindow.xaml</DependentUpon>
@@ -472,6 +479,10 @@
       <SubType>Designer</SubType>
     </Page>
     <Page Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Views\ExportSheetIndexWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Views\MoveLinksToSharedSitesWindow.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>

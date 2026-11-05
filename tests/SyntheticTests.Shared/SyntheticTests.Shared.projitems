@@ -58,6 +58,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Tier2_MergeDuplicatesHeadlessTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Tier2_MergeDuplicatesIntegrationTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\SharedCoordinatesAdapterTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\SharedCoordinatesRepositionIntegrationTests.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="$(MSBuildThisFileDirectory)Assets\test_duplicate_families.json">
