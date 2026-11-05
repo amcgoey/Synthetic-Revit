@@ -523,9 +523,9 @@ namespace Autodesk.Revit.DB
                 var invBasisZ = new XYZ(BasisX.Z, BasisY.Z, BasisZ.Z);
 
                 var invOrigin = new XYZ(
-                    -(invBasisX.X * Origin.X + invBasisX.Y * Origin.Y + invBasisX.Z * Origin.Z),
-                    -(invBasisY.X * Origin.X + invBasisY.Y * Origin.Y + invBasisY.Z * Origin.Z),
-                    -(invBasisZ.X * Origin.X + invBasisZ.Y * Origin.Y + invBasisZ.Z * Origin.Z)
+                    -(BasisX.X * Origin.X + BasisX.Y * Origin.Y + BasisX.Z * Origin.Z),
+                    -(BasisY.X * Origin.X + BasisY.Y * Origin.Y + BasisY.Z * Origin.Z),
+                    -(BasisZ.X * Origin.X + BasisZ.Y * Origin.Y + BasisZ.Z * Origin.Z)
                 );
 
                 return new Transform
@@ -1273,14 +1273,24 @@ namespace Autodesk.Revit.DB
     {
         private ProjectPosition _position = new ProjectPosition();
 
-        public ProjectPosition GetProjectPosition(XYZ point) => _position;
-        public void SetProjectPosition(XYZ point, ProjectPosition position) => _position = position;
+        public ProjectPosition GetProjectPosition(XYZ point)
+        {
+            XYZ pt = point ?? XYZ.Zero;
+            XYZ sharedPt = GetTotalTransform().Inverse.OfPoint(pt);
+            return new ProjectPosition(sharedPt.X, sharedPt.Y, sharedPt.Z, _position.Angle);
+        }
+        public void SetProjectPosition(XYZ point, ProjectPosition position)
+        {
+            _position = position ?? new ProjectPosition();
+            MockTotalTransform = null;
+        }
         public ProjectLocation Duplicate(string name)
         {
             var dup = new ProjectLocation
             {
                 Name = name,
-                _position = new ProjectPosition(_position.EastWest, _position.NorthSouth, _position.Elevation, _position.Angle)
+                _position = new ProjectPosition(_position.EastWest, _position.NorthSouth, _position.Elevation, _position.Angle),
+                MockTotalTransform = MockTotalTransform
             };
             if (Document != null)
             {
@@ -1288,8 +1298,29 @@ namespace Autodesk.Revit.DB
             }
             return dup;
         }
-        public Transform MockTotalTransform { get; set; } = Transform.Identity;
-        public override Transform GetTotalTransform() => MockTotalTransform ?? Transform.Identity;
+        public Transform? MockTotalTransform { get; set; }
+        public override Transform GetTotalTransform()
+        {
+            if (MockTotalTransform != null)
+            {
+                return MockTotalTransform;
+            }
+
+            double angle = _position.Angle;
+            double cos = Math.Cos(angle);
+            double sin = Math.Sin(angle);
+            double ew = _position.EastWest;
+            double ns = _position.NorthSouth;
+            double elev = _position.Elevation;
+
+            return new Transform
+            {
+                BasisX = new XYZ(cos, sin, 0),
+                BasisY = new XYZ(-sin, cos, 0),
+                BasisZ = new XYZ(0, 0, 1),
+                Origin = new XYZ(-cos * ew + sin * ns, -sin * ew - cos * ns, -elev)
+            };
+        }
     }
 
 

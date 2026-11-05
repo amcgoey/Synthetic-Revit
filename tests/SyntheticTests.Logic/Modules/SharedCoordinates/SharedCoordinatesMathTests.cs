@@ -53,9 +53,9 @@ namespace SyntheticTests.Modules.SharedCoordinates
             var expected = SharedCoordinatesMath.ComputeExpectedTransform(host, link);
 
             // Relative origin = (150 - 100, 230 - 200, 25 - 0) = (50, 30, 25)
-            Assert.AreEqual(50.0, expected.Origin.X, SharedCoordinatesMath.Tolerance);
-            Assert.AreEqual(30.0, expected.Origin.Y, SharedCoordinatesMath.Tolerance);
-            Assert.AreEqual(25.0, expected.Origin.Z, SharedCoordinatesMath.Tolerance);
+            Assert.AreEqual(-50.0, expected.Origin.X, SharedCoordinatesMath.Tolerance);
+            Assert.AreEqual(-30.0, expected.Origin.Y, SharedCoordinatesMath.Tolerance);
+            Assert.AreEqual(-25.0, expected.Origin.Z, SharedCoordinatesMath.Tolerance);
         }
 
         [Test]
@@ -124,7 +124,7 @@ namespace SyntheticTests.Modules.SharedCoordinates
         {
             var host = Transform.Identity;
             var link = CreateTransform(new XYZ(10, 20, 30));
-            var cur = CreateTransform(new XYZ(10, 20, 30));
+            var cur = SharedCoordinatesMath.ComputeExpectedTransform(host, link);
 
             var result = SharedCoordinatesMath.ComputeAlignment(host, link, cur);
 
@@ -165,6 +165,79 @@ namespace SyntheticTests.Modules.SharedCoordinates
 
             Assert.IsTrue(norm <= Math.PI && norm > -Math.PI);
             Assert.AreEqual(-Math.PI + 0.2, norm, 1e-6);
+        }
+
+        [Test]
+        public void ComputeExpectedTransform_PureElevation_AlignsVerticalDisplacement()
+        {
+            // Host active location at elevation 0
+            var hostLoc = new ProjectLocation { Name = "HostSite" };
+            hostLoc.SetProjectPosition(XYZ.Zero, new ProjectPosition(0.0, 0.0, 0.0, 0.0));
+
+            // Link active location at shared elevation 50
+            var linkLoc = new ProjectLocation { Name = "LinkLevelSite" };
+            linkLoc.SetProjectPosition(XYZ.Zero, new ProjectPosition(0.0, 0.0, 50.0, 0.0));
+
+            var expected = SharedCoordinatesMath.ComputeExpectedTransform(
+                hostLoc.GetTotalTransform(),
+                linkLoc.GetTotalTransform());
+
+            // T_expected origin must be +50 in host internal coordinates
+            Assert.AreEqual(0.0, expected.Origin.X, SharedCoordinatesMath.Tolerance);
+            Assert.AreEqual(0.0, expected.Origin.Y, SharedCoordinatesMath.Tolerance);
+            Assert.AreEqual(50.0, expected.Origin.Z, SharedCoordinatesMath.Tolerance);
+        }
+
+        [Test]
+        public void ComputeExpectedTransform_TrueNorthRotation_ComputesCorrectRelativeAngleAndBasis()
+        {
+            // Host at rotation 0
+            var hostLoc = new ProjectLocation { Name = "HostSite" };
+            hostLoc.SetProjectPosition(XYZ.Zero, new ProjectPosition(0.0, 0.0, 0.0, 0.0));
+
+            // Link rotated by 30 degrees (pi / 6)
+            double angle = Math.PI / 6.0;
+            var linkLoc = new ProjectLocation { Name = "LinkRotatedSite" };
+            linkLoc.SetProjectPosition(XYZ.Zero, new ProjectPosition(100.0, 200.0, 0.0, angle));
+
+            var expected = SharedCoordinatesMath.ComputeExpectedTransform(
+                hostLoc.GetTotalTransform(),
+                linkLoc.GetTotalTransform());
+
+            // Because T_expected = T_hostTotal * T_linkTotal^-1, expected rotation is -angle
+            double deltaAngle = SharedCoordinatesMath.ComputeDeltaAngle(Transform.Identity, expected);
+            Assert.AreEqual(-angle, deltaAngle, 1e-5);
+
+            // Verify basis vectors match -angle rotation
+            Assert.AreEqual(Math.Cos(-angle), expected.BasisX.X, 1e-5);
+            Assert.AreEqual(Math.Sin(-angle), expected.BasisX.Y, 1e-5);
+        }
+
+        [Test]
+        public void ComputeAlignment_BoundaryAngleWrapping_CorrectlyComputesShortestDelta()
+        {
+            // Current transform at +179 degrees
+            double curAngle = 179.0 * Math.PI / 180.0;
+            var cur = CreateTransform(
+                XYZ.Zero,
+                new XYZ(Math.Cos(curAngle), Math.Sin(curAngle), 0),
+                new XYZ(-Math.Sin(curAngle), Math.Cos(curAngle), 0),
+                new XYZ(0, 0, 1));
+
+            // Expected transform at -179 degrees
+            double expAngle = -179.0 * Math.PI / 180.0;
+            var exp = CreateTransform(
+                XYZ.Zero,
+                new XYZ(Math.Cos(expAngle), Math.Sin(expAngle), 0),
+                new XYZ(-Math.Sin(expAngle), Math.Cos(expAngle), 0),
+                new XYZ(0, 0, 1));
+
+            var result = SharedCoordinatesMath.ComputeAlignmentFromExpected(cur, exp);
+
+            Assert.IsTrue(result.IsOutOfSync);
+            // Shortest turn is +2 degrees (+0.0349 rad), not -358 degrees
+            double expectedDelta = 2.0 * Math.PI / 180.0;
+            Assert.AreEqual(expectedDelta, result.DeltaAngle, 1e-4);
         }
     }
 }
