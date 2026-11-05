@@ -26,6 +26,17 @@ namespace SyntheticTests.Modules.SharedCoordinates
             _adapter = new RevitSharedCoordinatesAdapter(_doc);
         }
 
+        [TearDown]
+        public void TearDown()
+        {
+            Transaction.OnCommitOverride = null;
+            Transaction.OnCommitPreprocess = null;
+            Transaction.OnRollbackCallback = null;
+            Transaction.GlobalSimulatedFailures = null;
+            TransactionGroup.LastCreatedGroup = null;
+            Transaction.LastCreatedTransaction = null;
+        }
+
         [Test]
         public void Constructor_NullDoc_ThrowsArgumentNullException()
         {
@@ -761,6 +772,226 @@ namespace SyntheticTests.Modules.SharedCoordinates
             Assert.AreEqual(1, summary.SkippedCount);
             CollectionAssert.Contains(summary.RepositionedInstanceNames, "Unit : 1");
             CollectionAssert.Contains(summary.SkippedInstanceNames, "Unit : 3 : <Not Shared>");
+        }
+
+        #endregion
+
+        #region Ticket 133: Transaction Isolation, Groups & Warning Surfacing
+
+        [Test]
+        public void RepositionLinks_OneItemThrows_OtherItemCommits_AssimilatesGroupAndPreservesPinned()
+        {
+            var type = new RevitLinkType { Name = "IsolationType" };
+            var typeId = new ElementId(8001);
+            _doc.AddElement(type, typeId);
+
+            _doc.ActiveProjectLocation.SetProjectPosition(XYZ.Zero, new ProjectPosition(0.0, 0.0, 0.0, 0.0));
+
+            var linkDoc = new Document { Title = "IsolationDoc" };
+            var site = new ProjectLocation { Name = "TargetSite" };
+            site.SetProjectPosition(XYZ.Zero, new ProjectPosition(20.0, 30.0, 10.0, 0.0));
+            linkDoc.AddElement(site, new ElementId(8010));
+
+            var inst1 = new RevitLinkInstance
+            {
+                Name = "Failing Inst",
+                MockTypeId = typeId,
+                MockLinkDocument = linkDoc,
+                MockSiteName = "TargetSite",
+                Pinned = true,
+                MockThrowOnReposition = true,
+                MockTransform = new Transform { Origin = new XYZ(0.0, 0.0, 0.0) }
+            };
+            _doc.AddElement(inst1, new ElementId(8021));
+
+            var inst2 = new RevitLinkInstance
+            {
+                Name = "Passing Inst",
+                MockTypeId = typeId,
+                MockLinkDocument = linkDoc,
+                MockSiteName = "TargetSite",
+                Pinned = true,
+                MockTransform = new Transform { Origin = new XYZ(0.0, 0.0, 0.0) }
+            };
+            _doc.AddElement(inst2, new ElementId(8022));
+
+            var request = new RepositionLinksRequest { SelectedTypeIds = new List<string> { "8001" } };
+            var summary = _adapter.RepositionLinks(request);
+
+            Assert.AreEqual(1, summary.RepositionedCount);
+            CollectionAssert.Contains(summary.RepositionedInstanceNames, "Passing Inst");
+            CollectionAssert.DoesNotContain(summary.RepositionedInstanceNames, "Failing Inst");
+            Assert.IsTrue(summary.ErrorMessages.Count > 0, "Errors should contain failing instance error.");
+            Assert.IsTrue(summary.ErrorMessages.Any(m => m.Contains("Failing Inst") || m.Contains("Simulated reposition failure")));
+
+            // Pinned states
+            Assert.IsTrue(inst1.Pinned, "Failing instance must retain Pinned = true after transaction rollback.");
+            Assert.IsTrue(inst2.Pinned, "Passing instance must be restored to Pinned = true after commit.");
+
+            // Passing instance moved
+            Assert.AreEqual(20.0, inst2.MockTransform.Origin.X, 1e-4);
+            Assert.AreEqual(30.0, inst2.MockTransform.Origin.Y, 1e-4);
+            Assert.AreEqual(10.0, inst2.MockTransform.Origin.Z, 1e-4);
+
+            // Failing instance not moved
+            Assert.AreEqual(0.0, inst1.MockTransform.Origin.X, 1e-4);
+
+            // Group status must be Committed (Assimilated)
+            Assert.IsNotNull(TransactionGroup.LastCreatedGroup);
+            Assert.AreEqual(TransactionStatus.Committed, TransactionGroup.LastCreatedGroup!.GetStatus());
+        }
+
+        [Test]
+        public void RepositionLinks_ZeroItemsCommit_RollsBackTransactionGroup()
+        {
+            var type = new RevitLinkType { Name = "ZeroCommitType" };
+            var typeId = new ElementId(8101);
+            _doc.AddElement(type, typeId);
+
+            _doc.ActiveProjectLocation.SetProjectPosition(XYZ.Zero, new ProjectPosition(0.0, 0.0, 0.0, 0.0));
+
+            var linkDoc = new Document { Title = "ZeroCommitDoc" };
+            var site = new ProjectLocation { Name = "SiteA" };
+            site.SetProjectPosition(XYZ.Zero, new ProjectPosition(20.0, 0.0, 0.0, 0.0));
+            linkDoc.AddElement(site, new ElementId(8110));
+
+            var inst1 = new RevitLinkInstance
+            {
+                Name = "Failing Inst Alone",
+                MockTypeId = typeId,
+                MockLinkDocument = linkDoc,
+                MockSiteName = "SiteA",
+                Pinned = true,
+                MockThrowOnReposition = true,
+                MockTransform = new Transform { Origin = new XYZ(0.0, 0.0, 0.0) }
+            };
+            _doc.AddElement(inst1, new ElementId(8121));
+
+            var request = new RepositionLinksRequest { SelectedTypeIds = new List<string> { "8101" } };
+            var summary = _adapter.RepositionLinks(request);
+
+            Assert.AreEqual(0, summary.RepositionedCount);
+            Assert.IsTrue(summary.ErrorMessages.Count > 0);
+            Assert.IsTrue(inst1.Pinned);
+
+            // Group status must be RolledBack
+            Assert.IsNotNull(TransactionGroup.LastCreatedGroup);
+            Assert.AreEqual(TransactionStatus.RolledBack, TransactionGroup.LastCreatedGroup!.GetStatus());
+        }
+
+        [Test]
+        public void RepositionLinks_SuppressedWarnings_SurfacedInSummaryErrorMessages()
+        {
+            var type = new RevitLinkType { Name = "WarningType" };
+            var typeId = new ElementId(8201);
+            _doc.AddElement(type, typeId);
+
+            _doc.ActiveProjectLocation.SetProjectPosition(XYZ.Zero, new ProjectPosition(0.0, 0.0, 0.0, 0.0));
+
+            var linkDoc = new Document { Title = "WarningDoc" };
+            var site = new ProjectLocation { Name = "SiteB" };
+            site.SetProjectPosition(XYZ.Zero, new ProjectPosition(15.0, 25.0, 5.0, 0.0));
+            linkDoc.AddElement(site, new ElementId(8210));
+
+            var inst = new RevitLinkInstance
+            {
+                Name = "Warned Inst",
+                MockTypeId = typeId,
+                MockLinkDocument = linkDoc,
+                MockSiteName = "SiteB",
+                Pinned = true,
+                MockTransform = new Transform { Origin = new XYZ(0.0, 0.0, 0.0) }
+            };
+            inst.MockFailuresOnCommit.Add(new FailureMessageAccessor(new FailureDefinitionId(), FailureSeverity.Warning, "Suppressed element collision warning"));
+            _doc.AddElement(inst, new ElementId(8221));
+
+            var request = new RepositionLinksRequest { SelectedTypeIds = new List<string> { "8201" } };
+            var summary = _adapter.RepositionLinks(request);
+
+            Assert.AreEqual(1, summary.RepositionedCount);
+            Assert.IsTrue(summary.ErrorMessages.Any(m => m.Contains("[Warning]") && m.Contains("RepositionLink:Warned Inst") && m.Contains("Suppressed element collision warning")),
+                "ErrorMessages should contain formatted warning from composite preprocessor.");
+            Assert.AreEqual(TransactionStatus.Committed, TransactionGroup.LastCreatedGroup!.GetStatus());
+        }
+
+        [Test]
+        public void SyncSharedSites_OneSiteFailsCommit_OtherSiteCommits_AssimilatesGroup()
+        {
+            var refLevel = new LevelItem { Name = "Ref Level", Elevation = 10.0 };
+            var request = new SyncSharedSitesRequest
+            {
+                ReferenceDatumLevel = refLevel,
+                TargetSites = new List<SharedSiteSyncTarget>
+                {
+                    new SharedSiteSyncTarget { LevelName = "FailingLevel", SharedElevation = 100.0, IsChecked = true },
+                    new SharedSiteSyncTarget { LevelName = "PassingLevel", SharedElevation = 150.0, IsChecked = true }
+                }
+            };
+
+            Transaction.OnCommitOverride = tx => tx.Name.Contains("FailingLevel") ? TransactionStatus.RolledBack : TransactionStatus.Committed;
+
+            var summary = _adapter.SyncSharedSites(request);
+
+            Assert.AreEqual(1, summary.CreatedCount);
+            CollectionAssert.Contains(summary.CreatedSiteNames, "PassingLevel");
+            CollectionAssert.DoesNotContain(summary.CreatedSiteNames, "FailingLevel");
+            Assert.IsTrue(summary.ErrorMessages.Any(m => m.Contains("FailingLevel")), "ErrorMessages should record uncommitted status for FailingLevel.");
+            Assert.AreEqual(TransactionStatus.Committed, TransactionGroup.LastCreatedGroup!.GetStatus());
+        }
+
+        [Test]
+        public void SyncSharedSites_ZeroSitesCommit_RollsBackTransactionGroup()
+        {
+            var refLevel = new LevelItem { Name = "Ref Level", Elevation = 10.0 };
+            var request = new SyncSharedSitesRequest
+            {
+                ReferenceDatumLevel = refLevel,
+                TargetSites = new List<SharedSiteSyncTarget>
+                {
+                    new SharedSiteSyncTarget { LevelName = "SiteX", SharedElevation = 100.0, IsChecked = true }
+                }
+            };
+
+            Transaction.OnCommitOverride = tx => TransactionStatus.RolledBack;
+
+            var summary = _adapter.SyncSharedSites(request);
+
+            Assert.AreEqual(0, summary.CreatedCount);
+            Assert.AreEqual(0, summary.UpdatedCount);
+            Assert.IsTrue(summary.ErrorMessages.Count > 0);
+            Assert.AreEqual(TransactionStatus.RolledBack, TransactionGroup.LastCreatedGroup!.GetStatus());
+        }
+
+        [Test]
+        public void SyncSharedSites_SuppressedWarnings_SurfacedInSummaryErrorMessages()
+        {
+            var refLevel = new LevelItem { Name = "Ref Level", Elevation = 10.0 };
+            var request = new SyncSharedSitesRequest
+            {
+                ReferenceDatumLevel = refLevel,
+                TargetSites = new List<SharedSiteSyncTarget>
+                {
+                    new SharedSiteSyncTarget { LevelName = "WarnedSite", SharedElevation = 120.0, IsChecked = true }
+                }
+            };
+
+            Transaction.OnCommitPreprocess = tx =>
+            {
+                if (tx.Name.Contains("WarnedSite"))
+                {
+                    Transaction.GlobalSimulatedFailures = new List<FailureMessageAccessor>
+                    {
+                        new FailureMessageAccessor(new FailureDefinitionId(), FailureSeverity.Warning, "Coordinate rounding warning")
+                    };
+                }
+            };
+
+            var summary = _adapter.SyncSharedSites(request);
+
+            Assert.AreEqual(1, summary.CreatedCount);
+            Assert.IsTrue(summary.ErrorMessages.Any(m => m.Contains("[Warning]") && m.Contains("SyncSite:WarnedSite") && m.Contains("Coordinate rounding warning")),
+                "ErrorMessages should contain formatted warning from sync site.");
+            Assert.AreEqual(TransactionStatus.Committed, TransactionGroup.LastCreatedGroup!.GetStatus());
         }
 
         #endregion

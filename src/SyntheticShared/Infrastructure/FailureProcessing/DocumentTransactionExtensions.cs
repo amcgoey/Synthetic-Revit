@@ -9,21 +9,33 @@ namespace Synthetic.Infrastructure.FailureProcessing
     public static class DocumentTransactionExtensions
     {
         /// <summary>
-        /// Creates a new Transaction for the document, optionally configuring failure handling options with a preprocessor.
+        /// Creates a new Transaction for the document, optionally configuring failure handling options with a preprocessor and clearAfterRollback.
         /// </summary>
         /// <param name="doc">The Revit Document context.</param>
         /// <param name="name">The name of the transaction.</param>
         /// <param name="preprocessor">Optional IFailuresPreprocessor to assign to failure handling options.</param>
+        /// <param name="clearAfterRollback">Whether to clear unhandled failures after rollback.</param>
         /// <returns>A newly instantiated Transaction.</returns>
-        public static Transaction CreateTransaction(this Document doc, string name, IFailuresPreprocessor? preprocessor = null)
+        public static Transaction CreateTransaction(
+            this Document doc,
+            string name,
+            IFailuresPreprocessor? preprocessor = null,
+            bool clearAfterRollback = false)
         {
             if (doc == null) throw new ArgumentNullException(nameof(doc));
 
             Transaction trans = new Transaction(doc, name);
-            if (preprocessor != null)
+            if (preprocessor != null || clearAfterRollback)
             {
                 FailureHandlingOptions options = trans.GetFailureHandlingOptions();
-                options.SetFailuresPreprocessor(preprocessor);
+                if (preprocessor != null)
+                {
+                    options.SetFailuresPreprocessor(preprocessor);
+                }
+                if (clearAfterRollback)
+                {
+                    options.SetClearAfterRollback(true);
+                }
                 trans.SetFailureHandlingOptions(options);
             }
             return trans;

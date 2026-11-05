@@ -257,15 +257,22 @@ namespace Autodesk.Revit.DB
 
         internal System.Collections.Generic.IEnumerable<Element> GetElements()
         {
-            var list = new List<Element>(_elementsById.Values);
-            foreach (var pl in MockProjectLocations)
+            var list = new List<Element>();
+            if (_elementsById != null)
             {
-                if (!_elementsById.ContainsKey(pl.Id))
+                list.AddRange(_elementsById.Values);
+            }
+            if (MockProjectLocations != null)
+            {
+                foreach (var pl in MockProjectLocations)
                 {
-                    list.Add(pl);
+                    if (_elementsById == null || !_elementsById.ContainsKey(pl.Id))
+                    {
+                        list.Add(pl);
+                    }
                 }
             }
-            if (ActiveProjectLocation != null && !_elementsById.ContainsKey(ActiveProjectLocation.Id))
+            if (ActiveProjectLocation != null && (_elementsById == null || !_elementsById.ContainsKey(ActiveProjectLocation.Id)))
             {
                 list.Add(ActiveProjectLocation);
             }
@@ -1366,6 +1373,8 @@ namespace Autodesk.Revit.DB
         public string? MockSiteName { get; set; } = "<Not Shared>";
         public Action<RevitLinkInstance, Line, double>? OnRotated { get; set; }
         public XYZ? MockPostRotateDrift { get; set; }
+        public bool MockThrowOnReposition { get; set; } = false;
+        public List<FailureMessageAccessor> MockFailuresOnCommit { get; } = new List<FailureMessageAccessor>();
         public override Parameter? get_Parameter(BuiltInParameter bip)
         {
 
@@ -1411,6 +1420,7 @@ namespace Autodesk.Revit.DB
             var elem = doc.GetElement(elementId);
             if (elem is RevitLinkInstance rli)
             {
+                if (rli.MockThrowOnReposition) throw new InvalidOperationException($"Simulated reposition failure for {rli.Name}");
                 if (rli.Pinned) throw new InvalidOperationException("Element is pinned.");
                 rli.MockTransform.Origin = rli.MockTransform.Origin + translation;
             }
@@ -1421,6 +1431,7 @@ namespace Autodesk.Revit.DB
             var elem = doc.GetElement(elementId);
             if (elem is RevitLinkInstance rli)
             {
+                if (rli.MockThrowOnReposition) throw new InvalidOperationException($"Simulated reposition failure for {rli.Name}");
                 if (rli.Pinned) throw new InvalidOperationException("Element is pinned.");
                 double cos = Math.Cos(angle);
                 double sin = Math.Sin(angle);
@@ -1470,11 +1481,23 @@ namespace Autodesk.Revit.DB
     public class TransactionGroup : IDisposable
     {
         private TransactionStatus _status = TransactionStatus.Unstarted;
-        public TransactionGroup(Document doc, string name) { }
+        public Document? Document { get; }
+        public string Name { get; }
+        public static TransactionGroup? LastCreatedGroup { get; set; }
+
+        public TransactionGroup(Document doc, string name)
+        {
+            Document = doc;
+            Name = name;
+            LastCreatedGroup = this;
+        }
+
         public TransactionStatus Start() { _status = TransactionStatus.Started; return _status; }
         public TransactionStatus Assimilate() { _status = TransactionStatus.Committed; return _status; }
         public TransactionStatus RollBack() { _status = TransactionStatus.RolledBack; return _status; }
         public TransactionStatus GetStatus() => _status;
+        public bool HasStarted() => _status != TransactionStatus.Unstarted;
+        public bool HasEnded() => _status == TransactionStatus.Committed || _status == TransactionStatus.RolledBack;
         public void Dispose() { }
     }
 
@@ -1483,18 +1506,139 @@ namespace Autodesk.Revit.DB
         private TransactionStatus _status = TransactionStatus.Unstarted;
         private FailureHandlingOptions _options = new FailureHandlingOptions();
 
+        private class ElementSnapshot
+        {
+            public bool Pinned { get; set; }
+            public Transform? MockTransform { get; set; }
+        }
+
+        private readonly Dictionary<RevitLinkInstance, ElementSnapshot> _linkSnapshots = new Dictionary<RevitLinkInstance, ElementSnapshot>();
+
         public string Name { get; }
+        public Document? Document { get; }
+
+        public static Transaction? LastCreatedTransaction { get; set; }
+        public static Func<Transaction, TransactionStatus>? OnCommitOverride { get; set; }
+        public static Action<Transaction>? OnCommitPreprocess { get; set; }
+        public static Action<Transaction>? OnRollbackCallback { get; set; }
+
+        public Func<Transaction, TransactionStatus>? CommitHandler { get; set; }
+        public Action<Transaction>? RollbackHandler { get; set; }
+        public List<FailureMessageAccessor> SimulatedFailures { get; } = new List<FailureMessageAccessor>();
+        public static List<FailureMessageAccessor>? GlobalSimulatedFailures { get; set; }
 
         public Transaction(Document doc, string name)
         {
+            Document = doc;
             Name = name;
+            LastCreatedTransaction = this;
         }
 
         public string GetName() => Name;
 
-        public TransactionStatus Start() { _status = TransactionStatus.Started; return _status; }
-        public TransactionStatus Commit() { _status = TransactionStatus.Committed; return _status; }
-        public TransactionStatus RollBack() { _status = TransactionStatus.RolledBack; return _status; }
+        public bool HasStarted() => _status != TransactionStatus.Unstarted;
+        public bool HasEnded() => _status == TransactionStatus.Committed || _status == TransactionStatus.RolledBack || _status == TransactionStatus.Error;
+
+        public TransactionStatus Start()
+        {
+            _status = TransactionStatus.Started;
+            _linkSnapshots.Clear();
+            if (Document != null)
+            {
+                foreach (var elem in Document.GetElements())
+                {
+                    if (elem is RevitLinkInstance rli)
+                    {
+                        _linkSnapshots[rli] = new ElementSnapshot
+                        {
+                            Pinned = rli.Pinned,
+                            MockTransform = rli.MockTransform != null ? new Transform
+                            {
+                                Origin = rli.MockTransform.Origin,
+                                BasisX = rli.MockTransform.BasisX,
+                                BasisY = rli.MockTransform.BasisY,
+                                BasisZ = rli.MockTransform.BasisZ
+                            } : null
+                        };
+                    }
+                }
+            }
+            return _status;
+        }
+
+        public TransactionStatus Commit()
+        {
+            OnCommitPreprocess?.Invoke(this);
+
+            var failuresToPreprocess = new List<FailureMessageAccessor>(SimulatedFailures);
+            if (GlobalSimulatedFailures != null && GlobalSimulatedFailures.Count > 0)
+            {
+                failuresToPreprocess.AddRange(GlobalSimulatedFailures);
+            }
+
+            if (Document != null)
+            {
+                foreach (var elem in Document.GetElements())
+                {
+                    if (elem is RevitLinkInstance rli && rli.MockFailuresOnCommit.Count > 0)
+                    {
+                        failuresToPreprocess.AddRange(rli.MockFailuresOnCommit);
+                    }
+                }
+            }
+
+            var preprocessor = _options.GetFailuresPreprocessor();
+            if (preprocessor != null && failuresToPreprocess.Count > 0)
+            {
+                var accessor = new FailuresAccessor(failuresToPreprocess);
+                preprocessor.PreprocessFailures(accessor);
+            }
+
+            if (CommitHandler != null)
+            {
+                _status = CommitHandler(this);
+                if (_status == TransactionStatus.RolledBack)
+                {
+                    RestoreSnapshots();
+                }
+                return _status;
+            }
+
+            if (OnCommitOverride != null)
+            {
+                _status = OnCommitOverride(this);
+                if (_status == TransactionStatus.RolledBack)
+                {
+                    RestoreSnapshots();
+                }
+                return _status;
+            }
+
+            _status = TransactionStatus.Committed;
+            return _status;
+        }
+
+        public TransactionStatus RollBack()
+        {
+            RestoreSnapshots();
+            RollbackHandler?.Invoke(this);
+            OnRollbackCallback?.Invoke(this);
+            _status = TransactionStatus.RolledBack;
+            return _status;
+        }
+
+        private void RestoreSnapshots()
+        {
+            foreach (var kvp in _linkSnapshots)
+            {
+                kvp.Key.Pinned = kvp.Value.Pinned;
+                if (kvp.Value.MockTransform != null)
+                {
+                    kvp.Key.MockTransform = kvp.Value.MockTransform;
+                }
+            }
+        }
+
         public TransactionStatus GetStatus() => _status;
         public FailureHandlingOptions GetFailureHandlingOptions() => _options;
         public void SetFailureHandlingOptions(FailureHandlingOptions options) { _options = options; }
@@ -1508,7 +1652,9 @@ namespace Autodesk.Revit.DB
 
     public class FailureHandlingOptions
     {
-        private IFailuresPreprocessor _preprocessor;
+        private IFailuresPreprocessor? _preprocessor;
+        private bool _clearAfterRollback = false;
+        private bool _forcedModalHandling = false;
 
         public FailureHandlingOptions SetFailuresPreprocessor(IFailuresPreprocessor preprocessor)
         {
@@ -1516,11 +1662,23 @@ namespace Autodesk.Revit.DB
             return this;
         }
 
-        public IFailuresPreprocessor GetFailuresPreprocessor() => _preprocessor;
-        public FailureHandlingOptions SetClearAfterRollback(bool clearAfterRollback) => this;
-        public bool GetClearAfterRollback() => false;
-        public FailureHandlingOptions SetForcedModalHandling(bool forcedModalHandling) => this;
-        public bool GetForcedModalHandling() => false;
+        public IFailuresPreprocessor? GetFailuresPreprocessor() => _preprocessor;
+
+        public FailureHandlingOptions SetClearAfterRollback(bool clearAfterRollback)
+        {
+            _clearAfterRollback = clearAfterRollback;
+            return this;
+        }
+
+        public bool GetClearAfterRollback() => _clearAfterRollback;
+
+        public FailureHandlingOptions SetForcedModalHandling(bool forcedModalHandling)
+        {
+            _forcedModalHandling = forcedModalHandling;
+            return this;
+        }
+
+        public bool GetForcedModalHandling() => _forcedModalHandling;
     }
 
     public enum FailureSeverity

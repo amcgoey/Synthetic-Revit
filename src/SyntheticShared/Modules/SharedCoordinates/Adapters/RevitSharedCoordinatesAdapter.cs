@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
+using Synthetic.Infrastructure.FailureProcessing;
 using Synthetic.Modules.SharedCoordinates.Models;
 
 namespace Synthetic.Modules.SharedCoordinates.Adapters
@@ -149,9 +150,11 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
             var updatedNames = new List<string>();
             var errors = new List<string>();
 
-            using (var trans = new Transaction(_doc, "Sync Shared Sites to Levels"))
+            using (var transactionGroup = new TransactionGroup(_doc, "Sync Shared Sites to Levels"))
             {
-                trans.Start();
+                transactionGroup.Start();
+                var preprocessor = FailurePipelines.DeleteWarnings();
+                int committedCount = 0;
 
                 try
                 {
@@ -163,7 +166,7 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
                     var activeLoc = _doc.ActiveProjectLocation;
                     if (activeLoc == null)
                     {
-                        trans.RollBack();
+                        transactionGroup.RollBack();
                         errors.Add("The active document does not have an ActiveProjectLocation.");
                         summary.ErrorMessages = errors;
                         return summary;
@@ -175,44 +178,111 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
                     {
                         if (!target.IsChecked) continue;
 
-                        // Target elevation at internal origin = TargetLevelSharedElevation - ReferenceDatumLevelInternalElevation
-                        double targetElevation = target.SharedElevation - refDatumInternalElevation;
+                        preprocessor.SetContext($"SyncSite:{target.LevelName}");
+                        int priorRecordCount = preprocessor.Report.Records.Count;
 
-                        if (existingLocations.TryGetValue(target.LevelName, out var existingLoc))
+                        using (Transaction itemTrans = _doc.CreateTransaction($"Sync Shared Site: {target.LevelName}", preprocessor, clearAfterRollback: true))
                         {
-                            // Update existing site: modify only Elevation, preserving EastWest, NorthSouth, Angle
-                            var curPos = existingLoc.GetProjectPosition(XYZ.Zero);
-                            var newPos = CreateProjectPosition(
-                                curPos.EastWest,
-                                curPos.NorthSouth,
-                                targetElevation,
-                                curPos.Angle);
-                            existingLoc.SetProjectPosition(XYZ.Zero, newPos);
-                            updatedNames.Add(target.LevelName);
-                        }
-                        else
-                        {
-                            // Create new site: duplicate active ProjectLocation with target level name
-                            var duplicatedLoc = activeLoc.Duplicate(target.LevelName);
-                            var curPos = duplicatedLoc.GetProjectPosition(XYZ.Zero);
-                            var newPos = CreateProjectPosition(
-                                curPos.EastWest,
-                                curPos.NorthSouth,
-                                targetElevation,
-                                curPos.Angle);
-                            duplicatedLoc.SetProjectPosition(XYZ.Zero, newPos);
-                            existingLocations[target.LevelName] = duplicatedLoc;
-                            createdNames.Add(target.LevelName);
+                            bool isUpdate = existingLocations.ContainsKey(target.LevelName);
+                            ProjectLocation? duplicatedLoc = null;
+
+                            try
+                            {
+                                itemTrans.Start();
+
+                                double targetElevation = target.SharedElevation - refDatumInternalElevation;
+
+                                if (isUpdate)
+                                {
+                                    var existingLoc = existingLocations[target.LevelName];
+                                    var curPos = existingLoc.GetProjectPosition(XYZ.Zero);
+                                    var newPos = CreateProjectPosition(
+                                        curPos.EastWest,
+                                        curPos.NorthSouth,
+                                        targetElevation,
+                                        curPos.Angle);
+                                    existingLoc.SetProjectPosition(XYZ.Zero, newPos);
+                                }
+                                else
+                                {
+                                    duplicatedLoc = activeLoc.Duplicate(target.LevelName);
+                                    var curPos = duplicatedLoc.GetProjectPosition(XYZ.Zero);
+                                    var newPos = CreateProjectPosition(
+                                        curPos.EastWest,
+                                        curPos.NorthSouth,
+                                        targetElevation,
+                                        curPos.Angle);
+                                    duplicatedLoc.SetProjectPosition(XYZ.Zero, newPos);
+                                }
+
+                                TransactionStatus status = itemTrans.Commit();
+
+                                for (int i = priorRecordCount; i < preprocessor.Report.Records.Count; i++)
+                                {
+                                    var rec = preprocessor.Report.Records[i];
+                                    errors.Add(string.IsNullOrWhiteSpace(rec.ContextTag)
+                                        ? $"[{rec.Severity}] {rec.DescriptionText}"
+                                        : $"[{rec.Severity}] ({rec.ContextTag}) {rec.DescriptionText}");
+                                }
+
+                                if (status == TransactionStatus.Committed)
+                                {
+                                    committedCount++;
+                                    if (isUpdate)
+                                    {
+                                        updatedNames.Add(target.LevelName);
+                                    }
+                                    else
+                                    {
+                                        if (duplicatedLoc != null)
+                                        {
+                                            existingLocations[target.LevelName] = duplicatedLoc;
+                                        }
+                                        createdNames.Add(target.LevelName);
+                                    }
+                                }
+                                else
+                                {
+                                    if (preprocessor.Report.Records.Count == priorRecordCount)
+                                    {
+                                        errors.Add($"Transaction for site '{target.LevelName}' did not commit ({status}).");
+                                    }
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                if (itemTrans.HasStarted() && !itemTrans.HasEnded())
+                                {
+                                    itemTrans.RollBack();
+                                }
+
+                                for (int i = priorRecordCount; i < preprocessor.Report.Records.Count; i++)
+                                {
+                                    var rec = preprocessor.Report.Records[i];
+                                    errors.Add(string.IsNullOrWhiteSpace(rec.ContextTag)
+                                        ? $"[{rec.Severity}] {rec.DescriptionText}"
+                                        : $"[{rec.Severity}] ({rec.ContextTag}) {rec.DescriptionText}");
+                                }
+
+                                errors.Add(ex.Message);
+                            }
                         }
                     }
 
-                    trans.Commit();
+                    if (committedCount > 0)
+                    {
+                        transactionGroup.Assimilate();
+                    }
+                    else
+                    {
+                        transactionGroup.RollBack();
+                    }
                 }
                 catch (Exception ex)
                 {
-                    if (trans.GetStatus() == TransactionStatus.Started)
+                    if (transactionGroup.HasStarted() && !transactionGroup.HasEnded())
                     {
-                        trans.RollBack();
+                        transactionGroup.RollBack();
                     }
                     errors.Add(ex.Message);
                 }
@@ -382,9 +452,11 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
 
             var selectedTypeSet = new HashSet<string>(request.SelectedTypeIds, StringComparer.OrdinalIgnoreCase);
 
-            using (var trans = new Transaction(_doc, "Move Links to Shared Sites"))
+            using (var transactionGroup = new TransactionGroup(_doc, "Move Links to Shared Sites"))
             {
-                trans.Start();
+                transactionGroup.Start();
+                var preprocessor = FailurePipelines.DeleteWarnings();
+                int committedCount = 0;
 
                 try
                 {
@@ -438,43 +510,99 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
                             continue;
                         }
 
-                        bool wasPinned = instance.Pinned;
-                        if (wasPinned)
+                        preprocessor.SetContext($"RepositionLink:{instance.Name}");
+                        int priorRecordCount = preprocessor.Report.Records.Count;
+
+                        using (Transaction itemTrans = _doc.CreateTransaction($"Move Link: {instance.Name}", preprocessor, clearAfterRollback: true))
                         {
-                            instance.Pinned = false;
+                            bool wasPinned = instance.Pinned;
+                            try
+                            {
+                                itemTrans.Start();
+
+                                if (wasPinned)
+                                {
+                                    instance.Pinned = false;
+                                }
+
+                                if (Math.Abs(alignment.DeltaAngle) > SharedCoordinatesMath.Tolerance)
+                                {
+                                    XYZ currentOrigin = instance.GetTransform().Origin;
+                                    Line axis = Line.CreateBound(currentOrigin, currentOrigin + XYZ.BasisZ);
+                                    ElementTransformUtils.RotateElement(_doc, instance.Id, axis, alignment.DeltaAngle);
+                                }
+
+                                Transform postRotateTransform = instance.GetTransform();
+                                XYZ remainingTranslation = alignment.ExpectedTransform.Origin - postRotateTransform.Origin;
+                                double minMoveTolerance = Math.Max(SharedCoordinatesMath.Tolerance, _doc.Application?.ShortCurveTolerance ?? 1e-4);
+
+                                if (remainingTranslation.GetLength() > minMoveTolerance)
+                                {
+                                    ElementTransformUtils.MoveElement(_doc, instance.Id, remainingTranslation);
+                                }
+
+                                if (wasPinned)
+                                {
+                                    instance.Pinned = true;
+                                }
+
+                                TransactionStatus status = itemTrans.Commit();
+
+                                for (int i = priorRecordCount; i < preprocessor.Report.Records.Count; i++)
+                                {
+                                    var rec = preprocessor.Report.Records[i];
+                                    errors.Add(string.IsNullOrWhiteSpace(rec.ContextTag)
+                                        ? $"[{rec.Severity}] {rec.DescriptionText}"
+                                        : $"[{rec.Severity}] ({rec.ContextTag}) {rec.DescriptionText}");
+                                }
+
+                                if (status == TransactionStatus.Committed)
+                                {
+                                    committedCount++;
+                                    repositionedNames.Add(instance.Name);
+                                }
+                                else
+                                {
+                                    if (preprocessor.Report.Records.Count == priorRecordCount)
+                                    {
+                                        errors.Add($"Transaction for link '{instance.Name}' did not commit ({status}).");
+                                    }
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                if (itemTrans.HasStarted() && !itemTrans.HasEnded())
+                                {
+                                    itemTrans.RollBack();
+                                }
+
+                                for (int i = priorRecordCount; i < preprocessor.Report.Records.Count; i++)
+                                {
+                                    var rec = preprocessor.Report.Records[i];
+                                    errors.Add(string.IsNullOrWhiteSpace(rec.ContextTag)
+                                        ? $"[{rec.Severity}] {rec.DescriptionText}"
+                                        : $"[{rec.Severity}] ({rec.ContextTag}) {rec.DescriptionText}");
+                                }
+
+                                errors.Add(ex.Message);
+                            }
                         }
-
-                        if (Math.Abs(alignment.DeltaAngle) > SharedCoordinatesMath.Tolerance)
-                        {
-                            XYZ currentOrigin = instance.GetTransform().Origin;
-                            Line axis = Line.CreateBound(currentOrigin, currentOrigin + XYZ.BasisZ);
-                            ElementTransformUtils.RotateElement(_doc, instance.Id, axis, alignment.DeltaAngle);
-                        }
-
-                        Transform postRotateTransform = instance.GetTransform();
-                        XYZ remainingTranslation = alignment.ExpectedTransform.Origin - postRotateTransform.Origin;
-                        double minMoveTolerance = Math.Max(SharedCoordinatesMath.Tolerance, _doc.Application?.ShortCurveTolerance ?? 1e-4);
-
-                        if (remainingTranslation.GetLength() > minMoveTolerance)
-                        {
-                            ElementTransformUtils.MoveElement(_doc, instance.Id, remainingTranslation);
-                        }
-
-                        if (wasPinned)
-                        {
-                            instance.Pinned = true;
-                        }
-
-                        repositionedNames.Add(instance.Name);
                     }
 
-                    trans.Commit();
+                    if (committedCount > 0)
+                    {
+                        transactionGroup.Assimilate();
+                    }
+                    else
+                    {
+                        transactionGroup.RollBack();
+                    }
                 }
                 catch (Exception ex)
                 {
-                    if (trans.GetStatus() == TransactionStatus.Started)
+                    if (transactionGroup.HasStarted() && !transactionGroup.HasEnded())
                     {
-                        trans.RollBack();
+                        transactionGroup.RollBack();
                     }
                     errors.Add(ex.Message);
                 }
