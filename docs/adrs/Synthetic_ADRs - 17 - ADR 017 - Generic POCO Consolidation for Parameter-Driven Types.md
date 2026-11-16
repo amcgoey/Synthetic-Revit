@@ -1,6 +1,6 @@
 ## ADR 017 - Generic POCO Consolidation for Parameter-Driven Types
 
-Status: Accepted
+Status: Accepted (POCO consolidation retained; `ModelsToSerialize.cs` dictionary routing superseded by [ADR 024](Synthetic_ADRs%20-%2024%20-%20ADR%20024%20-%20Unified%20Internal%20StandardTypeRegistry%20and%20Composite%20Class%20Routing.md))
 Context: We frequently encounter Revit system families (like TextNoteType, ModelTextType, and SpotDimensionType) that must be instantiated via the .Duplicate() creation API, but whose properties are entirely managed by the generic ParameterEngine. Previously, we considered creating empty, strongly-typed POCOs (e.g., TextNoteTypeModel : ElementTypeModel) simply to force them into distinct JSON dictionaries for clean UI organization and schema purity.
 Decision: We decided to abandon empty boilerplate POCOs. For elements that do not require explicit C# property elevation, we will universally route them to the base ElementTypeModel (or ElementModel). To maintain domain expressiveness and separate JSON schemas, we will sort them into distinct dictionaries inside ModelsToSerialize.cs by evaluating their model.Class string during deserialization. The TemplateDuplicatingTranslator will similarly use this string to dynamically cast the duplicated element.
 Consequences:

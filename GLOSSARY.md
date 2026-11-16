@@ -51,7 +51,11 @@ _Avoid_: Execution VM, queue runner
 The process of combining existing standard elements with newly extracted standard elements prior to export or update operations.
 
 **Duplicate Detection (Standards)**:
-The strict mechanism for identifying matching standard elements during a Standards Merge, utilizing a unique key composed of the element's Class and Name.
+The strict mechanism for identifying matching standard elements during a Standards Merge or template serialization, disambiguating elements by their Class, Category or parent Family, and Name.
+
+**Document Scope**:
+The classification of a standard element as Project-Only, Family-Only, or Universal, governing which Revit document kinds may analyze or enforce it.
+_Avoid_: Family filter flag, project whitelist
 
 **Family Enforcer**:
 The specialized service responsible for recursively traversing editable Revit families, opening family documents in the background, injecting BIM standards, purging unused style types, and loading them back into the host project.
