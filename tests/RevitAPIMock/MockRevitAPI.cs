@@ -57,6 +57,7 @@ namespace Autodesk.Revit.DB
 
     public class InternalDefinition : Definition
     {
+        public BuiltInParameter BuiltInParameter { get; set; } = BuiltInParameter.INVALID;
     }
 
     public class Parameter : APIObject
@@ -142,6 +143,8 @@ namespace Autodesk.Revit.DB
             Value = id;
             IntegerValue = id;
         }
+        public ElementId(BuiltInCategory builtInCategory) : this((long)builtInCategory) { }
+        public ElementId(BuiltInParameter builtInParameter) : this((long)builtInParameter) { }
 
         public long Value { get; set; }
         public int IntegerValue { get; set; }
@@ -180,6 +183,7 @@ namespace Autodesk.Revit.DB
         public Settings Settings { get; } = new Settings();
         public FamilyManager FamilyManager { get; } = new FamilyManager();
         public bool IsFamilyDocument { get; set; } = false;
+        public bool IsModifiable => Transaction.LastCreatedTransaction?.GetStatus() == TransactionStatus.Started;
         public string Title { get; set; } = "Mock Document";
         public string PathName { get; set; } = "ActiveDoc";
         public bool IsWorkshared { get; set; } = false;
@@ -240,6 +244,8 @@ namespace Autodesk.Revit.DB
             return true;
         }
 
+        public void Regenerate() { }
+
         public System.Collections.Generic.ICollection<ElementId> Delete(ElementId elementId)
         {
             var deletedIds = new System.Collections.Generic.List<ElementId>();
@@ -255,7 +261,7 @@ namespace Autodesk.Revit.DB
             return deletedIds;
         }
 
-        internal System.Collections.Generic.IEnumerable<Element> GetElements()
+        public System.Collections.Generic.IEnumerable<Element> GetElements()
         {
             var list = new List<Element>();
             if (_elementsById != null)
@@ -288,6 +294,7 @@ namespace Autodesk.Revit.DB
         public ParameterSet Parameters { get; set; } = new ParameterSet();
         public Document Document { get; set; } = null!;
         public ElementId Id { get; set; } = ElementId.InvalidElementId;
+        public ElementId? GroupId { get; set; } = ElementId.InvalidElementId;
         public bool Pinned { get; set; }
 
         public Autodesk.Revit.DB.ExtensibleStorage.Entity GetEntity(Autodesk.Revit.DB.ExtensibleStorage.Schema schema) => new Autodesk.Revit.DB.ExtensibleStorage.Entity();
@@ -297,6 +304,8 @@ namespace Autodesk.Revit.DB
         public virtual Parameter? get_Parameter(BuiltInParameter bip) => null;
         public Parameter? get_Parameter(Definition def) => null;
         public virtual ElementId GetTypeId() => ElementId.InvalidElementId;
+        public virtual ElementId ChangeTypeId(ElementId typeId) => typeId;
+        public virtual bool IsValidType(ElementId typeId) => true;
     }
 
     public enum CategoryType
@@ -308,6 +317,12 @@ namespace Autodesk.Revit.DB
         Invalid
     }
 
+    public enum GraphicsStyleType
+    {
+        Projection = 0,
+        Cut = 1
+    }
+
     public class Category : APIObject
     {
         public string Name { get; set; } = string.Empty;
@@ -317,6 +332,9 @@ namespace Autodesk.Revit.DB
         public CategoryNameMap SubCategories { get; } = new CategoryNameMap();
         public CategoryType CategoryType { get; set; } = CategoryType.Model;
         public bool IsVisibleInUI { get; set; } = true;
+        public Material? Material { get; set; }
+        public ElementId GetLinePatternId(GraphicsStyleType styleType) => ElementId.InvalidElementId;
+        public void SetLinePatternId(ElementId linePatternId, GraphicsStyleType styleType) { }
 
         public static Category? GetCategory(Document doc, ElementId id) => null;
     }
@@ -609,6 +627,11 @@ namespace Autodesk.Revit.DB
         {
             return new OverrideGraphicSettings();
         }
+        public void SetCategoryOverrides(ElementId catId, OverrideGraphicSettings settings) { }
+        public void SetFilterOverrides(ElementId filterId, OverrideGraphicSettings settings) { }
+        public OverrideGraphicSettings GetElementOverrides(ElementId elemId) => new OverrideGraphicSettings();
+        public void SetElementOverrides(ElementId elemId, OverrideGraphicSettings settings) { }
+        public bool AreGraphicsOverridesAllowed() => true;
     }
 
     public class OverrideGraphicSettings
@@ -689,6 +712,7 @@ namespace Autodesk.Revit.DB
         }
 
         public IList<CompoundStructureLayer> GetLayers() => _layers;
+        public void SetLayers(IList<CompoundStructureLayer> layers) => _layers = new List<CompoundStructureLayer>(layers);
 
         public int GetPriority(int index)
         {
@@ -947,10 +971,24 @@ namespace Autodesk.Revit.DB
     public class ViewFamilyType : ElementType { }
     public class ElevationMarker : Element { }
     public class GroupType : ElementType { }
+    public class Group : Element
+    {
+        public GroupType? GroupType { get; set; }
+    }
     public class AssemblyType : ElementType { }
+    public class AssemblyInstance : Element
+    {
+        public ElementId AssemblyTypeId { get; set; } = ElementId.InvalidElementId;
+    }
     public class FamilySymbol : ElementType
     {
         public Family? Family { get; set; }
+        public bool IsActive { get; set; } = true;
+        public void Activate() { IsActive = true; }
+    }
+    public class FamilyInstance : Element
+    {
+        public FamilySymbol? Symbol { get; set; }
     }
 
     public enum BuiltInCategory
@@ -1081,9 +1119,26 @@ namespace Autodesk.Revit.DB
             return new FilteredElementCollector(filtered);
         }
 
+        public FilteredElementCollector WhereElementIsNotElementType()
+        {
+            var filtered = _elements.Where(e => !(e is ElementType)).ToList();
+            return new FilteredElementCollector(filtered);
+        }
+
+        public FilteredElementCollector WhereElementIsElementType()
+        {
+            var filtered = _elements.Where(e => e is ElementType).ToList();
+            return new FilteredElementCollector(filtered);
+        }
+
         public System.Collections.Generic.IList<Element> ToElements()
         {
             return _elements;
+        }
+
+        public ICollection<ElementId> ToElementIds()
+        {
+            return _elements.Select(e => e.Id).ToList();
         }
 
         public System.Collections.Generic.IEnumerator<Element> GetEnumerator() => _elements.GetEnumerator();
@@ -1484,6 +1539,8 @@ namespace Autodesk.Revit.DB
         public Document? Document { get; }
         public string Name { get; }
         public static TransactionGroup? LastCreatedGroup { get; set; }
+        public List<string> CommittedTransactionNames { get; } = new List<string>();
+        public bool WasAssimilated { get; private set; }
 
         public TransactionGroup(Document doc, string name)
         {
@@ -1493,7 +1550,12 @@ namespace Autodesk.Revit.DB
         }
 
         public TransactionStatus Start() { _status = TransactionStatus.Started; return _status; }
-        public TransactionStatus Assimilate() { _status = TransactionStatus.Committed; return _status; }
+        public TransactionStatus Assimilate()
+        {
+            WasAssimilated = true;
+            _status = TransactionStatus.Committed;
+            return _status;
+        }
         public TransactionStatus RollBack() { _status = TransactionStatus.RolledBack; return _status; }
         public TransactionStatus GetStatus() => _status;
         public bool HasStarted() => _status != TransactionStatus.Unstarted;
@@ -1601,6 +1663,10 @@ namespace Autodesk.Revit.DB
                 {
                     RestoreSnapshots();
                 }
+                else if (_status == TransactionStatus.Committed && TransactionGroup.LastCreatedGroup?.GetStatus() == TransactionStatus.Started)
+                {
+                    TransactionGroup.LastCreatedGroup.CommittedTransactionNames.Add(Name);
+                }
                 return _status;
             }
 
@@ -1611,10 +1677,18 @@ namespace Autodesk.Revit.DB
                 {
                     RestoreSnapshots();
                 }
+                else if (_status == TransactionStatus.Committed && TransactionGroup.LastCreatedGroup?.GetStatus() == TransactionStatus.Started)
+                {
+                    TransactionGroup.LastCreatedGroup.CommittedTransactionNames.Add(Name);
+                }
                 return _status;
             }
 
             _status = TransactionStatus.Committed;
+            if (TransactionGroup.LastCreatedGroup?.GetStatus() == TransactionStatus.Started)
+            {
+                TransactionGroup.LastCreatedGroup.CommittedTransactionNames.Add(Name);
+            }
             return _status;
         }
 

@@ -217,16 +217,52 @@ namespace Synthetic.RevitDOM.Operations
                         string modelName = (model is ElementModel em) ? em.Name : model.GetType().Name;
                         progress?.Report($"Importing {modelName}...");
 
+                        bool isSameLiveDocument = false;
+                        if (model is ElementModel incomingElementModel)
+                        {
+                            isSameLiveDocument = !incomingElementModel.IsTemplate && incomingElementModel.Document != null && ReferenceEquals(incomingElementModel.Document, doc);
+                            if (!isSameLiveDocument)
+                            {
+                                incomingElementModel.Element = null;
+                                incomingElementModel.Document = null;
+                                if (incomingElementModel is ElementTypeModel elemTypeModel)
+                                {
+                                    elemTypeModel.ElementType = null;
+                                }
+                                if (incomingElementModel is DimensionTypeModel dimTypeModel)
+                                {
+                                    dimTypeModel.DimensionType = null;
+                                }
+                                if (incomingElementModel is HostObjTypeModel hostTypeModel)
+                                {
+                                    hostTypeModel.WallType = null;
+                                }
+                                if (incomingElementModel is ViewModel viewModel)
+                                {
+                                    viewModel.View = null;
+                                }
+                                if (incomingElementModel is CategoryModel categoryModel)
+                                {
+                                    categoryModel.RevitCategory = null;
+                                }
+                            }
+                        }
+
                         var translator = _dispatcher.GetTranslator(model);
                         if (translator == null)
                         {
-                            results.Add(new SerializationResultModel(model, $"No translator registered for model: {modelName}"));
+                            results.Add(new SerializationResultModel(model, $"No translator registered for model: {modelName}")
+                            {
+                                Action = "Failed",
+                                Message = $"No translator registered for model: {modelName}"
+                            });
                             continue;
                         }
 
                         if (model is ElementModel elementModel)
                         {
                             SerializationResultModel.ClearWarnings();
+
                             var identityModel = elementModel.ElementId;
 
                             // Preserve aliases list before it gets cleared by identity model updates
@@ -236,7 +272,7 @@ namespace Synthetic.RevitDOM.Operations
                             // to prevent resolving the primary element to its own alias elements.
                             var resolveIdentity = new ElementIdModel
                             {
-                                Id = identityModel.Id,
+                                Id = (identityModel.Id < 0 || isSameLiveDocument) ? identityModel.Id : 0,
                                 Name = identityModel.Name,
                                 Class = identityModel.Class,
                                 Category = identityModel.Category,
@@ -297,14 +333,108 @@ namespace Synthetic.RevitDOM.Operations
                                     catch (Exception ex)
                                     {
                                         tx.RollBack();
-                                        results.Add(new SerializationResultModel(model, ex.Message, ex));
+                                        results.Add(new SerializationResultModel(model, ex.Message, ex)
+                                        {
+                                            Action = "Failed",
+                                            Message = ex.Message
+                                        });
                                     }
                                 }
                             }
                         }
                         else
                         {
-                            results.Add(new SerializationResultModel(model, "Model must inherit from ElementModel to be imported."));
+                            results.Add(new SerializationResultModel(model, "Model must inherit from ElementModel to be imported.")
+                            {
+                                Action = "Failed",
+                                Message = "Model must inherit from ElementModel to be imported."
+                            });
+                        }
+                    }
+
+                    // Alias processing inside TransactionGroup prior to Assimilate()
+                    foreach (var queuedItem in modelsWithAliases)
+                    {
+                        var primaryId = queuedItem.PrimaryId;
+                        var model = queuedItem.Model;
+
+                        if (model.Aliases == null) continue;
+
+                        foreach (var aliasString in model.Aliases)
+                        {
+                            if (string.IsNullOrEmpty(aliasString)) continue;
+
+                            if (cancellationToken.IsCancellationRequested)
+                            {
+                                cancellationToken.ThrowIfCancellationRequested();
+                            }
+
+                            try
+                            {
+                                // Resolve the redundant alias element
+                                var aliasIdModel = new ElementIdModel
+                                {
+                                    Name = aliasString,
+                                    Class = model.Class
+                                };
+                                ElementId aliasId = _identityService.ResolveElementId(aliasIdModel, doc);
+
+                                if (aliasId == null || aliasId == ElementId.InvalidElementId)
+                                {
+                                    // Skip silently if the alias does not exist in the document
+                                    continue;
+                                }
+
+                                if (aliasId != primaryId)
+                                {
+                                    // Deep-swap references using AliasSwapEngine (retains internal transaction boundaries)
+                                    RedirectionResultModel swapResult = AliasSwapEngine.SwapElementReferences(doc, aliasId, primaryId);
+
+                                    // Delete the redundant alias element wrapped in a transaction
+                                    using (var txDelete = new Transaction(doc, "Purge Alias Element"))
+                                    {
+                                        txDelete.Start();
+                                        try
+                                        {
+                                            doc.Delete(aliasId);
+                                            txDelete.Commit();
+                                        }
+                                        catch
+                                        {
+                                            if (txDelete.GetStatus() == TransactionStatus.Started)
+                                            {
+                                                txDelete.RollBack();
+                                            }
+                                            throw;
+                                        }
+                                    }
+
+                                    // Log success result
+                                    var successResult = new SerializationResultModel(model, _identityService.ToModel(primaryId, doc))
+                                    {
+                                        Action = "Merged Alias",
+                                        Message = $"Successfully swapped and purged alias '{aliasString}'",
+                                        RedirectionResult = swapResult
+                                    };
+
+                                    if (swapResult != null && swapResult.Warnings != null && swapResult.Warnings.Count > 0)
+                                    {
+                                        successResult.Warnings.AddRange(swapResult.Warnings);
+                                    }
+
+                                    results.Add(successResult);
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                // Graceful degradation: catch local exception and log failure, leaving primary element intact
+                                var failureResult = new SerializationResultModel(model, ex.Message, ex)
+                                {
+                                    Action = "Alias Swap Failed",
+                                    Message = $"Failed to swap and purge alias '{aliasString}': {ex.Message}"
+                                };
+                                results.Add(failureResult);
+                            }
                         }
                     }
 
@@ -325,81 +455,6 @@ namespace Synthetic.RevitDOM.Operations
                         txGroup.RollBack();
                     }
                     throw;
-                }
-            }
-
-            // Post-commit alias processing
-            foreach (var queuedItem in modelsWithAliases)
-            {
-                var primaryId = queuedItem.PrimaryId;
-                var model = queuedItem.Model;
-
-                if (model.Aliases == null) continue;
-
-                foreach (var aliasString in model.Aliases)
-                {
-                    if (string.IsNullOrEmpty(aliasString)) continue;
-
-                    if (cancellationToken.IsCancellationRequested)
-                    {
-                        cancellationToken.ThrowIfCancellationRequested();
-                    }
-
-                    try
-                    {
-                        // Resolve the redundant alias element
-                        var aliasIdModel = new ElementIdModel
-                        {
-                            Name = aliasString,
-                            Class = model.Class
-                        };
-                        ElementId aliasId = _identityService.ResolveElementId(aliasIdModel, doc);
-
-                        if (aliasId == null || aliasId == ElementId.InvalidElementId)
-                        {
-                            // Skip silently if the alias does not exist in the document
-                            continue;
-                        }
-
-                        if (aliasId != primaryId)
-                        {
-                            // Deep-swap references using AliasSwapEngine (retains internal transaction boundaries)
-                            RedirectionResultModel swapResult = AliasSwapEngine.SwapElementReferences(doc, aliasId, primaryId);
-
-                            // Delete the redundant alias element wrapped in a transaction
-                            using (var txDelete = new Transaction(doc, "Purge Alias Element"))
-                            {
-                                txDelete.Start();
-                                doc.Delete(aliasId);
-                                txDelete.Commit();
-                            }
-
-                            // Log success result
-                            var successResult = new SerializationResultModel(model, _identityService.ToModel(primaryId, doc))
-                            {
-                                Action = "Merged Alias",
-                                Message = $"Successfully swapped and purged alias '{aliasString}'",
-                                RedirectionResult = swapResult
-                            };
-
-                            if (swapResult != null && swapResult.Warnings != null && swapResult.Warnings.Count > 0)
-                            {
-                                successResult.Warnings.AddRange(swapResult.Warnings);
-                            }
-
-                            results.Add(successResult);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        // Graceful degradation: catch local exception and log failure, leaving primary element intact
-                        var failureResult = new SerializationResultModel(model, ex.Message, ex)
-                        {
-                            Action = "Alias Swap Failed",
-                            Message = $"Failed to swap and purge alias '{aliasString}': {ex.Message}"
-                        };
-                        results.Add(failureResult);
-                    }
                 }
             }
 
@@ -517,12 +572,14 @@ namespace Synthetic.RevitDOM.Operations
             if (resultingElement is Element revitElement)
             {
                 elementModel.Element = revitElement;
+                elementModel.Document = doc;
                 elementModel.ElementId = _identityService.ToModel(revitElement.Id, doc);
                 primaryId = revitElement.Id;
             }
             else if (resultingElement is Autodesk.Revit.DB.Category revitCategory)
             {
                 elementModel.Element = revitCategory;
+                elementModel.Document = doc;
                 elementModel.ElementId = _identityService.ToModel(revitCategory.Id, doc);
                 primaryId = revitCategory.Id;
 

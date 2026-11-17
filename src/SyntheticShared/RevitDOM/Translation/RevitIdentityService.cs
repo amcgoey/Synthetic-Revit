@@ -105,7 +105,7 @@ namespace Synthetic.RevitDOM.Translation
             }
 
             // Step 2: Id (integer) search
-            if (elem == null && model.Id != 0)
+            if (elem == null && (model.Id < 0 || (!model.IsTemplate && model.Id > 0)))
             {
 #if REVIT2022 || REVIT2023
                 var id = new ElementId((int)model.Id);
