@@ -950,10 +950,22 @@ namespace Autodesk.Revit.DB
 
     public class ElementType : Element
     {
+        private string _familyName = string.Empty;
+        public virtual string FamilyName
+        {
+            get => !string.IsNullOrEmpty(_familyName) ? _familyName : (this as FamilySymbol)?.Family?.Name ?? string.Empty;
+            set => _familyName = value;
+        }
+
         public virtual ElementType Duplicate(string name)
         {
             var dup = (ElementType)System.Activator.CreateInstance(this.GetType());
             dup.Name = name;
+            dup.FamilyName = FamilyName;
+            if (this is DimensionType dim && dup is DimensionType dupDim)
+            {
+                dupDim.StyleType = dim.StyleType;
+            }
             dup.Id = new ElementId(new Random().Next(1000, 9999));
             Document?.AddElement(dup, dup.Id);
             return dup;
@@ -1310,7 +1322,81 @@ namespace Autodesk.Revit.ApplicationServices
 
 namespace Autodesk.Revit.DB
 {
-    public class FillPatternElement : Element { }
+    public enum FillPatternTarget
+    {
+        Drafting = 0,
+        Model = 1
+    }
+
+    public enum FillPatternHostOrientation
+    {
+        ToHost = 0,
+        ToView = 1
+    }
+
+    public class FillGrid
+    {
+        public FillGrid() { }
+        public FillGrid(double angle, double offset)
+        {
+            Angle = angle;
+            Offset = offset;
+        }
+        public double Angle { get; set; }
+        public double Offset { get; set; }
+        public UV Origin { get; set; } = new UV(0, 0);
+        public double Shift { get; set; }
+        public bool IsValidObject => true;
+    }
+
+    public class FillPattern
+    {
+        private IList<FillGrid> _grids = new List<FillGrid>();
+
+        public FillPattern() { }
+        public FillPattern(string name, FillPatternTarget target, FillPatternHostOrientation orientation)
+        {
+            Name = name;
+            Target = target;
+            HostOrientation = orientation;
+        }
+
+        public string Name { get; set; } = string.Empty;
+        public FillPatternTarget Target { get; set; } = FillPatternTarget.Drafting;
+        public FillPatternHostOrientation HostOrientation { get; set; } = FillPatternHostOrientation.ToHost;
+        public bool IsValidObject => true;
+
+        public IList<FillGrid> GetFillGrids() => _grids;
+        public void SetFillGrids(IList<FillGrid> fillGrids)
+        {
+            _grids = fillGrids != null ? new List<FillGrid>(fillGrids) : new List<FillGrid>();
+        }
+    }
+
+    public class FillPatternElement : Element
+    {
+        private FillPattern? _pattern;
+
+        public FillPattern? GetFillPattern() => _pattern;
+        public void SetFillPattern(FillPattern pattern)
+        {
+            _pattern = pattern;
+            if (pattern != null)
+            {
+                Name = pattern.Name;
+            }
+        }
+
+        public static FillPatternElement Create(Document doc, FillPattern pattern)
+        {
+            var elem = new FillPatternElement();
+            elem.Name = pattern?.Name ?? string.Empty;
+            elem._pattern = pattern;
+            elem.Id = new ElementId(new Random().Next(1000, 9999));
+            doc?.AddElement(elem, elem.Id);
+            return elem;
+        }
+    }
     public class FilledRegionType : ElementType
     {
         public ElementId ForegroundPatternId { get; set; } = new ElementId();

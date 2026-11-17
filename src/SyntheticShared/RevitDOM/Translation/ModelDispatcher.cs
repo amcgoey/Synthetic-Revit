@@ -193,6 +193,11 @@ namespace Synthetic.RevitDOM.Translation
         {
             if (elem == null) return null;
 
+            if (elem is DimensionType dim && string.Equals(dim.Name, DimensionTypeModel.InternalDimStyleName, StringComparison.Ordinal))
+            {
+                return null;
+            }
+
             Type revitType = elem.GetType();
 
             if (_ignoredTypes.Contains(revitType))
@@ -297,6 +302,11 @@ namespace Synthetic.RevitDOM.Translation
             if (elem.Category != null)
             {
                 model.Category = elem.Category.Name;
+            }
+
+            if (model is ElementTypeModel elemTypeModel && elem is ElementType elemType)
+            {
+                elemTypeModel.FamilyName = elemType.FamilyName ?? string.Empty;
             }
 
             ParameterEngine.ExtractParameters(elem, model, isTemplate, _identityService);

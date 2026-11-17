@@ -4,6 +4,8 @@ using System.Linq;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Architecture;
 using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.Shared.RevitAPI;
 
 namespace Synthetic.RevitDOM.Operations
 {
@@ -100,6 +102,16 @@ namespace Synthetic.RevitDOM.Operations
         private static readonly Dictionary<string, StandardTypeDescriptor> _byBucket;
         private static readonly Dictionary<string, StandardTypeDescriptor> _byClass;
 
+        public static string FormatCompositeKey(string? prefix, string? name)
+        {
+            string n = name ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(prefix))
+            {
+                return $"[{prefix}]_{n}";
+            }
+            return n;
+        }
+
         static StandardTypeRegistry()
         {
             _canonicalDescriptors = new List<StandardTypeDescriptor>();
@@ -113,7 +125,8 @@ namespace Synthetic.RevitDOM.Operations
                 tier: 1,
                 scope: DocumentScope.Universal,
                 groupName: "Materials & Assets",
-                className: "Fill Patterns"));
+                className: "Fill Patterns",
+                customKeySelector: m => (m is FillPatternElementModel fp) ? FormatCompositeKey(fp.Pattern?.Target, fp.Name) : FormatCompositeKey(null, (m as ElementModel)?.Name)));
 
             // 2. LinePatternElements
             _canonicalDescriptors.Add(new StandardTypeDescriptor(
@@ -170,16 +183,7 @@ namespace Synthetic.RevitDOM.Operations
                 scope: DocumentScope.Universal,
                 groupName: "Standards & Categories",
                 className: "Categories",
-                customKeySelector: m =>
-                {
-                    if (m is CategoryModel cat)
-                    {
-                        string parent = cat.ParentCategoryName ?? string.Empty;
-                        string name = cat.Name ?? string.Empty;
-                        return $"[{parent}]_{name}";
-                    }
-                    return (m as ElementModel)?.Name ?? string.Empty;
-                }));
+                customKeySelector: m => (m is CategoryModel cat) ? FormatCompositeKey(cat.ParentCategoryName, cat.Name) : FormatCompositeKey(null, (m as ElementModel)?.Name)));
 
             // 7. HostObjTypes
             _canonicalDescriptors.Add(new StandardTypeDescriptor(
@@ -191,6 +195,7 @@ namespace Synthetic.RevitDOM.Operations
                 scope: DocumentScope.ProjectOnly,
                 groupName: "System Types",
                 className: "Host Object Types",
+                customKeySelector: m => (m is ElementTypeModel et) ? FormatCompositeKey(et.FamilyName, et.Name) : FormatCompositeKey(null, (m as ElementModel)?.Name),
                 classAliases: new[]
                 {
                     "Autodesk.Revit.DB.WallType",
@@ -227,7 +232,8 @@ namespace Synthetic.RevitDOM.Operations
                 tier: 3,
                 scope: DocumentScope.Universal,
                 groupName: "Annotations",
-                className: "Dimension Types"));
+                className: "Dimension Types",
+                customKeySelector: m => (m is DimensionTypeModel dim) ? FormatCompositeKey(dim.DimensionStyle, dim.Name) : FormatCompositeKey(null, (m as ElementModel)?.Name)));
 
             // 10. TextNoteTypes
             _canonicalDescriptors.Add(new StandardTypeDescriptor(
@@ -302,7 +308,8 @@ namespace Synthetic.RevitDOM.Operations
                 tier: 5,
                 scope: DocumentScope.ProjectOnly,
                 groupName: "System Types",
-                className: "Curtain System Types"));
+                className: "Curtain System Types",
+                customKeySelector: m => (m is ElementTypeModel et) ? FormatCompositeKey(et.FamilyName, et.Name) : FormatCompositeKey(null, (m as ElementModel)?.Name)));
 
             // 16. MullionTypes
             _canonicalDescriptors.Add(new StandardTypeDescriptor(
@@ -313,7 +320,8 @@ namespace Synthetic.RevitDOM.Operations
                 tier: 5,
                 scope: DocumentScope.ProjectOnly,
                 groupName: "System Types",
-                className: "Mullion Types"));
+                className: "Mullion Types",
+                customKeySelector: m => (m is ElementTypeModel et) ? FormatCompositeKey(et.FamilyName, et.Name) : FormatCompositeKey(null, (m as ElementModel)?.Name)));
 
             // 17. FasciaTypes
             _canonicalDescriptors.Add(new StandardTypeDescriptor(
@@ -325,6 +333,7 @@ namespace Synthetic.RevitDOM.Operations
                 scope: DocumentScope.ProjectOnly,
                 groupName: "System Types",
                 className: "Fascia Types",
+                customKeySelector: m => (m is ElementTypeModel et) ? FormatCompositeKey(et.FamilyName, et.Name) : FormatCompositeKey(null, (m as ElementModel)?.Name),
                 classAliases: new[]
                 {
                     "Autodesk.Revit.DB.Architecture.FasciaType",
@@ -341,6 +350,7 @@ namespace Synthetic.RevitDOM.Operations
                 scope: DocumentScope.ProjectOnly,
                 groupName: "System Types",
                 className: "Gutter Types",
+                customKeySelector: m => (m is ElementTypeModel et) ? FormatCompositeKey(et.FamilyName, et.Name) : FormatCompositeKey(null, (m as ElementModel)?.Name),
                 classAliases: new[]
                 {
                     "Autodesk.Revit.DB.Architecture.GutterType",
@@ -427,7 +437,8 @@ namespace Synthetic.RevitDOM.Operations
                 tier: 3,
                 scope: DocumentScope.ProjectOnly,
                 groupName: "Annotations",
-                className: "Spot Dimension Types"));
+                className: "Spot Dimension Types",
+                customKeySelector: m => (m is ElementTypeModel et) ? FormatCompositeKey(et.FamilyName, et.Name) : FormatCompositeKey(null, (m as ElementModel)?.Name)));
 
             // 26. ToposolidTypes
 #if REVIT2022 || REVIT2023
@@ -443,7 +454,8 @@ namespace Synthetic.RevitDOM.Operations
                 tier: 5,
                 scope: DocumentScope.ProjectOnly,
                 groupName: "System Types",
-                className: "Toposolid Types"));
+                className: "Toposolid Types",
+                customKeySelector: m => (m is ElementTypeModel et) ? FormatCompositeKey(et.FamilyName, et.Name) : FormatCompositeKey(null, (m as ElementModel)?.Name)));
 
             // Index descriptors for high-speed resolution
             _byBucket = new Dictionary<string, StandardTypeDescriptor>(StringComparer.OrdinalIgnoreCase);
@@ -578,6 +590,139 @@ namespace Synthetic.RevitDOM.Operations
             if (model is ElementTypeModel) return 5;
             if (model is ElementModel) return 7;
             return 8;
+        }
+
+        /// <summary>
+        /// Validates whether a live Revit candidate Element satisfies the disambiguation criteria
+        /// of an incoming ElementModel (Category, FamilyName, DimensionStyle, and Pattern.Target).
+        /// </summary>
+        public static bool MatchesDisambiguators(ElementModel incomingModel, Element liveElement)
+        {
+            if (incomingModel == null || liveElement == null) return false;
+
+            // 1. Category check: when incomingModel.Category is non-empty and candidate.Category?.Name is non-empty, require OrdinalIgnoreCase match.
+            if (!string.IsNullOrEmpty(incomingModel.Category) && liveElement.Category != null && !string.IsNullOrEmpty(liveElement.Category.Name))
+            {
+                if (!string.Equals(liveElement.Category.Name, incomingModel.Category, StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+            }
+
+            // 2. ElementTypeModel (FamilyName): when !string.IsNullOrEmpty(etModel.FamilyName) and candidate is ElementType liveEt,
+            // require string.Equals(liveEt.FamilyName, etModel.FamilyName, StringComparison.OrdinalIgnoreCase). Empty FamilyName from legacy JSON acts as a wildcard!
+            if (incomingModel is ElementTypeModel etModel && !string.IsNullOrEmpty(etModel.FamilyName))
+            {
+                if (liveElement is ElementType liveEt)
+                {
+                    if (!string.Equals(liveEt.FamilyName, etModel.FamilyName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            // 3. DimensionTypeModel (DimensionStyle): when !string.IsNullOrEmpty(dimModel.DimensionStyle) and candidate is DimensionType liveDim,
+            // require string.Equals(liveDim.StyleType.ToString(), dimModel.DimensionStyle, StringComparison.OrdinalIgnoreCase).
+            if (incomingModel is DimensionTypeModel dimModel && !string.IsNullOrEmpty(dimModel.DimensionStyle))
+            {
+                if (liveElement is DimensionType liveDim)
+                {
+                    if (!string.Equals(liveDim.StyleType.ToString(), dimModel.DimensionStyle, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            // 4. FillPatternElementModel (Pattern?.Target): when !string.IsNullOrEmpty(fpModel.Pattern?.Target) and candidate is FillPatternElement liveFp,
+            // require string.Equals(liveFp.GetFillPattern()?.Target.ToString(), fpModel.Pattern.Target, StringComparison.OrdinalIgnoreCase).
+            if (incomingModel is FillPatternElementModel fpModel && fpModel.Pattern != null && !string.IsNullOrEmpty(fpModel.Pattern.Target))
+            {
+                if (liveElement is FillPatternElement liveFp)
+                {
+                    var pat = liveFp.GetFillPattern();
+                    if (pat != null && !string.Equals(pat.Target.ToString(), fpModel.Pattern.Target, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// Resolves the disambiguated target Revit Element for an incoming ElementModel.
+        /// First checks UniqueId / guarded Id (if identityService is provided and allowPositiveId is set),
+        /// discarding candidates that conflict with disambiguators.
+        /// Then queries all elements of the expected Revit class matching Name and filters via MatchesDisambiguators.
+        /// </summary>
+        public static Element? ResolveTargetElement(
+            ElementModel incomingModel,
+            Document doc,
+            IIdentityService? identityService = null,
+            bool allowPositiveId = false)
+        {
+            if (incomingModel == null || doc == null) return null;
+
+            // 1. Check UniqueId / guarded Id via identityService if provided
+            if (identityService != null)
+            {
+                var identityModel = incomingModel.ElementId ?? new ElementIdModel();
+                long guardedId = (identityModel.Id < 0 || allowPositiveId) ? identityModel.Id : 0;
+
+                if (!string.IsNullOrEmpty(identityModel.UniqueId) || guardedId != 0)
+                {
+                    var idQueryModel = new ElementIdModel
+                    {
+                        Id = guardedId,
+                        UniqueId = identityModel.UniqueId,
+                        Class = incomingModel.Class,
+                        IsTemplate = incomingModel.IsTemplate
+                    };
+
+                    var idCandidate = identityService.ResolveElement(idQueryModel, doc);
+                    if (idCandidate != null)
+                    {
+                        if (MatchesDisambiguators(incomingModel, idCandidate))
+                        {
+                            return idCandidate;
+                        }
+                        // Disambiguator conflict - discard candidate to prevent false positive match
+                    }
+                }
+            }
+
+            // 2. Query all elements of the expected Revit class in doc matching e.Name == incomingModel.Name
+            if (!string.IsNullOrEmpty(incomingModel.Name) && !string.IsNullOrEmpty(incomingModel.Class))
+            {
+                Type? elemClass = Select.RevitClassByString(incomingModel.Class);
+                if (elemClass == null)
+                {
+                    var desc = GetDescriptorByClass(incomingModel.Class);
+                    if (desc != null && desc.RevitType != null)
+                    {
+                        elemClass = desc.RevitType;
+                    }
+                }
+
+                if (elemClass != null && typeof(Element).IsAssignableFrom(elemClass))
+                {
+                    var candidates = new FilteredElementCollector(doc)
+                        .OfClass(elemClass)
+                        .Where(e => string.Equals(e.Name, incomingModel.Name, StringComparison.Ordinal))
+                        .ToList();
+
+                    var matched = candidates.FirstOrDefault(c => MatchesDisambiguators(incomingModel, c));
+                    if (matched != null)
+                    {
+                        return matched;
+                    }
+                }
+            }
+
+            return null;
         }
 
         public static (string Group, string Class) GetTaxonomy(ElementModel? element)

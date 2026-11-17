@@ -12,7 +12,8 @@ namespace Synthetic.RevitDOM.Translation
     {
         public void ExtractSpecifics(DimensionType revitElement, DimensionTypeModel model, Document doc)
         {
-            // Empty. ParameterEngine handles standard parameters.
+            model.DimensionStyle = revitElement.StyleType.ToString();
+            model.DimensionType = revitElement;
         }
 
         public DimensionType? InjectSpecifics(DimensionTypeModel model, DimensionType? revitElement, Document doc)
@@ -25,16 +26,28 @@ namespace Synthetic.RevitDOM.Translation
                 return revitElement;
             }
 
-            var template = new FilteredElementCollector(doc)
+            var candidates = new FilteredElementCollector(doc)
                 .OfClass(typeof(DimensionType))
                 .Cast<DimensionType>()
-                .Where(elem => elem.StyleType.ToString().Equals(model.DimensionStyle, StringComparison.OrdinalIgnoreCase))
-                .Where(elem => elem.Name != DimensionTypeModel.InternalDimStyleName)
-                .FirstOrDefault();
+                .Where(elem => !string.Equals(elem.Name, DimensionTypeModel.InternalDimStyleName, StringComparison.Ordinal))
+                .ToList();
 
-            if (template == null)
+            DimensionType? template = null;
+            if (!string.IsNullOrEmpty(model.DimensionStyle))
             {
-                throw new InvalidOperationException($"No template element of type 'DimensionType' with StyleType '{model.DimensionStyle}' found in the document to duplicate for '{model.Name}'.");
+                template = candidates.FirstOrDefault(elem => string.Equals(elem.StyleType.ToString(), model.DimensionStyle, StringComparison.OrdinalIgnoreCase));
+                if (template == null)
+                {
+                    throw new InvalidOperationException($"No template element of type 'DimensionType' with StyleType '{model.DimensionStyle}' found in the document to duplicate for '{model.Name}'.");
+                }
+            }
+            else
+            {
+                template = candidates.FirstOrDefault();
+                if (template == null)
+                {
+                    throw new InvalidOperationException($"No template element of type 'DimensionType' found in the document to duplicate for '{model.Name}'.");
+                }
             }
 
             var duplicated = template.Duplicate(model.Name) as DimensionType;

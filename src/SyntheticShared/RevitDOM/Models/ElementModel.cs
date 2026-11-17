@@ -255,6 +255,11 @@ namespace Synthetic.RevitDOM.Models
                 model.Category = elem.Category.Name;
             }
 
+            if (model is ElementTypeModel elemTypeModel && elem is ElementType elemType)
+            {
+                elemTypeModel.FamilyName = elemType.FamilyName ?? string.Empty;
+            }
+
             ParameterEngine.ExtractParameters(elem, model, isTemplate);
         }
 
@@ -262,6 +267,7 @@ namespace Synthetic.RevitDOM.Models
         {
             model.Populate((Element)elemType, isTemplate);
             model.ElementType = elemType;
+            model.FamilyName = elemType.FamilyName ?? string.Empty;
         }
 
         public static Element GetRevitElem(this ElementModel model, Document doc, IIdentityService identityService)
@@ -314,6 +320,7 @@ namespace Synthetic.RevitDOM.Models
                 {
                     return dimType.ToModel(isTemplate);
                 }
+                return null;
             }
             if (revitElement is CurtainSystemType curtainSystemType)
             {

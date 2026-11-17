@@ -268,18 +268,13 @@ namespace Synthetic.RevitDOM.Operations
                             // Preserve aliases list before it gets cleared by identity model updates
                             var aliases = elementModel.Aliases != null ? new List<string>(elementModel.Aliases) : null;
 
-                            // Resolve the primary element using a clean identity model copy without aliases
+                            // Resolve the primary element using disambiguated target resolution without aliases
                             // to prevent resolving the primary element to its own alias elements.
-                            var resolveIdentity = new ElementIdModel
-                            {
-                                Id = (identityModel.Id < 0 || isSameLiveDocument) ? identityModel.Id : 0,
-                                Name = identityModel.Name,
-                                Class = identityModel.Class,
-                                Category = identityModel.Category,
-                                UniqueId = identityModel.UniqueId,
-                                IsTemplate = identityModel.IsTemplate
-                            };
-                            var element = _identityService.ResolveElement(resolveIdentity, doc);
+                            var element = StandardTypeRegistry.ResolveTargetElement(
+                                elementModel,
+                                doc,
+                                _identityService,
+                                allowPositiveId: isSameLiveDocument);
 
                             bool isUnchanged = false;
                             if (element != null)

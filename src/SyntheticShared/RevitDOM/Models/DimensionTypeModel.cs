@@ -60,7 +60,6 @@ namespace Synthetic.RevitDOM.Models
         /// </summary>
         public DimensionTypeModel() : base()
         {
-            DimensionStyle = "Linear";
         }
 
         #endregion

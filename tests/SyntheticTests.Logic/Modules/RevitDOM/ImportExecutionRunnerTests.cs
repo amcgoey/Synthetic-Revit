@@ -120,5 +120,30 @@ namespace SyntheticTests.Modules.RevitDOM
 
             Assert.AreSame(view, sorted[8], "View must be Tier 6.");
         }
+
+        [Test]
+        public void ImportExecutionRunner_Sort_BreaksWithinTierTiesByClassFamilyNameAndName()
+        {
+            // All Tier 5 items:
+            var wallCurtain = new HostObjTypeModel { Class = "Autodesk.Revit.DB.WallType", FamilyName = "Curtain Wall", Name = "Glass Front" };
+            var wallBasicBrick = new HostObjTypeModel { Class = "Autodesk.Revit.DB.WallType", FamilyName = "Basic Wall", Name = "Brick on CMU" };
+            var wallBasicConcrete = new HostObjTypeModel { Class = "Autodesk.Revit.DB.WallType", FamilyName = "Basic Wall", Name = "Concrete 8\"" };
+            var floorWood = new HostObjTypeModel { Class = "Autodesk.Revit.DB.FloorType", FamilyName = "Floor", Name = "Wood Joist" };
+
+            // Unsorted input
+            var input = new List<ObjectModel> { wallCurtain, wallBasicConcrete, floorWood, wallBasicBrick };
+
+            var sorted = ImportExecutionRunner.Sort(input).ToList();
+
+            // Expected order:
+            // 1. FloorType (Class "Autodesk.Revit.DB.FloorType" < "Autodesk.Revit.DB.WallType")
+            // 2. WallType, "Basic Wall", "Brick on CMU"
+            // 3. WallType, "Basic Wall", "Concrete 8\""
+            // 4. WallType, "Curtain Wall", "Glass Front"
+            Assert.AreSame(floorWood, sorted[0], "FloorType should precede WallType by Class.");
+            Assert.AreSame(wallBasicBrick, sorted[1], "Basic Wall Brick should precede Basic Wall Concrete by Name.");
+            Assert.AreSame(wallBasicConcrete, sorted[2], "Basic Wall Concrete should follow Basic Wall Brick.");
+            Assert.AreSame(wallCurtain, sorted[3], "Curtain Wall should follow Basic Wall by FamilyName.");
+        }
     }
 }

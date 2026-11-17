@@ -110,23 +110,8 @@ namespace Synthetic.RevitDOM.Operations.Diffing
                     }
 
                     if (string.IsNullOrEmpty(incomingModel.Class)) continue;
-                    Type? elemClass = Select.RevitClassByString(incomingModel.Class);
-                    if (elemClass == null) continue;
 
-                    Element? liveElement = Select.ElementByNameClass(incomingModel.Name, elemClass, target);
-                    if (liveElement != null)
-                    {
-                        string? liveCategoryName = liveElement.Category?.Name;
-                        string incomingCategoryName = incomingModel.Category;
-                        bool categoryMatches = string.IsNullOrEmpty(incomingCategoryName) || 
-                                              string.IsNullOrEmpty(liveCategoryName) || 
-                                              string.Equals(liveCategoryName, incomingCategoryName, StringComparison.OrdinalIgnoreCase);
-                        if (!categoryMatches)
-                        {
-                            liveElement = null; // Mismatch on category, skip
-                        }
-                    }
-
+                    Element? liveElement = StandardTypeRegistry.ResolveTargetElement(incomingModel, target);
                     if (liveElement == null) continue; // No match found, skip
 
                     // Generate unique fake target ID for this standard element
