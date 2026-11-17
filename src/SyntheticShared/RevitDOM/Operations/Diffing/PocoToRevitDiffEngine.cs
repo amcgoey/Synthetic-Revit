@@ -19,26 +19,6 @@ namespace Synthetic.RevitDOM.Operations.Diffing
     {
         private readonly IIdentityService _identityService;
 
-        private static readonly HashSet<Type> _unsupportedInFamilyDoc = new HashSet<Type>
-        {
-            typeof(Autodesk.Revit.DB.WallType),
-            typeof(Autodesk.Revit.DB.FloorType),
-            typeof(Autodesk.Revit.DB.RoofType),
-            typeof(Autodesk.Revit.DB.CeilingType),
-            typeof(Autodesk.Revit.DB.BuildingPadType),
-            typeof(Autodesk.Revit.DB.MullionType),
-            typeof(Autodesk.Revit.DB.CurtainSystemType),
-            typeof(Autodesk.Revit.DB.ViewFamilyType),
-            typeof(Autodesk.Revit.DB.Architecture.FasciaType),
-            typeof(Autodesk.Revit.DB.Architecture.GutterType),
-            typeof(Autodesk.Revit.DB.Architecture.StairsType),
-            typeof(Autodesk.Revit.DB.Architecture.RailingType),
-            typeof(Autodesk.Revit.DB.Architecture.TopRailType),
-            typeof(Autodesk.Revit.DB.Architecture.HandRailType),
-            typeof(Autodesk.Revit.DB.Mechanical.DuctSystemType),
-            typeof(Autodesk.Revit.DB.Plumbing.PipingSystemType)
-        };
-
         /// <summary>
         /// Initializes a new instance of the <see cref="PocoToRevitDiffEngine"/> class.
         /// </summary>
@@ -75,16 +55,7 @@ namespace Synthetic.RevitDOM.Operations.Diffing
 
             var elementModels = source.OfType<ElementModel>();
             var modelsByCategory = elementModels
-                .Where(m =>
-                {
-                    if (string.IsNullOrEmpty(m.Class)) return false;
-                    Type? incomingType = Select.RevitClassByString(m.Class);
-                    if (isFamily && incomingType != null && _unsupportedInFamilyDoc.Contains(incomingType))
-                    {
-                        return false; // Skip unsupported types in family document
-                    }
-                    return true;
-                })
+                .Where(m => !string.IsNullOrEmpty(m.Class) && StandardTypeRegistry.IsInDocumentScope(m, isFamily))
                 .GroupBy(m => m.Category ?? "Unknown Category", StringComparer.OrdinalIgnoreCase);
 
             foreach (var categoryGroup in modelsByCategory)

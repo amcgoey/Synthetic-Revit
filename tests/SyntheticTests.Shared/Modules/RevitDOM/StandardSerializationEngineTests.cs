@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
@@ -9,6 +10,7 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
+using SyntheticTests.Helpers;
 
 namespace SyntheticTests
 {
@@ -618,6 +620,159 @@ namespace SyntheticTests
             {
                 docA.Close(false);
                 docB.Close(false);
+            }
+        }
+
+        private (Document ProjectDoc, Document FamilyDoc, bool IsTemplateDoc) OpenProjectAndEditableFamilyDocs(Autodesk.Revit.ApplicationServices.Application app)
+        {
+            Document projDoc = app.NewProjectDocument(UnitSystem.Metric);
+            Family? editableFamily = new FilteredElementCollector(projDoc)
+                .OfClass(typeof(Family))
+                .Cast<Family>()
+                .FirstOrDefault(f => f.IsEditable);
+
+            if (editableFamily != null)
+            {
+                Document famDoc = projDoc.EditFamily(editableFamily);
+                if (famDoc != null)
+                {
+                    return (projDoc, famDoc, false);
+                }
+            }
+
+            projDoc.Close(false);
+
+            string projectRoot = TestPathHelper.GetProjectRoot();
+            string testModelName = "TestTemplate" + app.VersionNumber + ".rvt";
+            string modelPathStr = Path.Combine(projectRoot, "tests", "test_models", testModelName);
+            if (File.Exists(modelPathStr))
+            {
+                ModelPath modelPath = ModelPathUtils.ConvertUserVisiblePathToModelPath(modelPathStr);
+                OpenOptions openOptions = new OpenOptions
+                {
+                    DetachFromCentralOption = DetachFromCentralOption.DetachAndDiscardWorksets
+                };
+                projDoc = app.OpenDocumentFile(modelPath, openOptions);
+                editableFamily = new FilteredElementCollector(projDoc)
+                    .OfClass(typeof(Family))
+                    .Cast<Family>()
+                    .FirstOrDefault(f => f.IsEditable);
+
+                if (editableFamily != null)
+                {
+                    Document famDoc = projDoc.EditFamily(editableFamily);
+                    if (famDoc != null)
+                    {
+                        return (projDoc, famDoc, true);
+                    }
+                }
+            }
+
+            throw new InvalidOperationException("Could not find an editable family in test document to open family document.");
+        }
+
+        [Test]
+        public void ToRevit_DocumentScope_EnforcesUniversalFamilyAndProjectScopes()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            var (projDoc, famDoc, _) = OpenProjectAndEditableFamilyDocs(app);
+
+            try
+            {
+                var engine = new StandardSerializationEngine();
+
+                // 1. In Family Document: ProjectOnly types + unknown classes are skipped with Success = true, Action = "Skipped"
+                var wallType = new HostObjTypeModel { Name = "Generic Wall", Class = "Autodesk.Revit.DB.WallType" };
+                var gridType = new ElementTypeModel { Name = "1/4 Circle", Class = "Autodesk.Revit.DB.GridType" };
+                var paramElement = new ParameterElementModel { Name = "CostCode", Class = "Autodesk.Revit.DB.ParameterElement" };
+                var familySymbol = new ElementTypeModel { Name = "Door 36x84", Class = "Autodesk.Revit.DB.FamilySymbol" };
+                var viewFamilyType = new ElementTypeModel { Name = "Floor Plan", Class = "Autodesk.Revit.DB.ViewFamilyType" };
+                var unknownClass = new ElementModel { Name = "CustomWidget", Class = "Custom.Unknown.WidgetType" };
+
+                var outOfScopeFamilyBatch = new List<ObjectModel> { wallType, gridType, paramElement, familySymbol, viewFamilyType, unknownClass };
+                var familyResults = engine.ToRevit(outOfScopeFamilyBatch, famDoc).ToList();
+
+                Assert.AreEqual(6, familyResults.Count);
+                foreach (var r in familyResults)
+                {
+                    Assert.IsTrue(r.Success, $"Model {r.Model} must succeed with Skipped action.");
+                    Assert.AreEqual("Skipped", r.Action, $"Model {r.Model} must have Action = Skipped.");
+                    Assert.IsTrue(r.Message!.Contains("out of scope for family document"), $"Message should state out of scope for family document: {r.Message}");
+                }
+
+                // Verify Universal + FamilyOnly scope checks in family document
+                var universalModels = new ObjectModel[]
+                {
+                    new LinePatternElementModel { Class = "Autodesk.Revit.DB.LinePatternElement" },
+                    new FillPatternElementModel { Class = "Autodesk.Revit.DB.FillPatternElement" },
+                    new PropertySetElementModel { Class = "Autodesk.Revit.DB.PropertySetElement" },
+                    new MaterialModel { Class = "Autodesk.Revit.DB.Material" },
+                    new CategoryModel { Class = "Autodesk.Revit.DB.Category" },
+                    new DimensionTypeModel { Class = "Autodesk.Revit.DB.DimensionType" },
+                    new FilledRegionTypeModel { Class = "Autodesk.Revit.DB.FilledRegionType" },
+                    new ElementTypeModel { Class = "Autodesk.Revit.DB.TextNoteType" },
+                    new ElementTypeModel { Class = "Autodesk.Revit.DB.ModelTextType" },
+                    new ElementTypeModel { Class = "Autodesk.Revit.DB.TextElementType" } // FamilyOnly
+                };
+
+                foreach (var m in universalModels)
+                {
+                    Assert.IsTrue(StandardTypeRegistry.IsInDocumentScope(m, famDoc.IsFamilyDocument),
+                        $"Model {m.GetType().Name} with class {(m as ElementModel)?.Class} must be in scope for family document.");
+                }
+
+                // 2. In Project Document: FamilyOnly type (TextElementType) is skipped with Success = true, Action = "Skipped"
+                var textElementType = new ElementTypeModel { Name = "Family Label 1/8", Class = "Autodesk.Revit.DB.TextElementType" };
+                var projResults = engine.ToRevit(new[] { textElementType }, projDoc).ToList();
+
+                Assert.AreEqual(1, projResults.Count);
+                Assert.IsTrue(projResults[0].Success);
+                Assert.AreEqual("Skipped", projResults[0].Action);
+                Assert.IsTrue(projResults[0].Message!.Contains("out of scope for project document"));
+            }
+            finally
+            {
+                famDoc.Close(false);
+                projDoc.Close(false);
+            }
+        }
+
+        [Test]
+        public void Analyze_DocumentScope_OmitsOutOfScopeClustersInProjectAndFamilyDocs()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            var (projDoc, famDoc, _) = OpenProjectAndEditableFamilyDocs(app);
+
+            try
+            {
+                var engine = new StandardSerializationEngine();
+
+                var linePattern = new LinePatternElementModel { Name = "Dash 1/8", Class = "Autodesk.Revit.DB.LinePatternElement", Category = "Line Patterns" };
+                var textElementType = new ElementTypeModel { Name = "FamLabel", Class = "Autodesk.Revit.DB.TextElementType", Category = "Text Element Types" };
+                var wallType = new HostObjTypeModel { Name = "Generic 8\"", Class = "Autodesk.Revit.DB.WallType", Category = "Walls" };
+                var unknownType = new ElementModel { Name = "UnknownThing", Class = "Custom.Unknown.Class", Category = "Custom" };
+
+                var allModels = new List<ObjectModel> { linePattern, textElementType, wallType, unknownType };
+
+                // 1. Analyze against family doc: WallType and unknown types must be omitted from diff clusters
+                var familyClusters = engine.Analyze(allModels, famDoc).ToList();
+                var familyCategories = familyClusters.SelectMany(c => c.Items).Select(i => i.CategoryName).Distinct().ToList();
+
+                Assert.IsFalse(familyCategories.Contains("Walls"), "WallType must be omitted from family diff clusters.");
+                Assert.IsFalse(familyCategories.Contains("Custom"), "Unknown classes must be omitted from family diff clusters.");
+
+                // 2. Analyze against project doc: TextElementType must be omitted from diff clusters
+                var projectClusters = engine.Analyze(allModels, projDoc).ToList();
+                var projectCategories = projectClusters.SelectMany(c => c.Items).Select(i => i.CategoryName).Distinct().ToList();
+
+                Assert.IsFalse(projectCategories.Contains("Text Element Types"), "TextElementType must be omitted from project diff clusters.");
+            }
+            finally
+            {
+                famDoc.Close(false);
+                projDoc.Close(false);
             }
         }
     }
