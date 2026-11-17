@@ -129,9 +129,80 @@ namespace SyntheticTests.Modules.StandardsManagement
             Assert.AreEqual(warning, deleted[0]);
         }
 
+        [Test]
+        public void Enforce_DelegatesAllStandardsToSerializationEngine_WithoutStrippingValidFamilyStandards()
+        {
+            // Arrange
+            var enforcer = new RevitFamilyEnforcer(_fakeEngine);
+
+            var family = (Family)Activator.CreateInstance(typeof(Family), true)!;
+            family.Name = "AnnotationFamily";
+            dynamic dFam = family;
+            dFam.IsEditable = true;
+
+            var cat = (Category)Activator.CreateInstance(typeof(Category), true)!;
+            cat.GetType().GetProperty("Id")?.SetValue(cat, new ElementId((long)BuiltInCategory.OST_TitleBlocks));
+            family.FamilyCategory = cat;
+            family.GetType().GetProperty("Id")?.SetValue(family, new ElementId(3001));
+            ((dynamic)_doc).AddElement(family, family.Id);
+
+            var options = new StandardsExecutionOptions
+            {
+                ProcessFamilies = true
+            };
+
+            var linePattern = new LinePatternElementModel { Name = "Dash 1/8", Class = "Autodesk.Revit.DB.LinePatternElement" };
+            var fillPattern = new FillPatternElementModel { Name = "Diagonal Crosshatch", Class = "Autodesk.Revit.DB.FillPatternElement" };
+            var category = new CategoryModel { Name = "Generic Annotations", Class = "Autodesk.Revit.DB.Category" };
+            var dimensionType = new DimensionTypeModel { Name = "Linear 3/32 Arial", Class = "Autodesk.Revit.DB.DimensionType" };
+            var filledRegionType = new FilledRegionTypeModel { Name = "Solid Black", Class = "Autodesk.Revit.DB.FilledRegionType" };
+            var textNoteType = new ElementTypeModel { Name = "1/8 Arial", Class = "Autodesk.Revit.DB.TextNoteType" };
+            var textElementType = new ElementTypeModel { Name = "Family Label 1/8", Class = "Autodesk.Revit.DB.TextElementType" };
+            var modelTextType = new ElementTypeModel { Name = "3D Text 6in", Class = "Autodesk.Revit.DB.ModelTextType" };
+            var wallType = new HostObjTypeModel { Name = "Generic 8\"", Class = "Autodesk.Revit.DB.WallType" };
+            var material = new MaterialModel { Name = "Default Material", Class = "Autodesk.Revit.DB.Material" };
+
+            var standards = new List<ElementModel>
+            {
+                linePattern,
+                fillPattern,
+                category,
+                dimensionType,
+                filledRegionType,
+                textNoteType,
+                textElementType,
+                modelTextType,
+                wallType,
+                material
+            };
+
+            var results = new List<SerializationResultModel>();
+
+            // Act
+            enforcer.Enforce(_doc, standards, options, (t, d, c) => { }, results, CancellationToken.None);
+
+            // Assert
+            Assert.IsNotNull(_fakeEngine.LastPassedModels, "ToRevit must be called by RevitFamilyEnforcer.");
+            Assert.AreEqual(10, _fakeEngine.LastPassedModels!.Count, "All standards must be passed to ToRevit without manual stripping.");
+            CollectionAssert.Contains(_fakeEngine.LastPassedModels, linePattern);
+            CollectionAssert.Contains(_fakeEngine.LastPassedModels, fillPattern);
+            CollectionAssert.Contains(_fakeEngine.LastPassedModels, category);
+            CollectionAssert.Contains(_fakeEngine.LastPassedModels, dimensionType);
+            CollectionAssert.Contains(_fakeEngine.LastPassedModels, filledRegionType);
+            CollectionAssert.Contains(_fakeEngine.LastPassedModels, textNoteType);
+            CollectionAssert.Contains(_fakeEngine.LastPassedModels, textElementType);
+            CollectionAssert.Contains(_fakeEngine.LastPassedModels, modelTextType);
+            CollectionAssert.Contains(_fakeEngine.LastPassedModels, wallType);
+            CollectionAssert.Contains(_fakeEngine.LastPassedModels, material);
+            Assert.IsNotNull(_fakeEngine.LastPassedDoc);
+            Assert.IsTrue(_fakeEngine.LastPassedDoc!.IsFamilyDocument, "Document passed to ToRevit must be a family document.");
+        }
+
         private class FakeSerializationEngine : IStandardSerializationEngine
         {
             public IFailuresPreprocessor? LastFailuresPreprocessor { get; private set; }
+            public List<ObjectModel>? LastPassedModels { get; private set; }
+            public Document? LastPassedDoc { get; private set; }
 
             public IEnumerable<ObjectModel> ByRevit(IEnumerable<Element> elements, Document doc, bool isTemplate, IProgress<string>? progress = null, CancellationToken cancellationToken = default)
             {
@@ -146,6 +217,8 @@ namespace SyntheticTests.Modules.StandardsManagement
             public IEnumerable<SerializationResultModel> ToRevit(IEnumerable<ObjectModel> models, Document doc, IProgress<string>? progress = null, CancellationToken cancellationToken = default, IFailuresPreprocessor? failuresPreprocessor = null)
             {
                 LastFailuresPreprocessor = failuresPreprocessor;
+                LastPassedModels = models.ToList();
+                LastPassedDoc = doc;
                 return new List<SerializationResultModel>();
             }
 

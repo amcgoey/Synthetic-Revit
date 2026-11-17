@@ -593,6 +593,37 @@ namespace Synthetic.RevitDOM.Operations
         }
 
         /// <summary>
+        /// Resolves the DocumentScope for a given ObjectModel.
+        /// Unregistered or unknown fallback classes are treated as DocumentScope.ProjectOnly.
+        /// </summary>
+        internal static DocumentScope GetDocumentScope(ObjectModel? model)
+        {
+            if (model == null) return DocumentScope.ProjectOnly;
+
+            var desc = GetDescriptorByModel(model);
+            if (desc != null)
+            {
+                return desc.Scope;
+            }
+
+            return DocumentScope.ProjectOnly;
+        }
+
+        /// <summary>
+        /// Determines whether an ObjectModel is within scope for the given document context (family or project).
+        /// </summary>
+        internal static bool IsInDocumentScope(ObjectModel? model, bool isFamilyDocument)
+        {
+            var scope = GetDocumentScope(model);
+            if (isFamilyDocument)
+            {
+                return scope == DocumentScope.Universal || scope == DocumentScope.FamilyOnly;
+            }
+
+            return scope == DocumentScope.Universal || scope == DocumentScope.ProjectOnly;
+        }
+
+        /// <summary>
         /// Validates whether a live Revit candidate Element satisfies the disambiguation criteria
         /// of an incoming ElementModel (Category, FamilyName, DimensionStyle, and Pattern.Target).
         /// </summary>

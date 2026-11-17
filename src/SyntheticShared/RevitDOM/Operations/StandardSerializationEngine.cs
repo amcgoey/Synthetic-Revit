@@ -248,6 +248,17 @@ namespace Synthetic.RevitDOM.Operations
                             }
                         }
 
+                        if (!StandardTypeRegistry.IsInDocumentScope(model, doc.IsFamilyDocument))
+                        {
+                            string className = (model as ElementModel)?.Class ?? model.GetType().Name;
+                            results.Add(new SerializationResultModel(model, (model as ElementModel)?.ElementId)
+                            {
+                                Action = "Skipped",
+                                Message = $"Skipped '{modelName}' ({className}): out of scope for {(doc.IsFamilyDocument ? "family" : "project")} document."
+                            });
+                            continue;
+                        }
+
                         var translator = _dispatcher.GetTranslator(model);
                         if (translator == null)
                         {

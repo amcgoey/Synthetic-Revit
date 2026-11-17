@@ -185,35 +185,11 @@ namespace Synthetic.RevitDOM.Operations.Standards
                     throw new OperationCanceledException();
                 }
 
-                var familyStandards = standards.Where(s =>
-                {
-                    if (s is MaterialModel) return true;
-                    if (s is ElementTypeModel etModel)
-                    {
-                        if (familyDoc.IsFamilyDocument && etModel.Class == "Autodesk.Revit.DB.SpotDimensionType")
-                        {
-                            return false;
-                        }
-                        return true;
-                    }
-                    return false;
-                }).ToList();
-
-                foreach (var serialElement in familyStandards)
-                {
-                    if (serialElement is ElementTypeModel etModel)
-                    {
-                        etModel.ElementType = null;
-                    }
-                    serialElement.Element = null;
-                    serialElement.Document = null;
-                }
-
                 using (TransactionGroup familyTg = new TransactionGroup(familyDoc, "Update Family Standards"))
                 {
                     familyTg.Start();
 
-                    _serializationEngine.ToRevit(familyStandards, familyDoc, null, cancellationToken, FailurePipelines.DeleteWarnings());
+                    _serializationEngine.ToRevit(standards, familyDoc, null, cancellationToken, FailurePipelines.DeleteWarnings());
 
                     if (options.PurgeUnusedStyleTypes)
                     {
