@@ -96,30 +96,34 @@ namespace Synthetic.RevitDOM.Translation
             return model;
         }
 
-        public static GridTypeModel ToModel(this GridType type, bool isTemplate = false)
+        public static ElementTypeModel ToModel(this GridType type, bool isTemplate = false)
         {
             if (type == null) return null;
-            var model = new GridTypeModel();
+            var model = new ElementTypeModel();
             model.Populate(type, isTemplate);
+            model.Name = type.Name;
+            model.Class = "Autodesk.Revit.DB.GridType";
             var translator = new GridTypeTranslator();
             translator.ExtractSpecifics(type, model, type.Document);
             return model;
         }
 
-        public static LevelTypeModel ToModel(this LevelType type, bool isTemplate = false)
+        public static ElementTypeModel ToModel(this LevelType type, bool isTemplate = false)
         {
             if (type == null) return null;
-            var model = new LevelTypeModel();
+            var model = new ElementTypeModel();
             model.Populate(type, isTemplate);
+            model.Name = type.Name;
+            model.Class = "Autodesk.Revit.DB.LevelType";
             var translator = new LevelTypeTranslator();
             translator.ExtractSpecifics(type, model, type.Document);
             return model;
         }
 
-        public static CurtainSystemTypeModel ToModel(this CurtainSystemType type, bool isTemplate = false, IIdentityService? identityService = null)
+        public static HostObjTypeModel ToModel(this CurtainSystemType type, bool isTemplate = false, IIdentityService? identityService = null)
         {
             if (type == null) return null;
-            var model = new CurtainSystemTypeModel();
+            var model = new HostObjTypeModel();
             model.Populate(type, isTemplate);
             model.Name = type.Name;
             model.Class = "Autodesk.Revit.DB.CurtainSystemType";
@@ -129,10 +133,10 @@ namespace Synthetic.RevitDOM.Translation
             return model;
         }
 
-        public static MullionTypeModel ToModel(this MullionType type, bool isTemplate = false, IIdentityService? identityService = null)
+        public static HostObjTypeModel ToModel(this MullionType type, bool isTemplate = false, IIdentityService? identityService = null)
         {
             if (type == null) return null;
-            var model = new MullionTypeModel();
+            var model = new HostObjTypeModel();
             model.Populate(type, isTemplate);
             model.Name = type.Name;
             model.Class = "Autodesk.Revit.DB.MullionType";
@@ -142,37 +146,39 @@ namespace Synthetic.RevitDOM.Translation
             return model;
         }
 
-        public static FasciaTypeModel ToModel(this FasciaType type, bool isTemplate = false, IIdentityService? identityService = null)
+        public static HostObjTypeModel ToModel(this FasciaType type, bool isTemplate = false, IIdentityService? identityService = null)
         {
             if (type == null) return null;
-            var model = new FasciaTypeModel();
+            var model = new HostObjTypeModel();
             model.Populate(type, isTemplate);
             model.Name = type.Name;
-            model.Class = "Autodesk.Revit.DB.FasciaType";
+            model.Class = "Autodesk.Revit.DB.Architecture.FasciaType";
 
             var translator = new HostObjTypeTranslator(identityService ?? new RevitIdentityService());
             translator.ExtractSpecifics(type, model, type.Document);
             return model;
         }
 
-        public static GutterTypeModel ToModel(this GutterType type, bool isTemplate = false, IIdentityService? identityService = null)
+        public static HostObjTypeModel ToModel(this GutterType type, bool isTemplate = false, IIdentityService? identityService = null)
         {
             if (type == null) return null;
-            var model = new GutterTypeModel();
+            var model = new HostObjTypeModel();
             model.Populate(type, isTemplate);
             model.Name = type.Name;
-            model.Class = "Autodesk.Revit.DB.GutterType";
+            model.Class = "Autodesk.Revit.DB.Architecture.GutterType";
 
             var translator = new HostObjTypeTranslator(identityService ?? new RevitIdentityService());
             translator.ExtractSpecifics(type, model, type.Document);
             return model;
         }
 
-        public static ViewFamilyTypeModel ToModel(this ViewFamilyType type, bool isTemplate = false)
+        public static ElementTypeModel ToModel(this ViewFamilyType type, bool isTemplate = false)
         {
             if (type == null) return null;
-            var model = new ViewFamilyTypeModel();
+            var model = new ElementTypeModel();
             model.Populate(type, isTemplate);
+            model.Name = type.Name;
+            model.Class = "Autodesk.Revit.DB.ViewFamilyType";
             return model;
         }
 

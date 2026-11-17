@@ -25,7 +25,7 @@ namespace SyntheticTests.Modules.StandardsManagement
                 new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "Oak wood" },
                 new LinePatternElementModel { Class = "Autodesk.Revit.DB.LinePatternElement", Name = "DashDot" },
                 new FilledRegionTypeModel { Class = "Autodesk.Revit.DB.FilledRegionType", Name = "Diagonal Cross" },
-                new CurtainSystemTypeModel { Class = "Autodesk.Revit.DB.CurtainSystemType", Name = "5x10 system" },
+                new HostObjTypeModel { Class = "Autodesk.Revit.DB.CurtainSystemType", Name = "5x10 system" },
                 new ParameterElementModel { Class = "Autodesk.Revit.DB.SharedParameterElement", Name = "BIM_Maint_Schedule" },
                 new ElementTypeModel { Class = "Autodesk.Revit.DB.TextNoteType", Name = "1/8 Arial" },
                 new ElementModel { Class = "Autodesk.Revit.DB.DirectShapeType", Name = "Custom Shape" } // Fallback to "Other" -> "DirectShapeType"

@@ -46,7 +46,6 @@
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\Diagnostics\StorageDelete.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ViewManagement\Commands\ViewAutoNumberConfig.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\Worksets\Commands\WorksetStartView.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\ModelsToSerialize.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\AppearanceAssetModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\BooleanModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\BoundingBoxXYZModel.cs" />
@@ -286,8 +285,6 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\SettingsDashboard\Views\StandardsSettingsView.xaml.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\CategorySelectionViewModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Views\CategorySelectionControl.xaml.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\StandardsClassSelectionViewModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Views\StandardsClassSelectionControl.xaml.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\StandardsReviewViewModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Views\StandardsReviewWindow.xaml.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Commands\CmdProjectStandards.cs" />
@@ -440,10 +437,6 @@
       <SubType>Designer</SubType>
     </Page>
     <Page Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Views\CategorySelectionControl.xaml">
-      <Generator>MSBuild:Compile</Generator>
-      <SubType>Designer</SubType>
-    </Page>
-    <Page Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Views\StandardsClassSelectionControl.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>

@@ -12,28 +12,6 @@ using Synthetic.RevitDOM.Operations;
 namespace Synthetic.RevitDOM.Models
 {
     /// <summary>
-    /// Represents a model for a Revit GridType, inheriting from ElementTypeModel.
-    /// </summary>
-    public class GridTypeModel : ElementTypeModel
-    {
-        /// <summary>
-        /// Initializes a new instance of the GridTypeModel class.
-        /// </summary>
-        public GridTypeModel() : base() { }
-    }
-
-    /// <summary>
-    /// Represents a model for a Revit LevelType, inheriting from ElementTypeModel.
-    /// </summary>
-    public class LevelTypeModel : ElementTypeModel
-    {
-        /// <summary>
-        /// Initializes a new instance of the LevelTypeModel class.
-        /// </summary>
-        public LevelTypeModel() : base() { }
-    }
-
-    /// <summary>
     /// Represents a model for a Revit FillPatternElement, inheriting from ElementModel.
     /// </summary>
     public class FillPatternElementModel : ElementModel
@@ -90,61 +68,6 @@ namespace Synthetic.RevitDOM.Models
         /// Initializes a new instance of the PropertySetElementModel class.
         /// </summary>
         public PropertySetElementModel() : base() { }
-    }
-
-    /// <summary>
-    /// Represents a model for a Revit CurtainSystemType, inheriting from HostObjTypeModel.
-    /// </summary>
-    public class CurtainSystemTypeModel : HostObjTypeModel
-    {
-        /// <summary>
-        /// Initializes a new instance of the CurtainSystemTypeModel class.
-        /// </summary>
-        public CurtainSystemTypeModel() : base() { }
-    }
-
-    /// <summary>
-    /// Represents a model for a Revit MullionType, inheriting from HostObjTypeModel.
-    /// </summary>
-    public class MullionTypeModel : HostObjTypeModel
-    {
-        /// <summary>
-        /// Initializes a new instance of the MullionTypeModel class.
-        /// </summary>
-        public MullionTypeModel() : base() { }
-    }
-
-    /// <summary>
-    /// Represents a model for a Revit FasciaType, inheriting from HostObjTypeModel.
-    /// </summary>
-    public class FasciaTypeModel : HostObjTypeModel
-    {
-        /// <summary>
-        /// Initializes a new instance of the FasciaTypeModel class.
-        /// </summary>
-        public FasciaTypeModel() : base() { }
-    }
-
-    /// <summary>
-    /// Represents a model for a Revit GutterType, inheriting from HostObjTypeModel.
-    /// </summary>
-    public class GutterTypeModel : HostObjTypeModel
-    {
-        /// <summary>
-        /// Initializes a new instance of the GutterTypeModel class.
-        /// </summary>
-        public GutterTypeModel() : base() { }
-    }
-
-    /// <summary>
-    /// Represents a model for a Revit ViewFamilyType, inheriting from ElementTypeModel.
-    /// </summary>
-    public class ViewFamilyTypeModel : ElementTypeModel
-    {
-        /// <summary>
-        /// Initializes a new instance of the ViewFamilyTypeModel class.
-        /// </summary>
-        public ViewFamilyTypeModel() : base() { }
     }
 
     /// <summary>

@@ -125,18 +125,6 @@ namespace Synthetic.RevitDOM.Translation
             }
         }
 
-        private static string? GetDefaultClassForMarkerModelType(Type modelType)
-        {
-            if (modelType == typeof(GridTypeModel)) return "Autodesk.Revit.DB.GridType";
-            if (modelType == typeof(LevelTypeModel)) return "Autodesk.Revit.DB.LevelType";
-            if (modelType == typeof(CurtainSystemTypeModel)) return "Autodesk.Revit.DB.CurtainSystemType";
-            if (modelType == typeof(MullionTypeModel)) return "Autodesk.Revit.DB.MullionType";
-            if (modelType == typeof(FasciaTypeModel)) return "Autodesk.Revit.DB.Architecture.FasciaType";
-            if (modelType == typeof(GutterTypeModel)) return "Autodesk.Revit.DB.Architecture.GutterType";
-            if (modelType == typeof(ViewFamilyTypeModel)) return "Autodesk.Revit.DB.ViewFamilyType";
-            return null;
-        }
-
         /// <summary>
         /// Registers a translator by instantiating it with a parameterless constructor.
         /// </summary>
@@ -386,14 +374,7 @@ namespace Synthetic.RevitDOM.Translation
                 }
             }
 
-            // 2. If revitClass is null or empty, check if modelType is a marker subclass
-            string? markerClass = GetDefaultClassForMarkerModelType(modelType);
-            if (!string.IsNullOrEmpty(markerClass))
-            {
-                return GetTranslatorByModelType(modelType, markerClass);
-            }
-
-            // 3. Fallback to unambiguous 1-to-1 modelType binding
+            // 2. Fallback to unambiguous 1-to-1 modelType binding
             if (!_ambiguousModelTypes.Contains(modelType))
             {
                 if (_modelTypeToTranslator.TryGetValue(modelType, out var directTranslator))

@@ -189,7 +189,7 @@ namespace Synthetic.Shared.RevitAPI{
         /// Opens every Annotation family in the project and creates the standard element types.
         /// </summary>
         /// <param name="doc">The Revit Document</param>
-        /// <param name="standards">A ModelsToSerialize object that contains the standard element types.</param>
+        /// <param name="standards">A collection of ElementModel objects containing the standard element types.</param>
         public static void LoadStandards(Document doc, IEnumerable<ElementModel> standards)
         {
             Categories categories = doc.Settings.Categories;

@@ -790,32 +790,44 @@ namespace Synthetic.RevitDOM.Operations
             string bucketName,
             JsonSerializer serializer)
         {
-            string? explicitClass = itemObj["Class"]?.ToString();
-            string? className = explicitClass;
-
-            if (string.IsNullOrEmpty(className) && desc != null)
+            try
             {
-                className = desc.DefaultClass;
+                string? explicitClass = itemObj["Class"]?.ToString();
+                string? className = explicitClass;
+
+                if (string.IsNullOrEmpty(className) && desc != null)
+                {
+                    className = desc.DefaultClass;
+                }
+
+                Type targetType = ResolveHydrationTargetType(className, desc, bucketName);
+
+                var model = (ElementModel?)itemObj.ToObject(targetType, serializer);
+                if (model == null) return null;
+
+                if (string.IsNullOrEmpty(model.Class) && !string.IsNullOrEmpty(className))
+                {
+                    model.Class = className;
+                }
+
+                // Force IsTemplate = true for ViewTemplates
+                if (string.Equals(bucketName, "ViewTemplates", StringComparison.OrdinalIgnoreCase) ||
+                    (desc != null && desc.BucketName == "ViewTemplates"))
+                {
+                    model.IsTemplate = true;
+                    if (model is ViewModel vm)
+                    {
+                        vm.IsTemplate = true;
+                    }
+                }
+
+                return model;
             }
-
-            Type targetType = ResolveHydrationTargetType(className, desc, bucketName);
-
-            var model = (ElementModel?)itemObj.ToObject(targetType, serializer);
-            if (model == null) return null;
-
-            if (string.IsNullOrEmpty(model.Class) && !string.IsNullOrEmpty(className))
+            catch (Exception ex)
             {
-                model.Class = className;
+                SerializationResultModel.LogWarning($"Skipped invalid or corrupt element in bucket '{bucketName}': {ex.Message}");
+                return null;
             }
-
-            // Force IsTemplate = true for ViewTemplates
-            if (string.Equals(bucketName, "ViewTemplates", StringComparison.OrdinalIgnoreCase) ||
-                (desc != null && desc.BucketName == "ViewTemplates"))
-            {
-                model.IsTemplate = true;
-            }
-
-            return model;
         }
 
         private static Type ResolveHydrationTargetType(
@@ -824,9 +836,7 @@ namespace Synthetic.RevitDOM.Operations
             string bucketName)
         {
             // View polymorphic hydration based on Class
-            if (string.Equals(bucketName, "Views", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(bucketName, "ViewTemplates", StringComparison.OrdinalIgnoreCase) ||
-                (desc != null && (desc.BucketName == "Views" || desc.BucketName == "ViewTemplates")))
+            if (!string.IsNullOrEmpty(className))
             {
                 if (string.Equals(className, "Autodesk.Revit.DB.ViewPlan", StringComparison.OrdinalIgnoreCase))
                     return typeof(ViewPlanModel);
@@ -834,6 +844,12 @@ namespace Synthetic.RevitDOM.Operations
                     return typeof(ViewSheetModel);
                 if (string.Equals(className, "Autodesk.Revit.DB.ViewSchedule", StringComparison.OrdinalIgnoreCase))
                     return typeof(ViewScheduleModel);
+            }
+
+            if (string.Equals(bucketName, "Views", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(bucketName, "ViewTemplates", StringComparison.OrdinalIgnoreCase) ||
+                (desc != null && (desc.BucketName == "Views" || desc.BucketName == "ViewTemplates")))
+            {
                 return typeof(ViewModel);
             }
 
