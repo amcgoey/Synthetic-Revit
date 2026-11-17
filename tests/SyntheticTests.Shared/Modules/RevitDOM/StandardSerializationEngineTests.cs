@@ -310,5 +310,87 @@ namespace SyntheticTests
                 doc.Close(false);
             }
         }
+
+        [Test]
+        public void ToRevit_CrossDocumentTransfer_GuardsPositiveIdAndClearsStaleReferences()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            Document docA = app.NewProjectDocument(UnitSystem.Metric);
+            Document docB = app.NewProjectDocument(UnitSystem.Metric);
+
+            try
+            {
+                // In docA, create Material_DocA
+                Material matA;
+                using (var tA = new Transaction(docA, "Create MatA"))
+                {
+                    tA.Start();
+                    ElementId matAId = Material.Create(docA, "Material_DocA");
+                    matA = (Material)docA.GetElement(matAId);
+                    tA.Commit();
+                }
+
+                // In docB, create Material_DocB that has its own positive ID
+                Material matB;
+                using (var tB = new Transaction(docB, "Create MatB"))
+                {
+                    tB.Start();
+                    ElementId matBId = Material.Create(docB, "Material_DocB");
+                    matB = (Material)docB.GetElement(matBId);
+                    tB.Commit();
+                }
+
+                // Extract matA from docA without template flag so it has live Document and positive Id
+                var engine = new StandardSerializationEngine();
+                var modelsFromDocA = engine.ByRevit(new[] { matA }, docA, isTemplate: false).ToList();
+                Assert.AreEqual(1, modelsFromDocA.Count);
+                var modelA = (MaterialModel)modelsFromDocA[0];
+                Assert.AreEqual(matA.Name, modelA.Name);
+                Assert.AreEqual(docA, modelA.Document);
+                Assert.AreEqual(matA, modelA.Element);
+                Assert.Greater(modelA.Id, 0);
+
+                // Artificially match modelA.Id to matB.Id to simulate colliding sequential IDs across documents!
+#if REVIT2022 || REVIT2023
+                modelA.Id = matB.Id.IntegerValue;
+#else
+                modelA.Id = matB.Id.Value;
+#endif
+
+                // Act: import modelA into docB
+                var results = engine.ToRevit(new[] { modelA }, docB).ToList();
+
+                // Assert:
+                // 1. matB in docB was NOT modified or overwritten
+                Assert.AreEqual("Material_DocB", matB.Name, "Colliding positive Id from docA must never match or overwrite matB in docB.");
+
+                // 2. Material_DocA was created in docB
+                var createdInDocB = new FilteredElementCollector(docB)
+                    .OfClass(typeof(Material))
+                    .Cast<Material>()
+                    .FirstOrDefault(m => m.Name == "Material_DocA");
+                Assert.IsNotNull(createdInDocB, "Material_DocA should be created in docB.");
+                Assert.AreNotEqual(matB.Id, createdInDocB!.Id);
+
+                // 3. Stale references on modelA were cleared and rebound to docB
+                Assert.AreEqual(docB, modelA.Document, "modelA.Document must be rebound to docB.");
+                Assert.IsNotNull(modelA.Element, "modelA.Element should not be null.");
+                var boundMat = modelA.Element as Material;
+                Assert.IsNotNull(boundMat, "modelA.Element should be a Material.");
+                Assert.AreEqual(createdInDocB!.Id, boundMat!.Id, "modelA.Element must be rebound to docB's created element.");
+                Assert.AreEqual(docB.Title, boundMat.Document.Title, "modelA.Element must belong to docB.");
+
+                // 4. Result Action is Created
+                Assert.AreEqual(1, results.Count);
+                Assert.IsTrue(results[0].Success);
+                Assert.AreEqual("Created", results[0].Action);
+            }
+            finally
+            {
+                docA.Close(false);
+                docB.Close(false);
+            }
+        }
     }
 }

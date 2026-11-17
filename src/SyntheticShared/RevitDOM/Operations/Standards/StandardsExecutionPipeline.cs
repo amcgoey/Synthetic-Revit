@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using Autodesk.Revit.DB;
+using Synthetic.Infrastructure.FailureProcessing;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
@@ -394,7 +395,7 @@ namespace Synthetic.RevitDOM.Operations.Standards
                 cancellationToken.ThrowIfCancellationRequested();
 
                 var elementPocos = dbItems.Select(q => q.Model).ToList();
-                var results = _serializationEngine.ToRevit(elementPocos, doc, null, cancellationToken).ToList();
+                var results = _serializationEngine.ToRevit(elementPocos, doc, null, cancellationToken, FailurePipelines.DeleteWarnings()).ToList();
                 dbResults.AddRange(results);
             }
 

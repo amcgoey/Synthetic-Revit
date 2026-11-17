@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using Autodesk.Revit.DB;
 using NUnit.Framework;
+using Synthetic.Infrastructure.FailureProcessing;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
@@ -254,11 +255,42 @@ namespace SyntheticTests.Modules.StandardsManagement
             Assert.AreEqual("Canceled", result.Items[0].Action);
             Assert.AreEqual("Execution cancelled by user.", result.Items[0].Message);
         }
+
+        [Test]
+        public void Execute_PassesDeleteWarningsPreprocessor_ToRevit()
+        {
+            // Arrange
+            var pipeline = new StandardsExecutionPipeline(_fakeEngine, _fakeExportService, _fakeFamilyEnforcer);
+            var options = new StandardsExecutionOptions
+            {
+                WriteRevitDatabase = true,
+                SaveLocalFiles = false,
+                UseTransactionGroup = false
+            };
+
+            var model = new ElementModel { Name = "TestStandard", Class = "Autodesk.Revit.DB.TextNoteType" };
+            var item = new StandardsExecutionItem(model)
+            {
+                WillEnforce = true,
+                WillSave = false
+            };
+
+            // Act
+            var result = pipeline.Execute(_doc, new[] { item }, options);
+
+            // Assert
+            Assert.IsTrue(result.Success);
+            Assert.IsNotNull(_fakeEngine.LastFailuresPreprocessor, "LastFailuresPreprocessor should not be null.");
+            var composite = _fakeEngine.LastFailuresPreprocessor as CompositeFailuresPreprocessor;
+            Assert.IsNotNull(composite, "Preprocessor should be a CompositeFailuresPreprocessor.");
+            Assert.IsTrue(composite!.AllowBlanketSuppression, "Preprocessor should have AllowBlanketSuppression enabled.");
+        }
     }
 
     public class ConfigurableSerializationEngine : IStandardSerializationEngine
     {
         public Func<IEnumerable<ObjectModel>, Document, IEnumerable<SerializationResultModel>>? ToRevitHandler { get; set; }
+        public IFailuresPreprocessor? LastFailuresPreprocessor { get; private set; }
 
         public IEnumerable<ObjectModel> ByRevit(IEnumerable<Element> elements, Document doc, bool isTemplate, IProgress<string>? progress = null, CancellationToken cancellationToken = default)
         {
@@ -272,6 +304,7 @@ namespace SyntheticTests.Modules.StandardsManagement
 
         public IEnumerable<SerializationResultModel> ToRevit(IEnumerable<ObjectModel> models, Document doc, IProgress<string>? progress = null, CancellationToken cancellationToken = default, IFailuresPreprocessor? failuresPreprocessor = null)
         {
+            LastFailuresPreprocessor = failuresPreprocessor;
             if (ToRevitHandler != null)
             {
                 return ToRevitHandler(models, doc);
