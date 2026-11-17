@@ -25,7 +25,9 @@ namespace Synthetic.RevitDOM.Operations
 
             return models
                 .OrderBy(GetTypeTier)
-                .ThenBy(m => (m is ElementModel em) ? em.Name : string.Empty);
+                .ThenBy(m => (m is ElementModel em) ? (em.Class ?? string.Empty) : string.Empty, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(m => (m is ElementTypeModel et) ? (et.FamilyName ?? string.Empty) : string.Empty, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(m => (m is ElementModel em) ? (em.Name ?? string.Empty) : string.Empty, StringComparer.OrdinalIgnoreCase);
         }
 
         private static int GetTypeTier(ObjectModel model)

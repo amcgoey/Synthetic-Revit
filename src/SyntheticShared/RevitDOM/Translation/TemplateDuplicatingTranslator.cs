@@ -37,10 +37,18 @@ namespace Synthetic.RevitDOM.Translation
                 }
             }
 
-            var template = new FilteredElementCollector(doc)
+            var candidates = new FilteredElementCollector(doc)
                 .OfClass(targetType)
                 .Cast<TRev>()
-                .FirstOrDefault();
+                .ToList();
+
+            TRev? template = null;
+            if (model is ElementTypeModel etModel && !string.IsNullOrEmpty(etModel.FamilyName))
+            {
+                template = candidates.FirstOrDefault(c => string.Equals(c.FamilyName, etModel.FamilyName, StringComparison.OrdinalIgnoreCase));
+            }
+
+            template ??= candidates.FirstOrDefault();
 
             if (template == null)
             {

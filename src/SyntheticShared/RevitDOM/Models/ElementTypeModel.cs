@@ -24,6 +24,11 @@ namespace Synthetic.RevitDOM.Models
         #region Public Properties
 
         /// <summary>
+        /// Gets or sets the family name of the element type.
+        /// </summary>
+        public string FamilyName { get; set; } = string.Empty;
+
+        /// <summary>
         /// Gets or sets the underlying Revit ElementType object. Ignored in JSON.
         /// </summary>
         [JsonIgnoreAttribute]

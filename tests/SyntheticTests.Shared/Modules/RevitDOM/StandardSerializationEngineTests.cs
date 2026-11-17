@@ -392,5 +392,233 @@ namespace SyntheticTests
                 docB.Close(false);
             }
         }
+
+        [Test]
+        public void ToRevit_DimensionType_DisambiguatesLinearAndAngularRoundTrip()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            Document docA = app.NewProjectDocument(UnitSystem.Metric);
+            Document docB = app.NewProjectDocument(UnitSystem.Metric);
+
+            try
+            {
+                // In docA, find or create Linear and Angular dimension types
+                var allDimsDocA = new FilteredElementCollector(docA)
+                    .OfClass(typeof(DimensionType))
+                    .Cast<DimensionType>()
+                    .Where(d => d.Name != DimensionTypeModel.InternalDimStyleName)
+                    .ToList();
+
+                var linearDim = allDimsDocA.FirstOrDefault(d => d.StyleType == DimensionStyleType.Linear);
+                var angularDim = allDimsDocA.FirstOrDefault(d => d.StyleType == DimensionStyleType.Angular);
+
+                Assert.IsNotNull(linearDim, "Linear DimensionType must exist in docA.");
+                Assert.IsNotNull(angularDim, "Angular DimensionType must exist in docA.");
+
+                // Duplicate both in docA to share the same name across styles: "Disambig_Standard"
+                DimensionType customLinear;
+                DimensionType customAngular;
+                using (var tA = new Transaction(docA, "Create Colliding Dims in DocA"))
+                {
+                    tA.Start();
+                    customLinear = (DimensionType)linearDim!.Duplicate("Disambig_Standard");
+                    customAngular = (DimensionType)angularDim!.Duplicate("Disambig_Standard");
+                    tA.Commit();
+                }
+
+                // Act 1: ByRevit extraction
+                var engine = new StandardSerializationEngine();
+                var extractedModels = engine.ByRevit(new[] { customLinear, customAngular }, docA, isTemplate: true).ToList();
+
+                // Assert 1: Extraction details
+                Assert.AreEqual(2, extractedModels.Count);
+                var dimModels = extractedModels.OfType<DimensionTypeModel>().ToList();
+                Assert.AreEqual(2, dimModels.Count);
+                Assert.IsTrue(dimModels.Any(m => m.DimensionStyle == "Linear" && m.Name == "Disambig_Standard"));
+                Assert.IsTrue(dimModels.Any(m => m.DimensionStyle == "Angular" && m.Name == "Disambig_Standard"));
+
+                // Act 2: ToJson -> FromJson roundtrip
+                string json = StandardSerializationEngine.ToJson(dimModels);
+                var rehydrated = StandardSerializationEngine.FromJson(json).ToList();
+                Assert.AreEqual(2, rehydrated.Count);
+
+                // Act 3: Analyze against docB (initially neither exists in docB)
+                var clusters = engine.Analyze(rehydrated, docB).ToList();
+
+                // Act 4: ToRevit into docB
+                var results = engine.ToRevit(rehydrated, docB).ToList();
+
+                // Assert 4: Both created successfully without overwriting one another
+                Assert.AreEqual(2, results.Count);
+                Assert.IsTrue(results.All(r => r.Success), "Both dimension types should succeed.");
+
+                var docBDims = new FilteredElementCollector(docB)
+                    .OfClass(typeof(DimensionType))
+                    .Cast<DimensionType>()
+                    .Where(d => d.Name == "Disambig_Standard")
+                    .ToList();
+
+                Assert.AreEqual(2, docBDims.Count, "Both Linear and Angular Disambig_Standard must exist in docB.");
+                Assert.IsTrue(docBDims.Any(d => d.StyleType == DimensionStyleType.Linear));
+                Assert.IsTrue(docBDims.Any(d => d.StyleType == DimensionStyleType.Angular));
+            }
+            finally
+            {
+                docA.Close(false);
+                docB.Close(false);
+            }
+        }
+
+        [Test]
+        public void ToRevit_FillPatternElement_DisambiguatesDraftingAndModelRoundTrip()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            Document docA = app.NewProjectDocument(UnitSystem.Metric);
+            Document docB = app.NewProjectDocument(UnitSystem.Metric);
+
+            try
+            {
+                // In docA, create colliding Drafting and Model fill pattern elements named "Crosshatch_Collide"
+                FillPatternElement fpDrafting;
+                FillPatternElement fpModel;
+                using (var tA = new Transaction(docA, "Create Patterns DocA"))
+                {
+                    tA.Start();
+                    var patDrafting = new FillPattern("Crosshatch_Collide", FillPatternTarget.Drafting, FillPatternHostOrientation.ToHost);
+                    patDrafting.SetFillGrids(new List<FillGrid> { new FillGrid(0.0, 0.1) });
+                    fpDrafting = FillPatternElement.Create(docA, patDrafting);
+
+                    var patModel = new FillPattern("Crosshatch_Collide", FillPatternTarget.Model, FillPatternHostOrientation.ToHost);
+                    patModel.SetFillGrids(new List<FillGrid> { new FillGrid(0.0, 0.2) });
+                    fpModel = FillPatternElement.Create(docA, patModel);
+                    tA.Commit();
+                }
+
+                // Act 1: ByRevit extraction
+                var engine = new StandardSerializationEngine();
+                var extractedModels = engine.ByRevit(new[] { fpDrafting, fpModel }, docA, isTemplate: true).ToList();
+
+                // Assert 1: Extraction details
+                Assert.AreEqual(2, extractedModels.Count);
+                var fpModels = extractedModels.OfType<FillPatternElementModel>().ToList();
+                Assert.AreEqual(2, fpModels.Count);
+                Assert.IsTrue(fpModels.Any(m => m.Pattern?.Target == "Drafting" && m.Name == "Crosshatch_Collide"));
+                Assert.IsTrue(fpModels.Any(m => m.Pattern?.Target == "Model" && m.Name == "Crosshatch_Collide"));
+
+                // Act 2: ToJson -> FromJson roundtrip
+                string json = StandardSerializationEngine.ToJson(fpModels);
+                var rehydrated = StandardSerializationEngine.FromJson(json).ToList();
+                Assert.AreEqual(2, rehydrated.Count);
+
+                // Act 3: ToRevit into docB
+                var results = engine.ToRevit(rehydrated, docB).ToList();
+                Assert.AreEqual(2, results.Count);
+                Assert.IsTrue(results.All(r => r.Success), "Both fill patterns should succeed.");
+
+                // Assert 3: Both targets exist in docB without overwriting
+                var docBFps = new FilteredElementCollector(docB)
+                    .OfClass(typeof(FillPatternElement))
+                    .Cast<FillPatternElement>()
+                    .Where(f => f.Name == "Crosshatch_Collide")
+                    .ToList();
+
+                Assert.AreEqual(2, docBFps.Count, "Both Drafting and Model Crosshatch_Collide must exist in docB.");
+                Assert.IsTrue(docBFps.Any(f => f.GetFillPattern()?.Target == FillPatternTarget.Drafting));
+                Assert.IsTrue(docBFps.Any(f => f.GetFillPattern()?.Target == FillPatternTarget.Model));
+
+                // Act 4: Re-enforcing same models into docB results in Unchanged
+                var secondResults = engine.ToRevit(rehydrated, docB).ToList();
+                Assert.AreEqual(2, secondResults.Count);
+                Assert.IsTrue(secondResults.All(r => r.Action == "Unchanged"), "Both identical patterns should report Unchanged.");
+            }
+            finally
+            {
+                docA.Close(false);
+                docB.Close(false);
+            }
+        }
+
+        [Test]
+        public void ToRevit_MultiFamilySystemTypes_DisambiguatesFamilyNameAndWildcards()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            Document docA = app.NewProjectDocument(UnitSystem.Metric);
+            Document docB = app.NewProjectDocument(UnitSystem.Metric);
+
+            try
+            {
+                // In docA, find WallTypes across Basic Wall and Curtain Wall
+                var wallTypesDocA = new FilteredElementCollector(docA)
+                    .OfClass(typeof(WallType))
+                    .Cast<WallType>()
+                    .ToList();
+
+                var basicWall = wallTypesDocA.FirstOrDefault(w => string.Equals(w.FamilyName, "Basic Wall", StringComparison.OrdinalIgnoreCase));
+                var curtainWall = wallTypesDocA.FirstOrDefault(w => string.Equals(w.FamilyName, "Curtain Wall", StringComparison.OrdinalIgnoreCase));
+
+                Assert.IsNotNull(basicWall, "Basic Wall must exist in docA.");
+                Assert.IsNotNull(curtainWall, "Curtain Wall must exist in docA.");
+
+                // Act 1: ByRevit populates FamilyName
+                var engine = new StandardSerializationEngine();
+                var extracted = engine.ByRevit(new[] { basicWall!, curtainWall! }, docA, isTemplate: true).ToList();
+
+                Assert.AreEqual(2, extracted.Count);
+                var hostModels = extracted.OfType<HostObjTypeModel>().ToList();
+                Assert.AreEqual(2, hostModels.Count);
+                Assert.AreEqual("Basic Wall", hostModels.First(h => h.Name == basicWall!.Name).FamilyName);
+                Assert.AreEqual("Curtain Wall", hostModels.First(h => h.Name == curtainWall!.Name).FamilyName);
+
+                // Act 2: Create colliding models in docB with same name "Disambig_Wall", plus legacy empty-FamilyName wildcard
+                var modelBasic = new HostObjTypeModel
+                {
+                    Name = "Disambig_Wall",
+                    Class = "Autodesk.Revit.DB.WallType",
+                    FamilyName = "Basic Wall"
+                };
+                var modelCurtain = new HostObjTypeModel
+                {
+                    Name = "Disambig_Wall",
+                    Class = "Autodesk.Revit.DB.WallType",
+                    FamilyName = "Curtain Wall"
+                };
+                var modelWildcard = new HostObjTypeModel
+                {
+                    Name = "Disambig_WildcardWall",
+                    Class = "Autodesk.Revit.DB.WallType",
+                    FamilyName = "" // Legacy wildcard
+                };
+
+                var results = engine.ToRevit(new[] { modelBasic, modelCurtain, modelWildcard }, docB).ToList();
+
+                Assert.AreEqual(3, results.Count);
+                Assert.IsTrue(results.All(r => r.Success), "All 3 wall models must import successfully.");
+
+                // Verify elements in docB
+                var docBWalls = new FilteredElementCollector(docB)
+                    .OfClass(typeof(WallType))
+                    .Cast<WallType>()
+                    .Where(w => w.Name == "Disambig_Wall")
+                    .ToList();
+
+                Assert.AreEqual(2, docBWalls.Count, "Both Basic Wall and Curtain Wall Disambig_Wall must exist in docB.");
+                Assert.IsTrue(docBWalls.Any(w => string.Equals(w.FamilyName, "Basic Wall", StringComparison.OrdinalIgnoreCase)));
+                Assert.IsTrue(docBWalls.Any(w => string.Equals(w.FamilyName, "Curtain Wall", StringComparison.OrdinalIgnoreCase)));
+
+                var wildcardWall = new FilteredElementCollector(docB)
+                    .OfClass(typeof(WallType))
+                    .Cast<WallType>()
+                    .FirstOrDefault(w => w.Name == "Disambig_WildcardWall");
+                Assert.IsNotNull(wildcardWall, "Legacy empty-FamilyName wildcard model must create/duplicate successfully.");
+            }
+            finally
+            {
+                docA.Close(false);
+                docB.Close(false);
+            }
+        }
     }
 }

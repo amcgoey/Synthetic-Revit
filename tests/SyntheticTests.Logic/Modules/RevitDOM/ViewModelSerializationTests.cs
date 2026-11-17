@@ -657,5 +657,184 @@ namespace SyntheticTests.Modules.RevitDOM
                 }
             }
         }
+
+        [Test]
+        public void ToJson_FromJson_PreservesCollidingNamesAcrossBucketsAndCompositeKeys()
+        {
+            // Arrange
+            // 1. DimensionTypes: Linear vs Angular "Standard" + internal "Linear Dimension Style" (which must be excluded)
+            var dimLinear = new DimensionTypeModel
+            {
+                Name = "Standard",
+                Class = "Autodesk.Revit.DB.DimensionType",
+                DimensionStyle = "Linear"
+            };
+            var dimAngular = new DimensionTypeModel
+            {
+                Name = "Standard",
+                Class = "Autodesk.Revit.DB.DimensionType",
+                DimensionStyle = "Angular"
+            };
+            var dimInternal = new DimensionTypeModel
+            {
+                Name = DimensionTypeModel.InternalDimStyleName,
+                Class = "Autodesk.Revit.DB.DimensionType",
+                DimensionStyle = "Linear"
+            };
+
+            // 2. FillPatternElements: Drafting vs Model "Crosshatch"
+            var fpDrafting = new FillPatternElementModel
+            {
+                Name = "Crosshatch",
+                Class = "Autodesk.Revit.DB.FillPatternElement",
+                Pattern = new FillPatternModel { Name = "Crosshatch", Target = "Drafting", HostOrientation = "ToHost" }
+            };
+            var fpModel = new FillPatternElementModel
+            {
+                Name = "Crosshatch",
+                Class = "Autodesk.Revit.DB.FillPatternElement",
+                Pattern = new FillPatternModel { Name = "Crosshatch", Target = "Model", HostOrientation = "ToHost" }
+            };
+
+            // 3. Categories: "SubA" across "Walls" vs "Floors" + empty parent category name fallback
+            var catWalls = new CategoryModel
+            {
+                Name = "SubA",
+                Class = "Autodesk.Revit.DB.Category",
+                ParentCategoryName = "Walls"
+            };
+            var catFloors = new CategoryModel
+            {
+                Name = "SubA",
+                Class = "Autodesk.Revit.DB.Category",
+                ParentCategoryName = "Floors"
+            };
+            var catTopLevel = new CategoryModel
+            {
+                Name = "TopLevelCat",
+                Class = "Autodesk.Revit.DB.Category",
+                ParentCategoryName = null // empty prefix fallback to bare "{Name}"
+            };
+
+            // 4. Multi-family system buckets: HostObjTypes "Partition" (Basic Wall vs Curtain Wall) + empty FamilyName fallback
+            var hostBasic = new HostObjTypeModel
+            {
+                Name = "Partition",
+                Class = "Autodesk.Revit.DB.WallType",
+                FamilyName = "Basic Wall"
+            };
+            var hostCurtain = new HostObjTypeModel
+            {
+                Name = "Partition",
+                Class = "Autodesk.Revit.DB.WallType",
+                FamilyName = "Curtain Wall"
+            };
+            var hostEmptyFamily = new HostObjTypeModel
+            {
+                Name = "BareWall",
+                Class = "Autodesk.Revit.DB.WallType",
+                FamilyName = "" // empty prefix fallback to bare "{Name}"
+            };
+
+            // 5. SpotDimensionTypes: "Standard" across "Spot Elevations" vs "Spot Coordinates"
+            var spotElevation = new ElementTypeModel
+            {
+                Name = "Standard",
+                Class = "Autodesk.Revit.DB.SpotDimensionType",
+                FamilyName = "Spot Elevations"
+            };
+            var spotCoord = new ElementTypeModel
+            {
+                Name = "Standard",
+                Class = "Autodesk.Revit.DB.SpotDimensionType",
+                FamilyName = "Spot Coordinates"
+            };
+
+            var inputModels = new List<ObjectModel>
+            {
+                dimLinear, dimAngular, dimInternal,
+                fpDrafting, fpModel,
+                catWalls, catFloors, catTopLevel,
+                hostBasic, hostCurtain, hostEmptyFamily,
+                spotElevation, spotCoord
+            };
+
+            // Act: ToJson
+            string json = StandardSerializationEngine.ToJson(inputModels);
+
+            // Assert: verify JSON keys and exclusion
+            var root = JObject.Parse(json);
+
+            // DimensionTypes
+            Assert.IsNotNull(root["DimensionTypes"]);
+            var dimDict = (JObject)root["DimensionTypes"]!;
+            Assert.IsTrue(dimDict.ContainsKey("[Linear]_Standard"), "DimensionTypes must have [Linear]_Standard key.");
+            Assert.IsTrue(dimDict.ContainsKey("[Angular]_Standard"), "DimensionTypes must have [Angular]_Standard key.");
+            Assert.IsFalse(dimDict.ContainsKey(DimensionTypeModel.InternalDimStyleName), "Internal dimension style must be excluded.");
+            Assert.AreEqual(2, dimDict.Count);
+
+            // FillPatternElements
+            Assert.IsNotNull(root["FillPatternElements"]);
+            var fpDict = (JObject)root["FillPatternElements"]!;
+            Assert.IsTrue(fpDict.ContainsKey("[Drafting]_Crosshatch"), "FillPatternElements must have [Drafting]_Crosshatch key.");
+            Assert.IsTrue(fpDict.ContainsKey("[Model]_Crosshatch"), "FillPatternElements must have [Model]_Crosshatch key.");
+            Assert.AreEqual(2, fpDict.Count);
+
+            // Categories
+            Assert.IsNotNull(root["Categories"]);
+            var catDict = (JObject)root["Categories"]!;
+            Assert.IsTrue(catDict.ContainsKey("[Walls]_SubA"), "Categories must have [Walls]_SubA key.");
+            Assert.IsTrue(catDict.ContainsKey("[Floors]_SubA"), "Categories must have [Floors]_SubA key.");
+            Assert.IsTrue(catDict.ContainsKey("TopLevelCat"), "Category with empty prefix must fall back to bare '{Name}'.");
+            Assert.AreEqual(3, catDict.Count);
+
+            // HostObjTypes
+            Assert.IsNotNull(root["HostObjTypes"]);
+            var hostDict = (JObject)root["HostObjTypes"]!;
+            Assert.IsTrue(hostDict.ContainsKey("[Basic Wall]_Partition"), "HostObjTypes must have [Basic Wall]_Partition key.");
+            Assert.IsTrue(hostDict.ContainsKey("[Curtain Wall]_Partition"), "HostObjTypes must have [Curtain Wall]_Partition key.");
+            Assert.IsTrue(hostDict.ContainsKey("BareWall"), "HostObjType with empty FamilyName must fall back to bare '{Name}'.");
+            Assert.AreEqual(3, hostDict.Count);
+
+            // SpotDimensionTypes
+            Assert.IsNotNull(root["SpotDimensionTypes"]);
+            var spotDict = (JObject)root["SpotDimensionTypes"]!;
+            Assert.IsTrue(spotDict.ContainsKey("[Spot Elevations]_Standard"), "SpotDimensionTypes must have [Spot Elevations]_Standard key.");
+            Assert.IsTrue(spotDict.ContainsKey("[Spot Coordinates]_Standard"), "SpotDimensionTypes must have [Spot Coordinates]_Standard key.");
+            Assert.AreEqual(2, spotDict.Count);
+
+            // Act: FromJson
+            var deserialized = StandardSerializationEngine.FromJson(json).ToList();
+
+            // Assert: verify polymorphic hydration and count preservation
+            Assert.AreEqual(12, deserialized.Count, "All 12 valid entries must deserialize without collision drops.");
+
+            var deserializedDims = deserialized.OfType<DimensionTypeModel>().ToList();
+            Assert.AreEqual(2, deserializedDims.Count);
+            Assert.IsTrue(deserializedDims.Any(d => d.DimensionStyle == "Linear" && d.Name == "Standard"));
+            Assert.IsTrue(deserializedDims.Any(d => d.DimensionStyle == "Angular" && d.Name == "Standard"));
+
+            var deserializedFps = deserialized.OfType<FillPatternElementModel>().ToList();
+            Assert.AreEqual(2, deserializedFps.Count);
+            Assert.IsTrue(deserializedFps.Any(f => f.Pattern?.Target == "Drafting" && f.Name == "Crosshatch"));
+            Assert.IsTrue(deserializedFps.Any(f => f.Pattern?.Target == "Model" && f.Name == "Crosshatch"));
+
+            var deserializedCats = deserialized.OfType<CategoryModel>().ToList();
+            Assert.AreEqual(3, deserializedCats.Count);
+            Assert.IsTrue(deserializedCats.Any(c => c.ParentCategoryName == "Walls" && c.Name == "SubA"));
+            Assert.IsTrue(deserializedCats.Any(c => c.ParentCategoryName == "Floors" && c.Name == "SubA"));
+            Assert.IsTrue(deserializedCats.Any(c => c.Name == "TopLevelCat"));
+
+            var deserializedHosts = deserialized.OfType<HostObjTypeModel>().ToList();
+            Assert.AreEqual(3, deserializedHosts.Count);
+            Assert.IsTrue(deserializedHosts.Any(h => h.FamilyName == "Basic Wall" && h.Name == "Partition"));
+            Assert.IsTrue(deserializedHosts.Any(h => h.FamilyName == "Curtain Wall" && h.Name == "Partition"));
+            Assert.IsTrue(deserializedHosts.Any(h => h.Name == "BareWall"));
+
+            var deserializedSpots = deserialized.Where(m => m.Class == "Autodesk.Revit.DB.SpotDimensionType").OfType<ElementTypeModel>().ToList();
+            Assert.AreEqual(2, deserializedSpots.Count);
+            Assert.IsTrue(deserializedSpots.Any(s => s.FamilyName == "Spot Elevations" && s.Name == "Standard"));
+            Assert.IsTrue(deserializedSpots.Any(s => s.FamilyName == "Spot Coordinates" && s.Name == "Standard"));
+        }
     }
 }
