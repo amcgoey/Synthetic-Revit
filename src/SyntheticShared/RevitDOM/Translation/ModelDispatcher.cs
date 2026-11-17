@@ -17,6 +17,9 @@ namespace Synthetic.RevitDOM.Translation
     {
         private readonly IIdentityService _identityService;
         private readonly Dictionary<Type, IModelTranslator> _modelTypeToTranslator = new Dictionary<Type, IModelTranslator>();
+        private readonly Dictionary<(Type ModelType, string ClassName), IModelTranslator> _compositeToTranslator = new Dictionary<(Type, string), IModelTranslator>();
+        private readonly HashSet<Type> _ambiguousModelTypes = new HashSet<Type>();
+        private readonly HashSet<Type> _registeredModelTypes = new HashSet<Type>();
         private readonly Dictionary<Type, IModelTranslator> _revitTypeToTranslator = new Dictionary<Type, IModelTranslator>();
         private readonly Dictionary<Type, Type> _revitTypeToModelType = new Dictionary<Type, Type>();
         private readonly HashSet<Type> _ignoredTypes = new HashSet<Type>();
@@ -44,15 +47,94 @@ namespace Synthetic.RevitDOM.Translation
         {
             if (translator == null) throw new ArgumentNullException(nameof(translator));
 
-            _modelTypeToTranslator[typeof(TModel)] = translator;
+            Type modelType = typeof(TModel);
+
+            if (_registeredModelTypes.Contains(modelType))
+            {
+                if (_modelTypeToTranslator.TryGetValue(modelType, out var existing) && !ReferenceEquals(existing, translator))
+                {
+                    _ambiguousModelTypes.Add(modelType);
+                    _modelTypeToTranslator.Remove(modelType);
+                }
+            }
+            else
+            {
+                _registeredModelTypes.Add(modelType);
+                _modelTypeToTranslator[modelType] = translator;
+            }
+
             foreach (var revitType in revitTypes)
             {
                 if (revitType != null)
                 {
                     _revitTypeToTranslator[revitType] = translator;
-                    _revitTypeToModelType[revitType] = typeof(TModel);
+                    _revitTypeToModelType[revitType] = modelType;
+
+                    RegisterCompositeKeys(modelType, revitType, translator);
                 }
             }
+        }
+
+        private void RegisterCompositeKeys(Type modelType, Type revitType, IModelTranslator translator)
+        {
+            if (!string.IsNullOrEmpty(revitType.FullName))
+            {
+                _compositeToTranslator[(modelType, revitType.FullName)] = translator;
+            }
+            if (!string.IsNullOrEmpty(revitType.Name))
+            {
+                _compositeToTranslator[(modelType, revitType.Name)] = translator;
+            }
+
+            foreach (var alias in GetClassAliases(revitType.FullName))
+            {
+                _compositeToTranslator[(modelType, alias)] = translator;
+            }
+        }
+
+        private static IEnumerable<string> GetClassAliases(string? className)
+        {
+            if (string.IsNullOrEmpty(className)) yield break;
+
+            if (className.Contains("FasciaType"))
+            {
+                yield return "Autodesk.Revit.DB.Architecture.FasciaType";
+                yield return "Autodesk.Revit.DB.FasciaType";
+            }
+            else if (className.Contains("GutterType"))
+            {
+                yield return "Autodesk.Revit.DB.Architecture.GutterType";
+                yield return "Autodesk.Revit.DB.GutterType";
+            }
+            else if (className.Contains("SharedParameterElement") || className.Contains("ParameterElement"))
+            {
+                yield return "Autodesk.Revit.DB.SharedParameterElement";
+                yield return "Autodesk.Revit.DB.ParameterElement";
+            }
+            else if (className.Contains("ToposolidType"))
+            {
+                yield return "Autodesk.Revit.DB.ToposolidType";
+            }
+            else if (className.StartsWith("Autodesk.Revit.DB.Architecture.", StringComparison.OrdinalIgnoreCase))
+            {
+                yield return "Autodesk.Revit.DB." + className.Substring("Autodesk.Revit.DB.Architecture.".Length);
+            }
+            else if (className.StartsWith("Autodesk.Revit.DB.", StringComparison.OrdinalIgnoreCase))
+            {
+                yield return "Autodesk.Revit.DB.Architecture." + className.Substring("Autodesk.Revit.DB.".Length);
+            }
+        }
+
+        private static string? GetDefaultClassForMarkerModelType(Type modelType)
+        {
+            if (modelType == typeof(GridTypeModel)) return "Autodesk.Revit.DB.GridType";
+            if (modelType == typeof(LevelTypeModel)) return "Autodesk.Revit.DB.LevelType";
+            if (modelType == typeof(CurtainSystemTypeModel)) return "Autodesk.Revit.DB.CurtainSystemType";
+            if (modelType == typeof(MullionTypeModel)) return "Autodesk.Revit.DB.MullionType";
+            if (modelType == typeof(FasciaTypeModel)) return "Autodesk.Revit.DB.Architecture.FasciaType";
+            if (modelType == typeof(GutterTypeModel)) return "Autodesk.Revit.DB.Architecture.GutterType";
+            if (modelType == typeof(ViewFamilyTypeModel)) return "Autodesk.Revit.DB.ViewFamilyType";
+            return null;
         }
 
         /// <summary>
@@ -233,16 +315,94 @@ namespace Synthetic.RevitDOM.Translation
         }
 
         /// <summary>
-        /// Resolves the registered IModelTranslator for a given ObjectModel type.
+        /// Resolves the registered IModelTranslator for a given ObjectModel instance using composite (ModelType, Class) routing.
+        /// </summary>
+        public IModelTranslator? GetTranslator(ObjectModel model)
+        {
+            if (model == null) throw new ArgumentNullException(nameof(model));
+
+            string? className = (model as ElementModel)?.Class;
+            return GetTranslatorByModelType(model.GetType(), className);
+        }
+
+        /// <summary>
+        /// Resolves the registered IModelTranslator for a given ObjectModel type and optional Revit class name.
+        /// Resolves by (modelType, className), checking base ElementTypeModel/HostObjTypeModel if modelType is a marker subclass,
+        /// and falling back to unambiguous 1-to-1 modelType binding only when the modelType is not shared across multiple translators.
         /// </summary>
         /// <param name="modelType">The type of the ObjectModel subclass.</param>
+        /// <param name="revitClass">The optional Revit class name (e.g. from model.Class).</param>
         /// <returns>The resolved translator instance, or null if not registered.</returns>
-        public IModelTranslator? GetTranslatorByModelType(Type modelType)
+        public IModelTranslator? GetTranslatorByModelType(Type modelType, string? revitClass = null)
         {
             if (modelType == null) throw new ArgumentNullException(nameof(modelType));
 
-            _modelTypeToTranslator.TryGetValue(modelType, out var translator);
-            return translator;
+            // 1. Try composite lookup if revitClass is provided
+            if (!string.IsNullOrEmpty(revitClass))
+            {
+                if (_compositeToTranslator.TryGetValue((modelType, revitClass), out var translator))
+                {
+                    return translator;
+                }
+
+                // If modelType is a marker subclass or derived type, check base types (ElementTypeModel / HostObjTypeModel)
+                if (typeof(ElementTypeModel).IsAssignableFrom(modelType) && modelType != typeof(ElementTypeModel))
+                {
+                    if (_compositeToTranslator.TryGetValue((typeof(ElementTypeModel), revitClass), out translator))
+                    {
+                        return translator;
+                    }
+                }
+
+                if (typeof(HostObjTypeModel).IsAssignableFrom(modelType) && modelType != typeof(HostObjTypeModel))
+                {
+                    if (_compositeToTranslator.TryGetValue((typeof(HostObjTypeModel), revitClass), out translator))
+                    {
+                        return translator;
+                    }
+                }
+
+                // Try known class aliases
+                foreach (var alias in GetClassAliases(revitClass))
+                {
+                    if (_compositeToTranslator.TryGetValue((modelType, alias), out translator))
+                    {
+                        return translator;
+                    }
+                    if (typeof(ElementTypeModel).IsAssignableFrom(modelType) && modelType != typeof(ElementTypeModel))
+                    {
+                        if (_compositeToTranslator.TryGetValue((typeof(ElementTypeModel), alias), out translator))
+                        {
+                            return translator;
+                        }
+                    }
+                    if (typeof(HostObjTypeModel).IsAssignableFrom(modelType) && modelType != typeof(HostObjTypeModel))
+                    {
+                        if (_compositeToTranslator.TryGetValue((typeof(HostObjTypeModel), alias), out translator))
+                        {
+                            return translator;
+                        }
+                    }
+                }
+            }
+
+            // 2. If revitClass is null or empty, check if modelType is a marker subclass
+            string? markerClass = GetDefaultClassForMarkerModelType(modelType);
+            if (!string.IsNullOrEmpty(markerClass))
+            {
+                return GetTranslatorByModelType(modelType, markerClass);
+            }
+
+            // 3. Fallback to unambiguous 1-to-1 modelType binding
+            if (!_ambiguousModelTypes.Contains(modelType))
+            {
+                if (_modelTypeToTranslator.TryGetValue(modelType, out var directTranslator))
+                {
+                    return directTranslator;
+                }
+            }
+
+            return null;
         }
 
         /// <summary>

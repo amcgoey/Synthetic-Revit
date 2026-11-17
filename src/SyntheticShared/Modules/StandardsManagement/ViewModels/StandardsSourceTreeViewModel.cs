@@ -101,7 +101,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             try
             {
                 string json = File.ReadAllText(path);
-                var elements = ModelsToSerialize.DeserializeByJson(json);
+                var elements = StandardSerializationEngine.FromJson(json);
                 var hierarchy = StandardsHierarchyUtility.BuildHierarchy(elements);
 
                 var source = new ProjectStandardsSourceViewModel

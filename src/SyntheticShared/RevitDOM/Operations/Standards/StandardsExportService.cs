@@ -97,7 +97,7 @@ namespace Synthetic.RevitDOM.Operations.Standards
                         if (File.Exists(fullTargetPath))
                         {
                             string existingJson = File.ReadAllText(fullTargetPath);
-                            var deserialized = ModelsToSerialize.DeserializeByJson(existingJson);
+                            var deserialized = StandardSerializationEngine.FromJson(existingJson);
                             if (deserialized != null)
                             {
                                 existingElements = deserialized.ToList();
@@ -119,7 +119,7 @@ namespace Synthetic.RevitDOM.Operations.Standards
                         }
 
                         var mergedElements = StandardsMergeUtility.Merge(existingElements, newElements, overwriteDuplicates);
-                        string serializedJson = ModelsToSerialize.SerializeToJson(mergedElements.Cast<ObjectModel>().ToList());
+                        string serializedJson = StandardSerializationEngine.ToJson(mergedElements.Cast<ObjectModel>());
                         File.WriteAllText(fullTargetPath, serializedJson);
 
                         foreach (var item in fileItems)
@@ -178,7 +178,7 @@ namespace Synthetic.RevitDOM.Operations.Standards
 
                     if (modelsToSave.Count > 0)
                     {
-                        string serializedJson = ModelsToSerialize.SerializeToJson(modelsToSave);
+                        string serializedJson = StandardSerializationEngine.ToJson(modelsToSave);
                         File.WriteAllText(targetPath, serializedJson);
 
                         foreach (var model in modelsToSave)
