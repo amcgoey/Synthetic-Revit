@@ -201,7 +201,8 @@ namespace Synthetic.RevitDOM.Operations
                     "Autodesk.Revit.DB.Architecture.RailingType",
                     "Autodesk.Revit.DB.RailingType",
                     "Autodesk.Revit.DB.Architecture.StairsType",
-                    "Autodesk.Revit.DB.StairsType"
+                    "Autodesk.Revit.DB.StairsType",
+                    "Autodesk.Revit.DB.HostObjAttributes"
                 },
                 dynamicTaxonomy: ResolveHostObjTypeTaxonomy));
 
@@ -499,6 +500,17 @@ namespace Synthetic.RevitDOM.Operations
                     return desc;
                 }
             }
+            else if (!className.Contains("."))
+            {
+                if (_byClass.TryGetValue("Autodesk.Revit.DB." + className, out desc))
+                {
+                    return desc;
+                }
+                if (_byClass.TryGetValue("Autodesk.Revit.DB.Architecture." + className, out desc))
+                {
+                    return desc;
+                }
+            }
 
             return null;
         }
@@ -523,16 +535,7 @@ namespace Synthetic.RevitDOM.Operations
                 }
             }
 
-            // 2. Check temporary marker POCOs (expand step support)
-            if (model is GridTypeModel) return GetDescriptorByBucket("GridTypes");
-            if (model is LevelTypeModel) return GetDescriptorByBucket("LevelTypes");
-            if (model is CurtainSystemTypeModel) return GetDescriptorByBucket("CurtainSystemTypes");
-            if (model is MullionTypeModel) return GetDescriptorByBucket("MullionTypes");
-            if (model is FasciaTypeModel) return GetDescriptorByBucket("FasciaTypes");
-            if (model is GutterTypeModel) return GetDescriptorByBucket("GutterTypes");
-            if (model is ViewFamilyTypeModel) return GetDescriptorByBucket("ViewFamilyTypes");
-
-            // 3. Check distinct POCO types
+            // 2. Check distinct POCO types
             if (model is FillPatternElementModel) return GetDescriptorByBucket("FillPatternElements");
             if (model is LinePatternElementModel) return GetDescriptorByBucket("LinePatternElements");
             if (model is PropertySetElementModel) return GetDescriptorByBucket("PropertySetElements");
@@ -603,11 +606,11 @@ namespace Synthetic.RevitDOM.Operations
                     return ("Annotations", "Model Text Types");
                 if (string.Equals(cls, "Autodesk.Revit.DB.SpotDimensionType", StringComparison.OrdinalIgnoreCase))
                     return ("Annotations", "Spot Dimension Types");
-                if (element is GridTypeModel || string.Equals(cls, "Autodesk.Revit.DB.GridType", StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(cls, "Autodesk.Revit.DB.GridType", StringComparison.OrdinalIgnoreCase))
                     return ("Annotations", "Grid Types");
-                if (element is LevelTypeModel || string.Equals(cls, "Autodesk.Revit.DB.LevelType", StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(cls, "Autodesk.Revit.DB.LevelType", StringComparison.OrdinalIgnoreCase))
                     return ("Annotations", "Level Types");
-                if (element is ViewFamilyTypeModel || string.Equals(cls, "Autodesk.Revit.DB.ViewFamilyType", StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(cls, "Autodesk.Revit.DB.ViewFamilyType", StringComparison.OrdinalIgnoreCase))
                     return ("Views", "View Family Types");
 
                 return ResolveFamilySymbolTaxonomy(elemType);
@@ -710,11 +713,6 @@ namespace Synthetic.RevitDOM.Operations
 
         private static (string Group, string Class) ResolveHostObjTypeTaxonomy(ElementModel element)
         {
-            if (element is CurtainSystemTypeModel) return ("System Types", "Curtain System Types");
-            if (element is MullionTypeModel) return ("System Types", "Mullion Types");
-            if (element is FasciaTypeModel) return ("System Types", "Fascia Types");
-            if (element is GutterTypeModel) return ("System Types", "Gutter Types");
-
             string cls = element.Class ?? string.Empty;
             if (cls.Contains("CurtainSystemType")) return ("System Types", "Curtain System Types");
             if (cls.Contains("MullionType")) return ("System Types", "Mullion Types");

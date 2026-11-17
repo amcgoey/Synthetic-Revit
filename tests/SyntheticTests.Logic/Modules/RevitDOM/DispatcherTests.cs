@@ -247,37 +247,37 @@ namespace SyntheticTests.Modules.RevitDOM
         }
 
         [Test]
-        public void CompositeRouting_ResolvesMarkerPOCOsEvenWhenClassIsEmpty()
+        public void CompositeRouting_ResolvesConsolidatedModelsWithExplicitClass()
         {
             // Arrange
             var engine = new StandardSerializationEngine();
             var dispatcher = engine.Dispatcher;
 
-            // Act - Resolve marker subclasses with empty Class
-            var gridTranslator = dispatcher.GetTranslator(new GridTypeModel());
-            var levelTranslator = dispatcher.GetTranslator(new LevelTypeModel());
-            var curtainTranslator = dispatcher.GetTranslator(new CurtainSystemTypeModel());
-            var mullionTranslator = dispatcher.GetTranslator(new MullionTypeModel());
-            var fasciaTranslator = dispatcher.GetTranslator(new FasciaTypeModel());
-            var gutterTranslator = dispatcher.GetTranslator(new GutterTypeModel());
+            // Act - Resolve consolidated ElementTypeModel and HostObjTypeModel with explicit Class
+            var gridTranslator = dispatcher.GetTranslator(new ElementTypeModel { Class = "Autodesk.Revit.DB.GridType" });
+            var levelTranslator = dispatcher.GetTranslator(new ElementTypeModel { Class = "Autodesk.Revit.DB.LevelType" });
+            var curtainTranslator = dispatcher.GetTranslator(new HostObjTypeModel { Class = "Autodesk.Revit.DB.CurtainSystemType" });
+            var mullionTranslator = dispatcher.GetTranslator(new HostObjTypeModel { Class = "Autodesk.Revit.DB.MullionType" });
+            var fasciaTranslator = dispatcher.GetTranslator(new HostObjTypeModel { Class = "Autodesk.Revit.DB.Architecture.FasciaType" });
+            var gutterTranslator = dispatcher.GetTranslator(new HostObjTypeModel { Class = "Autodesk.Revit.DB.Architecture.GutterType" });
 
             // Assert
-            Assert.IsNotNull(gridTranslator, "GridTypeModel should resolve translator even when Class is empty.");
+            Assert.IsNotNull(gridTranslator, "GridType should resolve GridTypeTranslator.");
             Assert.IsInstanceOf<GridTypeTranslator>(gridTranslator);
 
-            Assert.IsNotNull(levelTranslator, "LevelTypeModel should resolve translator even when Class is empty.");
+            Assert.IsNotNull(levelTranslator, "LevelType should resolve LevelTypeTranslator.");
             Assert.IsInstanceOf<LevelTypeTranslator>(levelTranslator);
 
-            Assert.IsNotNull(curtainTranslator, "CurtainSystemTypeModel should resolve translator even when Class is empty.");
+            Assert.IsNotNull(curtainTranslator, "CurtainSystemType should resolve HostObjTypeTranslator.");
             Assert.IsInstanceOf<HostObjTypeTranslator>(curtainTranslator);
 
-            Assert.IsNotNull(mullionTranslator, "MullionTypeModel should resolve translator even when Class is empty.");
+            Assert.IsNotNull(mullionTranslator, "MullionType should resolve HostObjTypeTranslator.");
             Assert.IsInstanceOf<HostObjTypeTranslator>(mullionTranslator);
 
-            Assert.IsNotNull(fasciaTranslator, "FasciaTypeModel should resolve translator even when Class is empty.");
+            Assert.IsNotNull(fasciaTranslator, "FasciaType should resolve HostObjTypeTranslator.");
             Assert.IsInstanceOf<HostObjTypeTranslator>(fasciaTranslator);
 
-            Assert.IsNotNull(gutterTranslator, "GutterTypeModel should resolve translator even when Class is empty.");
+            Assert.IsNotNull(gutterTranslator, "GutterType should resolve HostObjTypeTranslator.");
             Assert.IsInstanceOf<HostObjTypeTranslator>(gutterTranslator);
         }
 

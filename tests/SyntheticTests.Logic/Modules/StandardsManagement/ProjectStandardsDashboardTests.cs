@@ -94,7 +94,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         {
             // Arrange
             string tempFile = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString() + ".json");
-            File.WriteAllText(tempFile, "{}"); // Empty JSON representing empty ModelsToSerialize
+            File.WriteAllText(tempFile, "{}"); // Empty JSON standard template
 
             var settings = new StandardsSettings { StandardsFilePath = tempFile };
 

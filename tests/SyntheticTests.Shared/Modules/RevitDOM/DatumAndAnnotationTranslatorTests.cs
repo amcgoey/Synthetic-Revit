@@ -31,9 +31,10 @@ namespace SyntheticTests
             try
             {
                 var translator = new GridTypeTranslator();
-                var model = new GridTypeModel
+                var model = new ElementTypeModel
                 {
-                    Name = "TestGridType_Duplicated"
+                    Name = "TestGridType_Duplicated",
+                    Class = "Autodesk.Revit.DB.GridType"
                 };
 
                 GridType? duplicatedElem = null;
@@ -72,9 +73,10 @@ namespace SyntheticTests
             try
             {
                 var translator = new LevelTypeTranslator();
-                var model = new LevelTypeModel
+                var model = new ElementTypeModel
                 {
-                    Name = "TestLevelType_Duplicated"
+                    Name = "TestLevelType_Duplicated",
+                    Class = "Autodesk.Revit.DB.LevelType"
                 };
 
                 LevelType? duplicatedElem = null;
