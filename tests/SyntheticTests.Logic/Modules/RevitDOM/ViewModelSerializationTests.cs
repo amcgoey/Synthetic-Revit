@@ -157,5 +157,122 @@ namespace SyntheticTests.Modules.RevitDOM
             Assert.AreEqual("Autodesk.Revit.DB.ToposolidType", deserialized.Class);
             Assert.AreEqual("TestToposolidType", deserialized.Name);
         }
+
+        [Test]
+        public void StandardSerializationEngine_ToJson_EmitsCanonicalOrderAndFilledRegionTypesAndOmitsEmptyBuckets()
+        {
+            // Arrange
+            var fillPattern = new FillPatternElementModel { Name = "PatternA", Class = "Autodesk.Revit.DB.FillPatternElement" };
+            var material = new MaterialModel { Name = "MaterialA", Class = "Autodesk.Revit.DB.Material" };
+            var region = new FilledRegionTypeModel { Name = "RegionA", Class = "Autodesk.Revit.DB.FilledRegionType" };
+            var genericElem = new ElementModel { Name = "DirectShapeA", Class = "Autodesk.Revit.DB.DirectShape" };
+
+            var list = new System.Collections.Generic.List<ObjectModel> { genericElem, region, material, fillPattern };
+
+            // Act
+            string json = StandardSerializationEngine.ToJson(list);
+
+            // Assert
+            Assert.IsNotNull(json);
+            Assert.IsTrue(json.Contains("\"FilledRegionTypes\""), "Must use 'FilledRegionTypes' bucket name.");
+            Assert.IsFalse(json.Contains("\"FillRegionTypes\""), "Must never emit 'FillRegionTypes'.");
+            Assert.IsFalse(json.Contains("\"LinePatternElements\""), "Must omit empty buckets.");
+            Assert.IsFalse(json.Contains("\"HostObjTypes\""), "Must omit empty buckets.");
+            Assert.IsTrue(json.Contains("\"Elements\""), "Must preserve non-empty Elements list.");
+
+            // Check canonical ordering in JSON: FillPatternElements (order 1) before Materials (order 4) before FilledRegionTypes (order 8) before Elements
+            int idxPattern = json.IndexOf("\"FillPatternElements\"");
+            int idxMat = json.IndexOf("\"Materials\"");
+            int idxRegion = json.IndexOf("\"FilledRegionTypes\"");
+            int idxElements = json.IndexOf("\"Elements\"");
+
+            Assert.IsTrue(idxPattern < idxMat, "FillPatternElements must precede Materials.");
+            Assert.IsTrue(idxMat < idxRegion, "Materials must precede FilledRegionTypes.");
+            Assert.IsTrue(idxRegion < idxElements, "FilledRegionTypes must precede Elements.");
+        }
+
+        [Test]
+        public void StandardSerializationEngine_ToJson_SortsBucketKeysDeterministicallyAndHandlesDuplicatesLastInWins()
+        {
+            // Arrange
+            SerializationResultModel.ClearWarnings();
+            var matB = new MaterialModel { Name = "b_Material", Class = "Autodesk.Revit.DB.Material" };
+            var matA = new MaterialModel { Name = "a_Material", Class = "Autodesk.Revit.DB.Material" };
+            var matADup = new MaterialModel { Name = "a_Material", Class = "Autodesk.Revit.DB.Material", UniqueId = "last-in-wins-uid" };
+
+            var list = new System.Collections.Generic.List<ObjectModel> { matB, matA, matADup };
+
+            // Act
+            string json = StandardSerializationEngine.ToJson(list);
+
+            // Assert
+            Assert.IsNotNull(json);
+            Assert.IsTrue(SerializationResultModel.CurrentThreadWarnings.Count > 0, "Warning must be logged for duplicate key.");
+            Assert.IsTrue(SerializationResultModel.CurrentThreadWarnings[0].Contains("Duplicate key 'a_Material'"), "Warning must mention duplicate key.");
+            Assert.IsTrue(json.Contains("\"last-in-wins-uid\""), "Last-in-wins entry must be preserved.");
+
+            int idxA = json.IndexOf("\"a_Material\"");
+            int idxB = json.IndexOf("\"b_Material\"");
+            Assert.IsTrue(idxA < idxB, "Keys must be sorted deterministically OrdinalIgnoreCase.");
+        }
+
+        [Test]
+        public void StandardSerializationEngine_FromJson_HandlesLegacyBucketsAndHydratesPolymorphically()
+        {
+            // Arrange - JSON with legacy 'FillRegionTypes', legacy 'GridTypes', legacy TextElementType inside 'ElementTypes', and ViewTemplates
+            string json = @"{
+                ""FillRegionTypes"": {
+                    ""LegacyRegion"": {
+                        ""Name"": ""LegacyRegion"",
+                        ""Id"": 101
+                    }
+                },
+                ""GridTypes"": {
+                    ""LegacyGrid"": {
+                        ""Name"": ""LegacyGrid"",
+                        ""Id"": 102
+                    }
+                },
+                ""ElementTypes"": {
+                    ""LegacyTextElement"": {
+                        ""Class"": ""Autodesk.Revit.DB.TextElementType"",
+                        ""Name"": ""LegacyTextElement"",
+                        ""Id"": 103
+                    }
+                },
+                ""ViewTemplates"": {
+                    ""PlanTemplate"": {
+                        ""Class"": ""Autodesk.Revit.DB.ViewPlan"",
+                        ""Name"": ""PlanTemplate"",
+                        ""Id"": 104
+                    }
+                }
+            }";
+
+            // Act
+            var models = System.Linq.Enumerable.ToList(StandardSerializationEngine.FromJson(json));
+
+            // Assert
+            Assert.AreEqual(4, models.Count, "All 4 entries across legacy and current buckets must be deserialized.");
+
+            var region = models.Find(m => m.Name == "LegacyRegion");
+            Assert.IsNotNull(region);
+            Assert.IsInstanceOf<FilledRegionTypeModel>(region, "FillRegionTypes must hydrate to FilledRegionTypeModel.");
+            Assert.AreEqual("Autodesk.Revit.DB.FilledRegionType", region!.Class, "Default Class must be inferred when omitted.");
+
+            var grid = models.Find(m => m.Name == "LegacyGrid");
+            Assert.IsNotNull(grid);
+            Assert.IsInstanceOf<ElementTypeModel>(grid, "GridTypes must hydrate to ElementTypeModel.");
+            Assert.AreEqual("Autodesk.Revit.DB.GridType", grid!.Class, "Default GridType class must be inferred when omitted.");
+
+            var textElem = models.Find(m => m.Name == "LegacyTextElement");
+            Assert.IsNotNull(textElem);
+            Assert.AreEqual("Autodesk.Revit.DB.TextElementType", textElem!.Class, "TextElementType must be preserved from ElementTypes.");
+
+            var template = models.Find(m => m.Name == "PlanTemplate");
+            Assert.IsNotNull(template);
+            Assert.IsInstanceOf<ViewPlanModel>(template, "ViewPlan class in ViewTemplates must hydrate polymorphically to ViewPlanModel.");
+            Assert.IsTrue(template!.IsTemplate, "IsTemplate must be forced to true for ViewTemplates entries.");
+        }
     }
 }

@@ -171,5 +171,39 @@ namespace SyntheticTests.Modules.StandardsManagement
             var viewsClasses = viewsGroup.Children.Cast<StandardClassModel>().Select(c => c.Name).ToArray();
             Assert.AreEqual(new[] { "Browser Organizations", "View Family Types", "View Templates", "Views" }, viewsClasses);
         }
+
+        [Test]
+        public void BuildHierarchy_ShouldFollow5WayFamilySymbolTaxonomy()
+        {
+            var titleBlock = new ElementTypeModel { Class = "Autodesk.Revit.DB.FamilySymbol", Category = "Title Blocks", Name = "E1 30x42" };
+            var detailItem = new ElementTypeModel { Class = "Autodesk.Revit.DB.FamilySymbol", Category = "Detail Items", Name = "Breakline" };
+            var profile = new ElementTypeModel { Class = "Autodesk.Revit.DB.FamilySymbol", Category = "Profiles", Name = "Fascia Profile" };
+            var roomTag = new ElementTypeModel { Class = "Autodesk.Revit.DB.FamilySymbol", Category = "Room Tags", Name = "Room Tag with Area" };
+            var genericAnnotation = new ElementTypeModel { Class = "Autodesk.Revit.DB.FamilySymbol", Category = "Generic Annotations", Name = "North Arrow" };
+            var doorType = new ElementTypeModel { Class = "Autodesk.Revit.DB.FamilySymbol", Category = "Doors", Name = "Single Flush 36x84" };
+
+            var elements = new List<ElementModel> { titleBlock, detailItem, profile, roomTag, genericAnnotation, doorType };
+            var hierarchy = StandardsHierarchyUtility.BuildHierarchy(elements);
+
+            // Group: Annotations -> "Title Blocks", "Detail Items", "Label Types"
+            var annGroup = hierarchy.FirstOrDefault(g => g.Name == "Annotations");
+            Assert.IsNotNull(annGroup);
+            var annClasses = annGroup!.Children.Cast<StandardClassModel>().Select(c => c.Name).ToList();
+            Assert.IsTrue(annClasses.Contains("Title Blocks"));
+            Assert.IsTrue(annClasses.Contains("Detail Items"));
+            Assert.IsTrue(annClasses.Contains("Label Types"));
+
+            // Group: System Types -> "Profiles"
+            var sysGroup = hierarchy.FirstOrDefault(g => g.Name == "System Types");
+            Assert.IsNotNull(sysGroup);
+            var sysClasses = sysGroup!.Children.Cast<StandardClassModel>().Select(c => c.Name).ToList();
+            Assert.IsTrue(sysClasses.Contains("Profiles"));
+
+            // Group: Standards & Categories -> "Element Types"
+            var stdGroup = hierarchy.FirstOrDefault(g => g.Name == "Standards & Categories");
+            Assert.IsNotNull(stdGroup);
+            var stdClasses = stdGroup!.Children.Cast<StandardClassModel>().Select(c => c.Name).ToList();
+            Assert.IsTrue(stdClasses.Contains("Element Types"));
+        }
     }
 }

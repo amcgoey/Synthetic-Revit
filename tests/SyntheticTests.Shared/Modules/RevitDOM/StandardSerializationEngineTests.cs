@@ -207,5 +207,108 @@ namespace SyntheticTests
                 doc.Close(false);
             }
         }
+
+        [Test]
+        public void ToRevit_CompositeRouting_DispatchesAllStandardTypesToRegisteredTranslatorsWithoutOverwrite()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            Document doc = app.NewProjectDocument(UnitSystem.Metric);
+
+            try
+            {
+                var engine = new StandardSerializationEngine();
+
+                var textNote = new ElementTypeModel
+                {
+                    Class = "Autodesk.Revit.DB.TextNoteType",
+                    Name = "TestTextNote_Dispatch"
+                };
+                var spotDim = new ElementTypeModel
+                {
+                    Class = "Autodesk.Revit.DB.SpotDimensionType",
+                    Name = "TestSpotDim_Dispatch"
+                };
+                var gridType = new ElementTypeModel
+                {
+                    Class = "Autodesk.Revit.DB.GridType",
+                    Name = "TestGrid_Dispatch"
+                };
+                var levelType = new ElementTypeModel
+                {
+                    Class = "Autodesk.Revit.DB.LevelType",
+                    Name = "TestLevel_Dispatch"
+                };
+                var curtainSystem = new HostObjTypeModel
+                {
+                    Class = "Autodesk.Revit.DB.CurtainSystemType",
+                    Name = "TestCurtainSystem_Dispatch"
+                };
+                var mullion = new HostObjTypeModel
+                {
+                    Class = "Autodesk.Revit.DB.MullionType",
+                    Name = "TestMullion_Dispatch"
+                };
+                var fascia = new HostObjTypeModel
+                {
+                    Class = "Autodesk.Revit.DB.Architecture.FasciaType",
+                    Name = "TestFascia_Dispatch"
+                };
+                var gutter = new HostObjTypeModel
+                {
+                    Class = "Autodesk.Revit.DB.Architecture.GutterType",
+                    Name = "TestGutter_Dispatch"
+                };
+
+                // Verify translator bindings directly on Dispatcher
+                var tText = engine.Dispatcher.GetTranslator(textNote);
+                var tSpot = engine.Dispatcher.GetTranslator(spotDim);
+                var tGrid = engine.Dispatcher.GetTranslator(gridType);
+                var tLevel = engine.Dispatcher.GetTranslator(levelType);
+                var tCurtain = engine.Dispatcher.GetTranslator(curtainSystem);
+                var tMullion = engine.Dispatcher.GetTranslator(mullion);
+                var tFascia = engine.Dispatcher.GetTranslator(fascia);
+                var tGutter = engine.Dispatcher.GetTranslator(gutter);
+
+                Assert.IsInstanceOf<TextElementTypeTranslator>(tText, "TextNoteType must resolve to TextElementTypeTranslator.");
+                Assert.IsInstanceOf<SpotDimensionTypeTranslator>(tSpot, "SpotDimensionType must resolve to SpotDimensionTypeTranslator.");
+                Assert.IsInstanceOf<GridTypeTranslator>(tGrid, "GridType must resolve to GridTypeTranslator.");
+                Assert.IsInstanceOf<LevelTypeTranslator>(tLevel, "LevelType must resolve to LevelTypeTranslator.");
+                Assert.IsInstanceOf<HostObjTypeTranslator>(tCurtain, "CurtainSystemType must resolve to HostObjTypeTranslator.");
+                Assert.IsInstanceOf<HostObjTypeTranslator>(tMullion, "MullionType must resolve to HostObjTypeTranslator.");
+                Assert.IsInstanceOf<HostObjTypeTranslator>(tFascia, "FasciaType must resolve to HostObjTypeTranslator.");
+                Assert.IsInstanceOf<HostObjTypeTranslator>(tGutter, "GutterType must resolve to HostObjTypeTranslator.");
+
+#if REVIT2022 || REVIT2023
+                // ToposolidType does not exist in Revit 2022/2023
+#else
+                var toposolid = new HostObjTypeModel
+                {
+                    Class = "Autodesk.Revit.DB.ToposolidType",
+                    Name = "TestToposolid_Dispatch"
+                };
+                var tTopo = engine.Dispatcher.GetTranslator(toposolid);
+                Assert.IsInstanceOf<HostObjTypeTranslator>(tTopo, "ToposolidType must resolve to HostObjTypeTranslator in Revit 2024+.");
+#endif
+
+                // Act - run ToRevit on batch
+                var batch = new List<ObjectModel> { textNote, spotDim, gridType, levelType };
+                var results = engine.ToRevit(batch, doc).ToList();
+
+                // Assert: None of these should fail with "No translator registered"
+                foreach (var r in results)
+                {
+                    if (!r.Success)
+                    {
+                        Assert.IsFalse(r.ErrorMessage != null && r.ErrorMessage.Contains("No translator registered"),
+                            $"Model {r.Model?.GetType().Name} failed with missing translator: {r.ErrorMessage}");
+                    }
+                }
+            }
+            finally
+            {
+                doc.Close(false);
+            }
+        }
     }
 }

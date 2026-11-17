@@ -6,7 +6,7 @@ using Synthetic.RevitDOM.Operations;
 
 namespace Synthetic.RevitDOM.Translation
 {
-    internal class LevelTypeTranslator : TemplateDuplicatingTranslator<LevelType, LevelTypeModel>
+    internal class LevelTypeTranslator : TemplateDuplicatingTranslator<LevelType, ElementTypeModel>
     {
     }
 }

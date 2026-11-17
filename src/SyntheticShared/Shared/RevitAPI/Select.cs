@@ -148,11 +148,27 @@ namespace Synthetic.Shared.RevitAPI
         /// <returns name="Type">The Type of a Revit Class</returns>
         public static Type? RevitClassByString(string typeName)
         {
+            if (string.IsNullOrEmpty(typeName)) return null;
+
             // Assembly and Class that the Element should be
             Assembly assembly = typeof(RevitElem).Assembly;
             Type? elemClass = assembly.GetType(typeName);
+            if (elemClass != null) return elemClass;
 
-            return elemClass;
+            if (typeName.StartsWith("Autodesk.Revit.DB.Architecture.", StringComparison.OrdinalIgnoreCase))
+            {
+                string shortName = typeName.Substring("Autodesk.Revit.DB.Architecture.".Length);
+                elemClass = assembly.GetType("Autodesk.Revit.DB." + shortName);
+                if (elemClass != null) return elemClass;
+            }
+            else if (typeName.StartsWith("Autodesk.Revit.DB.", StringComparison.OrdinalIgnoreCase))
+            {
+                string shortName = typeName.Substring("Autodesk.Revit.DB.".Length);
+                elemClass = assembly.GetType("Autodesk.Revit.DB.Architecture." + shortName);
+                if (elemClass != null) return elemClass;
+            }
+
+            return null;
         }
 
         /// <summary>

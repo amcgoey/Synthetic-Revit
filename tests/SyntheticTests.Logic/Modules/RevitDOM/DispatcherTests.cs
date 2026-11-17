@@ -215,5 +215,92 @@ namespace SyntheticTests.Modules.RevitDOM
             Assert.AreEqual(1, SerializationResultModel.CurrentThreadWarnings.Count, "Exactly one warning should be logged.");
             Assert.IsTrue(SerializationResultModel.CurrentThreadWarnings[0].Contains("unsupported, falling back to generic ElementModel"), "Warning message should contain 'unsupported, falling back to generic ElementModel'.");
         }
+
+        [Test]
+        public void CompositeRouting_DisambiguatesSharedElementTypeModelWithoutOverwrite()
+        {
+            // Arrange
+            var dispatcher = new ModelDispatcher(new FakeIdentityService());
+            var textTranslator = new TextElementTypeTranslator();
+            var spotTranslator = new SpotDimensionTypeTranslator();
+            var gridTranslator = new GridTypeTranslator();
+            var levelTranslator = new LevelTypeTranslator();
+
+            dispatcher.Register<ElementTypeModel, TextElementTypeTranslator>(textTranslator, typeof(TextNoteType), typeof(TextElementType), typeof(ModelTextType));
+            dispatcher.Register<ElementTypeModel, SpotDimensionTypeTranslator>(spotTranslator, typeof(SpotDimensionType));
+            dispatcher.Register<ElementTypeModel, GridTypeTranslator>(gridTranslator, typeof(GridType));
+            dispatcher.Register<ElementTypeModel, LevelTypeTranslator>(levelTranslator, typeof(LevelType));
+
+            // Act & Assert - Each composite (ModelType, Class) routes to its exact translator
+            var resolvedText = dispatcher.GetTranslator(new ElementTypeModel { Class = "Autodesk.Revit.DB.TextNoteType" });
+            var resolvedSpot = dispatcher.GetTranslator(new ElementTypeModel { Class = "Autodesk.Revit.DB.SpotDimensionType" });
+            var resolvedGrid = dispatcher.GetTranslator(new ElementTypeModel { Class = "Autodesk.Revit.DB.GridType" });
+            var resolvedLevel = dispatcher.GetTranslator(new ElementTypeModel { Class = "Autodesk.Revit.DB.LevelType" });
+
+            Assert.AreSame(textTranslator, resolvedText, "TextNoteType must resolve to TextElementTypeTranslator without overwrite.");
+            Assert.AreSame(spotTranslator, resolvedSpot, "SpotDimensionType must resolve to SpotDimensionTypeTranslator without overwrite.");
+            Assert.AreSame(gridTranslator, resolvedGrid, "GridType must resolve to GridTypeTranslator without overwrite.");
+            Assert.AreSame(levelTranslator, resolvedLevel, "LevelType must resolve to LevelTypeTranslator without overwrite.");
+
+            // Ambiguous ModelType alone without class returns null
+            Assert.IsNull(dispatcher.GetTranslatorByModelType(typeof(ElementTypeModel)), "Ambiguous ElementTypeModel should not resolve without Class.");
+        }
+
+        [Test]
+        public void CompositeRouting_ResolvesMarkerPOCOsEvenWhenClassIsEmpty()
+        {
+            // Arrange
+            var engine = new StandardSerializationEngine();
+            var dispatcher = engine.Dispatcher;
+
+            // Act - Resolve marker subclasses with empty Class
+            var gridTranslator = dispatcher.GetTranslator(new GridTypeModel());
+            var levelTranslator = dispatcher.GetTranslator(new LevelTypeModel());
+            var curtainTranslator = dispatcher.GetTranslator(new CurtainSystemTypeModel());
+            var mullionTranslator = dispatcher.GetTranslator(new MullionTypeModel());
+            var fasciaTranslator = dispatcher.GetTranslator(new FasciaTypeModel());
+            var gutterTranslator = dispatcher.GetTranslator(new GutterTypeModel());
+
+            // Assert
+            Assert.IsNotNull(gridTranslator, "GridTypeModel should resolve translator even when Class is empty.");
+            Assert.IsInstanceOf<GridTypeTranslator>(gridTranslator);
+
+            Assert.IsNotNull(levelTranslator, "LevelTypeModel should resolve translator even when Class is empty.");
+            Assert.IsInstanceOf<LevelTypeTranslator>(levelTranslator);
+
+            Assert.IsNotNull(curtainTranslator, "CurtainSystemTypeModel should resolve translator even when Class is empty.");
+            Assert.IsInstanceOf<HostObjTypeTranslator>(curtainTranslator);
+
+            Assert.IsNotNull(mullionTranslator, "MullionTypeModel should resolve translator even when Class is empty.");
+            Assert.IsInstanceOf<HostObjTypeTranslator>(mullionTranslator);
+
+            Assert.IsNotNull(fasciaTranslator, "FasciaTypeModel should resolve translator even when Class is empty.");
+            Assert.IsInstanceOf<HostObjTypeTranslator>(fasciaTranslator);
+
+            Assert.IsNotNull(gutterTranslator, "GutterTypeModel should resolve translator even when Class is empty.");
+            Assert.IsInstanceOf<HostObjTypeTranslator>(gutterTranslator);
+        }
+
+        [Test]
+        public void CompositeRouting_HandlesNamespaceAliasesForFasciaAndGutter()
+        {
+            // Arrange
+            var engine = new StandardSerializationEngine();
+            var dispatcher = engine.Dispatcher;
+
+            // Act & Assert
+            var fasciaArch = dispatcher.GetTranslator(new HostObjTypeModel { Class = "Autodesk.Revit.DB.Architecture.FasciaType" });
+            var fasciaDb = dispatcher.GetTranslator(new HostObjTypeModel { Class = "Autodesk.Revit.DB.FasciaType" });
+            var gutterArch = dispatcher.GetTranslator(new HostObjTypeModel { Class = "Autodesk.Revit.DB.Architecture.GutterType" });
+            var gutterDb = dispatcher.GetTranslator(new HostObjTypeModel { Class = "Autodesk.Revit.DB.GutterType" });
+
+            Assert.IsNotNull(fasciaArch, "Autodesk.Revit.DB.Architecture.FasciaType should resolve.");
+            Assert.IsNotNull(fasciaDb, "Autodesk.Revit.DB.FasciaType alias should resolve.");
+            Assert.AreSame(fasciaArch, fasciaDb, "Both fascia class names must resolve to the same translator.");
+
+            Assert.IsNotNull(gutterArch, "Autodesk.Revit.DB.Architecture.GutterType should resolve.");
+            Assert.IsNotNull(gutterDb, "Autodesk.Revit.DB.GutterType alias should resolve.");
+            Assert.AreSame(gutterArch, gutterDb, "Both gutter class names must resolve to the same translator.");
+        }
     }
 }

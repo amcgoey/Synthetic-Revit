@@ -6,7 +6,7 @@ using Synthetic.RevitDOM.Operations;
 
 namespace Synthetic.RevitDOM.Translation
 {
-    internal class GridTypeTranslator : TemplateDuplicatingTranslator<GridType, GridTypeModel>
+    internal class GridTypeTranslator : TemplateDuplicatingTranslator<GridType, ElementTypeModel>
     {
     }
 }

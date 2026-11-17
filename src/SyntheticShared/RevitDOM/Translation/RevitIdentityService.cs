@@ -252,7 +252,7 @@ namespace Synthetic.RevitDOM.Translation
         {
             try
             {
-                return typeof(Element).Assembly.GetType(className);
+                return Synthetic.Shared.RevitAPI.Select.RevitClassByString(className);
             }
             catch
             {

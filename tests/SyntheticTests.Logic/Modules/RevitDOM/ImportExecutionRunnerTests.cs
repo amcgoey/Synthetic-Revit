@@ -83,5 +83,42 @@ namespace SyntheticTests.Modules.RevitDOM
             Assert.AreSame(material, sortedList[1], "Material (Tier 2) should still be second.");
             Assert.AreSame(customModel, sortedList[2], "Unrecognized CustomModel (Tier 8 fallback) should be sorted last.");
         }
+
+        [Test]
+        public void ImportExecutionRunner_Sort_OrdersSharedElementTypeAndHostTypesIntoCorrectTiers()
+        {
+            var textNote = new ElementTypeModel { Name = "TextNote", Class = "Autodesk.Revit.DB.TextNoteType" };
+            var spotDim = new ElementTypeModel { Name = "SpotDim", Class = "Autodesk.Revit.DB.SpotDimensionType" };
+            var filledRegion = new FilledRegionTypeModel { Name = "FilledRegion", Class = "Autodesk.Revit.DB.FilledRegionType" };
+            var gridType = new ElementTypeModel { Name = "GridType", Class = "Autodesk.Revit.DB.GridType" };
+            var curtainSystem = new HostObjTypeModel { Name = "CurtainSystem", Class = "Autodesk.Revit.DB.CurtainSystemType" };
+            var toposolid = new HostObjTypeModel { Name = "Toposolid", Class = "Autodesk.Revit.DB.ToposolidType" };
+            var filter = new ParameterFilterElementModel { Name = "Filter" };
+            var view = new ViewModel { Name = "View" };
+            var linePattern = new LinePatternElementModel { Name = "LinePattern" };
+
+            var list = new List<ObjectModel> { view, toposolid, filter, curtainSystem, gridType, filledRegion, spotDim, textNote, linePattern };
+            var sorted = ImportExecutionRunner.Sort(list).ToList();
+
+            // Tier 1: linePattern
+            // Tier 3: filledRegion, gridType, spotDim, textNote
+            // Tier 4: filter
+            // Tier 5: curtainSystem, toposolid
+            // Tier 6: view
+            Assert.AreSame(linePattern, sorted[0]);
+            var tier3Items = sorted.Skip(1).Take(4).ToList();
+            Assert.IsTrue(tier3Items.Contains(textNote), "TextNoteType must be Tier 3.");
+            Assert.IsTrue(tier3Items.Contains(spotDim), "SpotDimensionType must be Tier 3.");
+            Assert.IsTrue(tier3Items.Contains(filledRegion), "FilledRegionType must be Tier 3.");
+            Assert.IsTrue(tier3Items.Contains(gridType), "GridType must be Tier 3.");
+
+            Assert.AreSame(filter, sorted[5], "ParameterFilter must be Tier 4.");
+
+            var tier5Items = sorted.Skip(6).Take(2).ToList();
+            Assert.IsTrue(tier5Items.Contains(curtainSystem), "CurtainSystemType must be Tier 5.");
+            Assert.IsTrue(tier5Items.Contains(toposolid), "ToposolidType must be Tier 5.");
+
+            Assert.AreSame(view, sorted[8], "View must be Tier 6.");
+        }
     }
 }
