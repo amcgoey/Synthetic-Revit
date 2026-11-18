@@ -90,7 +90,8 @@ namespace Autodesk.Revit.UI
     {
         Accepted,
         Pending,
-        Denied
+        Denied,
+        TimedOut
     }
 
     /// <summary>

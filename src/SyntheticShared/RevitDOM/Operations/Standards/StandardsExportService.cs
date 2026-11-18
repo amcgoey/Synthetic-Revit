@@ -37,6 +37,29 @@ namespace Synthetic.RevitDOM.Operations.Standards
             return model != null;
         }
 
+        private static List<ObjectModel> CollectValidModelsForExport(IEnumerable<QueueItemModel> fileItems)
+        {
+            var validModels = new List<ObjectModel>();
+            foreach (var item in fileItems)
+            {
+                if (IsValidModelForExport(item.Model))
+                {
+                    validModels.Add(item.Model);
+                }
+            }
+            return validModels;
+        }
+
+        private static void AppendSuccessfulFileResults(List<SerializationResultModel> results, IEnumerable<ObjectModel> models)
+        {
+            foreach (var model in models)
+            {
+                var result = new SerializationResultModel(model, null);
+                result.OperationTarget = "File";
+                results.Add(result);
+            }
+        }
+
         /// <summary>
         /// Exports the queued standards to a JSON file.
         /// </summary>
@@ -113,32 +136,14 @@ namespace Synthetic.RevitDOM.Operations.Standards
                             }
                         }
 
-                        var newElements = new List<ElementModel>();
-                        var validFileModels = new List<ObjectModel>();
-                        foreach (var item in fileItems)
-                        {
-                            if (!IsValidModelForExport(item.Model))
-                            {
-                                continue;
-                            }
-
-                            validFileModels.Add(item.Model);
-                            if (item.Model is ElementModel em)
-                            {
-                                newElements.Add(em);
-                            }
-                        }
+                        var validFileModels = CollectValidModelsForExport(fileItems);
+                        var newElements = validFileModels.OfType<ElementModel>().ToList();
 
                         var mergedElements = StandardsMergeUtility.Merge(existingElements, newElements, overwriteDuplicates);
                         string serializedJson = StandardSerializationEngine.ToJson(mergedElements.Cast<ObjectModel>());
                         File.WriteAllText(fullTargetPath, serializedJson);
 
-                        foreach (var model in validFileModels)
-                        {
-                            var result = new SerializationResultModel(model, null);
-                            result.OperationTarget = "File";
-                            results.Add(result);
-                        }
+                        AppendSuccessfulFileResults(results, validFileModels);
 
                         proceedWithSave = false;
                     }
@@ -171,27 +176,14 @@ namespace Synthetic.RevitDOM.Operations.Standards
             {
                 try
                 {
-                    var modelsToSave = new List<ObjectModel>();
-                    foreach (var item in fileItems)
-                    {
-                        if (!IsValidModelForExport(item.Model))
-                        {
-                            continue;
-                        }
-                        modelsToSave.Add(item.Model);
-                    }
+                    var modelsToSave = CollectValidModelsForExport(fileItems);
 
                     if (modelsToSave.Count > 0)
                     {
                         string serializedJson = StandardSerializationEngine.ToJson(modelsToSave);
                         File.WriteAllText(targetPath, serializedJson);
 
-                        foreach (var model in modelsToSave)
-                        {
-                            var result = new SerializationResultModel(model, null);
-                            result.OperationTarget = "File";
-                            results.Add(result);
-                        }
+                        AppendSuccessfulFileResults(results, modelsToSave);
                     }
                 }
                 catch (Exception ex)

@@ -126,7 +126,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         }
 
         private bool CanExecuteActions(object parameter) => _parent.SelectedSource != null;
-        private bool CanExecuteQueueActions(object parameter) => _parent.StagingQueue.Count > 0;
+        private bool CanExecuteQueueActions(object parameter) => _parent.StagingQueue.Count > 0 && !_parent.IsBusy;
 
         private void ExecuteEnforce(object parameter)
         {
@@ -161,8 +161,15 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         {
             if (_parent.ExternalEvent != null)
             {
+                if (_parent.IsBusy || (_parent.EventHandler != null && _parent.EventHandler.IsRunning)) return;
+
+                _parent.IsBusy = true;
                 _parent.EventHandler?.QueueRunQueue();
-                _parent.ExternalEvent.Raise();
+                var requestResult = _parent.ExternalEvent.Raise();
+                if (requestResult == ExternalEventRequest.Denied || requestResult == ExternalEventRequest.TimedOut)
+                {
+                    _parent.IsBusy = false;
+                }
             }
             else
             {

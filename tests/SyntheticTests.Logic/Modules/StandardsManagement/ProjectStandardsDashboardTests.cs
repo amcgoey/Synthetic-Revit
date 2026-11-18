@@ -1452,17 +1452,28 @@ namespace SyntheticTests.Modules.StandardsManagement
 
             int initialSources = vm.AvailableSources.Count;
 
-            // Act 1: Modeless UI command must defer extraction and raise ExternalEvent
+            // Act 1: Modeless UI command must defer extraction, set IsBusy, and raise ExternalEvent
+            Assert.IsFalse(vm.IsBusy);
+            Assert.IsTrue(vm.AddRevitModelCommand.CanExecute(null));
+
             vm.AddRevitModelCommand.Execute(null);
 
             Assert.AreEqual(1, externalEvent.RaiseCount, "AddRevitModelCommand must raise ExternalEvent when attached.");
+            Assert.IsTrue(vm.IsBusy, "ViewModel must enter busy state while external event is pending.");
+            Assert.IsFalse(vm.AddRevitModelCommand.CanExecute(null), "AddRevitModelCommand must be gated while IsBusy is true.");
             Assert.AreEqual(initialSources, vm.AvailableSources.Count, "Extraction must not run synchronously on UI thread when ExternalEvent is attached.");
+
+            // Duplicate invocation while busy must be discarded without re-raising
+            vm.AddRevitModelCommand.Execute(null);
+            Assert.AreEqual(1, externalEvent.RaiseCount, "Duplicate AddRevitModelCommand execution while IsBusy must not re-raise ExternalEvent.");
 
             // Act 2: Revit invokes handler.Execute on the Revit API thread
             handler.Execute(new Autodesk.Revit.UI.UIApplication());
 
             Assert.AreEqual(initialSources + 1, vm.AvailableSources.Count, "Handler.Execute must add the extracted Revit source.");
             Assert.IsFalse(handler.IsRunning, "IsRunning must reset to false after execution.");
+            Assert.IsFalse(vm.IsBusy, "IsBusy must reset to false after execution completes.");
+            Assert.IsTrue(vm.AddRevitModelCommand.CanExecute(null), "AddRevitModelCommand must re-enable after execution completes.");
         }
 
         [Test]

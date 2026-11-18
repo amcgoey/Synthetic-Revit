@@ -81,8 +81,26 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         private StandardsSettings? _settings;
         private ExternalEvent? _externalEvent;
         private ProjectStandardsExternalEventHandler? _eventHandler;
+        private bool _isBusy;
         public ExternalEvent? ExternalEvent => _externalEvent;
         internal ProjectStandardsExternalEventHandler? EventHandler => _eventHandler;
+
+        /// <summary>
+        /// Gets a value indicating whether an asynchronous Revit external event operation is currently pending or executing.
+        /// </summary>
+        public bool IsBusy
+        {
+            get => _isBusy;
+            internal set
+            {
+                if (SetProperty(ref _isBusy, value) &&
+                    System.Windows.Application.Current != null &&
+                    !ProgressCoordinator.SuppressUI)
+                {
+                    CommandManager.InvalidateRequerySuggested();
+                }
+            }
+        }
         public StandardsSettings? Settings => _settings;
         private readonly StandardsSourceTreeViewModel _sourceTreeViewModel;
         private readonly StagingQueueViewModel _stagingQueueViewModel;
@@ -883,6 +901,29 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             _standardsExecutionViewModel.RunQueueInternal();
         }
 
+        internal static void InvokeOnUiThread(Action action)
+        {
+            var dispatcher = System.Windows.Application.Current?.Dispatcher;
+            if (dispatcher != null &&
+                !ProgressCoordinator.SuppressUI &&
+                !dispatcher.CheckAccess() &&
+                !dispatcher.HasShutdownStarted &&
+                !dispatcher.HasShutdownFinished &&
+                dispatcher.Thread.IsAlive)
+            {
+                dispatcher.Invoke(action);
+            }
+            else
+            {
+                action();
+            }
+        }
+
+        internal void OnExecutionCompleted()
+        {
+            InvokeOnUiThread(() => IsBusy = false);
+        }
+
         internal void DispatchSourceExtraction(
             IReadOnlyList<Document> docs,
             IReadOnlyList<string>? selectedGroupings,
@@ -890,11 +931,20 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             bool scanNested,
             StandardsSourceTreeViewModel? targetSourceTree = null)
         {
+            if (docs == null || docs.Count == 0) return;
+
             var targetTree = targetSourceTree ?? _sourceTreeViewModel;
             if (_externalEvent != null && _eventHandler != null)
             {
+                if (IsBusy || _eventHandler.IsRunning) return;
+
+                IsBusy = true;
                 _eventHandler.QueueSourceExtraction(docs, selectedGroupings, scanFamilies, scanNested, targetTree);
-                _externalEvent.Raise();
+                var requestResult = _externalEvent.Raise();
+                if (requestResult == ExternalEventRequest.Denied || requestResult == ExternalEventRequest.TimedOut)
+                {
+                    IsBusy = false;
+                }
             }
             else
             {
@@ -1013,6 +1063,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             finally
             {
                 _isRunning = false;
+                _viewModel.OnExecutionCompleted();
             }
         }
 

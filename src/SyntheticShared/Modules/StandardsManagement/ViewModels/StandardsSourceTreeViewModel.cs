@@ -87,7 +87,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             _serializationEngine = serializationEngine ?? throw new ArgumentNullException(nameof(serializationEngine));
 
             AddFileSourceCommand = new RelayCommand(ExecuteAddFileSource);
-            AddRevitModelCommand = new RelayCommand(ExecuteAddRevitModel);
+            AddRevitModelCommand = new RelayCommand(ExecuteAddRevitModel, _ => !_parent.IsBusy);
             CloseSourceCommand = new RelayCommand(ExecuteCloseSource, CanExecuteCloseSource);
         }
 
@@ -136,7 +136,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
 
         private void ExecuteAddRevitModel(object parameter)
         {
-            if (_doc == null) return;
+            if (_doc == null || _parent.IsBusy) return;
 
             var dialogVM = new SelectRevitDocumentViewModel(_uiapp, _parent.MockOpenDocuments);
             bool? dialogResult = _parent.ShowDocumentSelectionDialog?.Invoke(dialogVM);
@@ -189,20 +189,11 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                         source.SourceHierarchy.Add(group);
                     }
 
-                    Action updateSource = () =>
+                    ProjectStandardsDashboardViewModel.InvokeOnUiThread(() =>
                     {
                         AvailableSources.Add(source);
                         SelectedSource = source;
-                    };
-
-                    if (System.Windows.Application.Current != null)
-                    {
-                        System.Windows.Application.Current.Dispatcher.Invoke(updateSource);
-                    }
-                    else
-                    {
-                        updateSource();
-                    }
+                    });
                 }
             }
             finally

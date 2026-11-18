@@ -300,48 +300,17 @@ namespace Synthetic.RevitDOM.Translation
             // 1. Try composite lookup if revitClass is provided
             if (!string.IsNullOrEmpty(revitClass))
             {
-                if (_compositeToTranslator.TryGetValue((modelType, revitClass), out var translator))
+                if (TryResolveCompositeByClass(modelType, revitClass, out var directMatch))
                 {
-                    return translator;
-                }
-
-                // If modelType is a marker subclass or derived type, check base types (ElementTypeModel / HostObjTypeModel)
-                if (typeof(ElementTypeModel).IsAssignableFrom(modelType) && modelType != typeof(ElementTypeModel))
-                {
-                    if (_compositeToTranslator.TryGetValue((typeof(ElementTypeModel), revitClass), out translator))
-                    {
-                        return translator;
-                    }
-                }
-
-                if (typeof(HostObjTypeModel).IsAssignableFrom(modelType) && modelType != typeof(HostObjTypeModel))
-                {
-                    if (_compositeToTranslator.TryGetValue((typeof(HostObjTypeModel), revitClass), out translator))
-                    {
-                        return translator;
-                    }
+                    return directMatch;
                 }
 
                 // Try namespace alias candidates
                 foreach (var alias in Synthetic.Shared.RevitAPI.Select.GetNamespaceAliasCandidates(revitClass))
                 {
-                    if (_compositeToTranslator.TryGetValue((modelType, alias), out translator))
+                    if (TryResolveCompositeByClass(modelType, alias, out var aliasMatch))
                     {
-                        return translator;
-                    }
-                    if (typeof(ElementTypeModel).IsAssignableFrom(modelType) && modelType != typeof(ElementTypeModel))
-                    {
-                        if (_compositeToTranslator.TryGetValue((typeof(ElementTypeModel), alias), out translator))
-                        {
-                            return translator;
-                        }
-                    }
-                    if (typeof(HostObjTypeModel).IsAssignableFrom(modelType) && modelType != typeof(HostObjTypeModel))
-                    {
-                        if (_compositeToTranslator.TryGetValue((typeof(HostObjTypeModel), alias), out translator))
-                        {
-                            return translator;
-                        }
+                        return aliasMatch;
                     }
                 }
             }
@@ -356,6 +325,29 @@ namespace Synthetic.RevitDOM.Translation
             }
 
             return null;
+        }
+
+        private bool TryResolveCompositeByClass(Type modelType, string className, out IModelTranslator? translator)
+        {
+            if (_compositeToTranslator.TryGetValue((modelType, className), out translator))
+            {
+                return true;
+            }
+
+            if (typeof(ElementTypeModel).IsAssignableFrom(modelType) && modelType != typeof(ElementTypeModel) &&
+                _compositeToTranslator.TryGetValue((typeof(ElementTypeModel), className), out translator))
+            {
+                return true;
+            }
+
+            if (typeof(HostObjTypeModel).IsAssignableFrom(modelType) && modelType != typeof(HostObjTypeModel) &&
+                _compositeToTranslator.TryGetValue((typeof(HostObjTypeModel), className), out translator))
+            {
+                return true;
+            }
+
+            translator = null;
+            return false;
         }
 
         /// <summary>
