@@ -161,6 +161,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         {
             if (_parent.ExternalEvent != null)
             {
+                _parent.EventHandler?.QueueRunQueue();
                 _parent.ExternalEvent.Raise();
             }
             else

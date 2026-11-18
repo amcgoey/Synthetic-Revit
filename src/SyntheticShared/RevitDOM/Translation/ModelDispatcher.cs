@@ -45,9 +45,17 @@ namespace Synthetic.RevitDOM.Translation
             where TModel : ObjectModel
             where TTranslator : IModelTranslator
         {
-            if (translator == null) throw new ArgumentNullException(nameof(translator));
+            Register(typeof(TModel), translator, revitTypes);
+        }
 
-            Type modelType = typeof(TModel);
+        /// <summary>
+        /// Registers a translator instance mapping a specific ObjectModel type, Revit Element types, and optional explicit class aliases.
+        /// </summary>
+        public void Register(Type modelType, IModelTranslator translator, IEnumerable<Type>? revitTypes, IEnumerable<string>? classAliases = null)
+        {
+            if (modelType == null) throw new ArgumentNullException(nameof(modelType));
+            if (!typeof(ObjectModel).IsAssignableFrom(modelType)) throw new ArgumentException($"Type '{modelType.FullName}' must inherit from ObjectModel.", nameof(modelType));
+            if (translator == null) throw new ArgumentNullException(nameof(translator));
 
             if (_registeredModelTypes.Contains(modelType))
             {
@@ -63,65 +71,45 @@ namespace Synthetic.RevitDOM.Translation
                 _modelTypeToTranslator[modelType] = translator;
             }
 
-            foreach (var revitType in revitTypes)
+            if (revitTypes != null)
             {
-                if (revitType != null)
+                foreach (var revitType in revitTypes)
                 {
-                    _revitTypeToTranslator[revitType] = translator;
-                    _revitTypeToModelType[revitType] = modelType;
+                    if (revitType != null)
+                    {
+                        _revitTypeToTranslator[revitType] = translator;
+                        _revitTypeToModelType[revitType] = modelType;
 
-                    RegisterCompositeKeys(modelType, revitType, translator);
+                        RegisterCompositeKeys(modelType, revitType.FullName, revitType.Name, translator);
+                    }
+                }
+            }
+
+            if (classAliases != null)
+            {
+                foreach (var alias in classAliases)
+                {
+                    if (!string.IsNullOrEmpty(alias))
+                    {
+                        RegisterCompositeKeys(modelType, alias, null, translator);
+                    }
                 }
             }
         }
 
-        private void RegisterCompositeKeys(Type modelType, Type revitType, IModelTranslator translator)
+        private void RegisterCompositeKeys(Type modelType, string? fullName, string? shortName, IModelTranslator translator)
         {
-            if (!string.IsNullOrEmpty(revitType.FullName))
+            if (!string.IsNullOrEmpty(fullName))
             {
-                _compositeToTranslator[(modelType, revitType.FullName)] = translator;
+                _compositeToTranslator[(modelType, fullName)] = translator;
+                foreach (var alias in Synthetic.Shared.RevitAPI.Select.GetNamespaceAliasCandidates(fullName))
+                {
+                    _compositeToTranslator[(modelType, alias)] = translator;
+                }
             }
-            if (!string.IsNullOrEmpty(revitType.Name))
+            if (!string.IsNullOrEmpty(shortName))
             {
-                _compositeToTranslator[(modelType, revitType.Name)] = translator;
-            }
-
-            foreach (var alias in GetClassAliases(revitType.FullName))
-            {
-                _compositeToTranslator[(modelType, alias)] = translator;
-            }
-        }
-
-        private static IEnumerable<string> GetClassAliases(string? className)
-        {
-            if (string.IsNullOrEmpty(className)) yield break;
-
-            if (className.Contains("FasciaType"))
-            {
-                yield return "Autodesk.Revit.DB.Architecture.FasciaType";
-                yield return "Autodesk.Revit.DB.FasciaType";
-            }
-            else if (className.Contains("GutterType"))
-            {
-                yield return "Autodesk.Revit.DB.Architecture.GutterType";
-                yield return "Autodesk.Revit.DB.GutterType";
-            }
-            else if (className.Contains("SharedParameterElement") || className.Contains("ParameterElement"))
-            {
-                yield return "Autodesk.Revit.DB.SharedParameterElement";
-                yield return "Autodesk.Revit.DB.ParameterElement";
-            }
-            else if (className.Contains("ToposolidType"))
-            {
-                yield return "Autodesk.Revit.DB.ToposolidType";
-            }
-            else if (className.StartsWith("Autodesk.Revit.DB.Architecture.", StringComparison.OrdinalIgnoreCase))
-            {
-                yield return "Autodesk.Revit.DB." + className.Substring("Autodesk.Revit.DB.Architecture.".Length);
-            }
-            else if (className.StartsWith("Autodesk.Revit.DB.", StringComparison.OrdinalIgnoreCase))
-            {
-                yield return "Autodesk.Revit.DB.Architecture." + className.Substring("Autodesk.Revit.DB.".Length);
+                _compositeToTranslator[(modelType, shortName)] = translator;
             }
         }
 
@@ -283,33 +271,7 @@ namespace Synthetic.RevitDOM.Translation
 
         private void PopulateElementModelCommon(ElementModel model, Element elem, bool isTemplate)
         {
-            model.Element = elem;
-            model.Document = elem.Document;
-            model.ElementId = _identityService.ToModel(elem.Id, elem.Document, isTemplate);
-            model.Class = elem.GetType().FullName ?? string.Empty;
-            model.Name = elem.Name;
-
-            long idVal;
-#if REVIT2022 || REVIT2023
-            idVal = elem.Id.IntegerValue;
-#else
-            idVal = elem.Id.Value;
-#endif
-            model.Id = idVal;
-            model.UniqueId = elem.UniqueId;
-            model.IsTemplate = isTemplate;
-
-            if (elem.Category != null)
-            {
-                model.Category = elem.Category.Name;
-            }
-
-            if (model is ElementTypeModel elemTypeModel && elem is ElementType elemType)
-            {
-                elemTypeModel.FamilyName = elemType.FamilyName ?? string.Empty;
-            }
-
-            ParameterEngine.ExtractParameters(elem, model, isTemplate, _identityService);
+            model.Populate(elem, isTemplate, _identityService);
         }
 
         /// <summary>
@@ -360,8 +322,8 @@ namespace Synthetic.RevitDOM.Translation
                     }
                 }
 
-                // Try known class aliases
-                foreach (var alias in GetClassAliases(revitClass))
+                // Try namespace alias candidates
+                foreach (var alias in Synthetic.Shared.RevitAPI.Select.GetNamespaceAliasCandidates(revitClass))
                 {
                     if (_compositeToTranslator.TryGetValue((modelType, alias), out translator))
                     {

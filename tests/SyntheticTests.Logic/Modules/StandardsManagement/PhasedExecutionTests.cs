@@ -8,6 +8,7 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
+using Synthetic.RevitDOM.Operations.Standards;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Shared.UI;
 
@@ -183,6 +184,86 @@ namespace SyntheticTests.Modules.StandardsManagement
             Assert.IsNull(qItem.ErrorMessage, "ErrorMessage should be reset to null.");
             Assert.IsTrue(qItem.IsEdited, "IsEdited should be set to true on edit.");
             Assert.IsNull(queueVM.SelectedItemErrorMessage, "Selected item error message on VM should be cleared.");
+        }
+
+        [Test]
+        public void StandardsExportService_DirectSave_IsolatesValidModelsFromDbFailures_WhileStrippingInvalidModels()
+        {
+            var guardrail = new FakeGuardrailPromptService(GuardrailResult.Overwrite);
+            var exportService = new StandardsExportService(guardrail, _fakeDialogService);
+
+            var validFailedDbModel = new ElementTypeModel
+            {
+                Name = "UnloadedDoor36x84",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                Category = "Doors",
+                FamilyName = "MissingFamily"
+            };
+            var invalidModel = new ElementModel
+            {
+                Name = "CorruptNoClass",
+                Class = null!
+            };
+
+            var fileItems = new List<QueueItemModel>
+            {
+                new QueueItemModel(validFailedDbModel, true, true),
+                new QueueItemModel(invalidModel, true, true)
+            };
+
+            var dbResults = new List<SerializationResultModel>
+            {
+                new SerializationResultModel(validFailedDbModel, "MissingFamily not loaded") { Action = "Failed" },
+                new SerializationResultModel(invalidModel, "Invalid model") { Action = "Failed" }
+            };
+
+            var fileResults = exportService.Export(fileItems, _tempSavePath, dbResults, new HashSet<string>(), out string? usedPath);
+
+            Assert.AreEqual(_tempSavePath, usedPath);
+            Assert.IsTrue(File.Exists(_tempSavePath));
+            string json = File.ReadAllText(_tempSavePath);
+            Assert.IsTrue(json.Contains("UnloadedDoor36x84"), "Valid staged model must be written despite DB failure.");
+            Assert.IsFalse(json.Contains("CorruptNoClass"), "Invalid model (missing Class) must remain stripped.");
+
+            Assert.AreEqual(1, fileResults.Count);
+            Assert.AreSame(fileItems[0].Model, fileResults[0].Model);
+            Assert.IsTrue(fileResults[0].Success);
+            Assert.AreEqual("File", fileResults[0].OperationTarget);
+        }
+
+        [TestCase(GuardrailResult.MergeOverwrite)]
+        [TestCase(GuardrailResult.MergePreserve)]
+        public void StandardsExportService_Merge_IsolatesValidModelsFromDbFailures(GuardrailResult mergeChoice)
+        {
+            var existingMaterial = new MaterialModel { Name = "ExistingMat", Class = "Autodesk.Revit.DB.Material" };
+            File.WriteAllText(_tempSavePath, StandardSerializationEngine.ToJson(new ObjectModel[] { existingMaterial }));
+
+            var guardrail = new FakeGuardrailPromptService(mergeChoice);
+            var exportService = new StandardsExportService(guardrail, _fakeDialogService);
+
+            var validFailedDbModel = new ElementTypeModel
+            {
+                Name = "UnloadedDoorMerge",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                Category = "Doors",
+                FamilyName = "MissingFamily"
+            };
+            var fileItems = new List<QueueItemModel> { new QueueItemModel(validFailedDbModel, true, true) };
+            var dbResults = new List<SerializationResultModel>
+            {
+                new SerializationResultModel(validFailedDbModel, "MissingFamily not loaded") { Action = "Failed" }
+            };
+            var protectedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { Path.GetFullPath(_tempSavePath) };
+
+            var fileResults = exportService.Export(fileItems, _tempSavePath, dbResults, protectedPaths, out _);
+
+            string mergedJson = File.ReadAllText(_tempSavePath);
+            Assert.IsTrue(mergedJson.Contains("ExistingMat"));
+            Assert.IsTrue(mergedJson.Contains("UnloadedDoorMerge"), "Valid staged model must be merged into protected JSON despite DB failure.");
+
+            Assert.AreEqual(1, fileResults.Count);
+            Assert.IsTrue(fileResults[0].Success);
+            Assert.AreEqual("File", fileResults[0].OperationTarget);
         }
     }
 }

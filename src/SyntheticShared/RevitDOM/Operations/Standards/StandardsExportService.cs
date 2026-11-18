@@ -28,6 +28,15 @@ namespace Synthetic.RevitDOM.Operations.Standards
             _dialogService = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
         }
 
+        private static bool IsValidModelForExport(ObjectModel? model)
+        {
+            if (model is ElementModel em)
+            {
+                return !string.IsNullOrWhiteSpace(em.Class) && !string.IsNullOrWhiteSpace(em.Name);
+            }
+            return model != null;
+        }
+
         /// <summary>
         /// Exports the queued standards to a JSON file.
         /// </summary>
@@ -105,13 +114,15 @@ namespace Synthetic.RevitDOM.Operations.Standards
                         }
 
                         var newElements = new List<ElementModel>();
+                        var validFileModels = new List<ObjectModel>();
                         foreach (var item in fileItems)
                         {
-                            var dbMatch = dbResults.FirstOrDefault(r => r.Model == item.Model);
-                            if (dbMatch != null && !dbMatch.Success)
+                            if (!IsValidModelForExport(item.Model))
                             {
                                 continue;
                             }
+
+                            validFileModels.Add(item.Model);
                             if (item.Model is ElementModel em)
                             {
                                 newElements.Add(em);
@@ -122,14 +133,9 @@ namespace Synthetic.RevitDOM.Operations.Standards
                         string serializedJson = StandardSerializationEngine.ToJson(mergedElements.Cast<ObjectModel>());
                         File.WriteAllText(fullTargetPath, serializedJson);
 
-                        foreach (var item in fileItems)
+                        foreach (var model in validFileModels)
                         {
-                            var dbMatch = dbResults.FirstOrDefault(r => r.Model == item.Model);
-                            if (dbMatch != null && !dbMatch.Success)
-                            {
-                                continue;
-                            }
-                            var result = new SerializationResultModel(item.Model, null);
+                            var result = new SerializationResultModel(model, null);
                             result.OperationTarget = "File";
                             results.Add(result);
                         }
@@ -168,8 +174,7 @@ namespace Synthetic.RevitDOM.Operations.Standards
                     var modelsToSave = new List<ObjectModel>();
                     foreach (var item in fileItems)
                     {
-                        var dbMatch = dbResults.FirstOrDefault(r => r.Model == item.Model);
-                        if (dbMatch != null && !dbMatch.Success)
+                        if (!IsValidModelForExport(item.Model))
                         {
                             continue;
                         }

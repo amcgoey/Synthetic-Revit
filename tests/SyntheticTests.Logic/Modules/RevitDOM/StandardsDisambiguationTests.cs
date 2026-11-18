@@ -328,5 +328,197 @@ namespace SyntheticTests.Modules.RevitDOM
             var mappedAngular = mappings.FirstOrDefault(m => m.SourceType.RevitTypeId.Id == 102);
             Assert.IsNotNull(mappedAngular, "Angular incoming model must map to liveAngular (Id 102).");
         }
+
+        [Test]
+        public void TemplateDuplicatingTranslator_ExplicitMissingFamilyName_ThrowsInvalidOperationException()
+        {
+            var doc = (Document)Activator.CreateInstance(typeof(Document), true)!;
+
+            var basicSeed = new WallType { Name = "Basic Seed", FamilyName = "Basic Wall" };
+            doc.AddElement(basicSeed, new ElementId(1));
+
+            var translator = new HostObjTypeTranslator(new RevitIdentityService());
+
+            // Explicit non-empty FamilyName that does not exist in doc must throw (no cross-family fallback)
+            var missingFamilyModel = new HostObjTypeModel
+            {
+                Name = "NewCurtain",
+                Class = "Autodesk.Revit.DB.WallType",
+                FamilyName = "Curtain Wall"
+            };
+
+            var ex = Assert.Throws<InvalidOperationException>(() => translator.InjectSpecifics(missingFamilyModel, null, doc));
+            Assert.IsTrue(ex!.Message.Contains("Curtain Wall"), "Exception must name the missing FamilyName.");
+
+            // Omitted FamilyName falls back cleanly to available candidate
+            var omittedModel = new HostObjTypeModel
+            {
+                Name = "OmittedFallback",
+                Class = "Autodesk.Revit.DB.WallType",
+                FamilyName = ""
+            };
+            var duplicated = translator.InjectSpecifics(omittedModel, null, doc);
+            Assert.IsNotNull(duplicated);
+            Assert.AreEqual("OmittedFallback", duplicated!.Name);
+        }
+
+        [Test]
+        public void FamilySymbol_MatchesDisambiguators_ValidatesCategoryAndFamilyName()
+        {
+            var doorCat = new Category { Name = "Doors" };
+            var winCat = new Category { Name = "Windows" };
+
+            var famA = new Family { Name = "Single-Flush", FamilyCategory = doorCat };
+            var famB = new Family { Name = "Double-Flush", FamilyCategory = doorCat };
+            var famC = new Family { Name = "Fixed", FamilyCategory = winCat };
+
+            var symA = new FamilySymbol { Name = "Standard", Category = doorCat, Family = famA };
+            var symB = new FamilySymbol { Name = "Standard", Category = doorCat, Family = famB };
+            var symC = new FamilySymbol { Name = "Standard", Category = winCat, Family = famC };
+
+            var modelA = new ElementTypeModel
+            {
+                Name = "Standard",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                Category = "Doors",
+                FamilyName = "Single-Flush"
+            };
+
+            Assert.IsTrue(StandardTypeRegistry.MatchesDisambiguators(modelA, symA));
+            Assert.IsFalse(StandardTypeRegistry.MatchesDisambiguators(modelA, symB), "Different FamilyName must be rejected.");
+            Assert.IsFalse(StandardTypeRegistry.MatchesDisambiguators(modelA, symC), "Different Category must be rejected.");
+        }
+
+        [Test]
+        public void FamilySymbol_ResolveTargetElement_LegacyEmptyFamilyName_WildcardOnlyWhenUnambiguous()
+        {
+            var doc = (Document)Activator.CreateInstance(typeof(Document), true)!;
+            var doorCat = new Category { Name = "Doors" };
+            var winCat = new Category { Name = "Windows" };
+
+            var famA = new Family { Name = "Single-Flush", FamilyCategory = doorCat };
+            var famB = new Family { Name = "Double-Flush", FamilyCategory = doorCat };
+            var famWin = new Family { Name = "Single-Window", FamilyCategory = winCat };
+
+            var symA = new FamilySymbol { Name = "36x84", Category = doorCat, Family = famA };
+            doc.AddElement(symA, new ElementId(101));
+
+            var symB = new FamilySymbol { Name = "36x84", Category = doorCat, Family = famB };
+            doc.AddElement(symB, new ElementId(102));
+
+            var symWin = new FamilySymbol { Name = "UniqueWin", Category = winCat, Family = famWin };
+            doc.AddElement(symWin, new ElementId(103));
+
+            // Ambiguous across two families in same category with empty FamilyName -> must return null
+            var ambiguousModel = new ElementTypeModel
+            {
+                Name = "36x84",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                Category = "Doors",
+                FamilyName = ""
+            };
+            Assert.IsNull(StandardTypeRegistry.ResolveTargetElement(ambiguousModel, doc), "Ambiguous legacy FamilySymbol must return null.");
+
+            // Unambiguous with empty FamilyName -> resolves cleanly
+            var unambiguousModel = new ElementTypeModel
+            {
+                Name = "UniqueWin",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                Category = "Windows",
+                FamilyName = ""
+            };
+            Assert.AreSame(symWin, StandardTypeRegistry.ResolveTargetElement(unambiguousModel, doc));
+        }
+
+        [Test]
+        public void FamilySymbolTranslator_InjectSpecifics_DuplicatesSiblingInMatchingFamilyAndThrowsWhenMissing()
+        {
+            var doc = (Document)Activator.CreateInstance(typeof(Document), true)!;
+            var doorCat = new Category { Name = "Doors" };
+            var famA = new Family { Name = "Single-Flush", FamilyCategory = doorCat };
+            var seedA = new FamilySymbol { Name = "30x84", Category = doorCat, Family = famA };
+            doc.AddElement(seedA, new ElementId(201));
+
+            var translator = new FamilySymbolTranslator();
+
+            // 1. Sibling duplication within matching loaded family
+            var validModel = new ElementTypeModel
+            {
+                Name = "36x84",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                Category = "Doors",
+                FamilyName = "Single-Flush"
+            };
+            var duplicated = translator.InjectSpecifics(validModel, null, doc);
+            Assert.IsNotNull(duplicated);
+            Assert.AreEqual("36x84", duplicated!.Name);
+            Assert.AreSame(famA, duplicated.Family);
+            Assert.AreEqual("Doors", duplicated.Category?.Name);
+
+            // 2. Unloaded family must throw (never duplicate unrelated famA)
+            var unloadedModel = new ElementTypeModel
+            {
+                Name = "Revolving 72",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                Category = "Doors",
+                FamilyName = "Revolving-Door"
+            };
+            var ex = Assert.Throws<InvalidOperationException>(() => translator.InjectSpecifics(unloadedModel, null, doc));
+            Assert.IsTrue(ex!.Message.Contains("Revolving-Door"), "Exception must name the missing FamilyName.");
+        }
+
+        [Test]
+        public void ViewFamilyType_MatchesDisambiguators_ValidatesViewFamilyAndFallbacks()
+        {
+            var vftFloor = new ViewFamilyType { Name = "Standard", ViewFamily = ViewFamily.FloorPlan, FamilyName = "Floor Plan" };
+            var vftCeiling = new ViewFamilyType { Name = "Standard", ViewFamily = ViewFamily.CeilingPlan, FamilyName = "Ceiling Plan" };
+
+            // 1. Explicit ViewFamily match
+            var byViewFamily = new ElementTypeModel { Name = "Standard", Class = "Autodesk.Revit.DB.ViewFamilyType", ViewFamily = "CeilingPlan" };
+            Assert.IsFalse(StandardTypeRegistry.MatchesDisambiguators(byViewFamily, vftFloor));
+            Assert.IsTrue(StandardTypeRegistry.MatchesDisambiguators(byViewFamily, vftCeiling));
+
+            // 2. Legacy FamilyName fallback when ViewFamily is null
+            var byFamilyName = new ElementTypeModel { Name = "Standard", Class = "Autodesk.Revit.DB.ViewFamilyType", ViewFamily = null, FamilyName = "Floor Plan" };
+            Assert.IsTrue(StandardTypeRegistry.MatchesDisambiguators(byFamilyName, vftFloor));
+            Assert.IsFalse(StandardTypeRegistry.MatchesDisambiguators(byFamilyName, vftCeiling));
+
+            // 3. Legacy wildcard when both ViewFamily and FamilyName are empty
+            var wildcard = new ElementTypeModel { Name = "Standard", Class = "Autodesk.Revit.DB.ViewFamilyType", ViewFamily = null, FamilyName = "" };
+            Assert.IsTrue(StandardTypeRegistry.MatchesDisambiguators(wildcard, vftFloor));
+            Assert.IsTrue(StandardTypeRegistry.MatchesDisambiguators(wildcard, vftCeiling));
+        }
+
+        private class ThrowingOnDuplicateViewFamilyType : ViewFamilyType
+        {
+            public override ElementType Duplicate(string name)
+            {
+                throw new Autodesk.Revit.Exceptions.InvalidOperationException("ViewFamilyType cannot be duplicated.");
+            }
+        }
+
+        [Test]
+        public void ViewFamilyTypeTranslator_InjectSpecifics_ChecksCanBeCopiedAndCatchesRevitInvalidOperationException()
+        {
+            var doc = (Document)Activator.CreateInstance(typeof(Document), true)!;
+
+            var nonCopiable = new ViewFamilyType { Name = "Schedule Seed", ViewFamily = ViewFamily.Schedule, CanBeCopied = false };
+            doc.AddElement(nonCopiable, new ElementId(301));
+
+            var throwingSeed = new ThrowingOnDuplicateViewFamilyType { Name = "Legend Seed", ViewFamily = ViewFamily.Legend, CanBeCopied = true };
+            doc.AddElement(throwingSeed, new ElementId(302));
+
+            var translator = new ViewFamilyTypeTranslator();
+
+            // 1. CanBeCopied == false throws System.InvalidOperationException
+            var scheduleModel = new ElementTypeModel { Name = "New Schedule", Class = "Autodesk.Revit.DB.ViewFamilyType", ViewFamily = "Schedule" };
+            var ex1 = Assert.Throws<System.InvalidOperationException>(() => translator.InjectSpecifics(scheduleModel, null, doc));
+            Assert.IsTrue(ex1!.Message.Contains("cannot be copied"), "Error should report non-copiable ViewFamilyType.");
+
+            // 2. Revit InvalidOperationException during Duplicate is wrapped in System.InvalidOperationException
+            var legendModel = new ElementTypeModel { Name = "New Legend", Class = "Autodesk.Revit.DB.ViewFamilyType", ViewFamily = "Legend" };
+            var ex2 = Assert.Throws<System.InvalidOperationException>(() => translator.InjectSpecifics(legendModel, null, doc));
+            Assert.IsInstanceOf<Autodesk.Revit.Exceptions.InvalidOperationException>(ex2!.InnerException);
+        }
     }
 }

@@ -948,9 +948,31 @@ namespace Autodesk.Revit.DB
         public static WorksetId InvalidWorksetId { get; } = new WorksetId(-1);
     }
 
+    public enum ViewFamily
+    {
+        Invalid,
+        ThreeDimensional,
+        Walkthrough,
+        ImageView,
+        Schedule,
+        CostReport,
+        Sheet,
+        Drafting,
+        FloorPlan,
+        AreaPlan,
+        CeilingPlan,
+        Section,
+        Detail,
+        Elevation,
+        GraphicalColumnSchedule,
+        Legend,
+        StructuralPlan
+    }
+
     public class ElementType : Element
     {
         private string _familyName = string.Empty;
+        public virtual bool CanBeCopied { get; set; } = true;
         public virtual string FamilyName
         {
             get => !string.IsNullOrEmpty(_familyName) ? _familyName : (this as FamilySymbol)?.Family?.Name ?? string.Empty;
@@ -959,12 +981,26 @@ namespace Autodesk.Revit.DB
 
         public virtual ElementType Duplicate(string name)
         {
-            var dup = (ElementType)System.Activator.CreateInstance(this.GetType());
+            if (!CanBeCopied)
+            {
+                throw new Autodesk.Revit.Exceptions.InvalidOperationException($"ElementType '{Name}' cannot be copied.");
+            }
+
+            var dup = (ElementType)System.Activator.CreateInstance(this.GetType())!;
             dup.Name = name;
             dup.FamilyName = FamilyName;
+            dup.Category = Category;
             if (this is DimensionType dim && dup is DimensionType dupDim)
             {
                 dupDim.StyleType = dim.StyleType;
+            }
+            if (this is FamilySymbol sym && dup is FamilySymbol dupSym)
+            {
+                dupSym.Family = sym.Family;
+            }
+            if (this is ViewFamilyType vft && dup is ViewFamilyType dupVft)
+            {
+                dupVft.ViewFamily = vft.ViewFamily;
             }
             dup.Id = new ElementId(new Random().Next(1000, 9999));
             Document?.AddElement(dup, dup.Id);
@@ -980,7 +1016,10 @@ namespace Autodesk.Revit.DB
         public double ProjectElevation { get => Elevation; set => Elevation = value; }
     }
     public class TextNoteType : ElementType { }
-    public class ViewFamilyType : ElementType { }
+    public class ViewFamilyType : ElementType
+    {
+        public ViewFamily ViewFamily { get; set; } = ViewFamily.FloorPlan;
+    }
     public class ElevationMarker : Element { }
     public class GroupType : ElementType { }
     public class Group : Element
@@ -1007,8 +1046,8 @@ namespace Autodesk.Revit.DB
     {
         OST_Walls = -2000011,
         OST_TitleBlocks = -2000280,
-        OST_DetailComponents = -2000180,
-        OST_ProfileFamilies = -2005022
+        OST_DetailComponents = -2002000,
+        OST_ProfileFamilies = -2003000
     }
 
     public enum BuiltInParameter

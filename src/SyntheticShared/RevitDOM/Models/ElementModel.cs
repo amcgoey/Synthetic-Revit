@@ -233,10 +233,17 @@ namespace Synthetic.RevitDOM.Models
     {
         public static void Populate(this ElementModel model, Element elem, bool isTemplate)
         {
+            model.Populate(elem, isTemplate, null);
+        }
+
+        internal static void Populate(this ElementModel model, Element elem, bool isTemplate, IIdentityService? identityService)
+        {
             if (elem == null) return;
+            var resolvedIdentity = identityService ?? new RevitIdentityService();
+
             model.Element = elem;
             model.Document = elem.Document;
-            model.ElementId = elem.Id.ToModel(elem.Document, isTemplate);
+            model.ElementId = resolvedIdentity.ToModel(elem.Id, elem.Document, isTemplate);
             model.Class = elem.GetType().FullName ?? string.Empty;
             model.Name = elem.Name;
 
@@ -258,16 +265,19 @@ namespace Synthetic.RevitDOM.Models
             if (model is ElementTypeModel elemTypeModel && elem is ElementType elemType)
             {
                 elemTypeModel.FamilyName = elemType.FamilyName ?? string.Empty;
+                if (elemType is ViewFamilyType vft)
+                {
+                    elemTypeModel.ViewFamily = vft.ViewFamily.ToString();
+                }
             }
 
-            ParameterEngine.ExtractParameters(elem, model, isTemplate);
+            ParameterEngine.ExtractParameters(elem, model, isTemplate, resolvedIdentity);
         }
 
         public static void Populate(this ElementTypeModel model, ElementType elemType, bool isTemplate)
         {
-            model.Populate((Element)elemType, isTemplate);
+            model.Populate((Element)elemType, isTemplate, null);
             model.ElementType = elemType;
-            model.FamilyName = elemType.FamilyName ?? string.Empty;
         }
 
         public static Element GetRevitElem(this ElementModel model, Document doc, IIdentityService identityService)

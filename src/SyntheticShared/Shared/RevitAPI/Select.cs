@@ -142,6 +142,30 @@ namespace Synthetic.Shared.RevitAPI
         }
 
         /// <summary>
+        /// Yields Revit namespace alias candidates for a class name (Architecture <-> DB, and bare short-name qualification).
+        /// </summary>
+        internal static IEnumerable<string> GetNamespaceAliasCandidates(string? typeName)
+        {
+            if (string.IsNullOrEmpty(typeName)) yield break;
+
+            if (typeName.StartsWith("Autodesk.Revit.DB.Architecture.", StringComparison.OrdinalIgnoreCase))
+            {
+                string shortName = typeName.Substring("Autodesk.Revit.DB.Architecture.".Length);
+                yield return "Autodesk.Revit.DB." + shortName;
+            }
+            else if (typeName.StartsWith("Autodesk.Revit.DB.", StringComparison.OrdinalIgnoreCase))
+            {
+                string shortName = typeName.Substring("Autodesk.Revit.DB.".Length);
+                yield return "Autodesk.Revit.DB.Architecture." + shortName;
+            }
+            else if (!typeName.Contains("."))
+            {
+                yield return "Autodesk.Revit.DB." + typeName;
+                yield return "Autodesk.Revit.DB.Architecture." + typeName;
+            }
+        }
+
+        /// <summary>
         /// Get the Type of a Revit Class from RevitAPI.dll given its name.
         /// </summary>
         /// <param name="typeName">Name of the Autodesk.Revit.DB Class</param>
@@ -155,16 +179,9 @@ namespace Synthetic.Shared.RevitAPI
             Type? elemClass = assembly.GetType(typeName);
             if (elemClass != null) return elemClass;
 
-            if (typeName.StartsWith("Autodesk.Revit.DB.Architecture.", StringComparison.OrdinalIgnoreCase))
+            foreach (var candidate in GetNamespaceAliasCandidates(typeName))
             {
-                string shortName = typeName.Substring("Autodesk.Revit.DB.Architecture.".Length);
-                elemClass = assembly.GetType("Autodesk.Revit.DB." + shortName);
-                if (elemClass != null) return elemClass;
-            }
-            else if (typeName.StartsWith("Autodesk.Revit.DB.", StringComparison.OrdinalIgnoreCase))
-            {
-                string shortName = typeName.Substring("Autodesk.Revit.DB.".Length);
-                elemClass = assembly.GetType("Autodesk.Revit.DB.Architecture." + shortName);
+                elemClass = assembly.GetType(candidate);
                 if (elemClass != null) return elemClass;
             }
 

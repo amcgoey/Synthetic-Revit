@@ -82,6 +82,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         private ExternalEvent? _externalEvent;
         private ProjectStandardsExternalEventHandler? _eventHandler;
         public ExternalEvent? ExternalEvent => _externalEvent;
+        internal ProjectStandardsExternalEventHandler? EventHandler => _eventHandler;
         public StandardsSettings? Settings => _settings;
         private readonly StandardsSourceTreeViewModel _sourceTreeViewModel;
         private readonly StagingQueueViewModel _stagingQueueViewModel;
@@ -881,14 +882,70 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         {
             _standardsExecutionViewModel.RunQueueInternal();
         }
+
+        internal void DispatchSourceExtraction(
+            IReadOnlyList<Document> docs,
+            IReadOnlyList<string>? selectedGroupings,
+            bool scanFamilies,
+            bool scanNested,
+            StandardsSourceTreeViewModel? targetSourceTree = null)
+        {
+            var targetTree = targetSourceTree ?? _sourceTreeViewModel;
+            if (_externalEvent != null && _eventHandler != null)
+            {
+                _eventHandler.QueueSourceExtraction(docs, selectedGroupings, scanFamilies, scanNested, targetTree);
+                _externalEvent.Raise();
+            }
+            else
+            {
+                targetTree.ExecuteExtractionBatch(docs, scanFamilies, scanNested, selectedGroupings?.ToList());
+            }
+        }
+    }
+
+    internal enum StandardsExternalEventOperation
+    {
+        RunQueue,
+        ExtractRevitSource
+    }
+
+    internal sealed class RevitSourceExtractionRequest
+    {
+        public IReadOnlyList<Document> Docs { get; }
+        public IReadOnlyList<string>? SelectedGroupings { get; }
+        public bool ScanFamilies { get; }
+        public bool ScanNested { get; }
+        public StandardsSourceTreeViewModel? TargetSourceTree { get; }
+
+        public RevitSourceExtractionRequest(
+            IReadOnlyList<Document> docs,
+            IReadOnlyList<string>? selectedGroupings,
+            bool scanFamilies,
+            bool scanNested,
+            StandardsSourceTreeViewModel? targetSourceTree = null)
+        {
+            Docs = docs ?? throw new ArgumentNullException(nameof(docs));
+            SelectedGroupings = selectedGroupings;
+            ScanFamilies = scanFamilies;
+            ScanNested = scanNested;
+            TargetSourceTree = targetSourceTree;
+        }
     }
 
     /// <summary>
-    /// Event handler to execute Revit database writes on the Revit API thread from the modeless window.
+    /// Event handler to execute Revit database writes and source extraction on the Revit API thread from the modeless window.
     /// </summary>
     public class ProjectStandardsExternalEventHandler : IExternalEventHandler
     {
         private ProjectStandardsDashboardViewModel? _viewModel;
+        private bool _isRunning;
+        private StandardsExternalEventOperation _pendingOperation = StandardsExternalEventOperation.RunQueue;
+        private RevitSourceExtractionRequest? _pendingExtractionRequest;
+
+        /// <summary>
+        /// Gets a value indicating whether the handler is currently executing an operation.
+        /// </summary>
+        public bool IsRunning => _isRunning;
 
         /// <summary>
         /// Sets the view model instance.
@@ -898,26 +955,64 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             _viewModel = viewModel;
         }
 
+        internal void QueueRunQueue()
+        {
+            _pendingOperation = StandardsExternalEventOperation.RunQueue;
+            _pendingExtractionRequest = null;
+        }
+
+        internal void QueueSourceExtraction(
+            IReadOnlyList<Document> docs,
+            IReadOnlyList<string>? selectedGroupings,
+            bool scanFamilies,
+            bool scanNested,
+            StandardsSourceTreeViewModel? targetSourceTree = null)
+        {
+            _pendingOperation = StandardsExternalEventOperation.ExtractRevitSource;
+            _pendingExtractionRequest = new RevitSourceExtractionRequest(docs, selectedGroupings, scanFamilies, scanNested, targetSourceTree);
+        }
+
         /// <summary>
-        /// Executes the queued run-queue logic.
+        /// Executes the queued Revit API operation.
         /// </summary>
         public void Execute(UIApplication app)
         {
-            if (_viewModel != null)
+            if (_isRunning || _viewModel == null) return;
+
+            _isRunning = true;
+            try
             {
-                try
+                var operation = _pendingOperation;
+                var extractionRequest = _pendingExtractionRequest;
+                _pendingOperation = StandardsExternalEventOperation.RunQueue;
+                _pendingExtractionRequest = null;
+
+                if (operation == StandardsExternalEventOperation.ExtractRevitSource && extractionRequest != null)
+                {
+                    var targetTree = extractionRequest.TargetSourceTree ?? _viewModel.SourceTreeViewModel;
+                    targetTree.ExecuteExtractionBatch(
+                        extractionRequest.Docs,
+                        extractionRequest.ScanFamilies,
+                        extractionRequest.ScanNested,
+                        extractionRequest.SelectedGroupings?.ToList());
+                }
+                else
                 {
                     _viewModel.RunQueueInternal();
                 }
-                catch (Exception ex)
+            }
+            catch (Exception ex)
+            {
+                if (!ProgressCoordinator.SuppressUI)
                 {
-                    if (!ProgressCoordinator.SuppressUI)
-                    {
-                        _viewModel._userPromptService.ShowMessage(
-                            $"Error running queue: {ex.Message}",
-                            "Revit API Execution Error");
-                    }
+                    _viewModel._userPromptService.ShowMessage(
+                        $"Error running queue: {ex.Message}",
+                        "Revit API Execution Error");
                 }
+            }
+            finally
+            {
+                _isRunning = false;
             }
         }
 

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Architecture;
 using Synthetic.RevitDOM.Models;
@@ -17,6 +18,29 @@ namespace Synthetic.RevitDOM.Operations
         Universal,
         ProjectOnly,
         FamilyOnly
+    }
+
+    /// <summary>
+    /// Binds a RevitDOM ObjectModel type and one or more Revit Element types to a translator factory.
+    /// </summary>
+    internal sealed class TranslatorBinding
+    {
+        public Type ModelType { get; }
+        public Func<IIdentityService, IModelTranslator> CreateTranslator { get; }
+        public IReadOnlyList<Type> RevitTypes { get; }
+        public IReadOnlyList<string> ClassAliases { get; }
+
+        public TranslatorBinding(
+            Type modelType,
+            Func<IIdentityService, IModelTranslator> createTranslator,
+            IReadOnlyList<Type> revitTypes,
+            IReadOnlyList<string>? classAliases = null)
+        {
+            ModelType = modelType ?? throw new ArgumentNullException(nameof(modelType));
+            CreateTranslator = createTranslator ?? throw new ArgumentNullException(nameof(createTranslator));
+            RevitTypes = revitTypes ?? Array.Empty<Type>();
+            ClassAliases = classAliases ?? Array.Empty<string>();
+        }
     }
 
     /// <summary>
@@ -37,6 +61,8 @@ namespace Synthetic.RevitDOM.Operations
         public IReadOnlyList<string> ClassAliases { get; }
         public Func<ObjectModel, string>? CustomKeySelector { get; }
         public Func<ElementModel, (string Group, string Class)>? DynamicTaxonomy { get; }
+        public IReadOnlyList<TranslatorBinding> TranslatorBindings { get; }
+        public Func<Document, IReadOnlyCollection<string>?, CancellationToken, IEnumerable<Element>>? RootCollector { get; }
 
         public StandardTypeDescriptor(
             string bucketName,
@@ -50,7 +76,9 @@ namespace Synthetic.RevitDOM.Operations
             IReadOnlyList<string>? legacyBucketAliases = null,
             IReadOnlyList<string>? classAliases = null,
             Func<ObjectModel, string>? customKeySelector = null,
-            Func<ElementModel, (string Group, string Class)>? dynamicTaxonomy = null)
+            Func<ElementModel, (string Group, string Class)>? dynamicTaxonomy = null,
+            IReadOnlyList<TranslatorBinding>? translatorBindings = null,
+            Func<Document, IReadOnlyCollection<string>?, CancellationToken, IEnumerable<Element>>? rootCollector = null)
         {
             BucketName = bucketName ?? throw new ArgumentNullException(nameof(bucketName));
             RevitType = revitType;
@@ -64,6 +92,8 @@ namespace Synthetic.RevitDOM.Operations
             ClassAliases = classAliases ?? Array.Empty<string>();
             CustomKeySelector = customKeySelector;
             DynamicTaxonomy = dynamicTaxonomy;
+            TranslatorBindings = translatorBindings ?? Array.Empty<TranslatorBinding>();
+            RootCollector = rootCollector;
         }
 
         public string GetKey(ObjectModel model)
@@ -102,6 +132,32 @@ namespace Synthetic.RevitDOM.Operations
         private static readonly Dictionary<string, StandardTypeDescriptor> _byBucket;
         private static readonly Dictionary<string, StandardTypeDescriptor> _byClass;
 
+        public static readonly IReadOnlyList<Type> IgnoredRevitTypes = new[]
+        {
+            typeof(InternalOrigin),
+            typeof(BasePoint),
+            typeof(SketchPlane),
+            typeof(ProjectLocation),
+            typeof(NumberingSchema)
+        };
+
+        public static readonly IReadOnlyList<Type> PendingRevitTypes = new[]
+        {
+            typeof(PhaseFilter),
+            typeof(Phase),
+            typeof(Revision),
+            typeof(RevisionSettings),
+            typeof(RevisionNumberingSequence),
+            typeof(AreaScheme),
+            typeof(ColorFillScheme),
+            typeof(SunAndShadowSettings),
+            typeof(WorksetDefaultVisibilitySettings),
+            typeof(RailingType),
+            typeof(StairsType),
+            typeof(StairsLandingType),
+            typeof(StairsRunType)
+        };
+
         public static string FormatCompositeKey(string? prefix, string? name)
         {
             string n = name ?? string.Empty;
@@ -110,6 +166,40 @@ namespace Synthetic.RevitDOM.Operations
                 return $"[{prefix}]_{n}";
             }
             return n;
+        }
+
+        private static string FamilyNameKeySelector(ObjectModel m)
+        {
+            return (m is ElementTypeModel et)
+                ? FormatCompositeKey(et.FamilyName, et.Name)
+                : FormatCompositeKey(null, (m as ElementModel)?.Name);
+        }
+
+        private static string FormatFamilySymbolKey(ObjectModel m)
+        {
+            if (m is not ElementModel em) return string.Empty;
+
+            string cat = em.Category ?? string.Empty;
+            string fam = (m is ElementTypeModel et) ? (et.FamilyName ?? string.Empty) : string.Empty;
+            bool hasCat = !string.IsNullOrWhiteSpace(cat);
+            bool hasFam = !string.IsNullOrWhiteSpace(fam);
+
+            if (hasCat && hasFam) return FormatCompositeKey($"{cat} | {fam}", em.Name);
+            if (hasCat) return FormatCompositeKey(cat, em.Name);
+            if (hasFam) return FormatCompositeKey(fam, em.Name);
+            return FormatCompositeKey(null, em.Name);
+        }
+
+        private static string FormatViewFamilyTypeKey(ObjectModel m)
+        {
+            if (m is ElementTypeModel et)
+            {
+                string? prefix = !string.IsNullOrWhiteSpace(et.ViewFamily)
+                    ? et.ViewFamily
+                    : (!string.IsNullOrWhiteSpace(et.FamilyName) ? et.FamilyName : null);
+                return FormatCompositeKey(prefix, et.Name);
+            }
+            return FormatCompositeKey(null, (m as ElementModel)?.Name);
         }
 
         static StandardTypeRegistry()
@@ -126,7 +216,12 @@ namespace Synthetic.RevitDOM.Operations
                 scope: DocumentScope.Universal,
                 groupName: "Materials & Assets",
                 className: "Fill Patterns",
-                customKeySelector: m => (m is FillPatternElementModel fp) ? FormatCompositeKey(fp.Pattern?.Target, fp.Name) : FormatCompositeKey(null, (m as ElementModel)?.Name)));
+                customKeySelector: m => (m is FillPatternElementModel fp) ? FormatCompositeKey(fp.Pattern?.Target, fp.Name) : FormatCompositeKey(null, (m as ElementModel)?.Name),
+                translatorBindings: new[]
+                {
+                    new TranslatorBinding(typeof(FillPatternElementModel), _ => new FillPatternTranslator(), new[] { typeof(FillPatternElement) })
+                },
+                rootCollector: (doc, groupings, ct) => CollectOfClass(doc, typeof(FillPatternElement), "Fill Patterns", groupings, ct)));
 
             // 2. LinePatternElements
             _canonicalDescriptors.Add(new StandardTypeDescriptor(
@@ -137,7 +232,12 @@ namespace Synthetic.RevitDOM.Operations
                 tier: 1,
                 scope: DocumentScope.Universal,
                 groupName: "Materials & Assets",
-                className: "Line Patterns"));
+                className: "Line Patterns",
+                translatorBindings: new[]
+                {
+                    new TranslatorBinding(typeof(LinePatternElementModel), _ => new LinePatternTranslator(), new[] { typeof(LinePatternElement) })
+                },
+                rootCollector: (doc, groupings, ct) => CollectOfClass(doc, typeof(LinePatternElement), "Line Patterns", groupings, ct)));
 
             // 3. PropertySetElements
             _canonicalDescriptors.Add(new StandardTypeDescriptor(
@@ -159,7 +259,12 @@ namespace Synthetic.RevitDOM.Operations
                 tier: 2,
                 scope: DocumentScope.Universal,
                 groupName: "Materials & Assets",
-                className: "Materials"));
+                className: "Materials",
+                translatorBindings: new[]
+                {
+                    new TranslatorBinding(typeof(MaterialModel), id => new MaterialTranslator(id), new[] { typeof(Material) })
+                },
+                rootCollector: (doc, groupings, ct) => CollectOfClass(doc, typeof(Material), "Materials", groupings, ct)));
 
             // 5. ElementTypes (FamilySymbol / Loadable Family Types)
             _canonicalDescriptors.Add(new StandardTypeDescriptor(
@@ -171,7 +276,13 @@ namespace Synthetic.RevitDOM.Operations
                 scope: DocumentScope.ProjectOnly,
                 groupName: "Standards & Categories",
                 className: "Element Types",
-                dynamicTaxonomy: ResolveFamilySymbolTaxonomy));
+                customKeySelector: FormatFamilySymbolKey,
+                dynamicTaxonomy: ResolveFamilySymbolTaxonomy,
+                translatorBindings: new[]
+                {
+                    new TranslatorBinding(typeof(ElementTypeModel), _ => new FamilySymbolTranslator(), new[] { typeof(FamilySymbol) })
+                },
+                rootCollector: CollectFamilySymbols));
 
             // 6. Categories
             _canonicalDescriptors.Add(new StandardTypeDescriptor(
@@ -183,7 +294,11 @@ namespace Synthetic.RevitDOM.Operations
                 scope: DocumentScope.Universal,
                 groupName: "Standards & Categories",
                 className: "Categories",
-                customKeySelector: m => (m is CategoryModel cat) ? FormatCompositeKey(cat.ParentCategoryName, cat.Name) : FormatCompositeKey(null, (m as ElementModel)?.Name)));
+                customKeySelector: m => (m is CategoryModel cat) ? FormatCompositeKey(cat.ParentCategoryName, cat.Name) : FormatCompositeKey(null, (m as ElementModel)?.Name),
+                translatorBindings: new[]
+                {
+                    new TranslatorBinding(typeof(CategoryModel), id => new CategoryTranslator(id), new[] { typeof(Autodesk.Revit.DB.Category) })
+                }));
 
             // 7. HostObjTypes
             _canonicalDescriptors.Add(new StandardTypeDescriptor(
@@ -195,7 +310,7 @@ namespace Synthetic.RevitDOM.Operations
                 scope: DocumentScope.ProjectOnly,
                 groupName: "System Types",
                 className: "Host Object Types",
-                customKeySelector: m => (m is ElementTypeModel et) ? FormatCompositeKey(et.FamilyName, et.Name) : FormatCompositeKey(null, (m as ElementModel)?.Name),
+                customKeySelector: FamilyNameKeySelector,
                 classAliases: new[]
                 {
                     "Autodesk.Revit.DB.WallType",
@@ -209,7 +324,16 @@ namespace Synthetic.RevitDOM.Operations
                     "Autodesk.Revit.DB.StairsType",
                     "Autodesk.Revit.DB.HostObjAttributes"
                 },
-                dynamicTaxonomy: ResolveHostObjTypeTaxonomy));
+                dynamicTaxonomy: ResolveHostObjTypeTaxonomy,
+                translatorBindings: new[]
+                {
+                    new TranslatorBinding(
+                        typeof(HostObjTypeModel),
+                        id => new HostObjTypeTranslator(id),
+                        new[] { typeof(WallType), typeof(FloorType), typeof(RoofType), typeof(CeilingType), typeof(BuildingPadType) },
+                        new[] { "Autodesk.Revit.DB.HostObjAttributes" })
+                },
+                rootCollector: CollectHostObjTypes));
 
             // 8. FilledRegionTypes (legacy read alias FillRegionTypes)
             _canonicalDescriptors.Add(new StandardTypeDescriptor(
@@ -221,7 +345,12 @@ namespace Synthetic.RevitDOM.Operations
                 scope: DocumentScope.Universal,
                 groupName: "Annotations",
                 className: "Filled Region Types",
-                legacyBucketAliases: new[] { "FillRegionTypes" }));
+                legacyBucketAliases: new[] { "FillRegionTypes" },
+                translatorBindings: new[]
+                {
+                    new TranslatorBinding(typeof(FilledRegionTypeModel), id => new FilledRegionTypeTranslator(id), new[] { typeof(FilledRegionType) })
+                },
+                rootCollector: (doc, groupings, ct) => CollectOfClass(doc, typeof(FilledRegionType), "Filled Region Types", groupings, ct)));
 
             // 9. DimensionTypes
             _canonicalDescriptors.Add(new StandardTypeDescriptor(
@@ -233,7 +362,12 @@ namespace Synthetic.RevitDOM.Operations
                 scope: DocumentScope.Universal,
                 groupName: "Annotations",
                 className: "Dimension Types",
-                customKeySelector: m => (m is DimensionTypeModel dim) ? FormatCompositeKey(dim.DimensionStyle, dim.Name) : FormatCompositeKey(null, (m as ElementModel)?.Name)));
+                customKeySelector: m => (m is DimensionTypeModel dim) ? FormatCompositeKey(dim.DimensionStyle, dim.Name) : FormatCompositeKey(null, (m as ElementModel)?.Name),
+                translatorBindings: new[]
+                {
+                    new TranslatorBinding(typeof(DimensionTypeModel), _ => new DimensionTypeTranslator(), new[] { typeof(DimensionType) })
+                },
+                rootCollector: (doc, groupings, ct) => CollectOfClass(doc, typeof(DimensionType), "Dimension Types", groupings, ct)));
 
             // 10. TextNoteTypes
             _canonicalDescriptors.Add(new StandardTypeDescriptor(
@@ -244,7 +378,12 @@ namespace Synthetic.RevitDOM.Operations
                 tier: 3,
                 scope: DocumentScope.Universal,
                 groupName: "Annotations",
-                className: "Text Note Types"));
+                className: "Text Note Types",
+                translatorBindings: new[]
+                {
+                    new TranslatorBinding(typeof(ElementTypeModel), _ => new TextElementTypeTranslator(), new[] { typeof(TextNoteType) })
+                },
+                rootCollector: (doc, groupings, ct) => CollectOfClass(doc, typeof(TextNoteType), "Text Note Types", groupings, ct)));
 
             // 11. ViewTemplates
             _canonicalDescriptors.Add(new StandardTypeDescriptor(
@@ -255,7 +394,8 @@ namespace Synthetic.RevitDOM.Operations
                 tier: 6,
                 scope: DocumentScope.ProjectOnly,
                 groupName: "Views",
-                className: "View Templates"));
+                className: "View Templates",
+                rootCollector: (doc, groupings, ct) => CollectViews(doc, isTemplate: true, "View Templates", groupings, ct)));
 
             // 12. Views
             _canonicalDescriptors.Add(new StandardTypeDescriptor(
@@ -275,7 +415,19 @@ namespace Synthetic.RevitDOM.Operations
                     "Autodesk.Revit.DB.ViewSheet",
                     "Autodesk.Revit.DB.ViewSchedule",
                     "Autodesk.Revit.DB.View3D"
-                }));
+                },
+                translatorBindings: new[]
+                {
+                    new TranslatorBinding(
+                        typeof(ViewModel),
+                        id => new ViewTranslator(id),
+                        new[] { typeof(ViewDrafting), typeof(ViewSection) },
+                        new[] { "Autodesk.Revit.DB.View", "Autodesk.Revit.DB.View3D" }),
+                    new TranslatorBinding(typeof(ViewPlanModel), id => new ViewPlanTranslator(id), new[] { typeof(ViewPlan) }),
+                    new TranslatorBinding(typeof(ViewSheetModel), id => new ViewSheetTranslator(id), new[] { typeof(ViewSheet) }),
+                    new TranslatorBinding(typeof(ViewScheduleModel), id => new ViewScheduleTranslator(id), new[] { typeof(ViewSchedule) })
+                },
+                rootCollector: (doc, groupings, ct) => CollectViews(doc, isTemplate: false, "Views", groupings, ct)));
 
             // 13. GridTypes
             _canonicalDescriptors.Add(new StandardTypeDescriptor(
@@ -286,7 +438,12 @@ namespace Synthetic.RevitDOM.Operations
                 tier: 3,
                 scope: DocumentScope.ProjectOnly,
                 groupName: "Annotations",
-                className: "Grid Types"));
+                className: "Grid Types",
+                translatorBindings: new[]
+                {
+                    new TranslatorBinding(typeof(ElementTypeModel), _ => new GridTypeTranslator(), new[] { typeof(GridType) })
+                },
+                rootCollector: (doc, groupings, ct) => CollectOfClass(doc, typeof(GridType), "Grid Types", groupings, ct)));
 
             // 14. LevelTypes
             _canonicalDescriptors.Add(new StandardTypeDescriptor(
@@ -297,7 +454,12 @@ namespace Synthetic.RevitDOM.Operations
                 tier: 3,
                 scope: DocumentScope.ProjectOnly,
                 groupName: "Annotations",
-                className: "Level Types"));
+                className: "Level Types",
+                translatorBindings: new[]
+                {
+                    new TranslatorBinding(typeof(ElementTypeModel), _ => new LevelTypeTranslator(), new[] { typeof(LevelType) })
+                },
+                rootCollector: (doc, groupings, ct) => CollectOfClass(doc, typeof(LevelType), "Level Types", groupings, ct)));
 
             // 15. CurtainSystemTypes
             _canonicalDescriptors.Add(new StandardTypeDescriptor(
@@ -309,7 +471,12 @@ namespace Synthetic.RevitDOM.Operations
                 scope: DocumentScope.ProjectOnly,
                 groupName: "System Types",
                 className: "Curtain System Types",
-                customKeySelector: m => (m is ElementTypeModel et) ? FormatCompositeKey(et.FamilyName, et.Name) : FormatCompositeKey(null, (m as ElementModel)?.Name)));
+                customKeySelector: FamilyNameKeySelector,
+                translatorBindings: new[]
+                {
+                    new TranslatorBinding(typeof(HostObjTypeModel), id => new HostObjTypeTranslator(id), new[] { typeof(CurtainSystemType) })
+                },
+                rootCollector: (doc, groupings, ct) => CollectOfClass(doc, typeof(CurtainSystemType), "Curtain System Types", groupings, ct)));
 
             // 16. MullionTypes
             _canonicalDescriptors.Add(new StandardTypeDescriptor(
@@ -321,7 +488,12 @@ namespace Synthetic.RevitDOM.Operations
                 scope: DocumentScope.ProjectOnly,
                 groupName: "System Types",
                 className: "Mullion Types",
-                customKeySelector: m => (m is ElementTypeModel et) ? FormatCompositeKey(et.FamilyName, et.Name) : FormatCompositeKey(null, (m as ElementModel)?.Name)));
+                customKeySelector: FamilyNameKeySelector,
+                translatorBindings: new[]
+                {
+                    new TranslatorBinding(typeof(HostObjTypeModel), id => new HostObjTypeTranslator(id), new[] { typeof(MullionType) })
+                },
+                rootCollector: (doc, groupings, ct) => CollectOfClass(doc, typeof(MullionType), "Mullion Types", groupings, ct)));
 
             // 17. FasciaTypes
             _canonicalDescriptors.Add(new StandardTypeDescriptor(
@@ -333,12 +505,21 @@ namespace Synthetic.RevitDOM.Operations
                 scope: DocumentScope.ProjectOnly,
                 groupName: "System Types",
                 className: "Fascia Types",
-                customKeySelector: m => (m is ElementTypeModel et) ? FormatCompositeKey(et.FamilyName, et.Name) : FormatCompositeKey(null, (m as ElementModel)?.Name),
+                customKeySelector: FamilyNameKeySelector,
                 classAliases: new[]
                 {
                     "Autodesk.Revit.DB.Architecture.FasciaType",
                     "Autodesk.Revit.DB.FasciaType"
-                }));
+                },
+                translatorBindings: new[]
+                {
+                    new TranslatorBinding(
+                        typeof(HostObjTypeModel),
+                        id => new HostObjTypeTranslator(id),
+                        new[] { typeof(FasciaType) },
+                        new[] { "Autodesk.Revit.DB.Architecture.FasciaType", "Autodesk.Revit.DB.FasciaType" })
+                },
+                rootCollector: (doc, groupings, ct) => CollectOfClass(doc, typeof(FasciaType), "Fascia Types", groupings, ct)));
 
             // 18. GutterTypes
             _canonicalDescriptors.Add(new StandardTypeDescriptor(
@@ -350,12 +531,21 @@ namespace Synthetic.RevitDOM.Operations
                 scope: DocumentScope.ProjectOnly,
                 groupName: "System Types",
                 className: "Gutter Types",
-                customKeySelector: m => (m is ElementTypeModel et) ? FormatCompositeKey(et.FamilyName, et.Name) : FormatCompositeKey(null, (m as ElementModel)?.Name),
+                customKeySelector: FamilyNameKeySelector,
                 classAliases: new[]
                 {
                     "Autodesk.Revit.DB.Architecture.GutterType",
                     "Autodesk.Revit.DB.GutterType"
-                }));
+                },
+                translatorBindings: new[]
+                {
+                    new TranslatorBinding(
+                        typeof(HostObjTypeModel),
+                        id => new HostObjTypeTranslator(id),
+                        new[] { typeof(GutterType) },
+                        new[] { "Autodesk.Revit.DB.Architecture.GutterType", "Autodesk.Revit.DB.GutterType" })
+                },
+                rootCollector: (doc, groupings, ct) => CollectOfClass(doc, typeof(GutterType), "Gutter Types", groupings, ct)));
 
             // 19. ViewFamilyTypes
             _canonicalDescriptors.Add(new StandardTypeDescriptor(
@@ -366,7 +556,13 @@ namespace Synthetic.RevitDOM.Operations
                 tier: 5,
                 scope: DocumentScope.ProjectOnly,
                 groupName: "Views",
-                className: "View Family Types"));
+                className: "View Family Types",
+                customKeySelector: FormatViewFamilyTypeKey,
+                translatorBindings: new[]
+                {
+                    new TranslatorBinding(typeof(ElementTypeModel), _ => new ViewFamilyTypeTranslator(), new[] { typeof(ViewFamilyType) })
+                },
+                rootCollector: (doc, groupings, ct) => CollectOfClass(doc, typeof(ViewFamilyType), "View Family Types", groupings, ct)));
 
             // 20. BrowserOrganizations
             _canonicalDescriptors.Add(new StandardTypeDescriptor(
@@ -377,7 +573,12 @@ namespace Synthetic.RevitDOM.Operations
                 tier: 6,
                 scope: DocumentScope.ProjectOnly,
                 groupName: "Views",
-                className: "Browser Organizations"));
+                className: "Browser Organizations",
+                translatorBindings: new[]
+                {
+                    new TranslatorBinding(typeof(BrowserOrganizationModel), _ => new BrowserOrganizationTranslator(), new[] { typeof(BrowserOrganization) })
+                },
+                rootCollector: (doc, groupings, ct) => CollectOfClass(doc, typeof(BrowserOrganization), "Browser Organizations", groupings, ct)));
 
             // 21. ParameterElements
             _canonicalDescriptors.Add(new StandardTypeDescriptor(
@@ -393,7 +594,16 @@ namespace Synthetic.RevitDOM.Operations
                 {
                     "Autodesk.Revit.DB.ParameterElement",
                     "Autodesk.Revit.DB.SharedParameterElement"
-                }));
+                },
+                translatorBindings: new[]
+                {
+                    new TranslatorBinding(
+                        typeof(ParameterElementModel),
+                        _ => new ParameterElementTranslator(),
+                        new[] { typeof(ParameterElement), typeof(SharedParameterElement) },
+                        new[] { "Autodesk.Revit.DB.ParameterElement", "Autodesk.Revit.DB.SharedParameterElement" })
+                },
+                rootCollector: (doc, groupings, ct) => CollectOfClass(doc, typeof(ParameterElement), "Shared Parameters", groupings, ct)));
 
             // 22. TextElementTypes
             _canonicalDescriptors.Add(new StandardTypeDescriptor(
@@ -404,7 +614,12 @@ namespace Synthetic.RevitDOM.Operations
                 tier: 3,
                 scope: DocumentScope.FamilyOnly,
                 groupName: "Annotations",
-                className: "Label Types"));
+                className: "Label Types",
+                translatorBindings: new[]
+                {
+                    new TranslatorBinding(typeof(ElementTypeModel), _ => new TextElementTypeTranslator(), new[] { typeof(TextElementType) })
+                },
+                rootCollector: (doc, groupings, ct) => CollectOfClass(doc, typeof(TextElementType), "Label Types", groupings, ct)));
 
             // 23. ModelTextTypes
             _canonicalDescriptors.Add(new StandardTypeDescriptor(
@@ -415,7 +630,12 @@ namespace Synthetic.RevitDOM.Operations
                 tier: 3,
                 scope: DocumentScope.Universal,
                 groupName: "Annotations",
-                className: "Model Text Types"));
+                className: "Model Text Types",
+                translatorBindings: new[]
+                {
+                    new TranslatorBinding(typeof(ElementTypeModel), _ => new TextElementTypeTranslator(), new[] { typeof(ModelTextType) })
+                },
+                rootCollector: (doc, groupings, ct) => CollectOfClass(doc, typeof(ModelTextType), "Model Text Types", groupings, ct)));
 
             // 24. ParameterFilters
             _canonicalDescriptors.Add(new StandardTypeDescriptor(
@@ -426,7 +646,12 @@ namespace Synthetic.RevitDOM.Operations
                 tier: 4,
                 scope: DocumentScope.ProjectOnly,
                 groupName: "Standards & Categories",
-                className: "Filters"));
+                className: "Filters",
+                translatorBindings: new[]
+                {
+                    new TranslatorBinding(typeof(ParameterFilterElementModel), id => new ParameterFilterElementTranslator(id), new[] { typeof(ParameterFilterElement) })
+                },
+                rootCollector: (doc, groupings, ct) => CollectOfClass(doc, typeof(ParameterFilterElement), "Filters", groupings, ct)));
 
             // 25. SpotDimensionTypes
             _canonicalDescriptors.Add(new StandardTypeDescriptor(
@@ -438,13 +663,27 @@ namespace Synthetic.RevitDOM.Operations
                 scope: DocumentScope.ProjectOnly,
                 groupName: "Annotations",
                 className: "Spot Dimension Types",
-                customKeySelector: m => (m is ElementTypeModel et) ? FormatCompositeKey(et.FamilyName, et.Name) : FormatCompositeKey(null, (m as ElementModel)?.Name)));
+                customKeySelector: FamilyNameKeySelector,
+                translatorBindings: new[]
+                {
+                    new TranslatorBinding(typeof(ElementTypeModel), _ => new SpotDimensionTypeTranslator(), new[] { typeof(SpotDimensionType) })
+                },
+                rootCollector: (doc, groupings, ct) => CollectOfClass(doc, typeof(SpotDimensionType), "Spot Dimension Types", groupings, ct)));
 
             // 26. ToposolidTypes
 #if REVIT2022 || REVIT2023
             Type? toposolidType = null;
+            TranslatorBinding[] toposolidBindings = Array.Empty<TranslatorBinding>();
 #else
             Type? toposolidType = typeof(ToposolidType);
+            TranslatorBinding[] toposolidBindings = new[]
+            {
+                new TranslatorBinding(
+                    typeof(HostObjTypeModel),
+                    id => new HostObjTypeTranslator(id),
+                    new[] { typeof(ToposolidType) },
+                    new[] { "Autodesk.Revit.DB.ToposolidType" })
+            };
 #endif
             _canonicalDescriptors.Add(new StandardTypeDescriptor(
                 bucketName: "ToposolidTypes",
@@ -455,7 +694,9 @@ namespace Synthetic.RevitDOM.Operations
                 scope: DocumentScope.ProjectOnly,
                 groupName: "System Types",
                 className: "Toposolid Types",
-                customKeySelector: m => (m is ElementTypeModel et) ? FormatCompositeKey(et.FamilyName, et.Name) : FormatCompositeKey(null, (m as ElementModel)?.Name)));
+                customKeySelector: FamilyNameKeySelector,
+                translatorBindings: toposolidBindings,
+                rootCollector: (doc, groupings, ct) => CollectOfClass(doc, toposolidType, "Toposolid Types", groupings, ct)));
 
             // Index descriptors for high-speed resolution
             _byBucket = new Dictionary<string, StandardTypeDescriptor>(StringComparer.OrdinalIgnoreCase);
@@ -477,6 +718,207 @@ namespace Synthetic.RevitDOM.Operations
             }
         }
 
+        public static void RegisterAllTranslators(ModelDispatcher dispatcher, IIdentityService identityService)
+        {
+            if (dispatcher == null) throw new ArgumentNullException(nameof(dispatcher));
+            if (identityService == null) throw new ArgumentNullException(nameof(identityService));
+
+            var sharedTranslators = new Dictionary<Type, IModelTranslator>();
+
+            foreach (var desc in _canonicalDescriptors)
+            {
+                foreach (var binding in desc.TranslatorBindings)
+                {
+                    var translator = binding.CreateTranslator(identityService);
+                    var translatorType = translator.GetType();
+                    if (sharedTranslators.TryGetValue(translatorType, out var existing))
+                    {
+                        translator = existing;
+                    }
+                    else
+                    {
+                        sharedTranslators[translatorType] = translator;
+                    }
+
+                    dispatcher.Register(binding.ModelType, translator, binding.RevitTypes, binding.ClassAliases);
+                }
+            }
+
+            dispatcher.RegisterIgnored(IgnoredRevitTypes.ToArray());
+            dispatcher.RegisterPending(PendingRevitTypes.ToArray());
+        }
+
+        public static IEnumerable<Element> GatherRootElements(
+            Document doc,
+            IReadOnlyCollection<string>? selectedGroupings = null,
+            CancellationToken cancellationToken = default)
+        {
+            if (doc == null) throw new ArgumentNullException(nameof(doc));
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var rootElements = new List<Element>();
+            var seenIds = new HashSet<ElementId>();
+
+            foreach (var desc in _canonicalDescriptors)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (desc.RootCollector == null) continue;
+
+                try
+                {
+                    foreach (var elem in desc.RootCollector(doc, selectedGroupings, cancellationToken))
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        if (elem != null && seenIds.Add(elem.Id))
+                        {
+                            rootElements.Add(elem);
+                        }
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error gathering {desc.BucketName}: {ex}");
+                }
+            }
+
+            return rootElements;
+        }
+
+        private static IEnumerable<Element> CollectOfClass(
+            Document doc,
+            Type? revitType,
+            string requiredClassName,
+            IReadOnlyCollection<string>? selectedGroupings,
+            CancellationToken cancellationToken,
+            Func<Element, bool>? predicate = null)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (revitType == null) return Enumerable.Empty<Element>();
+            if (selectedGroupings != null && !selectedGroupings.Contains(requiredClassName))
+            {
+                return Enumerable.Empty<Element>();
+            }
+
+            var elements = new FilteredElementCollector(doc)
+                .OfClass(revitType)
+                .ToElements();
+
+            var results = new List<Element>();
+            foreach (var elem in elements)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (elem != null && (predicate == null || predicate(elem)))
+                {
+                    results.Add(elem);
+                }
+            }
+            return results;
+        }
+
+        private static IEnumerable<Element> CollectHostObjTypes(
+            Document doc,
+            IReadOnlyCollection<string>? selectedGroupings,
+            CancellationToken cancellationToken)
+        {
+            var hostTypeMap = new (Type RevitType, string ClassName)[]
+            {
+                (typeof(WallType), "Wall Types"),
+                (typeof(FloorType), "Floor Types"),
+                (typeof(RoofType), "Roof Types"),
+                (typeof(CeilingType), "Ceiling Types"),
+                (typeof(BuildingPadType), "Host Object Types")
+            };
+
+            var results = new List<Element>();
+            foreach (var (revitType, className) in hostTypeMap)
+            {
+                results.AddRange(CollectOfClass(doc, revitType, className, selectedGroupings, cancellationToken));
+            }
+            return results;
+        }
+
+        private static IEnumerable<Element> CollectViews(
+            Document doc,
+            bool isTemplate,
+            string requiredClassName,
+            IReadOnlyCollection<string>? selectedGroupings,
+            CancellationToken cancellationToken)
+        {
+            var viewTypes = new[]
+            {
+                typeof(ViewDrafting),
+                typeof(ViewSection),
+                typeof(ViewPlan),
+                typeof(ViewSheet),
+                typeof(ViewSchedule)
+            };
+
+            var results = new List<Element>();
+            foreach (var vt in viewTypes)
+            {
+                results.AddRange(CollectOfClass(
+                    doc,
+                    vt,
+                    requiredClassName,
+                    selectedGroupings,
+                    cancellationToken,
+                    e => e is Autodesk.Revit.DB.View v && v.IsTemplate == isTemplate));
+            }
+            return results;
+        }
+
+        private static IEnumerable<Element> CollectFamilySymbols(
+            Document doc,
+            IReadOnlyCollection<string>? selectedGroupings,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var results = new List<Element>();
+            var familySymbols = new FilteredElementCollector(doc)
+                .OfClass(typeof(FamilySymbol))
+                .Cast<FamilySymbol>();
+
+            foreach (var fs in familySymbols)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (fs == null) continue;
+
+                var category = fs.Category ?? fs.Family?.FamilyCategory;
+                if (category == null) continue;
+
+                long catIdVal;
+#if REVIT2022 || REVIT2023
+                catIdVal = category.Id.IntegerValue;
+#else
+                catIdVal = category.Id.Value;
+#endif
+
+                string grouping;
+                if (catIdVal == (long)BuiltInCategory.OST_TitleBlocks)
+                    grouping = "Title Blocks";
+                else if (catIdVal == (long)BuiltInCategory.OST_DetailComponents)
+                    grouping = "Detail Items";
+                else if (catIdVal == (long)BuiltInCategory.OST_ProfileFamilies)
+                    grouping = "Profiles";
+                else if (category.CategoryType == CategoryType.Annotation)
+                    grouping = "Label Types";
+                else
+                    grouping = "Element Types";
+
+                if (selectedGroupings == null || selectedGroupings.Contains(grouping))
+                {
+                    results.Add(fs);
+                }
+            }
+
+            return results;
+        }
+
         public static IReadOnlyList<StandardTypeDescriptor> GetAllDescriptors() => _canonicalDescriptors;
 
         public static StandardTypeDescriptor? GetDescriptorByBucket(string bucketName)
@@ -495,30 +937,9 @@ namespace Synthetic.RevitDOM.Operations
                 return desc;
             }
 
-            // Normalization for architecture namespace differences
-            if (className.StartsWith("Autodesk.Revit.DB.Architecture.", StringComparison.OrdinalIgnoreCase))
+            foreach (var alias in Select.GetNamespaceAliasCandidates(className))
             {
-                string shortName = className.Substring("Autodesk.Revit.DB.Architecture.".Length);
-                if (_byClass.TryGetValue("Autodesk.Revit.DB." + shortName, out desc))
-                {
-                    return desc;
-                }
-            }
-            else if (className.StartsWith("Autodesk.Revit.DB.", StringComparison.OrdinalIgnoreCase))
-            {
-                string shortName = className.Substring("Autodesk.Revit.DB.".Length);
-                if (_byClass.TryGetValue("Autodesk.Revit.DB.Architecture." + shortName, out desc))
-                {
-                    return desc;
-                }
-            }
-            else if (!className.Contains("."))
-            {
-                if (_byClass.TryGetValue("Autodesk.Revit.DB." + className, out desc))
-                {
-                    return desc;
-                }
-                if (_byClass.TryGetValue("Autodesk.Revit.DB.Architecture." + className, out desc))
+                if (_byClass.TryGetValue(alias, out desc))
                 {
                     return desc;
                 }
@@ -625,26 +1046,64 @@ namespace Synthetic.RevitDOM.Operations
 
         /// <summary>
         /// Validates whether a live Revit candidate Element satisfies the disambiguation criteria
-        /// of an incoming ElementModel (Category, FamilyName, DimensionStyle, and Pattern.Target).
+        /// of an incoming ElementModel (Category, FamilyName, ViewFamily, DimensionStyle, and Pattern.Target).
         /// </summary>
         public static bool MatchesDisambiguators(ElementModel incomingModel, Element liveElement)
         {
             if (incomingModel == null || liveElement == null) return false;
 
-            // 1. Category check: when incomingModel.Category is non-empty and candidate.Category?.Name is non-empty, require OrdinalIgnoreCase match.
-            if (!string.IsNullOrEmpty(incomingModel.Category) && liveElement.Category != null && !string.IsNullOrEmpty(liveElement.Category.Name))
+            // 1. Category check: when incomingModel.Category is non-empty and live category name is non-empty, require OrdinalIgnoreCase match.
+            string? liveCategoryName = liveElement.Category?.Name;
+            if (string.IsNullOrEmpty(liveCategoryName) && liveElement is FamilySymbol liveSymForCat)
             {
-                if (!string.Equals(liveElement.Category.Name, incomingModel.Category, StringComparison.OrdinalIgnoreCase))
+                liveCategoryName = liveSymForCat.Family?.FamilyCategory?.Name;
+            }
+
+            if (!string.IsNullOrEmpty(incomingModel.Category) && !string.IsNullOrEmpty(liveCategoryName))
+            {
+                if (!string.Equals(liveCategoryName, incomingModel.Category, StringComparison.OrdinalIgnoreCase))
                 {
                     return false;
                 }
             }
 
-            // 2. ElementTypeModel (FamilyName): when !string.IsNullOrEmpty(etModel.FamilyName) and candidate is ElementType liveEt,
-            // require string.Equals(liveEt.FamilyName, etModel.FamilyName, StringComparison.OrdinalIgnoreCase). Empty FamilyName from legacy JSON acts as a wildcard!
-            if (incomingModel is ElementTypeModel etModel && !string.IsNullOrEmpty(etModel.FamilyName))
+            // 2. ViewFamilyType / FamilySymbol / ElementType disambiguation
+            if (incomingModel is ElementTypeModel etModel)
             {
-                if (liveElement is ElementType liveEt)
+                if (liveElement is ViewFamilyType liveVft)
+                {
+                    if (!string.IsNullOrWhiteSpace(etModel.ViewFamily))
+                    {
+                        if (!string.Equals(liveVft.ViewFamily.ToString(), etModel.ViewFamily, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return false;
+                        }
+                    }
+                    else if (!string.IsNullOrWhiteSpace(etModel.FamilyName))
+                    {
+                        bool matchesFamilyName = string.Equals(liveVft.FamilyName, etModel.FamilyName, StringComparison.OrdinalIgnoreCase);
+                        bool matchesViewFamily = string.Equals(liveVft.ViewFamily.ToString(), etModel.FamilyName, StringComparison.OrdinalIgnoreCase);
+                        if (!matchesFamilyName && !matchesViewFamily)
+                        {
+                            return false;
+                        }
+                    }
+                }
+                else if (liveElement is FamilySymbol liveSymbol)
+                {
+                    if (!string.IsNullOrEmpty(etModel.FamilyName))
+                    {
+                        string liveFamilyName = !string.IsNullOrEmpty(liveSymbol.Family?.Name)
+                            ? liveSymbol.Family!.Name
+                            : (liveSymbol.FamilyName ?? string.Empty);
+
+                        if (!string.Equals(liveFamilyName, etModel.FamilyName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return false;
+                        }
+                    }
+                }
+                else if (liveElement is ElementType liveEt && !string.IsNullOrEmpty(etModel.FamilyName))
                 {
                     if (!string.Equals(liveEt.FamilyName, etModel.FamilyName, StringComparison.OrdinalIgnoreCase))
                     {
@@ -745,10 +1204,27 @@ namespace Synthetic.RevitDOM.Operations
                         .Where(e => string.Equals(e.Name, incomingModel.Name, StringComparison.Ordinal))
                         .ToList();
 
-                    var matched = candidates.FirstOrDefault(c => MatchesDisambiguators(incomingModel, c));
-                    if (matched != null)
+                    var matchedList = candidates.Where(c => MatchesDisambiguators(incomingModel, c)).ToList();
+                    if (matchedList.Count > 0)
                     {
-                        return matched;
+                        if (incomingModel is ElementTypeModel fsModel &&
+                            string.IsNullOrEmpty(fsModel.FamilyName) &&
+                            matchedList.OfType<FamilySymbol>().Any())
+                        {
+                            var distinctFamilies = matchedList
+                                .OfType<FamilySymbol>()
+                                .Select(fs => !string.IsNullOrEmpty(fs.Family?.Name) ? fs.Family!.Name : (fs.FamilyName ?? string.Empty))
+                                .Where(fn => !string.IsNullOrEmpty(fn))
+                                .Distinct(StringComparer.OrdinalIgnoreCase)
+                                .ToList();
+
+                            if (distinctFamilies.Count > 1)
+                            {
+                                return null;
+                            }
+                        }
+
+                        return matchedList[0];
                     }
                 }
             }
@@ -760,52 +1236,12 @@ namespace Synthetic.RevitDOM.Operations
         {
             if (element == null) return ("Other", "Unknown Class");
 
-            // 1. HostObjTypeModel (must be checked BEFORE generic ElementTypeModel since HostObjTypeModel inherits from ElementTypeModel)
-            if (element is HostObjTypeModel hostObj)
-            {
-                return ResolveHostObjTypeTaxonomy(hostObj);
-            }
-
-            // 2. ElementTypeModel (handles specific classes and 5-way loadable family taxonomy)
-            if (element is ElementTypeModel elemType)
-            {
-                string cls = elemType.Class ?? string.Empty;
-                if (element is FilledRegionTypeModel || string.Equals(cls, "Autodesk.Revit.DB.FilledRegionType", StringComparison.OrdinalIgnoreCase))
-                    return ("Annotations", "Filled Region Types");
-                if (element is DimensionTypeModel || string.Equals(cls, "Autodesk.Revit.DB.DimensionType", StringComparison.OrdinalIgnoreCase))
-                    return ("Annotations", "Dimension Types");
-                if (string.Equals(cls, "Autodesk.Revit.DB.TextNoteType", StringComparison.OrdinalIgnoreCase))
-                    return ("Annotations", "Text Note Types");
-                if (string.Equals(cls, "Autodesk.Revit.DB.TextElementType", StringComparison.OrdinalIgnoreCase))
-                    return ("Annotations", "Label Types");
-                if (string.Equals(cls, "Autodesk.Revit.DB.ModelTextType", StringComparison.OrdinalIgnoreCase))
-                    return ("Annotations", "Model Text Types");
-                if (string.Equals(cls, "Autodesk.Revit.DB.SpotDimensionType", StringComparison.OrdinalIgnoreCase))
-                    return ("Annotations", "Spot Dimension Types");
-                if (string.Equals(cls, "Autodesk.Revit.DB.GridType", StringComparison.OrdinalIgnoreCase))
-                    return ("Annotations", "Grid Types");
-                if (string.Equals(cls, "Autodesk.Revit.DB.LevelType", StringComparison.OrdinalIgnoreCase))
-                    return ("Annotations", "Level Types");
-                if (string.Equals(cls, "Autodesk.Revit.DB.ViewFamilyType", StringComparison.OrdinalIgnoreCase))
-                    return ("Views", "View Family Types");
-
-                return ResolveFamilySymbolTaxonomy(elemType);
-            }
-
-            // 3. ViewModel
-            if (element is ViewModel vm)
-            {
-                return ("Views", vm.IsTemplate ? "View Templates" : "Views");
-            }
-
-            // 4. Descriptor lookup for other standard models
             var desc = GetDescriptorByModel(element);
             if (desc != null)
             {
                 return desc.GetTaxonomy(element);
             }
 
-            // 5. Fallback for unrecognized models
             return ("Other", element.Class ?? "Unknown Class");
         }
 

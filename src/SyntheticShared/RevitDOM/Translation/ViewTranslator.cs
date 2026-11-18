@@ -158,15 +158,11 @@ namespace Synthetic.RevitDOM.Translation
             if (model == null) throw new ArgumentNullException(nameof(model));
             if (doc == null) throw new ArgumentNullException(nameof(doc));
 
-            using (SubTransaction subTransaction = new SubTransaction(doc))
+            // Purge Scope Box parameter from generic parameters
+            if (model.Parameters != null)
             {
-                subTransaction.Start();
-
-                // Purge Scope Box parameter from generic parameters
-                if (model.Parameters != null)
-                {
-                    model.Parameters.RemoveAll(p => p.Id == (int)BuiltInParameter.VIEWER_VOLUME_OF_INTEREST_CROP);
-                }
+                model.Parameters.RemoveAll(p => p.Id == (int)BuiltInParameter.VIEWER_VOLUME_OF_INTEREST_CROP);
+            }
 
             if (revitElement == null)
             {
@@ -581,9 +577,6 @@ namespace Synthetic.RevitDOM.Translation
                     revitElement.SetNonControlledTemplateParameterIds(nonControlledIds);
                 }
                 catch (Exception) { }
-            }
-
-            subTransaction.Commit();
             }
 
             return revitElement;

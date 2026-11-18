@@ -268,5 +268,115 @@ namespace SyntheticTests.Modules.RevitDOM
             public IEnumerable<Element> GetElementsByElementIdModels(Document doc, IEnumerable<ElementIdModel> identifiers) => _inner.GetElementsByElementIdModels(doc, identifiers);
             public ElementIdModel ToModel(ElementId id, Document doc, bool isTemplate = false) => _inner.ToModel(id, doc, isTemplate);
         }
+
+        [Test]
+        public void ToRevit_BatchIsolation_MissingFamilySymbolAndNonCopiableViewFamilyType_RollsBackInnerTransactionsOnly()
+        {
+            var doc = new Document { Title = "TargetProject" };
+
+            // Load an unrelated family symbol and a non-copiable ViewFamilyType
+            var doorCat = new Category { Name = "Doors" };
+            var loadedFam = new Family { Name = "Loaded-Door", FamilyCategory = doorCat };
+            var loadedSeed = new FamilySymbol { Name = "30x84", Category = doorCat, Family = loadedFam };
+            doc.AddElement(loadedSeed, new ElementId(10));
+
+            var scheduleSeed = new ViewFamilyType { Name = "Working Schedule", ViewFamily = ViewFamily.Schedule, CanBeCopied = false };
+            doc.AddElement(scheduleSeed, new ElementId(20));
+
+            var missingFamilySymbol = new ElementTypeModel
+            {
+                Name = "72x84",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                Category = "Doors",
+                FamilyName = "Unloaded-Revolving"
+            };
+            var nonCopiableVft = new ElementTypeModel
+            {
+                Name = "New Schedule",
+                Class = "Autodesk.Revit.DB.ViewFamilyType",
+                ViewFamily = "Schedule"
+            };
+            var validMaterial = new MaterialModel
+            {
+                Name = "ValidBatchMaterial",
+                Class = "Autodesk.Revit.DB.Material"
+            };
+
+            var engine = new StandardSerializationEngine();
+            var results = engine.ToRevit(new ObjectModel[] { missingFamilySymbol, nonCopiableVft, validMaterial }, doc).ToList();
+
+            var tg = TransactionGroup.LastCreatedGroup;
+            Assert.IsNotNull(tg);
+            Assert.IsTrue(tg!.WasAssimilated, "Outer TransactionGroup must assimilate cleanly.");
+
+            Assert.AreEqual(3, results.Count);
+
+            var fsResult = results.First(r => r.Model == missingFamilySymbol);
+            Assert.IsFalse(fsResult.Success);
+            Assert.AreEqual("Failed", fsResult.Action);
+            Assert.IsTrue(fsResult.Message.Contains("Unloaded-Revolving"), "Missing FamilySymbol error must name missing FamilyName.");
+
+            var vftResult = results.First(r => r.Model == nonCopiableVft);
+            Assert.IsFalse(vftResult.Success);
+            Assert.AreEqual("Failed", vftResult.Action);
+
+            var matResult = results.First(r => r.Model == validMaterial);
+            Assert.IsTrue(matResult.Success, "Valid sibling item must commit cleanly.");
+            Assert.AreEqual("Created", matResult.Action);
+            Assert.IsTrue(doc.GetElements().OfType<Material>().Any(m => m.Name == "ValidBatchMaterial"));
+        }
+
+        [Test]
+        public void GatherRootElements_CollectsViewFamilyTypes_ToposolidTypes_FiveWayFamilySymbols_AndRespectsCancellation()
+        {
+            var doc = new Document { Title = "RootGatherDoc" };
+
+            var vft = new ViewFamilyType { Name = "Floor Plan VFT", ViewFamily = ViewFamily.FloorPlan };
+            doc.AddElement(vft, new ElementId(101));
+
+            var topo = new ToposolidType { Name = "Topo 1" };
+            doc.AddElement(topo, new ElementId(102));
+
+            var tbCat = new Category { Name = "Title Blocks", Id = new ElementId((long)BuiltInCategory.OST_TitleBlocks), CategoryType = CategoryType.Annotation };
+            var diCat = new Category { Name = "Detail Items", Id = new ElementId((long)BuiltInCategory.OST_DetailComponents), CategoryType = CategoryType.Model };
+            var profCat = new Category { Name = "Profiles", Id = new ElementId((long)BuiltInCategory.OST_ProfileFamilies), CategoryType = CategoryType.Model };
+            var tagCat = new Category { Name = "Door Tags", Id = new ElementId(-2000450), CategoryType = CategoryType.Annotation };
+            var modelCat = new Category { Name = "Doors", Id = new ElementId(-2000023), CategoryType = CategoryType.Model };
+
+            var tbSym = new FamilySymbol { Name = "E1 30x42", Category = tbCat };
+            var diSym = new FamilySymbol { Name = "Brick Course", Category = diCat };
+            var profSym = new FamilySymbol { Name = "C-Channel", Category = profCat };
+            var tagSym = new FamilySymbol { Name = "Door Tag 1", Category = tagCat };
+            var doorSym = new FamilySymbol { Name = "36x84", Category = modelCat };
+
+            doc.AddElement(tbSym, new ElementId(201));
+            doc.AddElement(diSym, new ElementId(202));
+            doc.AddElement(profSym, new ElementId(203));
+            doc.AddElement(tagSym, new ElementId(204));
+            doc.AddElement(doorSym, new ElementId(205));
+
+            var engine = new StandardSerializationEngine();
+
+            // 1. selectedGroupings == null gathers all including ViewFamilyType, ToposolidType, and all 5 FamilySymbol buckets
+            var allElements = engine.GatherRootElements(doc, selectedGroupings: null).ToList();
+            Assert.IsTrue(allElements.Contains(vft), "ViewFamilyType must be gathered when selectedGroupings is null.");
+            Assert.IsTrue(allElements.Contains(topo), "ToposolidType must be gathered on 2024+ when selectedGroupings is null.");
+            Assert.IsTrue(allElements.Contains(tbSym));
+            Assert.IsTrue(allElements.Contains(diSym));
+            Assert.IsTrue(allElements.Contains(profSym));
+            Assert.IsTrue(allElements.Contains(tagSym));
+            Assert.IsTrue(allElements.Contains(doorSym));
+
+            // 2. Filtered selection gathers only matching buckets
+            var onlyVftAndProfiles = engine.GatherRootElements(doc, new[] { "View Family Types", "Profiles" }).ToList();
+            Assert.AreEqual(2, onlyVftAndProfiles.Count);
+            Assert.IsTrue(onlyVftAndProfiles.Contains(vft));
+            Assert.IsTrue(onlyVftAndProfiles.Contains(profSym));
+
+            // 3. CancellationToken is honored
+            using var cts = new System.Threading.CancellationTokenSource();
+            cts.Cancel();
+            Assert.Throws<OperationCanceledException>(() => engine.GatherRootElements(doc, null, cts.Token).ToList());
+        }
     }
 }

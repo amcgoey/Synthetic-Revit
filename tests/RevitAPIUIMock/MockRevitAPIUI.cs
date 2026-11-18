@@ -98,13 +98,20 @@ namespace Autodesk.Revit.UI
     /// </summary>
     public class ExternalEvent
     {
+        public IExternalEventHandler? Handler { get; private set; }
+        public int RaiseCount { get; private set; }
+
         public static ExternalEvent Create(IExternalEventHandler handler)
         {
-            return new ExternalEvent();
+            return new ExternalEvent
+            {
+                Handler = handler
+            };
         }
 
         public ExternalEventRequest Raise()
         {
+            RaiseCount++;
             return ExternalEventRequest.Accepted;
         }
     }

@@ -46,9 +46,15 @@ namespace Synthetic.RevitDOM.Translation
             if (model is ElementTypeModel etModel && !string.IsNullOrEmpty(etModel.FamilyName))
             {
                 template = candidates.FirstOrDefault(c => string.Equals(c.FamilyName, etModel.FamilyName, StringComparison.OrdinalIgnoreCase));
+                if (template == null)
+                {
+                    throw new InvalidOperationException($"No template element of type '{targetType.Name}' with FamilyName '{etModel.FamilyName}' found in the document to duplicate for '{model.Name}'.");
+                }
             }
-
-            template ??= candidates.FirstOrDefault();
+            else
+            {
+                template = candidates.FirstOrDefault();
+            }
 
             if (template == null)
             {

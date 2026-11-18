@@ -1428,6 +1428,67 @@ namespace SyntheticTests.Modules.StandardsManagement
             Assert.Contains(nameof(StagingQueueViewModel.SelectedAliasesString), receivedProperties);
             Assert.Contains(nameof(StandardsExecutionPipelineViewModel.SaveFilePath), receivedProperties);
         }
+
+        [Test]
+        public void AddRevitModelCommand_WithExternalEventAttached_MarshalsViaExternalEventAndHandler()
+        {
+            var mat = new Material { Name = "MarshaledMat" };
+            _doc.AddElement(mat, new ElementId(701));
+
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService);
+            vm.MockOpenDocuments = new List<Document> { _doc };
+            vm.ShowDocumentSelectionDialog = dialogVm =>
+            {
+                foreach (var item in dialogVm.OpenDocuments)
+                {
+                    item.IsSelected = true;
+                }
+                return true;
+            };
+
+            var handler = new ProjectStandardsExternalEventHandler();
+            var externalEvent = Autodesk.Revit.UI.ExternalEvent.Create(handler);
+            vm.SetExternalEvent(externalEvent, handler);
+
+            int initialSources = vm.AvailableSources.Count;
+
+            // Act 1: Modeless UI command must defer extraction and raise ExternalEvent
+            vm.AddRevitModelCommand.Execute(null);
+
+            Assert.AreEqual(1, externalEvent.RaiseCount, "AddRevitModelCommand must raise ExternalEvent when attached.");
+            Assert.AreEqual(initialSources, vm.AvailableSources.Count, "Extraction must not run synchronously on UI thread when ExternalEvent is attached.");
+
+            // Act 2: Revit invokes handler.Execute on the Revit API thread
+            handler.Execute(new Autodesk.Revit.UI.UIApplication());
+
+            Assert.AreEqual(initialSources + 1, vm.AvailableSources.Count, "Handler.Execute must add the extracted Revit source.");
+            Assert.IsFalse(handler.IsRunning, "IsRunning must reset to false after execution.");
+        }
+
+        [Test]
+        public void AddRevitModelCommand_WithoutExternalEvent_ExecutesSynchronously()
+        {
+            var mat = new Material { Name = "SyncMat" };
+            _doc.AddElement(mat, new ElementId(702));
+
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService);
+            vm.MockOpenDocuments = new List<Document> { _doc };
+            vm.ShowDocumentSelectionDialog = dialogVm =>
+            {
+                foreach (var item in dialogVm.OpenDocuments)
+                {
+                    item.IsSelected = true;
+                }
+                return true;
+            };
+
+            int initialSources = vm.AvailableSources.Count;
+
+            // Act: No ExternalEvent attached -> synchronous fallback
+            vm.AddRevitModelCommand.Execute(null);
+
+            Assert.AreEqual(initialSources + 1, vm.AvailableSources.Count, "Extraction must run synchronously when ExternalEvent is null.");
+        }
     }
 
     public class MockPocoModel : ElementModel

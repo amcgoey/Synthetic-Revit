@@ -226,6 +226,11 @@ namespace SyntheticTests.Modules.StandardsManagement
             {
                 return null;
             }
+
+            public IEnumerable<Element> GatherRootElements(Document doc, IReadOnlyCollection<string>? selectedGroupings = null, CancellationToken cancellationToken = default)
+            {
+                return new List<Element>();
+            }
         }
     }
 }

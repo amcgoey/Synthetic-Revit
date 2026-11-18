@@ -101,6 +101,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\CategoryTranslator.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\ColorTranslator.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\DimensionTypeTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\FamilySymbolTranslator.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\FilledRegionTypeTranslator.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\FillPatternTranslator.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\GridTypeTranslator.cs" />
@@ -121,6 +122,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\TemplateDuplicatingTranslator.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\TextElementTypeTranslator.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\TransformTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\ViewFamilyTypeTranslator.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\ViewPlanTranslator.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\ViewScheduleTranslator.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\ViewSheetTranslator.cs" />

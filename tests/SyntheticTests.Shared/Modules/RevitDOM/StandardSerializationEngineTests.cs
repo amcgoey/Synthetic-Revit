@@ -775,5 +775,316 @@ namespace SyntheticTests
                 projDoc.Close(false);
             }
         }
+
+        private (Document Doc, string TempPath) OpenDetachedTestTemplateCopy(Autodesk.Revit.ApplicationServices.Application app)
+        {
+            string projectRoot = TestPathHelper.GetProjectRoot();
+            string testModelName = "TestTemplate" + app.VersionNumber + ".rvt";
+            string sourcePath = Path.Combine(projectRoot, "tests", "test_models", testModelName);
+            Assert.IsTrue(File.Exists(sourcePath), $"Test template not found at {sourcePath}");
+
+            string tempCopyPath = Path.Combine(Path.GetTempPath(), $"SyntheticTestTemplate_{Guid.NewGuid():N}.rvt");
+            File.Copy(sourcePath, tempCopyPath, overwrite: true);
+
+            ModelPath modelPath = ModelPathUtils.ConvertUserVisiblePathToModelPath(tempCopyPath);
+            var openOptions = new OpenOptions
+            {
+                DetachFromCentralOption = DetachFromCentralOption.DetachAndDiscardWorksets
+            };
+            return (app.OpenDocumentFile(modelPath, openOptions), tempCopyPath);
+        }
+
+        [Test]
+        public void ToRevit_FamilySymbol_TwoDoc_LoadedSiblingDuplication_RoundTrip()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            var (docA, pathA) = OpenDetachedTestTemplateCopy(app);
+            var (docB, pathB) = OpenDetachedTestTemplateCopy(app);
+
+            try
+            {
+                FamilySymbol? seedA = new FilteredElementCollector(docA)
+                    .OfClass(typeof(FamilySymbol))
+                    .Cast<FamilySymbol>()
+                    .FirstOrDefault(s => s.GetType() == typeof(FamilySymbol) && s.Family != null && !s.Family.IsInPlace && s.Category != null && !string.IsNullOrEmpty(s.Family.Name));
+                Assert.IsNotNull(seedA, "TestTemplate must contain a loadable FamilySymbol.");
+
+                string targetFamilyName = seedA!.Family.Name;
+                string newSymbolName = "SiblingSymbol_143_" + Guid.NewGuid().ToString("N").Substring(0, 6);
+
+                FamilySymbol duplicatedA;
+                using (var tA = new Transaction(docA, "Create Sibling FamilySymbol"))
+                {
+                    tA.Start();
+                    duplicatedA = (FamilySymbol)seedA.Duplicate(newSymbolName);
+                    tA.Commit();
+                }
+
+                var engine = new StandardSerializationEngine();
+                var extracted = engine.ByRevit(new Element[] { duplicatedA }, docA, isTemplate: true).ToList();
+                Assert.AreEqual(1, extracted.Count);
+
+                string json = StandardSerializationEngine.ToJson(extracted);
+                var rehydrated = StandardSerializationEngine.FromJson(json).ToList();
+                Assert.AreEqual(1, rehydrated.Count);
+
+                var fsModel = rehydrated[0] as ElementTypeModel;
+                Assert.IsNotNull(fsModel);
+                Assert.AreEqual(targetFamilyName, fsModel!.FamilyName);
+
+                var clusters = engine.Analyze(rehydrated, docB).ToList();
+                Assert.IsFalse(clusters.SelectMany(c => c.Items).Any(i => i.ItemName == newSymbolName),
+                    "New sibling symbol should not yet exist in docB.");
+
+                var results = engine.ToRevit(rehydrated, docB).ToList();
+                Assert.AreEqual(1, results.Count);
+                Assert.IsTrue(results[0].Success, $"ToRevit failed: {results[0].Message}");
+                Assert.AreEqual("Created", results[0].Action);
+
+                var createdInDocB = new FilteredElementCollector(docB)
+                    .OfClass(typeof(FamilySymbol))
+                    .Cast<FamilySymbol>()
+                    .FirstOrDefault(s => s.Name == newSymbolName && string.Equals(s.Family?.Name, targetFamilyName, StringComparison.OrdinalIgnoreCase));
+                Assert.IsNotNull(createdInDocB, $"Symbol '{newSymbolName}' must be duplicated strictly inside loaded family '{targetFamilyName}'.");
+            }
+            finally
+            {
+                docA.Close(false);
+                docB.Close(false);
+                try { File.Delete(pathA); } catch { }
+                try { File.Delete(pathB); } catch { }
+            }
+        }
+
+        [Test]
+        public void ToRevit_FamilySymbol_TwoDoc_ConflictingFamilyDoesNotOverwriteUnrelatedFamily()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            var (docA, pathA) = OpenDetachedTestTemplateCopy(app);
+            var (docB, pathB) = OpenDetachedTestTemplateCopy(app);
+
+            try
+            {
+                var symbolsA = new FilteredElementCollector(docA)
+                    .OfClass(typeof(FamilySymbol))
+                    .Cast<FamilySymbol>()
+                    .Where(s => s.GetType() == typeof(FamilySymbol) && s.Family != null && !s.Family.IsInPlace && s.Category != null && !string.IsNullOrEmpty(s.Family.Name))
+                    .GroupBy(s => s.Family.Name, StringComparer.OrdinalIgnoreCase)
+                    .Select(g => g.First())
+                    .ToList();
+
+                Assert.GreaterOrEqual(symbolsA.Count, 2, "TestTemplate must contain at least 2 distinct loadable families.");
+                FamilySymbol fam1SeedA = symbolsA[0];
+                string fam1Name = fam1SeedA.Family.Name;
+                string fam2Name = symbolsA[1].Family.Name;
+
+                string collidingName = "CollideSymbol_143_" + Guid.NewGuid().ToString("N").Substring(0, 6);
+
+                FamilySymbol createdInA;
+                using (var tA = new Transaction(docA, "Create Fam1 Symbol in DocA"))
+                {
+                    tA.Start();
+                    createdInA = (FamilySymbol)fam1SeedA.Duplicate(collidingName);
+                    tA.Commit();
+                }
+
+                // In docB, create a same-named symbol under fam2 (NOT fam1)
+                FamilySymbol? fam2SeedB = new FilteredElementCollector(docB)
+                    .OfClass(typeof(FamilySymbol))
+                    .Cast<FamilySymbol>()
+                    .FirstOrDefault(s => string.Equals(s.Family?.Name, fam2Name, StringComparison.OrdinalIgnoreCase));
+                Assert.IsNotNull(fam2SeedB);
+
+                ElementId fam2SymbolIdB;
+                using (var tB = new Transaction(docB, "Create Conflicting Fam2 Symbol in DocB"))
+                {
+                    tB.Start();
+                    var fam2SymB = (FamilySymbol)fam2SeedB!.Duplicate(collidingName);
+                    fam2SymbolIdB = fam2SymB.Id;
+                    tB.Commit();
+                }
+
+                var engine = new StandardSerializationEngine();
+                var rehydrated = StandardSerializationEngine.FromJson(
+                    StandardSerializationEngine.ToJson(engine.ByRevit(new Element[] { createdInA }, docA, isTemplate: true))).ToList();
+
+                var results = engine.ToRevit(rehydrated, docB).ToList();
+                Assert.AreEqual(1, results.Count);
+                Assert.IsTrue(results[0].Success, $"ToRevit failed: {results[0].Message}");
+                Assert.AreEqual("Created", results[0].Action, "Conflicting family in docB must not match; must duplicate inside fam1 instead.");
+
+                var docBColliders = new FilteredElementCollector(docB)
+                    .OfClass(typeof(FamilySymbol))
+                    .Cast<FamilySymbol>()
+                    .Where(s => s.Name == collidingName)
+                    .ToList();
+
+                Assert.IsTrue(docBColliders.Any(s => string.Equals(s.Family?.Name, fam1Name, StringComparison.OrdinalIgnoreCase)),
+                    "fam1 must receive the newly duplicated symbol.");
+                var untouchedFam2 = docB.GetElement(fam2SymbolIdB) as FamilySymbol;
+                Assert.IsNotNull(untouchedFam2, "Unrelated fam2 symbol in docB must remain intact.");
+                Assert.AreEqual(collidingName, untouchedFam2!.Name);
+                Assert.AreEqual(fam2Name, untouchedFam2.Family?.Name);
+            }
+            finally
+            {
+                docA.Close(false);
+                docB.Close(false);
+                try { File.Delete(pathA); } catch { }
+                try { File.Delete(pathB); } catch { }
+            }
+        }
+
+        [Test]
+        public void ToRevit_FamilySymbol_TwoDoc_UnloadedFamilyRollsBackInnerTransactionOnly()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            var (docA, pathA) = OpenDetachedTestTemplateCopy(app);
+            Document docB = app.NewProjectDocument(UnitSystem.Metric);
+
+            try
+            {
+                var docBFamilyNames = new HashSet<string>(
+                    new FilteredElementCollector(docB).OfClass(typeof(Family)).Cast<Family>().Select(f => f.Name),
+                    StringComparer.OrdinalIgnoreCase);
+
+                FamilySymbol? missingInDocB = new FilteredElementCollector(docA)
+                    .OfClass(typeof(FamilySymbol))
+                    .Cast<FamilySymbol>()
+                    .FirstOrDefault(s => s.GetType() == typeof(FamilySymbol) && s.Family != null && !s.Family.IsInPlace && !string.IsNullOrEmpty(s.Family.Name) && !docBFamilyNames.Contains(s.Family.Name));
+                Assert.IsNotNull(missingInDocB, "Need a FamilySymbol in TestTemplate whose Family is not in blank metric project.");
+
+                string missingFamilyName = missingInDocB!.Family.Name;
+
+                var engine = new StandardSerializationEngine();
+                var rehydratedFs = StandardSerializationEngine.FromJson(
+                    StandardSerializationEngine.ToJson(engine.ByRevit(new Element[] { missingInDocB }, docA, isTemplate: true))).ToList();
+                Assert.AreEqual(1, rehydratedFs.Count);
+
+                var healthyMat = new MaterialModel
+                {
+                    Name = "HealthyBatchMat_143_" + Guid.NewGuid().ToString("N").Substring(0, 6),
+                    Class = "Autodesk.Revit.DB.Material"
+                };
+
+                var results = engine.ToRevit(new ObjectModel[] { rehydratedFs[0], healthyMat }, docB).ToList();
+                Assert.AreEqual(2, results.Count);
+
+                var fsRes = results.First(r => r.Model == rehydratedFs[0]);
+                Assert.IsFalse(fsRes.Success, "Missing parent family must fail.");
+                Assert.AreEqual("Failed", fsRes.Action);
+                Assert.IsTrue(fsRes.Message.Contains(missingFamilyName), $"Failure message must name missing FamilyName '{missingFamilyName}', got: {fsRes.Message}");
+
+                var matRes = results.First(r => r.Model == healthyMat);
+                Assert.IsTrue(matRes.Success, "Healthy sibling model in same TransactionGroup must commit.");
+                Assert.AreEqual("Created", matRes.Action);
+
+                Assert.IsTrue(new FilteredElementCollector(docB).OfClass(typeof(Material)).Any(m => m.Name == healthyMat.Name));
+            }
+            finally
+            {
+                docA.Close(false);
+                docB.Close(false);
+                try { File.Delete(pathA); } catch { }
+            }
+        }
+
+        [Test]
+        public void GatherRootElements_And_ToRevit_ViewFamilyType_TwoDocRoundTrip_AndNonCopiableSeedFailure()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            Document docA = app.NewProjectDocument(UnitSystem.Metric);
+            Document docB = app.NewProjectDocument(UnitSystem.Metric);
+
+            try
+            {
+                var copiableSeedA = new FilteredElementCollector(docA)
+                    .OfClass(typeof(ViewFamilyType))
+                    .Cast<ViewFamilyType>()
+                    .FirstOrDefault(v => v.CanBeCopied && v.ViewFamily == ViewFamily.FloorPlan);
+                Assert.IsNotNull(copiableSeedA, "Must find a copiable FloorPlan ViewFamilyType in docA.");
+
+                string customVftName = "Custom_FloorPlan_144_" + Guid.NewGuid().ToString("N").Substring(0, 6);
+                using (var tA = new Transaction(docA, "Create Custom ViewFamilyType"))
+                {
+                    tA.Start();
+                    copiableSeedA!.Duplicate(customVftName);
+                    tA.Commit();
+                }
+
+                var engine = new StandardSerializationEngine();
+
+                // 1. GatherRootElements collects ViewFamilyType
+                var gathered = engine.GatherRootElements(docA, new[] { "View Family Types" }).ToList();
+                var gatheredCustom = gathered.OfType<ViewFamilyType>().FirstOrDefault(v => v.Name == customVftName);
+                Assert.IsNotNull(gatheredCustom, "GatherRootElements must collect custom ViewFamilyType.");
+
+                // 2. ByRevit -> ToJson -> FromJson
+                var extracted = engine.ByRevit(new Element[] { gatheredCustom! }, docA, isTemplate: true).ToList();
+                Assert.AreEqual(1, extracted.Count);
+                var vftModel = extracted[0] as ElementTypeModel;
+                Assert.IsNotNull(vftModel);
+                Assert.AreEqual("FloorPlan", vftModel!.ViewFamily);
+
+                string json = StandardSerializationEngine.ToJson(extracted);
+                var rehydrated = StandardSerializationEngine.FromJson(json).ToList();
+                Assert.AreEqual(1, rehydrated.Count);
+
+                // 3. Analyze & ToRevit into docB
+                var clusters = engine.Analyze(rehydrated, docB).ToList();
+                Assert.IsFalse(clusters.SelectMany(c => c.Items).Any(i => i.ItemName == customVftName));
+
+                var results = engine.ToRevit(rehydrated, docB).ToList();
+                Assert.AreEqual(1, results.Count);
+                Assert.IsTrue(results[0].Success, $"ToRevit for ViewFamilyType failed: {results[0].Message}");
+                Assert.AreEqual("Created", results[0].Action);
+
+                var createdInDocB = new FilteredElementCollector(docB)
+                    .OfClass(typeof(ViewFamilyType))
+                    .Cast<ViewFamilyType>()
+                    .FirstOrDefault(v => v.Name == customVftName && v.ViewFamily == ViewFamily.FloorPlan);
+                Assert.IsNotNull(createdInDocB, "Created ViewFamilyType must exist in docB with ViewFamily.FloorPlan.");
+
+                // 4. Non-duplicatable ViewFamilyType (!v.CanBeCopied) records Action = "Failed" without crashing batch
+                var nonCopiableVft = new FilteredElementCollector(docA)
+                    .OfClass(typeof(ViewFamilyType))
+                    .Cast<ViewFamilyType>()
+                    .FirstOrDefault(v => !v.CanBeCopied);
+                if (nonCopiableVft != null)
+                {
+                    var failModel = new ElementTypeModel
+                    {
+                        Name = "Attempted_NonCopiable_144_" + Guid.NewGuid().ToString("N").Substring(0, 6),
+                        Class = "Autodesk.Revit.DB.ViewFamilyType",
+                        ViewFamily = nonCopiableVft.ViewFamily.ToString()
+                    };
+                    var healthyMat = new MaterialModel
+                    {
+                        Name = "HealthyBatchMat_144_" + Guid.NewGuid().ToString("N").Substring(0, 6),
+                        Class = "Autodesk.Revit.DB.Material"
+                    };
+
+                    var batchResults = engine.ToRevit(new ObjectModel[] { failModel, healthyMat }, docB).ToList();
+                    Assert.AreEqual(2, batchResults.Count);
+
+                    var vftFail = batchResults.First(r => r.Model == failModel);
+                    Assert.IsFalse(vftFail.Success);
+                    Assert.AreEqual("Failed", vftFail.Action);
+
+                    var matOk = batchResults.First(r => r.Model == healthyMat);
+                    Assert.IsTrue(matOk.Success);
+                    Assert.AreEqual("Created", matOk.Action);
+                }
+            }
+            finally
+            {
+                docA.Close(false);
+                docB.Close(false);
+            }
+        }
     }
 }

@@ -38,72 +38,7 @@ namespace Synthetic.RevitDOM.Operations
         {
             _identityService = identityService ?? new RevitIdentityService();
             _dispatcher = new ModelDispatcher(_identityService);
-
-            // Register primitive translators
-            _dispatcher.Register<LinePatternElementModel, LinePatternTranslator>(typeof(LinePatternElement));
-            _dispatcher.Register<FillPatternElementModel, FillPatternTranslator>(typeof(FillPatternElement));
-            _dispatcher.Register<ParameterFilterElementModel, ParameterFilterElementTranslator>(new ParameterFilterElementTranslator(_identityService), typeof(ParameterFilterElement));
-            _dispatcher.Register<FilledRegionTypeModel, FilledRegionTypeTranslator>(new FilledRegionTypeTranslator(_identityService), typeof(FilledRegionType));
-            _dispatcher.Register<ParameterElementModel, ParameterElementTranslator>(typeof(ParameterElement), typeof(SharedParameterElement));
-            _dispatcher.Register<BrowserOrganizationModel, BrowserOrganizationTranslator>(typeof(BrowserOrganization));
-            var hostObjTypeTranslator = new HostObjTypeTranslator(_identityService);
-#if REVIT2022 || REVIT2023
-            _dispatcher.Register<HostObjTypeModel, HostObjTypeTranslator>(
-                hostObjTypeTranslator,
-                typeof(WallType), typeof(FloorType), typeof(RoofType), typeof(CeilingType), typeof(BuildingPadType),
-                typeof(CurtainSystemType), typeof(MullionType), typeof(FasciaType), typeof(GutterType));
-#else
-            _dispatcher.Register<HostObjTypeModel, HostObjTypeTranslator>(
-                hostObjTypeTranslator,
-                typeof(WallType), typeof(FloorType), typeof(RoofType), typeof(CeilingType), typeof(BuildingPadType),
-                typeof(CurtainSystemType), typeof(MullionType), typeof(FasciaType), typeof(GutterType),
-                typeof(ToposolidType));
-#endif
-
-            // Register view translators
-            var viewTranslator = new ViewTranslator(_identityService);
-            _dispatcher.Register<ViewModel, ViewTranslator>(viewTranslator, typeof(ViewDrafting), typeof(ViewSection));
-            _dispatcher.Register<ViewPlanModel, ViewPlanTranslator>(new ViewPlanTranslator(_identityService), typeof(ViewPlan));
-            _dispatcher.Register<ViewSheetModel, ViewSheetTranslator>(new ViewSheetTranslator(_identityService), typeof(ViewSheet));
-            _dispatcher.Register<ViewScheduleModel, ViewScheduleTranslator>(new ViewScheduleTranslator(_identityService), typeof(ViewSchedule));
-
-            // Register remaining translators
-            _dispatcher.Register<MaterialModel, MaterialTranslator>(new MaterialTranslator(_identityService), typeof(Material));
-            _dispatcher.Register<CategoryModel, CategoryTranslator>(new CategoryTranslator(_identityService), typeof(Autodesk.Revit.DB.Category));
-            _dispatcher.Register<DimensionTypeModel, DimensionTypeTranslator>(typeof(DimensionType));
-            _dispatcher.Register<ElementTypeModel, GridTypeTranslator>(typeof(GridType));
-            _dispatcher.Register<ElementTypeModel, LevelTypeTranslator>(typeof(LevelType));
-            var textElementTypeTranslator = new TextElementTypeTranslator();
-            _dispatcher.Register<ElementTypeModel, TextElementTypeTranslator>(
-                textElementTypeTranslator,
-                typeof(TextNoteType), typeof(TextElementType), typeof(ModelTextType));
-            _dispatcher.Register<ElementTypeModel, SpotDimensionTypeTranslator>(
-                new SpotDimensionTypeTranslator(),
-                typeof(SpotDimensionType));
-
-            // Register Ignored types
-            _dispatcher.RegisterIgnored(
-                typeof(InternalOrigin),
-                typeof(BasePoint),
-                typeof(SketchPlane),
-                typeof(ProjectLocation),
-                typeof(NumberingSchema));
-
-            // Register Pending types
-            _dispatcher.RegisterPending(
-                typeof(PhaseFilter),
-                typeof(Phase),
-                typeof(Revision),
-                typeof(RevisionSettings),
-                typeof(RevisionNumberingSequence),
-                typeof(AreaScheme),
-                typeof(ColorFillScheme),
-                typeof(SunAndShadowSettings),
-                typeof(WorksetDefaultVisibilitySettings),
-                typeof(RailingType),
-                typeof(StairsType),
-                typeof(StairsLandingType),
-                typeof(StairsRunType));
+            StandardTypeRegistry.RegisterAllTranslators(_dispatcher, _identityService);
         }
 
         /// <summary>
@@ -625,6 +560,14 @@ namespace Synthetic.RevitDOM.Operations
             if (category == null) throw new ArgumentNullException(nameof(category));
             if (doc == null) throw new ArgumentNullException(nameof(doc));
             return _dispatcher.Extract(category, doc, isTemplate);
+        }
+
+        public IEnumerable<Element> GatherRootElements(
+            Document doc,
+            IReadOnlyCollection<string>? selectedGroupings = null,
+            CancellationToken cancellationToken = default)
+        {
+            return StandardTypeRegistry.GatherRootElements(doc, selectedGroupings, cancellationToken);
         }
 
         #region Headless Pure JSON Operations

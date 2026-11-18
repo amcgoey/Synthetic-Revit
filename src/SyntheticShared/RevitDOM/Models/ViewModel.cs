@@ -49,9 +49,14 @@ namespace Synthetic.RevitDOM.Models
         public List<int> NonControlledParameterIds { get; set; } = new List<int>();
 
         /// <summary>
-        /// Gets or sets the associated Revit View Template object.
+        /// Gets or sets the associated Revit View Template object. Ignored in JSON.
         /// </summary>
-        public ElementIdModel? ViewTemplate { get; set; }
+        [JsonIgnoreAttribute]
+        public object? ViewTemplate
+        {
+            get => this.View;
+            set => this.View = value;
+        }
 
         /// <summary>
         /// Gets or sets the display style of the view.
@@ -268,7 +273,7 @@ namespace Synthetic.RevitDOM.Models
             model.Populate(view, isTemplate);
             model.Name = view.Name;
             model.Class = view.GetType().FullName;
-            model.ViewTemplate = new RevitIdentityService().ToModel(view.Id, view.Document, true);
+            model.ViewTemplate = view;
 
             translator.ExtractSpecifics(view, model, view.Document);
             return model;

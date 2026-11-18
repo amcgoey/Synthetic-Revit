@@ -29,6 +29,16 @@ namespace Synthetic.RevitDOM.Models
         public string FamilyName { get; set; } = string.Empty;
 
         /// <summary>
+        /// Gets or sets the ViewFamily enum name for ViewFamilyType elements. Null for all other element types.
+        /// </summary>
+        public string? ViewFamily { get; set; }
+
+        /// <summary>
+        /// Determines whether the ViewFamily property should be serialized to JSON (omitted when null).
+        /// </summary>
+        public bool ShouldSerializeViewFamily() => ViewFamily != null;
+
+        /// <summary>
         /// Gets or sets the underlying Revit ElementType object. Ignored in JSON.
         /// </summary>
         [JsonIgnoreAttribute]

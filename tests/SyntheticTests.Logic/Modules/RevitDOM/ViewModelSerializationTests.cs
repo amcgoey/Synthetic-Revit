@@ -836,5 +836,126 @@ namespace SyntheticTests.Modules.RevitDOM
             Assert.IsTrue(deserializedSpots.Any(s => s.FamilyName == "Spot Elevations" && s.Name == "Standard"));
             Assert.IsTrue(deserializedSpots.Any(s => s.FamilyName == "Spot Coordinates" && s.Name == "Standard"));
         }
+
+        [Test]
+        public void StandardSerializationEngine_ToJson_FamilySymbolCompositeKeysAndFallbacksAndRoundTrip()
+        {
+            var models = new List<ObjectModel>
+            {
+                new ElementTypeModel
+                {
+                    Name = "Standard",
+                    Class = "Autodesk.Revit.DB.FamilySymbol",
+                    Category = "Doors",
+                    FamilyName = "Single-Flush"
+                },
+                new ElementTypeModel
+                {
+                    Name = "Standard",
+                    Class = "Autodesk.Revit.DB.FamilySymbol",
+                    Category = "Doors",
+                    FamilyName = "Double-Flush"
+                },
+                new ElementTypeModel
+                {
+                    Name = "Standard",
+                    Class = "Autodesk.Revit.DB.FamilySymbol",
+                    Category = "Windows",
+                    FamilyName = "Single-Flush"
+                },
+                new ElementTypeModel
+                {
+                    Name = "CatOnlySymbol",
+                    Class = "Autodesk.Revit.DB.FamilySymbol",
+                    Category = "Furniture",
+                    FamilyName = ""
+                },
+                new ElementTypeModel
+                {
+                    Name = "FamOnlySymbol",
+                    Class = "Autodesk.Revit.DB.FamilySymbol",
+                    Category = "",
+                    FamilyName = "Casework"
+                },
+                new ElementTypeModel
+                {
+                    Name = "BareSymbol",
+                    Class = "Autodesk.Revit.DB.FamilySymbol",
+                    Category = "",
+                    FamilyName = ""
+                }
+            };
+
+            string json = StandardSerializationEngine.ToJson(models);
+            var root = JObject.Parse(json);
+            var elemTypes = (JObject)root["ElementTypes"]!;
+            Assert.IsNotNull(elemTypes);
+            Assert.AreEqual(6, elemTypes.Count);
+            Assert.IsTrue(elemTypes.ContainsKey("[Doors | Single-Flush]_Standard"));
+            Assert.IsTrue(elemTypes.ContainsKey("[Doors | Double-Flush]_Standard"));
+            Assert.IsTrue(elemTypes.ContainsKey("[Windows | Single-Flush]_Standard"));
+            Assert.IsTrue(elemTypes.ContainsKey("[Furniture]_CatOnlySymbol"));
+            Assert.IsTrue(elemTypes.ContainsKey("[Casework]_FamOnlySymbol"));
+            Assert.IsTrue(elemTypes.ContainsKey("BareSymbol"));
+
+            var roundTripped = StandardSerializationEngine.FromJson(json).OfType<ElementTypeModel>().ToList();
+            Assert.AreEqual(6, roundTripped.Count);
+            Assert.IsTrue(roundTripped.Any(m => m.Category == "Doors" && m.FamilyName == "Single-Flush" && m.Name == "Standard"));
+            Assert.IsTrue(roundTripped.Any(m => m.Category == "Doors" && m.FamilyName == "Double-Flush" && m.Name == "Standard"));
+            Assert.IsTrue(roundTripped.Any(m => m.Category == "Windows" && m.FamilyName == "Single-Flush" && m.Name == "Standard"));
+        }
+
+        [Test]
+        public void StandardSerializationEngine_ToJson_ViewFamilyTypeCompositeKeysAndNullOmissionAndRoundTrip()
+        {
+            var vftFloor = new ElementTypeModel
+            {
+                Name = "Architectural Plan",
+                Class = "Autodesk.Revit.DB.ViewFamilyType",
+                FamilyName = "Floor Plan",
+                ViewFamily = "FloorPlan"
+            };
+            var vftCeiling = new ElementTypeModel
+            {
+                Name = "Architectural Plan",
+                Class = "Autodesk.Revit.DB.ViewFamilyType",
+                FamilyName = "Ceiling Plan",
+                ViewFamily = "CeilingPlan"
+            };
+            var vftLegacyFallback = new ElementTypeModel
+            {
+                Name = "Legacy Detail",
+                Class = "Autodesk.Revit.DB.ViewFamilyType",
+                FamilyName = "Detail",
+                ViewFamily = null
+            };
+            var nonVft = new ElementTypeModel
+            {
+                Name = "Grid 1",
+                Class = "Autodesk.Revit.DB.GridType",
+                ViewFamily = null
+            };
+
+            string json = StandardSerializationEngine.ToJson(new ObjectModel[] { vftFloor, vftCeiling, vftLegacyFallback, nonVft });
+            var root = JObject.Parse(json);
+
+            // Null ViewFamily must be omitted from JSON
+            var gridEntry = (JObject)root["GridTypes"]!["Grid 1"]!;
+            Assert.IsFalse(gridEntry.ContainsKey("ViewFamily"), "ViewFamily must be omitted from JSON when null.");
+
+            var vftDict = (JObject)root["ViewFamilyTypes"]!;
+            Assert.AreEqual(3, vftDict.Count);
+            Assert.IsTrue(vftDict.ContainsKey("[FloorPlan]_Architectural Plan"));
+            Assert.IsTrue(vftDict.ContainsKey("[CeilingPlan]_Architectural Plan"));
+            Assert.IsTrue(vftDict.ContainsKey("[Detail]_Legacy Detail"));
+            Assert.AreEqual("FloorPlan", vftDict["[FloorPlan]_Architectural Plan"]!["ViewFamily"]?.ToString());
+            Assert.IsFalse(((JObject)vftDict["[Detail]_Legacy Detail"]!).ContainsKey("ViewFamily"));
+
+            var roundTripped = StandardSerializationEngine.FromJson(json).OfType<ElementTypeModel>().ToList();
+            Assert.AreEqual(4, roundTripped.Count);
+            Assert.IsTrue(roundTripped.Any(m => m.ViewFamily == "FloorPlan" && m.Name == "Architectural Plan"));
+            Assert.IsTrue(roundTripped.Any(m => m.ViewFamily == "CeilingPlan" && m.Name == "Architectural Plan"));
+            Assert.IsTrue(roundTripped.Any(m => m.ViewFamily == null && m.FamilyName == "Detail" && m.Name == "Legacy Detail"));
+        }
     }
 }

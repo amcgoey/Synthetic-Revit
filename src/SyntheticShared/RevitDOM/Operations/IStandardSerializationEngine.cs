@@ -16,5 +16,6 @@ namespace Synthetic.RevitDOM.Operations
         IEnumerable<DuplicateClusterModel> Analyze(IEnumerable<ObjectModel> models, Document doc, IProgress<string>? progress = null, CancellationToken cancellationToken = default);
         IEnumerable<SerializationResultModel> ToRevit(IEnumerable<ObjectModel> models, Document doc, IProgress<string>? progress = null, CancellationToken cancellationToken = default, IFailuresPreprocessor? failuresPreprocessor = null);
         ObjectModel? ExtractCategory(Category category, Document doc, bool isTemplate);
+        IEnumerable<Element> GatherRootElements(Document doc, IReadOnlyCollection<string>? selectedGroupings = null, CancellationToken cancellationToken = default);
     }
 }
