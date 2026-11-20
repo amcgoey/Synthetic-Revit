@@ -9,6 +9,7 @@ using Synthetic.Modules.SheetIndex.Models;
 using Synthetic.Modules.SheetIndex.Services;
 using Synthetic.Modules.SheetIndex.ViewModels;
 using Synthetic.Modules.SheetIndex.Views;
+using Synthetic.Shared.UI;
 
 namespace Synthetic.Modules.SheetIndex.Commands
 {
@@ -261,7 +262,11 @@ namespace Synthetic.Modules.SheetIndex.Commands
                 exporterService.ExportToExcel(matrix, savePath);
 
                 // 8. Show Post-Export Completion Dialog
-                var completionWindow = new ExportCompletionWindow(savePath, uiapp.MainWindowHandle);
+                var completionViewModel = ExportCompletionViewModel.ForSingleFile(
+                    savePath,
+                    windowTitle: "Export Complete",
+                    headerTitle: "Sheet Index Export Complete");
+                var completionWindow = new ExportCompletionWindow(completionViewModel, uiapp.MainWindowHandle);
                 completionWindow.ShowDialog();
 
                 return Result.Succeeded;
