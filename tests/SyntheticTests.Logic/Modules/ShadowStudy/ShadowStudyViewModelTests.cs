@@ -124,5 +124,175 @@ namespace SyntheticTests.Modules.ShadowStudy
             vm.CancelCommand.Execute(null);
             Assert.AreEqual(false, closedWith);
         }
+
+        [Test]
+        public void Constructor_WhenActiveViewIsEligible_SelectsCurrentViewModeAndEnablesCurrentViewOption()
+        {
+            var adapter = new FakeShadowStudyAdapter();
+            adapter.EligibleViews.Add(adapter.ActiveView!);
+            adapter.EligibleViews.Add(new ShadowStudyViewItem
+            {
+                Id = "view-2",
+                Name = "Level 2 - Floor Plan",
+                ViewType = "FloorPlan",
+                IsCropped = false,
+                Warnings = { new ShadowStudyViewWarningBadge { Code = "Uncropped", Label = "Uncropped View" } }
+            });
+
+            var vm = new ShadowStudyViewModel(adapter, new FakeFolderDialogService(), new DateTime(2026, 6, 21));
+
+            Assert.AreEqual(ShadowStudyExportRangeMode.CurrentView, vm.ExportRangeMode);
+            Assert.IsTrue(vm.IsCurrentViewEligible);
+            Assert.IsTrue(vm.IsCurrentViewMode);
+            Assert.IsFalse(vm.IsSelectedViewsMode);
+            Assert.AreEqual(2, vm.FilteredViews.Count);
+            Assert.AreEqual(0, vm.SelectedViewsCount);
+        }
+
+        [Test]
+        public void Constructor_WhenActiveViewIsNull_AutoSelectsSelectedViewsAndDisablesCurrentView()
+        {
+            var adapter = new FakeShadowStudyAdapter
+            {
+                ActiveView = null,
+                SiteInfo = new ShadowStudySiteInfo
+                {
+                    PlaceName = "Boston, MA",
+                    LatitudeDegrees = 42.3601,
+                    LongitudeDegrees = -71.0589,
+                    TimeZoneHours = -5.0,
+                    UsesDst = true
+                }
+            };
+            adapter.EligibleViews.Add(new ShadowStudyViewItem
+            {
+                Id = "v-plan",
+                Name = "Level 1",
+                ViewType = "FloorPlan",
+                IsCropped = true
+            });
+            adapter.EligibleViews.Add(new ShadowStudyViewItem
+            {
+                Id = "v-3d",
+                Name = "Exterior 3D",
+                ViewType = "ThreeD",
+                IsCropped = false,
+                Warnings =
+                {
+                    new ShadowStudyViewWarningBadge { Code = "Uncropped", Label = "Uncropped View" },
+                    new ShadowStudyViewWarningBadge { Code = "VisualStyle", Label = "Hidden Line Export" }
+                }
+            });
+
+            var vm = new ShadowStudyViewModel(
+                adapter,
+                new FakeFolderDialogService { NextResult = @"C:\Exports\Shadows" },
+                new DateTime(2026, 6, 21));
+
+            vm.BrowseOutputFolderCommand.Execute(null);
+
+            Assert.IsFalse(vm.IsCurrentViewEligible);
+            Assert.AreEqual(ShadowStudyExportRangeMode.SelectedViews, vm.ExportRangeMode);
+            Assert.IsTrue(vm.IsSelectedViewsMode);
+            Assert.IsFalse(vm.IsCurrentViewMode);
+            StringAssert.Contains("Enabled", vm.DstStatusDisplay);
+
+            // Attempting to switch to CurrentView when ineligible is ignored
+            vm.ExportRangeMode = ShadowStudyExportRangeMode.CurrentView;
+            Assert.AreEqual(ShadowStudyExportRangeMode.SelectedViews, vm.ExportRangeMode);
+
+            // 0 checked views -> CanExport is false
+            Assert.AreEqual(0, vm.SelectedViewsCount);
+            Assert.IsFalse(vm.CanExport, "Export must be disabled when 0 views are checked in Selected Views mode.");
+
+            // Checking 1 view enables Export and preserves multiple coexisting warning badges
+            vm.FilteredViews[1].IsSelected = true;
+            Assert.AreEqual(1, vm.SelectedViewsCount);
+            Assert.IsTrue(vm.FilteredViews[1].HasWarnings);
+            Assert.AreEqual(2, vm.FilteredViews[1].Warnings.Count);
+            Assert.IsTrue(vm.CanExport);
+        }
+
+        [Test]
+        public void ViewSearchAndSelectAllSelectNone_FilterAndToggleVisibleViewsWhilePreservingHiddenSelections()
+        {
+            var adapter = new FakeShadowStudyAdapter { ActiveView = null };
+            adapter.EligibleViews.AddRange(new[]
+            {
+                new ShadowStudyViewItem { Id = "v1", Name = "Level 1", ViewType = "FloorPlan" },
+                new ShadowStudyViewItem { Id = "v2", Name = "Level 2", ViewType = "CeilingPlan" },
+                new ShadowStudyViewItem { Id = "v3", Name = "South Section", ViewType = "Section" },
+                new ShadowStudyViewItem { Id = "v4", Name = "Detail Callout", ViewType = "Detail" }
+            });
+
+            var vm = new ShadowStudyViewModel(adapter, new FakeFolderDialogService(), new DateTime(2026, 6, 21));
+            vm.OutputFolder = @"C:\Exports\Shadows";
+
+            // Filter by "Plan" matches FloorPlan and CeilingPlan via ViewType
+            vm.ViewSearchText = "plan";
+            Assert.AreEqual(2, vm.FilteredViews.Count);
+
+            vm.SelectAllViewsCommand.Execute(null);
+            Assert.AreEqual(2, vm.SelectedViewsCount);
+
+            // Filter to Section and select it too
+            vm.ViewSearchText = "south";
+            Assert.AreEqual(1, vm.FilteredViews.Count);
+            vm.SelectAllViewsCommand.Execute(null);
+            Assert.AreEqual(3, vm.SelectedViewsCount);
+
+            // Select None only unchecks currently visible views (South Section), leaving Level 1 & Level 2 checked
+            vm.SelectNoneViewsCommand.Execute(null);
+            Assert.AreEqual(2, vm.SelectedViewsCount);
+
+            // Clearing filter shows all 4 with the 2 prior selections retained
+            vm.ViewSearchText = string.Empty;
+            Assert.AreEqual(4, vm.FilteredViews.Count);
+            Assert.IsTrue(vm.FilteredViews[0].IsSelected);
+            Assert.IsTrue(vm.FilteredViews[1].IsSelected);
+            Assert.IsFalse(vm.FilteredViews[2].IsSelected);
+            Assert.IsFalse(vm.FilteredViews[3].IsSelected);
+        }
+
+        [Test]
+        public void BuildRunRequest_InSelectedViewsMode_AssignsCollisionOnlyViewTypeLabelsAndSwitchesModes()
+        {
+            var adapter = new FakeShadowStudyAdapter();
+            var viewA = new ShadowStudyViewItem { Id = "v1", Name = "Level 1", ViewType = "FloorPlan" };
+            var viewB = new ShadowStudyViewItem { Id = "v2", Name = "Level 1", ViewType = "CeilingPlan" };
+            var viewC = new ShadowStudyViewItem { Id = "v3", Name = "Building Section", ViewType = "Section" };
+            adapter.ActiveView = viewA;
+            adapter.EligibleViews.AddRange(new[] { viewA, viewB, viewC });
+
+            var vm = new ShadowStudyViewModel(adapter, new FakeFolderDialogService(), new DateTime(2026, 6, 21));
+            vm.OutputFolder = @"C:\Exports\Shadows";
+
+            // Switch to SelectedViews and select all three
+            vm.ExportRangeMode = ShadowStudyExportRangeMode.SelectedViews;
+            Assert.IsFalse(vm.CanExport);
+
+            vm.SelectAllViewsCommand.Execute(null);
+            Assert.IsTrue(vm.CanExport);
+            StringAssert.Contains("Level 1 (FloorPlan) - 260621 - Composite.png", vm.CompositeFileNamePreview);
+
+            ShadowStudyRunRequest batchRequest = vm.BuildRunRequest();
+            Assert.AreEqual(3, batchRequest.Views.Count);
+            Assert.AreEqual("Level 1 (FloorPlan)", batchRequest.Views[0].ViewLabel);
+            Assert.AreEqual("Level 1 (CeilingPlan)", batchRequest.Views[1].ViewLabel);
+            Assert.AreEqual("Building Section", batchRequest.Views[2].ViewLabel);
+
+            // Uncheck CeilingPlan -> Level 1 no longer collides!
+            vm.FilteredViews[1].IsSelected = false;
+            ShadowStudyRunRequest nonCollidingRequest = vm.BuildRunRequest();
+            Assert.AreEqual(2, nonCollidingRequest.Views.Count);
+            Assert.AreEqual("Level 1", nonCollidingRequest.Views[0].ViewLabel);
+            Assert.AreEqual("Building Section", nonCollidingRequest.Views[1].ViewLabel);
+
+            // Switch back to CurrentView -> exports ActiveView cleanly
+            vm.ExportRangeMode = ShadowStudyExportRangeMode.CurrentView;
+            ShadowStudyRunRequest singleRequest = vm.BuildRunRequest();
+            Assert.AreEqual(1, singleRequest.Views.Count);
+            Assert.AreEqual("Level 1", singleRequest.Views[0].ViewLabel);
+        }
     }
 }

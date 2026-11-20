@@ -37,11 +37,11 @@ namespace Synthetic.Modules.ShadowStudy.Commands
 
                 var adapter = new RevitShadowStudyAdapter(doc, uidoc, uiapp);
                 ShadowStudyViewItem? activeView = adapter.GetActiveViewInfo();
-                if (activeView == null)
+                if (activeView == null && adapter.GetEligibleViews().Count == 0)
                 {
                     Autodesk.Revit.UI.TaskDialog.Show(
                         "Shadow Study",
-                        "The active view does not support Shadow Study export.\n\nPlease activate a graphical view (Floor Plan, Ceiling Plan, Area Plan, Structural Plan, 3D View, Section, Elevation, or Detail View) and try again.");
+                        "No shadow-capable graphical views were found in this project.\n\nCreate a graphical view (Floor Plan, Ceiling Plan, Area Plan, Structural Plan, 3D View, Section, Elevation, or Detail View) and try again.");
                     return Result.Succeeded;
                 }
 

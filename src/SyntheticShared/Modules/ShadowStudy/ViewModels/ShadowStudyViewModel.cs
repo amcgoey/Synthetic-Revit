@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Globalization;
+using System.Linq;
 using System.Windows.Input;
 using Synthetic.Modules.ShadowStudy.Adapters;
 using Synthetic.Modules.ShadowStudy.Models;
@@ -10,13 +12,17 @@ using Synthetic.Shared.UI;
 namespace Synthetic.Modules.ShadowStudy.ViewModels
 {
     /// <summary>
-    /// Presentation ViewModel for the single-view, single-date Hidden Line Shadow Composite dialog.
+    /// Presentation ViewModel for the Shadow Study composite exporter dialog, supporting both
+    /// Current View and multi-view Selected Views batch export.
     /// </summary>
     public class ShadowStudyViewModel : ViewModelBase
     {
         private readonly IShadowStudyAdapter _adapter;
         private readonly IFolderDialogService _folderDialogService;
+        private readonly List<ShadowStudySelectableViewItemViewModel> _allViews;
 
+        private ShadowStudyExportRangeMode _exportRangeMode;
+        private string _viewSearchText = string.Empty;
         private DateTime _selectedDate;
         private int _timeStepMinutes = 60;
         private double _minSunAltitudeDegrees = 5.0;
@@ -50,9 +56,25 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
                 ShadowStudyPathHelper.AssignViewLabels(new[] { ActiveView });
             }
 
+            IReadOnlyList<ShadowStudyViewItem> eligibleViews = _adapter.GetEligibleViews() ?? Array.Empty<ShadowStudyViewItem>();
+            _allViews = eligibleViews
+                .Where(v => v != null)
+                .Select(v => new ShadowStudySelectableViewItemViewModel(v, OnViewSelectionChanged))
+                .ToList();
+
+            IsCurrentViewEligible = ActiveView != null;
+            _exportRangeMode = IsCurrentViewEligible
+                ? ShadowStudyExportRangeMode.CurrentView
+                : ShadowStudyExportRangeMode.SelectedViews;
+
+            FilteredViews = new ObservableCollection<ShadowStudySelectableViewItemViewModel>();
+            RefreshFilteredViews();
+
             _selectedDate = (initialDate ?? DateTime.Today).Date;
 
             BrowseOutputFolderCommand = new RelayCommand(_ => ExecuteBrowseOutputFolder());
+            SelectAllViewsCommand = new RelayCommand(_ => ExecuteSelectAllViews());
+            SelectNoneViewsCommand = new RelayCommand(_ => ExecuteSelectNoneViews());
             ExportCommand = new RelayCommand(_ => ExecuteExport(), _ => CanExport);
             CancelCommand = new RelayCommand(_ => RequestClose?.Invoke(false));
 
@@ -60,9 +82,89 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
         }
 
         /// <summary>
-        /// Gets the active shadow-capable view item.
+        /// Gets the active shadow-capable view item, or <c>null</c> when launched from an ineligible view (such as a Sheet or Schedule).
         /// </summary>
         public ShadowStudyViewItem? ActiveView { get; }
+
+        /// <summary>
+        /// Gets a value indicating whether the active view is eligible for Current View export.
+        /// </summary>
+        public bool IsCurrentViewEligible { get; }
+
+        /// <summary>
+        /// Gets or sets the active export range mode (<see cref="ShadowStudyExportRangeMode.CurrentView"/> or <see cref="ShadowStudyExportRangeMode.SelectedViews"/>).
+        /// Switching to <see cref="ShadowStudyExportRangeMode.CurrentView"/> is ignored when <see cref="IsCurrentViewEligible"/> is <c>false</c>.
+        /// </summary>
+        public ShadowStudyExportRangeMode ExportRangeMode
+        {
+            get => _exportRangeMode;
+            set
+            {
+                if (value == ShadowStudyExportRangeMode.CurrentView && !IsCurrentViewEligible)
+                {
+                    return;
+                }
+
+                if (SetProperty(ref _exportRangeMode, value))
+                {
+                    OnPropertyChanged(nameof(IsCurrentViewMode));
+                    OnPropertyChanged(nameof(IsSelectedViewsMode));
+                    OnPropertyChanged(nameof(CompositeFileNamePreview));
+                    RaiseExportStateChanged();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets a value indicating whether <see cref="ExportRangeMode"/> is <see cref="ShadowStudyExportRangeMode.CurrentView"/>.
+        /// </summary>
+        public bool IsCurrentViewMode => ExportRangeMode == ShadowStudyExportRangeMode.CurrentView;
+
+        /// <summary>
+        /// Gets a value indicating whether <see cref="ExportRangeMode"/> is <see cref="ShadowStudyExportRangeMode.SelectedViews"/>.
+        /// </summary>
+        public bool IsSelectedViewsMode => ExportRangeMode == ShadowStudyExportRangeMode.SelectedViews;
+
+        /// <summary>
+        /// Gets all eligible views wrapped for multi-view selection.
+        /// </summary>
+        public IReadOnlyList<ShadowStudySelectableViewItemViewModel> AllViews => _allViews.AsReadOnly();
+
+        /// <summary>
+        /// Gets the eligible views matching <see cref="ViewSearchText"/>.
+        /// </summary>
+        public ObservableCollection<ShadowStudySelectableViewItemViewModel> FilteredViews { get; }
+
+        /// <summary>
+        /// Gets or sets the case-insensitive search filter applied to view names and view types.
+        /// </summary>
+        public string ViewSearchText
+        {
+            get => _viewSearchText;
+            set
+            {
+                string normalized = value ?? string.Empty;
+                if (SetProperty(ref _viewSearchText, normalized))
+                {
+                    RefreshFilteredViews();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets the number of views currently checked in the Selected Views checklist.
+        /// </summary>
+        public int SelectedViewsCount => _allViews.Count(v => v.IsSelected);
+
+        /// <summary>
+        /// Gets the total number of eligible shadow-capable views in the project.
+        /// </summary>
+        public int TotalEligibleViewsCount => _allViews.Count;
+
+        /// <summary>
+        /// Gets a summary string showing how many eligible views are selected.
+        /// </summary>
+        public string SelectedViewsSummary => $"{SelectedViewsCount} of {TotalEligibleViewsCount} selected";
 
         /// <summary>
         /// Gets the project site location metadata.
@@ -242,9 +344,28 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
         {
             get
             {
-                string viewLabel = ActiveView?.ViewLabel ?? "View";
                 string dateLabel = ShadowStudyPathHelper.FormatDateLabel(SelectedDate);
-                return ShadowStudyPathHelper.BuildCompositeFileName(viewLabel, dateLabel);
+                if (ExportRangeMode == ShadowStudyExportRangeMode.CurrentView)
+                {
+                    string viewLabel = ActiveView?.ViewLabel ?? "View";
+                    return ShadowStudyPathHelper.BuildCompositeFileName(viewLabel, dateLabel);
+                }
+
+                var selectedCopies = _allViews
+                    .Where(v => v.IsSelected)
+                    .Select(v => CloneViewItem(v.ViewItem))
+                    .ToList();
+
+                if (selectedCopies.Count == 0)
+                {
+                    return "Select at least 1 view to preview output filename";
+                }
+
+                ShadowStudyPathHelper.AssignViewLabels(selectedCopies);
+                string firstFileName = ShadowStudyPathHelper.BuildCompositeFileName(selectedCopies[0].ViewLabel, dateLabel);
+                return selectedCopies.Count == 1
+                    ? firstFileName
+                    : $"{firstFileName} (+{selectedCopies.Count - 1} more)";
             }
         }
 
@@ -266,10 +387,11 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
 
         /// <summary>
         /// Gets a value indicating whether Export can currently execute.
-        /// Requires an eligible active view, a non-blank output folder, positive pixel width, and at least one valid daylight frame.
+        /// Requires at least one valid target view for the active mode, a non-blank output folder,
+        /// positive pixel width, and at least one valid daylight frame.
         /// </summary>
         public bool CanExport =>
-            ActiveView != null &&
+            HasValidTargetViews() &&
             !string.IsNullOrWhiteSpace(OutputFolder) &&
             ValidFrameCount > 0 &&
             PixelWidth > 0;
@@ -278,6 +400,16 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
         /// Gets the command that opens the folder browser dialog.
         /// </summary>
         public ICommand BrowseOutputFolderCommand { get; }
+
+        /// <summary>
+        /// Gets the command that checks all views currently visible in <see cref="FilteredViews"/>.
+        /// </summary>
+        public ICommand SelectAllViewsCommand { get; }
+
+        /// <summary>
+        /// Gets the command that unchecks all views currently visible in <see cref="FilteredViews"/>.
+        /// </summary>
+        public ICommand SelectNoneViewsCommand { get; }
 
         /// <summary>
         /// Gets the command that confirms settings and starts the export.
@@ -290,18 +422,41 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
         public ICommand CancelCommand { get; }
 
         /// <summary>
-        /// Builds the headless <see cref="ShadowStudyRunRequest"/> for the configured view, date, and output settings.
+        /// Builds the headless <see cref="ShadowStudyRunRequest"/> for the configured view(s), date, and output settings.
         /// </summary>
         public ShadowStudyRunRequest BuildRunRequest()
         {
-            if (ActiveView == null)
+            IReadOnlyList<ShadowStudyViewItem> targetViews;
+            if (ExportRangeMode == ShadowStudyExportRangeMode.CurrentView)
             {
-                throw new InvalidOperationException("Cannot build a Shadow Study run request without an eligible active view.");
+                if (ActiveView == null)
+                {
+                    throw new InvalidOperationException("Cannot build a Shadow Study run request without an eligible active view.");
+                }
+
+                ShadowStudyViewItem single = CloneViewItem(ActiveView);
+                ShadowStudyPathHelper.AssignViewLabels(new[] { single });
+                targetViews = new[] { single };
+            }
+            else
+            {
+                var checkedViews = _allViews
+                    .Where(v => v.IsSelected)
+                    .Select(v => CloneViewItem(v.ViewItem))
+                    .ToList();
+
+                if (checkedViews.Count == 0)
+                {
+                    throw new InvalidOperationException("Cannot build a Shadow Study run request without at least one selected view.");
+                }
+
+                ShadowStudyPathHelper.AssignViewLabels(checkedViews);
+                targetViews = checkedViews.AsReadOnly();
             }
 
             return new ShadowStudyRunRequest
             {
-                Views = new[] { ActiveView },
+                Views = targetViews,
                 DateSchedules = new[] { CurrentSchedule },
                 OutputFolder = OutputFolder.Trim(),
                 PixelWidth = PixelWidth,
@@ -309,6 +464,70 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
                 ForceHiddenLine = ForceHiddenLine,
                 ForceWhiteBackground = ForceWhiteBackground,
                 KeepIndividualFrames = false
+            };
+        }
+
+        private bool HasValidTargetViews()
+        {
+            return ExportRangeMode == ShadowStudyExportRangeMode.CurrentView
+                ? ActiveView != null
+                : SelectedViewsCount > 0;
+        }
+
+        private void RefreshFilteredViews()
+        {
+            FilteredViews.Clear();
+            string term = _viewSearchText.Trim();
+            foreach (var item in _allViews)
+            {
+                if (string.IsNullOrEmpty(term) ||
+                    item.Name.IndexOf(term, StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    item.ViewType.IndexOf(term, StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    FilteredViews.Add(item);
+                }
+            }
+        }
+
+        private void ExecuteSelectAllViews()
+        {
+            foreach (var view in FilteredViews)
+            {
+                view.IsSelected = true;
+            }
+        }
+
+        private void ExecuteSelectNoneViews()
+        {
+            foreach (var view in FilteredViews)
+            {
+                view.IsSelected = false;
+            }
+        }
+
+        private void OnViewSelectionChanged()
+        {
+            OnPropertyChanged(nameof(SelectedViewsCount));
+            OnPropertyChanged(nameof(SelectedViewsSummary));
+            OnPropertyChanged(nameof(CompositeFileNamePreview));
+            RaiseExportStateChanged();
+        }
+
+        private static ShadowStudyViewItem CloneViewItem(ShadowStudyViewItem source)
+        {
+            return new ShadowStudyViewItem
+            {
+                Id = source.Id,
+                Name = source.Name,
+                ViewType = source.ViewType,
+                ViewLabel = source.ViewLabel,
+                IsCropped = source.IsCropped,
+                DisplayStyleName = source.DisplayStyleName,
+                HasControllingTemplate = source.HasControllingTemplate,
+                IsBackgroundSupported = source.IsBackgroundSupported,
+                Warnings = source.Warnings != null
+                    ? new List<ShadowStudyViewWarningBadge>(source.Warnings)
+                    : new List<ShadowStudyViewWarningBadge>()
             };
         }
 

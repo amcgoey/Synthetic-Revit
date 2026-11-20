@@ -28,6 +28,7 @@ namespace Synthetic.Modules.ShadowStudy.Adapters
         private readonly Document _doc;
         private readonly UIDocument? _uidoc;
         private readonly UIApplication? _uiapp;
+        private readonly View? _activeViewOverride;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="RevitShadowStudyAdapter"/> class.
@@ -37,6 +38,12 @@ namespace Synthetic.Modules.ShadowStudy.Adapters
             _doc = doc ?? throw new ArgumentNullException(nameof(doc));
             _uidoc = uidoc;
             _uiapp = uiapp;
+        }
+
+        internal RevitShadowStudyAdapter(Document doc, UIDocument? uidoc, UIApplication? uiapp, View? activeViewOverride)
+            : this(doc, uidoc, uiapp)
+        {
+            _activeViewOverride = activeViewOverride;
         }
 
         /// <inheritdoc />
@@ -58,13 +65,18 @@ namespace Synthetic.Modules.ShadowStudy.Adapters
         /// <inheritdoc />
         public ShadowStudyViewItem? GetActiveViewInfo()
         {
-            View? activeView = _uidoc?.ActiveView ?? _doc.ActiveView;
+            View? activeView = ResolveActiveView();
             if (!IsEligibleView(activeView))
             {
                 return null;
             }
 
             return MapViewItem(activeView!);
+        }
+
+        private View? ResolveActiveView()
+        {
+            return _activeViewOverride ?? _uidoc?.ActiveView ?? _doc.ActiveView;
         }
 
         /// <inheritdoc />
@@ -377,7 +389,7 @@ namespace Synthetic.Modules.ShadowStudy.Adapters
 
         private bool ResolveUsesDst()
         {
-            View? active = _uidoc?.ActiveView ?? _doc.ActiveView;
+            View? active = ResolveActiveView();
             if (IsEligibleView(active) && active!.SunAndShadowSettings != null)
             {
                 return active.SunAndShadowSettings.UsesDST;
