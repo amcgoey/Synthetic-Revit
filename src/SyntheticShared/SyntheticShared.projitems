@@ -40,9 +40,6 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Views\ExportSheetIndexWindow.xaml.cs">
       <DependentUpon>ExportSheetIndexWindow.xaml</DependentUpon>
     </Compile>
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Views\ExportCompletionWindow.xaml.cs">
-      <DependentUpon>ExportCompletionWindow.xaml</DependentUpon>
-    </Compile>
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\Diagnostics\StorageDelete.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ViewManagement\Commands\ViewAutoNumberConfig.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\Worksets\Commands\WorksetStartView.cs" />
@@ -351,6 +348,10 @@
       <DependentUpon>SharedCoordinatesSummaryWindow.xaml</DependentUpon>
     </Compile>
     <Compile Include="$(MSBuildThisFileDirectory)Shared\UI\GuardrailPromptWindow.xaml.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Shared\UI\ExportCompletionViewModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Shared\UI\ExportCompletionWindow.xaml.cs">
+      <DependentUpon>ExportCompletionWindow.xaml</DependentUpon>
+    </Compile>
   </ItemGroup>
     <ItemGroup>
     <Page Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Views\MergeDuplicatesWindow.xaml">
@@ -474,6 +475,10 @@
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>
+    <Page Include="$(MSBuildThisFileDirectory)Shared\UI\ExportCompletionWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
     <Page Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Views\ExportSheetIndexWindow.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
@@ -487,10 +492,6 @@
       <SubType>Designer</SubType>
     </Page>
     <Page Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Views\SharedCoordinatesSummaryWindow.xaml">
-      <Generator>MSBuild:Compile</Generator>
-      <SubType>Designer</SubType>
-    </Page>
-    <Page Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Views\ExportCompletionWindow.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>
