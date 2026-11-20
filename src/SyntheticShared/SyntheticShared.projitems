@@ -353,6 +353,31 @@
     <Compile Include="$(MSBuildThisFileDirectory)Shared\UI\ExportCompletionWindow.xaml.cs">
       <DependentUpon>ExportCompletionWindow.xaml</DependentUpon>
     </Compile>
+    <Compile Include="$(MSBuildThisFileDirectory)Shared\UI\IFolderDialogService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Shared\UI\WindowsFolderDialogService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudySiteInfo.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudyViewWarningBadge.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudyViewItem.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudyDateEntry.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\SolarFrameSlot.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\DateSolarSchedule.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\RawFrameExportRequest.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\RawExportedFrame.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\RawExportedDateFrames.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\RawFrameExportResult.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudyRunRequest.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudyRunSummary.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Adapters\IShadowStudyAdapter.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Adapters\RevitShadowStudyAdapter.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Commands\CmdShadowStudy.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Services\SolarScheduleCalculator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Services\ShadowImageCompositor.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Services\ShadowStudyPathHelper.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Services\ShadowStudyPipeline.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\ViewModels\ShadowStudyViewModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Views\ShadowStudyWindow.xaml.cs">
+      <DependentUpon>ShadowStudyWindow.xaml</DependentUpon>
+    </Compile>
   </ItemGroup>
     <ItemGroup>
     <Page Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Views\MergeDuplicatesWindow.xaml">
@@ -493,6 +518,10 @@
       <SubType>Designer</SubType>
     </Page>
     <Page Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Views\SharedCoordinatesSummaryWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Views\ShadowStudyWindow.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>

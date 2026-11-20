@@ -275,6 +275,15 @@
           "tooltip": "Export Dot Sheet Index matrix spreadsheet to Excel.",
           "large_image": "print_32.png",
           "image": "print_16.png"
+        },
+        {
+          "type": "PushButton",
+          "name": "Synthetic.Modules.ShadowStudy.Commands.CmdShadowStudy",
+          "text": " Shadow\nStudy ",
+          "class": "Synthetic.Modules.ShadowStudy.Commands.CmdShadowStudy",
+          "tooltip": "Export calibrated Multiply-blend Shadow Composite diagrams for architectural daylight studies.",
+          "large_image": "print_32.png",
+          "image": "print_16.png"
         }
       ]
     },

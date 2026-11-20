@@ -1,0 +1,156 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Threading;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using Synthetic.Modules.ShadowStudy.Adapters;
+using Synthetic.Modules.ShadowStudy.Models;
+using Synthetic.Shared.UI;
+
+namespace SyntheticTests.Modules.ShadowStudy
+{
+    public class FakeShadowStudyAdapter : IShadowStudyAdapter
+    {
+        public ShadowStudySiteInfo SiteInfo { get; set; } = new ShadowStudySiteInfo
+        {
+            PlaceName = "Boston, MA",
+            LatitudeDegrees = 42.3601,
+            LongitudeDegrees = -71.0589,
+            TimeZoneHours = -5.0,
+            UsesDst = false
+        };
+
+        public ShadowStudyViewItem? ActiveView { get; set; } = new ShadowStudyViewItem
+        {
+            Id = "view-1",
+            Name = "Level 1 - Floor Plan",
+            ViewType = "FloorPlan",
+            ViewLabel = "Level 1 - Floor Plan",
+            IsCropped = true,
+            DisplayStyleName = "HLR",
+            IsBackgroundSupported = false
+        };
+
+        public List<ShadowStudyViewItem> EligibleViews { get; } = new List<ShadowStudyViewItem>();
+        public List<RawFrameExportRequest> ExportRequests { get; } = new List<RawFrameExportRequest>();
+        public int CancelAfterFrameCount { get; set; } = -1;
+        public CancellationTokenSource? CancelSourceToTrigger { get; set; }
+        public Exception? ExceptionToThrow { get; set; }
+        public int ImageWidth { get; set; } = 32;
+        public int ImageHeight { get; set; } = 32;
+
+        public ShadowStudySiteInfo GetSiteInfo() => SiteInfo;
+
+        public ShadowStudyViewItem? GetActiveViewInfo() => ActiveView;
+
+        public IReadOnlyList<ShadowStudyViewItem> GetEligibleViews()
+        {
+            if (EligibleViews.Count > 0) return EligibleViews;
+            return ActiveView != null ? new List<ShadowStudyViewItem> { ActiveView } : new List<ShadowStudyViewItem>();
+        }
+
+        public RawFrameExportResult ExportRawFrames(
+            RawFrameExportRequest request,
+            IProgress<ProgressState>? progress = null,
+            CancellationToken cancellationToken = default)
+        {
+            ExportRequests.Add(request);
+
+            if (ExceptionToThrow != null)
+            {
+                throw ExceptionToThrow;
+            }
+
+            var groups = new List<RawExportedDateFrames>();
+            int totalFrames = 0;
+            foreach (var s in request.DateSchedules)
+            {
+                totalFrames += s.Frames.Count;
+            }
+            totalFrames *= Math.Max(1, request.Views.Count);
+
+            int exportedSoFar = 0;
+            foreach (var view in request.Views)
+            {
+                string refPath = Path.Combine(request.TempRootDirectory, view.Id, "ref.png");
+                WriteSolidTestPng(refPath, ImageWidth, ImageHeight, 255, 255, 255, 255);
+
+                foreach (var schedule in request.DateSchedules)
+                {
+                    if (schedule.Frames.Count == 0) continue;
+
+                    var frames = new List<RawExportedFrame>();
+                    for (int i = 0; i < schedule.Frames.Count; i++)
+                    {
+                        if (CancelAfterFrameCount >= 0 && exportedSoFar >= CancelAfterFrameCount && CancelSourceToTrigger != null)
+                        {
+                            CancelSourceToTrigger.Cancel();
+                        }
+                        cancellationToken.ThrowIfCancellationRequested();
+
+                        var slot = schedule.Frames[i];
+                        string framePath = Path.Combine(
+                            request.TempRootDirectory,
+                            view.Id,
+                            schedule.DateEntry.DateLabel,
+                            $"f_{i:D3}_{slot.FrameFileStem}.png");
+
+                        byte shadowByte = (byte)Math.Max(0, Math.Min(255, 255 - (int)Math.Round(255.0 * schedule.ShadowIntensity / 100.0)));
+                        WriteSolidTestPng(framePath, ImageWidth, ImageHeight, shadowByte, shadowByte, shadowByte, 255);
+
+                        frames.Add(new RawExportedFrame
+                        {
+                            Slot = slot,
+                            FramePngPath = framePath
+                        });
+
+                        exportedSoFar++;
+                        progress?.Report(new ProgressState
+                        {
+                            TaskDescription = $"Exporting {view.ViewLabel}",
+                            CurrentItemName = $"{schedule.DateEntry.DateLabel} {slot.FrameFileStem}",
+                            ProgressIndex = exportedSoFar,
+                            MaximumBounds = Math.Max(1, totalFrames)
+                        });
+                    }
+
+                    groups.Add(new RawExportedDateFrames
+                    {
+                        View = view,
+                        DateSchedule = schedule,
+                        SharedReferencePngPath = refPath,
+                        Frames = frames
+                    });
+                }
+            }
+
+            return new RawFrameExportResult { DateFrameGroups = groups };
+        }
+
+        public static void WriteSolidTestPng(string path, int width, int height, byte b, byte g, byte r, byte a)
+        {
+            string? dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrEmpty(dir))
+            {
+                Directory.CreateDirectory(dir);
+            }
+
+            byte[] pixels = new byte[width * height * 4];
+            for (int i = 0; i < pixels.Length; i += 4)
+            {
+                pixels[i + 0] = b;
+                pixels[i + 1] = g;
+                pixels[i + 2] = r;
+                pixels[i + 3] = a;
+            }
+
+            var bmp = BitmapSource.Create(width, height, 96.0, 96.0, PixelFormats.Bgra32, null, pixels, width * 4);
+            bmp.Freeze();
+            using var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(bmp));
+            encoder.Save(fs);
+        }
+    }
+}

@@ -300,6 +300,13 @@ namespace SyntheticTests.Infrastructure.UI
                 typeof(System.Windows.Controls.Primitives.ScrollBar),
                 typeof(System.Windows.Controls.ToolTip),
                 typeof(System.Windows.Controls.Expander),
+                typeof(System.Windows.Controls.RadioButton),
+                typeof(System.Windows.Controls.DatePicker),
+                typeof(System.Windows.Controls.Primitives.DatePickerTextBox),
+                typeof(System.Windows.Controls.Calendar),
+                typeof(System.Windows.Controls.Primitives.CalendarItem),
+                typeof(System.Windows.Controls.Primitives.CalendarButton),
+                typeof(System.Windows.Controls.Primitives.CalendarDayButton),
             };
 
             foreach (var type in types)
@@ -384,6 +391,55 @@ namespace SyntheticTests.Infrastructure.UI
                 Assert.IsInstanceOf<System.Windows.Media.Geometry>(resource,
                     $"Resource '{key}' must be of type System.Windows.Media.Geometry.");
             }
+        }
+
+        [Test]
+        public void SharedProgressWindow_UserClose_TriggersCancellation()
+        {
+            using var cts = new System.Threading.CancellationTokenSource();
+            var vm = new SharedProgressViewModel(cts);
+            var window = new SharedProgressWindow(IntPtr.Zero, vm);
+            window.Show();
+
+            window.Close();
+
+            Assert.IsTrue(vm.IsCancellationRequested, "User closing SharedProgressWindow must trigger cancellation.");
+            Assert.IsTrue(cts.IsCancellationRequested, "CancellationTokenSource must be cancelled on user close.");
+        }
+
+        [Test]
+        public void SharedProgressWindow_ProgrammaticClose_DoesNotTriggerCancellation()
+        {
+            using var cts = new System.Threading.CancellationTokenSource();
+            var vm = new SharedProgressViewModel(cts);
+            var window = new SharedProgressWindow(IntPtr.Zero, vm)
+            {
+                AllowProgrammaticClose = true
+            };
+            window.Show();
+
+            window.Close();
+
+            Assert.IsFalse(vm.IsCancellationRequested, "Programmatic close must not trigger cancellation.");
+            Assert.IsFalse(cts.IsCancellationRequested, "CancellationTokenSource must remain active on programmatic close.");
+        }
+
+        [Test]
+        public void ShadowStudyWindow_ConstructsAndBindsInStaWithoutXamlErrors()
+        {
+            var adapter = new SyntheticTests.Modules.ShadowStudy.FakeShadowStudyAdapter();
+            var folderDialog = new SyntheticTests.Modules.ShadowStudy.FakeFolderDialogService();
+            var vm = new Synthetic.Modules.ShadowStudy.ViewModels.ShadowStudyViewModel(adapter, folderDialog, new DateTime(2026, 6, 21));
+
+            Synthetic.Modules.ShadowStudy.Views.ShadowStudyWindow? window = null;
+            Assert.DoesNotThrow(() =>
+            {
+                window = new Synthetic.Modules.ShadowStudy.Views.ShadowStudyWindow(IntPtr.Zero) { DataContext = vm };
+                window.ApplyTemplate();
+            });
+
+            Assert.IsNotNull(window);
+            window!.Close();
         }
     }
 }
