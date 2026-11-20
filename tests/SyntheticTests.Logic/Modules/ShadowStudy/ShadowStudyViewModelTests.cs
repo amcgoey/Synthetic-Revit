@@ -1,13 +1,38 @@
 using System;
+using System.IO;
+using System.Linq;
 using NUnit.Framework;
 using Synthetic.Modules.ShadowStudy.Models;
+using Synthetic.Modules.ShadowStudy.Services;
 using Synthetic.Modules.ShadowStudy.ViewModels;
+using Synthetic.Shared.UI;
 
 namespace SyntheticTests.Modules.ShadowStudy
 {
     [TestFixture]
     public class ShadowStudyViewModelTests
     {
+        private bool _previousSuppressUi;
+        private string _tempDir = string.Empty;
+
+        [SetUp]
+        public void SetUp()
+        {
+            _previousSuppressUi = ProgressCoordinator.SuppressUI;
+            ProgressCoordinator.SuppressUI = true;
+            _tempDir = Path.Combine(Path.GetTempPath(), "ShadowVmTests_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(_tempDir);
+        }
+
+        [TearDown]
+        public void TearDown()
+        {
+            ProgressCoordinator.SuppressUI = _previousSuppressUi;
+            if (Directory.Exists(_tempDir))
+            {
+                Directory.Delete(_tempDir, true);
+            }
+        }
         [Test]
         public void Constructor_PopulatesSiteMetadataViewWarningsAndDefaults()
         {
@@ -58,6 +83,9 @@ namespace SyntheticTests.Modules.ShadowStudy
             Assert.AreEqual(3000, vm.PixelWidth);
             Assert.IsTrue(vm.ForceHiddenLine);
             Assert.IsTrue(vm.ForceWhiteBackground);
+            Assert.IsTrue(vm.ExportIndividualFrames, "Export individual frame PNGs must default to checked.");
+            Assert.AreEqual(4, vm.TimeIncrementOptions.Count);
+            CollectionAssert.AreEqual(new[] { 15, 30, 60, 120 }, vm.TimeIncrementOptions.Select(o => o.Minutes).ToArray());
             Assert.IsFalse(vm.CanExport, "Export must be disabled when OutputFolder is blank.");
         }
 
@@ -120,6 +148,7 @@ namespace SyntheticTests.Modules.ShadowStudy
             Assert.AreEqual(1, request.DateSchedules.Count);
             Assert.AreEqual(@"C:\Exports\Shadows", request.OutputFolder);
             Assert.AreEqual(3000, request.PixelWidth);
+            Assert.IsTrue(request.KeepIndividualFrames);
 
             vm.CancelCommand.Execute(null);
             Assert.AreEqual(false, closedWith);
@@ -214,6 +243,51 @@ namespace SyntheticTests.Modules.ShadowStudy
         }
 
         [Test]
+        public void SchedulePreview_UpdatesImmediatelyOnTimeStepAltitudeAndDarknessChanges_AndFlagsZeroFrames()
+        {
+            var adapter = new FakeShadowStudyAdapter
+            {
+                SiteInfo = new ShadowStudySiteInfo
+                {
+                    PlaceName = "Tromso",
+                    LatitudeDegrees = 69.6492,
+                    LongitudeDegrees = 18.9553,
+                    TimeZoneHours = 1.0,
+                    UsesDst = false
+                }
+            };
+            var folderDialog = new FakeFolderDialogService();
+            var vm = new ShadowStudyViewModel(adapter, folderDialog, new DateTime(2026, 6, 21))
+            {
+                OutputFolder = @"C:\Exports\Tromso"
+            };
+
+            int hourlyCount = vm.ValidFrameCount;
+            string hourlyPreview = vm.SchedulePreviewText;
+
+            vm.TimeStepMinutes = 30;
+            Assert.Greater(vm.ValidFrameCount, hourlyCount);
+            Assert.AreNotEqual(hourlyPreview, vm.SchedulePreviewText);
+
+            string beforeDarkness = vm.SchedulePreviewText;
+            vm.MaxCompositeDarknessPercent = 50;
+            Assert.AreNotEqual(beforeDarkness, vm.SchedulePreviewText);
+
+            // Raise altitude above peak summer Tromso sun (~43.8°) -> 0 frames
+            vm.MinSunAltitudeDegrees = 60.0;
+            Assert.AreEqual(0, vm.ValidFrameCount);
+            Assert.IsTrue(vm.HasZeroFrames);
+            Assert.IsFalse(vm.CanExport);
+            StringAssert.Contains(vm.PeakSolarAltitudeDegrees.ToString("F1", System.Globalization.CultureInfo.InvariantCulture), vm.ZeroFramesWarningText);
+
+            // Lower altitude back -> valid frames return
+            vm.MinSunAltitudeDegrees = 5.0;
+            Assert.Greater(vm.ValidFrameCount, 0);
+            Assert.IsFalse(vm.HasZeroFrames);
+            Assert.IsTrue(vm.CanExport);
+        }
+
+        [Test]
         public void ViewSearchAndSelectAllSelectNone_FilterAndToggleVisibleViewsWhilePreservingHiddenSelections()
         {
             var adapter = new FakeShadowStudyAdapter { ActiveView = null };
@@ -293,6 +367,108 @@ namespace SyntheticTests.Modules.ShadowStudy
             ShadowStudyRunRequest singleRequest = vm.BuildRunRequest();
             Assert.AreEqual(1, singleRequest.Views.Count);
             Assert.AreEqual("Level 1", singleRequest.Views[0].ViewLabel);
+        }
+
+        [Test]
+        public void Validation_BlocksOutOfRangeAndMalformedInputsForAltitudeDarknessAndPixelWidth()
+        {
+            var adapter = new FakeShadowStudyAdapter();
+            var folderDialog = new FakeFolderDialogService();
+            var vm = new ShadowStudyViewModel(adapter, folderDialog, new DateTime(2026, 6, 21))
+            {
+                OutputFolder = @"C:\Exports\Validation"
+            };
+
+            Assert.IsFalse(vm.HasValidationErrors);
+            Assert.IsTrue(vm.CanExport);
+
+            // Altitude out of [0..90]
+            vm.MinSunAltitudeText = "-0.5";
+            Assert.IsTrue(vm.HasValidationErrors);
+            Assert.IsFalse(vm.CanExport);
+
+            vm.MinSunAltitudeText = "90.1";
+            Assert.IsTrue(vm.HasValidationErrors);
+            Assert.IsFalse(vm.CanExport);
+
+            vm.MinSunAltitudeText = "abc";
+            Assert.IsTrue(vm.HasValidationErrors);
+            Assert.IsFalse(vm.CanExport);
+
+            vm.MinSunAltitudeText = "0";
+            Assert.IsFalse(vm.HasValidationErrors);
+            Assert.IsTrue(vm.CanExport);
+
+            // Darkness out of [1..95]
+            vm.MaxCompositeDarknessText = "0";
+            Assert.IsTrue(vm.HasValidationErrors);
+            Assert.IsFalse(vm.CanExport);
+
+            vm.MaxCompositeDarknessText = "96";
+            Assert.IsTrue(vm.HasValidationErrors);
+            Assert.IsFalse(vm.CanExport);
+
+            vm.MaxCompositeDarknessText = "75";
+            Assert.IsFalse(vm.HasValidationErrors);
+            Assert.IsTrue(vm.CanExport);
+
+            // PixelWidth out of [64..15000]
+            vm.PixelWidthText = "63";
+            Assert.IsTrue(vm.HasValidationErrors);
+            Assert.IsFalse(vm.CanExport);
+
+            vm.PixelWidthText = "15001";
+            Assert.IsTrue(vm.HasValidationErrors);
+            Assert.IsFalse(vm.CanExport);
+
+            vm.PixelWidthText = "1920";
+            Assert.IsFalse(vm.HasValidationErrors);
+            Assert.AreEqual(1920, vm.PixelWidth);
+            Assert.IsTrue(vm.CanExport);
+        }
+
+        [Test]
+        public void LocalPreferences_LoadOnConstructionAndSaveOnlyOnExportConfirmation()
+        {
+            string prefsPath = Path.Combine(_tempDir, "ShadowStudyUserPrefs.json");
+            var store = new ShadowStudyUserPrefsStore(prefsPath);
+            store.Save(new ShadowStudyUserPrefs
+            {
+                LastOutputFolder = @"D:\Studio\Shadows",
+                PixelWidth = 2400,
+                ExportIndividualFrames = false
+            });
+
+            var adapter = new FakeShadowStudyAdapter();
+            var folderDialog = new FakeFolderDialogService();
+            var vm = new ShadowStudyViewModel(adapter, folderDialog, new DateTime(2026, 6, 21), store);
+
+            Assert.AreEqual(@"D:\Studio\Shadows", vm.OutputFolder);
+            Assert.AreEqual(2400, vm.PixelWidth);
+            Assert.AreEqual("2400", vm.PixelWidthText);
+            Assert.IsFalse(vm.ExportIndividualFrames);
+
+            // Cancelling must not overwrite stored prefs
+            vm.OutputFolder = @"D:\Unsaved\Cancelled";
+            vm.PixelWidthText = "1280";
+            vm.ExportIndividualFrames = true;
+            vm.CancelCommand.Execute(null);
+
+            ShadowStudyUserPrefs afterCancel = store.Load();
+            Assert.AreEqual(@"D:\Studio\Shadows", afterCancel.LastOutputFolder);
+            Assert.AreEqual(2400, afterCancel.PixelWidth);
+            Assert.IsFalse(afterCancel.ExportIndividualFrames);
+
+            // Confirming Export saves updated prefs
+            vm.OutputFolder = @"D:\Studio\Updated";
+            vm.PixelWidthText = "4096";
+            vm.ExportIndividualFrames = true;
+            vm.ExportCommand.Execute(null);
+
+            ShadowStudyUserPrefs afterExport = store.Load();
+            Assert.AreEqual(@"D:\Studio\Updated", afterExport.LastOutputFolder);
+            Assert.AreEqual(4096, afterExport.PixelWidth);
+            Assert.IsTrue(afterExport.ExportIndividualFrames);
         }
     }
 }

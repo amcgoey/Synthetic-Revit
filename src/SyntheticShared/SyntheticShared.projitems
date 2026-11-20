@@ -368,6 +368,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\RawFrameExportResult.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudyRunRequest.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudyRunSummary.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudyUserPrefs.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Adapters\IShadowStudyAdapter.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Adapters\RevitShadowStudyAdapter.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Commands\CmdShadowStudy.cs" />
@@ -375,6 +376,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Services\ShadowImageCompositor.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Services\ShadowStudyPathHelper.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Services\ShadowStudyPipeline.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Services\ShadowStudyUserPrefsStore.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\ViewModels\ShadowStudySelectableViewItemViewModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\ViewModels\ShadowStudyViewModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Views\ShadowStudyWindow.xaml.cs">
