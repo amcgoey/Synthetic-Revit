@@ -36,6 +36,23 @@ namespace SyntheticTests.Modules.ShadowStudy
         }
 
         [Test]
+        public void AssignViewLabels_TreatsCaseInsensitiveAndSanitizedCollisionsAsColliding()
+        {
+            var views = new List<ShadowStudyViewItem>
+            {
+                new ShadowStudyViewItem { Id = "1", Name = "Site/Plan", ViewType = "FloorPlan" },
+                new ShadowStudyViewItem { Id = "2", Name = "site:plan", ViewType = "AreaPlan" },
+                new ShadowStudyViewItem { Id = "3", Name = "Detail 01", ViewType = "Detail" }
+            };
+
+            ShadowStudyPathHelper.AssignViewLabels(views);
+
+            Assert.AreEqual("Site_Plan (FloorPlan)", views[0].ViewLabel);
+            Assert.AreEqual("site_plan (AreaPlan)", views[1].ViewLabel);
+            Assert.AreEqual("Detail 01", views[2].ViewLabel);
+        }
+
+        [Test]
         public void FormattingHelpers_ProduceExpectedDateAndCompositeNames()
         {
             string dateLabel = ShadowStudyPathHelper.FormatDateLabel(new DateTime(2026, 6, 21));

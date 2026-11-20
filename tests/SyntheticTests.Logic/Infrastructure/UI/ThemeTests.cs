@@ -462,5 +462,52 @@ namespace SyntheticTests.Infrastructure.UI
             Assert.IsNotNull(window);
             window!.Close();
         }
+
+        [Test]
+        public void ShadowStudyWindow_SelectedViewsChecklist_BindsAndSwitchesModesWithoutXamlErrors()
+        {
+            var adapter = new SyntheticTests.Modules.ShadowStudy.FakeShadowStudyAdapter
+            {
+                ActiveView = null
+            };
+            adapter.EligibleViews.Add(new Synthetic.Modules.ShadowStudy.Models.ShadowStudyViewItem
+            {
+                Id = "v1",
+                Name = "Level 1",
+                ViewType = "FloorPlan",
+                IsCropped = false,
+                Warnings =
+                {
+                    new Synthetic.Modules.ShadowStudy.Models.ShadowStudyViewWarningBadge
+                    {
+                        Code = "Uncropped",
+                        Label = "Uncropped View",
+                        Description = "Crop View is off."
+                    },
+                    new Synthetic.Modules.ShadowStudy.Models.ShadowStudyViewWarningBadge
+                    {
+                        Code = "VisualStyle",
+                        Label = "Hidden Line Export",
+                        Description = "Wireframe will use HLR."
+                    }
+                }
+            });
+
+            var folderDialog = new SyntheticTests.Modules.ShadowStudy.FakeFolderDialogService();
+            var vm = new Synthetic.Modules.ShadowStudy.ViewModels.ShadowStudyViewModel(adapter, folderDialog, new DateTime(2026, 6, 21));
+
+            Synthetic.Modules.ShadowStudy.Views.ShadowStudyWindow? window = null;
+            Assert.DoesNotThrow(() =>
+            {
+                window = new Synthetic.Modules.ShadowStudy.Views.ShadowStudyWindow(IntPtr.Zero) { DataContext = vm };
+                window.ApplyTemplate();
+                window.Measure(new Size(620, 900));
+                window.Arrange(new Rect(0, 0, 620, 900));
+                window.UpdateLayout();
+            });
+
+            Assert.IsNotNull(window);
+            window!.Close();
+        }
     }
 }

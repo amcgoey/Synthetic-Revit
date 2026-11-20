@@ -356,6 +356,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)Shared\UI\IFolderDialogService.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Shared\UI\WindowsFolderDialogService.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudySiteInfo.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudyExportRangeMode.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudyViewWarningBadge.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudyViewItem.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudyDateEntry.cs" />
@@ -381,6 +382,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Services\ShadowStudyPipeline.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Services\ShadowStudyUserPrefsStore.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\ViewModels\ShadowStudyDateScheduleItemViewModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\ViewModels\ShadowStudySelectableViewItemViewModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\ViewModels\ShadowStudyViewModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Views\ShadowStudyWindow.xaml.cs">
       <DependentUpon>ShadowStudyWindow.xaml</DependentUpon>
