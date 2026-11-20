@@ -68,6 +68,88 @@ namespace SyntheticTests.Modules.ShadowStudy
         }
 
         [Test]
+        public void Execute_WhenKeepIndividualFramesIsTrue_SavesShadowFramesInExactSubfolderWithoutReferencePasses()
+        {
+            var adapter = new FakeShadowStudyAdapter();
+            var site = adapter.GetSiteInfo();
+            var view = adapter.GetActiveViewInfo()!;
+            view.Name = "Site/Plan";
+
+            var schedule = SolarScheduleCalculator.BuildSchedule(
+                new ShadowStudyDateEntry { Date = new DateTime(2026, 6, 21) },
+                site,
+                stepMinutes: 120,
+                minAltitudeDegrees: 10.0,
+                maxCompositeDarknessPercent: 80);
+
+            var pipeline = new ShadowStudyPipeline(adapter);
+            var summary = pipeline.Execute(new ShadowStudyRunRequest
+            {
+                Views = new[] { view },
+                DateSchedules = new[] { schedule },
+                OutputFolder = _outputDir,
+                PixelWidth = 32,
+                KeepIndividualFrames = true
+            });
+
+            string expectedComposite = Path.Combine(_outputDir, "Site_Plan - 260621 - Composite.png");
+            Assert.IsTrue(File.Exists(expectedComposite));
+
+            string expectedFramesSubfolder = Path.Combine(_outputDir, "Site_Plan - 260621");
+            string legacyWrongFramesSubfolder = Path.Combine(_outputDir, "Site_Plan - 260621 - Frames");
+            Assert.IsTrue(Directory.Exists(expectedFramesSubfolder), "Subfolder must be <ViewLabel> - <DateLabel> without ' - Frames'.");
+            Assert.IsFalse(Directory.Exists(legacyWrongFramesSubfolder));
+
+            string[] savedFiles = Directory.GetFiles(expectedFramesSubfolder, "*.png").OrderBy(p => p).ToArray();
+            Assert.AreEqual(schedule.Frames.Count, savedFiles.Length, "Only timestamped Shadow Frames may be retained (no reference passes).");
+
+            for (int i = 0; i < schedule.Frames.Count; i++)
+            {
+                string expectedFrameName = $"Site_Plan - 260621 - {schedule.Frames[i].FrameFileStem}.png";
+                string expectedFramePath = Path.Combine(expectedFramesSubfolder, expectedFrameName);
+                Assert.IsTrue(File.Exists(expectedFramePath), $"Expected frame file '{expectedFrameName}'.");
+                Assert.Contains(expectedFramePath, summary.SavedFramePaths.ToArray());
+            }
+
+            Assert.IsFalse(Directory.EnumerateFiles(_outputDir, "*ref*", SearchOption.AllDirectories).Any(),
+                "Reference passes (ShadowIntensity = 0) must never be copied into output.");
+            Assert.IsFalse(Directory.Exists(adapter.ExportRequests[0].TempRootDirectory));
+        }
+
+        [Test]
+        public void Execute_WhenKeepIndividualFramesIsFalse_LeavesOnlyCompositeAfterCleanup()
+        {
+            var adapter = new FakeShadowStudyAdapter();
+            var site = adapter.GetSiteInfo();
+            var view = adapter.GetActiveViewInfo()!;
+            view.Name = "Main Plan";
+
+            var schedule = SolarScheduleCalculator.BuildSchedule(
+                new ShadowStudyDateEntry { Date = new DateTime(2026, 6, 21) },
+                site,
+                stepMinutes: 120,
+                minAltitudeDegrees: 10.0,
+                maxCompositeDarknessPercent: 80);
+
+            var pipeline = new ShadowStudyPipeline(adapter);
+            var summary = pipeline.Execute(new ShadowStudyRunRequest
+            {
+                Views = new[] { view },
+                DateSchedules = new[] { schedule },
+                OutputFolder = _outputDir,
+                PixelWidth = 32,
+                KeepIndividualFrames = false
+            });
+
+            Assert.AreEqual(0, summary.SavedFramePaths.Count);
+            Assert.AreEqual(0, Directory.GetDirectories(_outputDir).Length, "No frame subfolder should exist when KeepIndividualFrames is false.");
+            string[] files = Directory.GetFiles(_outputDir, "*", SearchOption.AllDirectories);
+            Assert.AreEqual(1, files.Length);
+            Assert.AreEqual(Path.Combine(_outputDir, "Main Plan - 260621 - Composite.png"), files[0]);
+            Assert.IsFalse(Directory.Exists(adapter.ExportRequests[0].TempRootDirectory));
+        }
+
+        [Test]
         public void Execute_SkipsZeroFrameDatesAndRecordsWarning()
         {
             var adapter = new FakeShadowStudyAdapter();

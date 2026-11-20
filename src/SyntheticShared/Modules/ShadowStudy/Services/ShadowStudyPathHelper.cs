@@ -116,6 +116,27 @@ namespace Synthetic.Modules.ShadowStudy.Services
         }
 
         /// <summary>
+        /// Builds the Shadow Frame subfolder name <c>&lt;ViewLabel&gt; - &lt;DateLabel&gt;</c>.
+        /// </summary>
+        public static string BuildFrameFolderName(string viewLabel, string dateLabel)
+        {
+            string safeView = SanitizePathSegment(viewLabel);
+            string safeDate = SanitizePathSegment(dateLabel);
+            return $"{safeView} - {safeDate}";
+        }
+
+        /// <summary>
+        /// Builds an individual Shadow Frame filename <c>&lt;ViewLabel&gt; - &lt;DateLabel&gt; - &lt;HHmm&gt;.png</c>.
+        /// </summary>
+        public static string BuildFrameFileName(string viewLabel, string dateLabel, DateTime projectLocalTime)
+        {
+            string safeView = SanitizePathSegment(viewLabel);
+            string safeDate = SanitizePathSegment(dateLabel);
+            string hhMm = FormatTimeSlot(projectLocalTime);
+            return $"{safeView} - {safeDate} - {hhMm}.png";
+        }
+
+        /// <summary>
         /// Validates that the destination path stays safely below Windows MAX_PATH limits.
         /// </summary>
         public static void ValidateOutputPathLength(string fullPath)

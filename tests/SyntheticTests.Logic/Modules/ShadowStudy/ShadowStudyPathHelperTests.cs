@@ -50,6 +50,18 @@ namespace SyntheticTests.Modules.ShadowStudy
             Assert.AreEqual(
                 "Level 1 - 260621 - Composite.png",
                 ShadowStudyPathHelper.BuildCompositeFileName("Level 1", dateLabel));
+
+            Assert.AreEqual(
+                "Level 1 - 260621",
+                ShadowStudyPathHelper.BuildFrameFolderName("Level 1", dateLabel));
+
+            Assert.AreEqual(
+                "Level 1 - 260621 - 0800.png",
+                ShadowStudyPathHelper.BuildFrameFileName("Level 1", dateLabel, new DateTime(2026, 6, 21, 8, 0, 0)));
+
+            Assert.AreEqual(
+                "Level 1 - 260621 - 1330.png",
+                ShadowStudyPathHelper.BuildFrameFileName("Level 1", dateLabel, new DateTime(2026, 6, 21, 13, 30, 0)));
         }
 
         [Test]

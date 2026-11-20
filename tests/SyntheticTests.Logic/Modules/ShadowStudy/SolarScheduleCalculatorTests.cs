@@ -184,5 +184,68 @@ namespace SyntheticTests.Modules.ShadowStudy
             Assert.AreEqual(1, SolarScheduleCalculator.CalculateShadowIntensity(1, -10));
             Assert.AreEqual(1, SolarScheduleCalculator.CalculateShadowIntensity(500, 80));
         }
+
+        [TestCase(15, 96)]
+        [TestCase(30, 48)]
+        [TestCase(60, 24)]
+        [TestCase(120, 12)]
+        public void BuildSchedule_AllFourIncrements_ProduceClockAlignedSlotsAndPolarDayFullCoverage(
+            int stepMinutes,
+            int expectedPolarDayFrames)
+        {
+            // Tromso (69.6492° N) on June 21 -> Midnight sun stays above 0° all 24 hours (Polar Day)
+            var tromso = new ShadowStudySiteInfo
+            {
+                PlaceName = "Tromso",
+                LatitudeDegrees = 69.6492,
+                LongitudeDegrees = 18.9553,
+                TimeZoneHours = 1.0,
+                UsesDst = true
+            };
+
+            var polarDay = SolarScheduleCalculator.BuildSchedule(
+                new ShadowStudyDateEntry { Date = new DateTime(2026, 6, 21) },
+                tromso,
+                stepMinutes: stepMinutes,
+                minAltitudeDegrees: 0.0,
+                maxCompositeDarknessPercent: 80);
+
+            Assert.AreEqual(expectedPolarDayFrames, polarDay.Frames.Count);
+            Assert.IsTrue(polarDay.Frames.All(f => f.SolarAltitudeDegrees > 0.0));
+            Assert.IsTrue(polarDay.Frames.All(f => (f.ProjectLocalTime.Hour * 60 + f.ProjectLocalTime.Minute) % stepMinutes == 0));
+        }
+
+        [Test]
+        public void BuildSchedule_ExactThresholdComparison_DistinguishesZeroGuardFromPositiveThreshold()
+        {
+            // Equator at vernal equinox: verify strictly > 0° when threshold is 0°, and >= threshold when > 0°
+            var equator = new ShadowStudySiteInfo
+            {
+                LatitudeDegrees = 0.0,
+                LongitudeDegrees = 0.0,
+                TimeZoneHours = 0.0,
+                UsesDst = false
+            };
+
+            var scheduleAt15 = SolarScheduleCalculator.BuildSchedule(
+                new ShadowStudyDateEntry { Date = new DateTime(2026, 3, 20) },
+                equator,
+                stepMinutes: 15,
+                minAltitudeDegrees: 15.0,
+                maxCompositeDarknessPercent: 80);
+
+            Assert.IsTrue(scheduleAt15.HasValidFrames);
+            Assert.IsTrue(scheduleAt15.Frames.All(f => f.SolarAltitudeDegrees >= 15.0));
+
+            var scheduleAtZero = SolarScheduleCalculator.BuildSchedule(
+                new ShadowStudyDateEntry { Date = new DateTime(2026, 3, 20) },
+                equator,
+                stepMinutes: 15,
+                minAltitudeDegrees: 0.0,
+                maxCompositeDarknessPercent: 80);
+
+            Assert.Greater(scheduleAtZero.Frames.Count, scheduleAt15.Frames.Count);
+            Assert.IsTrue(scheduleAtZero.Frames.All(f => f.SolarAltitudeDegrees > 0.0));
+        }
     }
 }

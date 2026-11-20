@@ -152,10 +152,20 @@ namespace SyntheticTests.Modules.ShadowStudy
                     string compositePath = summary.CompositePaths.First(p => Path.GetFileName(p).StartsWith(viewItem.ViewLabel + " - ", StringComparison.OrdinalIgnoreCase));
                     GetPngDimensions(compositePath, out int compW, out int compH);
 
-                    string framesDir = Path.Combine(_tempOutputDir, $"{viewItem.ViewLabel} - {schedule.DateEntry.DateLabel} - Frames");
+                    string framesDir = Path.Combine(
+                        _tempOutputDir,
+                        ShadowStudyPathHelper.BuildFrameFolderName(viewItem.ViewLabel, schedule.DateEntry.DateLabel));
                     Assert.IsTrue(Directory.Exists(framesDir));
                     string[] framePngs = Directory.GetFiles(framesDir, "*.png");
                     Assert.AreEqual(schedule.Frames.Count, framePngs.Length);
+
+                    foreach (SolarFrameSlot slot in schedule.Frames)
+                    {
+                        string expectedFramePath = Path.Combine(
+                            framesDir,
+                            ShadowStudyPathHelper.BuildFrameFileName(viewItem.ViewLabel, schedule.DateEntry.DateLabel, slot.ProjectLocalTime));
+                        Assert.IsTrue(File.Exists(expectedFramePath), $"Missing expected frame PNG: {expectedFramePath}");
+                    }
 
                     foreach (string framePng in framePngs)
                     {
