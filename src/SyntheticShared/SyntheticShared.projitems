@@ -359,6 +359,9 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudyViewWarningBadge.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudyViewItem.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudyDateEntry.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\AstronomicalEventKind.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudyPresetDateSpec.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudyPresetDefinition.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\SolarFrameSlot.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\DateSolarSchedule.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\RawFrameExportRequest.cs" />
@@ -371,11 +374,13 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Adapters\IShadowStudyAdapter.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Adapters\RevitShadowStudyAdapter.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Commands\CmdShadowStudy.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Services\BuiltInShadowStudyPresets.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Services\SolarScheduleCalculator.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Services\ShadowImageCompositor.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Services\ShadowStudyPathHelper.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Services\ShadowStudyPipeline.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Services\ShadowStudyUserPrefsStore.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\ViewModels\ShadowStudyDateScheduleItemViewModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\ViewModels\ShadowStudyViewModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Views\ShadowStudyWindow.xaml.cs">
       <DependentUpon>ShadowStudyWindow.xaml</DependentUpon>

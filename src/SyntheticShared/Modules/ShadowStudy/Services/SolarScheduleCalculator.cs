@@ -180,6 +180,7 @@ namespace Synthetic.Modules.ShadowStudy.Services
                 DateEntry = new ShadowStudyDateEntry
                 {
                     Date = dateOnly,
+                    AstronomicalEvent = dateEntry.AstronomicalEvent,
                     PresetName = dateEntry.PresetName
                 },
                 Frames = frames.AsReadOnly(),
