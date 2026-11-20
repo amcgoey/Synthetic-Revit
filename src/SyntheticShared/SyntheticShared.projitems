@@ -133,6 +133,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)Settings\ISettingModule.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\Persistence\SyntheticSettingsJsonSchema.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\Persistence\LegacySettingsMigration.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\Persistence\SettingsModuleRegistry.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\Persistence\SettingsManager.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Settings\MaterialLibrarySettings.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Settings\ProjectMaterialSettings.cs" />

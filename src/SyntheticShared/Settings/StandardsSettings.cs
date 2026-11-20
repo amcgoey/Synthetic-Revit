@@ -44,6 +44,15 @@ namespace Synthetic.Settings
         }
 
         /// <summary>
+        /// Populates default values.
+        /// </summary>
+        /// <returns>This settings instance.</returns>
+        public StandardsSettings Defaults()
+        {
+            return this;
+        }
+
+        /// <summary>
         /// Validates settings module.
         /// </summary>
         public bool IsValid(Document doc)
