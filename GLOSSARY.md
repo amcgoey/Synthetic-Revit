@@ -113,8 +113,16 @@ The tiered strategy for determining row sequence and grouping in the exported sh
 _Avoid_: Sheet sort mode, row ordering rule
 
 **Export Completion Dialog**:
-The post-export user interface prompt that offers buttons to open the newly generated Excel file or open its containing folder in Windows File Explorer.
+The post-export user interface prompt that summarizes generated export outputs and offers actions to open a generated file or open its containing folder in Windows File Explorer.
 _Avoid_: Save confirmation modal, completion popup
+
+**Print Set**:
+A named collection of views and sheets saved inside a Revit project for batch printing or exporting.
+_Avoid_: View/Sheet set, view set, export set
+
+**Settings Dashboard**:
+The unified configuration interface used to inspect, edit, and synchronize project-stored settings modules and firmwide defaults.
+_Avoid_: Options window, global config panel
 
 **Dot Sheet Index**:
 The exported sheet index spreadsheet containing sheet metadata and revision issuance columns marked with bullet indicators ("●"), generated to match standard project matrix layouts.
@@ -135,3 +143,19 @@ _Avoid_: Survey point mover, site generator
 **Shared Site Link Repositioning**:
 The operation executed inside a host (main) model that inspects loaded `RevitLinkInstance` elements, resolves each instance's assigned Shared Site (`ProjectLocation`) in its linked document, computes the target 3D shared-coordinate transform, and moves/rotates out-of-sync link instances (temporarily unpinning and re-pinning as needed) into alignment.
 _Avoid_: Link reset, origin move, coordinate re-acquire
+
+**Shadow Study**:
+An automated solar analysis run across one or more target Revit views and study dates that exports daylight **Shadow Frames** and blends each view-date sequence into a **Shadow Composite**.
+_Avoid_: Sun study, sun animation, solar render batch
+
+**Shadow Study Preset**:
+A named, reusable configuration specifying study dates (built-in solstice and equinox dates or custom calendar dates), time increment, minimum solar altitude, maximum composite darkness, and visual style preferences for a **Shadow Study**.
+_Avoid_: Sun template, date profile
+
+**Shadow Frame**:
+A single image exported from a target view at one discrete project-local daylight timestamp where the sun meets the minimum solar altitude threshold.
+_Avoid_: Sun snapshot, hourly render
+
+**Shadow Composite**:
+A summary diagram produced for a single view and study date by Multiply-blending its aligned **Shadow Frames** so cumulative shadow duration maps from lightest (least shadow) to darkest (most shadow).
+_Avoid_: Merged shadow image, shadow overlay
