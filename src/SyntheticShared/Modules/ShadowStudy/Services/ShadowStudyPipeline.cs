@@ -78,11 +78,27 @@ namespace Synthetic.Modules.ShadowStudy.Services
             {
                 foreach (var schedule in validSchedules)
                 {
+                    string dateLabel = schedule.DateEntry.DateLabel;
                     string compositeName = ShadowStudyPathHelper.BuildCompositeFileName(
                         view.ViewLabel,
-                        schedule.DateEntry.DateLabel);
+                        dateLabel);
                     string compositePath = Path.Combine(request.OutputFolder, compositeName);
                     ShadowStudyPathHelper.ValidateOutputPathLength(compositePath);
+
+                    if (request.KeepIndividualFrames)
+                    {
+                        string framesFolder = Path.Combine(
+                            request.OutputFolder,
+                            ShadowStudyPathHelper.BuildFrameFolderName(view.ViewLabel, dateLabel));
+                        foreach (var slot in schedule.Frames)
+                        {
+                            string frameFileName = ShadowStudyPathHelper.BuildFrameFileName(
+                                view.ViewLabel,
+                                dateLabel,
+                                slot.ProjectLocalTime);
+                            ShadowStudyPathHelper.ValidateOutputPathLength(Path.Combine(framesFolder, frameFileName));
+                        }
+                    }
                 }
             }
 
@@ -164,13 +180,17 @@ namespace Synthetic.Modules.ShadowStudy.Services
                     {
                         string framesFolder = Path.Combine(
                             request.OutputFolder,
-                            $"{ShadowStudyPathHelper.SanitizePathSegment(group.View.ViewLabel)} - {ShadowStudyPathHelper.SanitizePathSegment(dateLabel)} - Frames");
+                            ShadowStudyPathHelper.BuildFrameFolderName(group.View.ViewLabel, dateLabel));
                         Directory.CreateDirectory(framesFolder);
 
                         foreach (var frame in group.Frames)
                         {
                             cancellationToken.ThrowIfCancellationRequested();
-                            string destFramePath = Path.Combine(framesFolder, $"{frame.Slot.FrameFileStem}.png");
+                            string frameFileName = ShadowStudyPathHelper.BuildFrameFileName(
+                                group.View.ViewLabel,
+                                dateLabel,
+                                frame.Slot.ProjectLocalTime);
+                            string destFramePath = Path.Combine(framesFolder, frameFileName);
                             ShadowStudyPathHelper.ValidateOutputPathLength(destFramePath);
                             File.Copy(frame.FramePngPath, destFramePath, overwrite: true);
                             savedFramePaths.Add(destFramePath);
