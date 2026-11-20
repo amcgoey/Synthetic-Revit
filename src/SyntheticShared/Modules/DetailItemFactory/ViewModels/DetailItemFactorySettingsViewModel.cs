@@ -215,14 +215,19 @@ namespace Synthetic.Modules.DetailItemFactory.ViewModels
             }
             _selectedSubcategoryName = targetSubcat;
 
+            _isOverridden = HasDocumentOverride();
+
+            BrowseCommand = new RelayCommand(OnBrowse, _ => IsOverridden);
+        }
+
+        private bool HasDocumentOverride()
+        {
             var dataStorages = new FilteredElementCollector(_doc)
                 .OfClass(typeof(DataStorage))
                 .Cast<DataStorage>()
                 .ToList();
             string storageName = "Synthetic_" + DetailItemFactorySettings.Name;
-            _isOverridden = dataStorages.Any(ds => ds.Name.Equals(storageName, StringComparison.OrdinalIgnoreCase));
-
-            BrowseCommand = new RelayCommand(OnBrowse, _ => IsOverridden);
+            return dataStorages.Any(ds => ds.Name.Equals(storageName, StringComparison.OrdinalIgnoreCase));
         }
 
         private void OnBrowse(object parameter)
@@ -279,6 +284,7 @@ namespace Synthetic.Modules.DetailItemFactory.ViewModels
             }
             _selectedSubcategoryName = targetSubcat;
 
+            _isOverridden = HasDocumentOverride();
             _isDirty = false;
 
             OnPropertyChanged(nameof(IsOverridden));

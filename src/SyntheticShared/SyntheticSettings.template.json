@@ -28,6 +28,9 @@
         ]
       }
     },
+    "Standards": {
+      "StandardsFilePath": ""
+    },
     "DetailItemFactorySettings": {
       "OutputPath": "",
       "TargetSubcategory": "Detail Items"

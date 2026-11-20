@@ -5,6 +5,7 @@ using System.Linq;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.ExtensibleStorage;
 using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 
 using Synthetic.Infrastructure.Persistence;
 using Synthetic.Settings;
@@ -27,6 +28,32 @@ namespace Synthetic.Infrastructure.Persistence{
         private static string GetCacheKey(Document doc, string moduleKey)
         {
             return doc.GetHashCode() + "_" + moduleKey;
+        }
+
+        /// <summary>
+        /// Clears cached settings entries for the specified document, or all cached entries when <paramref name="doc"/> is null.
+        /// </summary>
+        /// <param name="doc">Optional Revit Document whose cached entries should be removed.</param>
+        public static void ClearCache(Document? doc = null)
+        {
+            lock (_lock)
+            {
+                if (doc == null)
+                {
+                    _cache.Clear();
+                    return;
+                }
+
+                string prefix = doc.GetHashCode() + "_";
+                List<string> keysToRemove = _cache.Keys
+                    .Where(k => k.StartsWith(prefix, StringComparison.Ordinal))
+                    .ToList();
+
+                foreach (string key in keysToRemove)
+                {
+                    _cache.Remove(key);
+                }
+            }
         }
 
         /// <summary>
@@ -249,6 +276,27 @@ namespace Synthetic.Infrastructure.Persistence{
             }
         }
 
+        private static Dictionary<string, object> BuildSyncedDocumentSettings(Document doc)
+        {
+            var docSettings = new Dictionary<string, object>();
+            foreach (SettingsModuleDescriptor descriptor in SettingsModuleRegistry.SyncedModules)
+            {
+                docSettings[descriptor.ModuleKey] = descriptor.LoadFromDocument(doc);
+            }
+            return docSettings;
+        }
+
+        private static void ImportModulesFromDictionary(Document doc, Dictionary<string, JToken> dict)
+        {
+            foreach (SettingsModuleDescriptor descriptor in SettingsModuleRegistry.SyncedModules)
+            {
+                if (dict.TryGetValue(descriptor.ModuleKey, out JToken? token) && token != null)
+                {
+                    descriptor.ImportFromToken(doc, token);
+                }
+            }
+        }
+
         /// <summary>
         /// Checks if there is a sync drift between the document settings and the linked external JSON file.
         /// </summary>
@@ -258,6 +306,7 @@ namespace Synthetic.Infrastructure.Persistence{
         public static bool CheckSyncDrift(Document doc, out string linkedFilePath)
         {
             linkedFilePath = string.Empty;
+            if (doc == null) return false;
 
             try
             {
@@ -269,40 +318,10 @@ namespace Synthetic.Infrastructure.Persistence{
 
                 linkedFilePath = syncSettings.LinkedFilePath;
 
-                // 1. Read JSON text from LinkedFilePath
                 string externalJson = File.ReadAllText(linkedFilePath);
+                Dictionary<string, object> docSettings = BuildSyncedDocumentSettings(doc);
 
-                // 2. Serialize current document settings (excluding SyncSettings)
-                var docSettings = new System.Collections.Generic.Dictionary<string, object>
-                {
-                    { WorksetSettings.Name, Get<WorksetSettings>(doc) },
-                    { ViewAutoNumSettings.Name, Get<ViewAutoNumSettings>(doc) },
-                    { MaterialLibrarySettings.Name, Get<MaterialLibrarySettings>(doc) },
-                    { ProjectMaterialSettings.Name, Get<ProjectMaterialSettings>(doc) },
-                    { FileUtilitySettings.Name, Get<FileUtilitySettings>(doc) },
-                    { StandardsSettings.Name, Get<StandardsSettings>(doc) },
-                    { DetailItemFactorySettings.Name, Get<DetailItemFactorySettings>(doc) }
-                };
-
-                string documentJson = JsonConvert.SerializeObject(docSettings, Formatting.Indented);
-
-                // Compare JSONs structurally
-                var extDict = JsonConvert.DeserializeObject<System.Collections.Generic.Dictionary<string, Newtonsoft.Json.Linq.JToken>>(externalJson);
-                if (extDict == null) return true; // Drift/corrupted file
-
-                if (extDict.ContainsKey(SyncSettings.Name))
-                {
-                    extDict.Remove(SyncSettings.Name);
-                }
-
-                var docDict = JsonConvert.DeserializeObject<System.Collections.Generic.Dictionary<string, Newtonsoft.Json.Linq.JToken>>(documentJson);
-                if (docDict == null) return true;
-
-                // Structurally compare the dictionaries
-                return !Newtonsoft.Json.Linq.JToken.DeepEquals(
-                    Newtonsoft.Json.Linq.JToken.FromObject(extDict),
-                    Newtonsoft.Json.Linq.JToken.FromObject(docDict)
-                );
+                return SettingsModuleRegistry.HasSyncDrift(externalJson, docSettings);
             }
             catch (Exception)
             {
@@ -323,16 +342,7 @@ namespace Synthetic.Infrastructure.Persistence{
 
             try
             {
-                var docSettings = new System.Collections.Generic.Dictionary<string, object>
-                {
-                    { WorksetSettings.Name, Get<WorksetSettings>(doc) },
-                    { ViewAutoNumSettings.Name, Get<ViewAutoNumSettings>(doc) },
-                    { MaterialLibrarySettings.Name, Get<MaterialLibrarySettings>(doc) },
-                    { ProjectMaterialSettings.Name, Get<ProjectMaterialSettings>(doc) },
-                    { FileUtilitySettings.Name, Get<FileUtilitySettings>(doc) },
-                    { StandardsSettings.Name, Get<StandardsSettings>(doc) },
-                    { DetailItemFactorySettings.Name, Get<DetailItemFactorySettings>(doc) }
-                };
+                Dictionary<string, object> docSettings = BuildSyncedDocumentSettings(doc);
 
                 string jsonText = JsonConvert.SerializeObject(docSettings, Formatting.Indented);
                 File.WriteAllText(filePath, jsonText);
@@ -357,7 +367,7 @@ namespace Synthetic.Infrastructure.Persistence{
             try
             {
                 string jsonText = File.ReadAllText(filePath);
-                var dict = JsonConvert.DeserializeObject<System.Collections.Generic.Dictionary<string, Newtonsoft.Json.Linq.JToken>>(jsonText);
+                var dict = JsonConvert.DeserializeObject<Dictionary<string, JToken>>(jsonText);
 
                 if (dict == null)
                 {
@@ -367,49 +377,56 @@ namespace Synthetic.Infrastructure.Persistence{
                 using (Transaction trans = new Transaction(doc, "Import Synthetic Settings"))
                 {
                     trans.Start();
-
-                    if (dict.TryGetValue(WorksetSettings.Name, out var worksetToken))
-                    {
-                        var settings = worksetToken.ToObject<WorksetSettings>();
-                        if (settings != null) Save(doc, settings);
-                    }
-                    if (dict.TryGetValue(ViewAutoNumSettings.Name, out var viewAutoNumToken))
-                    {
-                        var settings = viewAutoNumToken.ToObject<ViewAutoNumSettings>();
-                        if (settings != null) Save(doc, settings);
-                    }
-                    if (dict.TryGetValue(MaterialLibrarySettings.Name, out var materialLibToken))
-                    {
-                        var settings = materialLibToken.ToObject<MaterialLibrarySettings>();
-                        if (settings != null) Save(doc, settings);
-                    }
-                    if (dict.TryGetValue(ProjectMaterialSettings.Name, out var projectMatToken))
-                    {
-                        var settings = projectMatToken.ToObject<ProjectMaterialSettings>();
-                        if (settings != null) Save(doc, settings);
-                    }
-                    if (dict.TryGetValue(FileUtilitySettings.Name, out var fileUtilToken))
-                    {
-                        var settings = fileUtilToken.ToObject<FileUtilitySettings>();
-                        if (settings != null) Save(doc, settings);
-                    }
-                    if (dict.TryGetValue(StandardsSettings.Name, out var standardsToken))
-                    {
-                        var settings = standardsToken.ToObject<StandardsSettings>();
-                        if (settings != null) Save(doc, settings);
-                    }
-                    if (dict.TryGetValue(DetailItemFactorySettings.Name, out var detailItemFactoryToken))
-                    {
-                        var settings = detailItemFactoryToken.ToObject<DetailItemFactorySettings>();
-                        if (settings != null) Save(doc, settings);
-                    }
-
+                    ImportModulesFromDictionary(doc, dict);
                     trans.Commit();
                 }
             }
             catch (Exception ex)
             {
                 throw new InvalidOperationException($"Failed to import settings: {ex.Message}", ex);
+            }
+        }
+
+        /// <summary>
+        /// Pushes all synchronized settings modules plus <see cref="SyncSettings"/> from the document to the linked JSON file.
+        /// </summary>
+        /// <param name="doc">The Revit Document context.</param>
+        /// <param name="filePath">The path of the linked destination JSON file.</param>
+        public static void PushToLinkedFile(Document doc, string filePath)
+        {
+            if (doc == null) throw new ArgumentNullException(nameof(doc));
+            if (string.IsNullOrEmpty(filePath)) throw new ArgumentException("File path cannot be null or empty.", nameof(filePath));
+
+            Dictionary<string, object> docSettings = BuildSyncedDocumentSettings(doc);
+            docSettings[SyncSettings.Name] = Get<SyncSettings>(doc);
+
+            string jsonText = JsonConvert.SerializeObject(docSettings, Formatting.Indented);
+            File.WriteAllText(filePath, jsonText);
+        }
+
+        /// <summary>
+        /// Pulls all present synchronized settings modules from a linked JSON file into the document in a single transaction.
+        /// </summary>
+        /// <param name="doc">The Revit Document context.</param>
+        /// <param name="filePath">The path of the linked source JSON file.</param>
+        public static void PullFromLinkedFile(Document doc, string filePath)
+        {
+            if (doc == null) throw new ArgumentNullException(nameof(doc));
+            if (string.IsNullOrEmpty(filePath)) throw new ArgumentException("File path cannot be null or empty.", nameof(filePath));
+            if (!File.Exists(filePath)) throw new FileNotFoundException("The linked settings file no longer exists.", filePath);
+
+            string jsonText = File.ReadAllText(filePath);
+            var dict = JsonConvert.DeserializeObject<Dictionary<string, JToken>>(jsonText);
+            if (dict == null)
+            {
+                throw new InvalidOperationException("Failed to deserialize settings from the linked file.");
+            }
+
+            using (Transaction trans = new Transaction(doc, "Pull Settings from File"))
+            {
+                trans.Start();
+                ImportModulesFromDictionary(doc, dict);
+                trans.Commit();
             }
         }
     }
