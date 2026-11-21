@@ -551,5 +551,75 @@ namespace SyntheticTests.Infrastructure.UI
 
             Assert.IsNotNull(view);
         }
+
+        [Test]
+        public void ShadowStudyWindow_CompactHeight_KeepsExportAndCancelFooterWithinWindowBounds()
+        {
+            var adapter = new SyntheticTests.Modules.ShadowStudy.FakeShadowStudyAdapter
+            {
+                ActiveView = null
+            };
+            adapter.EligibleViews.Add(new Synthetic.Modules.ShadowStudy.Models.ShadowStudyViewItem
+            {
+                Id = "v1",
+                Name = "Level 1",
+                ViewType = "FloorPlan",
+                IsCropped = true
+            });
+
+            var folderDialog = new SyntheticTests.Modules.ShadowStudy.FakeFolderDialogService();
+            var vm = new Synthetic.Modules.ShadowStudy.ViewModels.ShadowStudyViewModel(adapter, folderDialog);
+            vm.OutputFolder = @"C:\Temp\ShadowOut";
+            vm.FilteredViews[0].IsSelected = true;
+
+            var window = new Synthetic.Modules.ShadowStudy.Views.ShadowStudyWindow(IntPtr.Zero) { DataContext = vm };
+            try
+            {
+                Assert.AreEqual(ResizeMode.CanResizeWithGrip, window.ResizeMode);
+
+                var rootGrid = window.Content as System.Windows.Controls.Grid;
+                Assert.IsNotNull(rootGrid);
+
+                rootGrid!.Measure(new Size(640, 520));
+                rootGrid.Arrange(new Rect(0, 0, 640, 520));
+                rootGrid.UpdateLayout();
+
+                Button? exportButton = FindButtonByContent(rootGrid, "Export");
+                Button? cancelButton = FindButtonByContent(rootGrid, "Cancel");
+                Assert.IsNotNull(exportButton, "Export button must exist in ShadowStudyWindow.");
+                Assert.IsNotNull(cancelButton, "Cancel button must exist in ShadowStudyWindow.");
+
+                Point exportBottomRight = exportButton!.TranslatePoint(
+                    new Point(exportButton.RenderSize.Width, exportButton.RenderSize.Height),
+                    rootGrid);
+                Assert.LessOrEqual(exportBottomRight.Y, 520.5,
+                    "Pinned Export footer button must remain visible inside compact 520px content bounds without clipping.");
+            }
+            finally
+            {
+                window.Close();
+            }
+        }
+
+        private static Button? FindButtonByContent(DependencyObject parent, string expectedContent)
+        {
+            int count = System.Windows.Media.VisualTreeHelper.GetChildrenCount(parent);
+            for (int i = 0; i < count; i++)
+            {
+                DependencyObject child = System.Windows.Media.VisualTreeHelper.GetChild(parent, i);
+                if (child is Button btn && string.Equals(btn.Content as string, expectedContent, StringComparison.Ordinal))
+                {
+                    return btn;
+                }
+
+                Button? nested = FindButtonByContent(child, expectedContent);
+                if (nested != null)
+                {
+                    return nested;
+                }
+            }
+
+            return null;
+        }
     }
 }
