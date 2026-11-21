@@ -37,7 +37,8 @@
                        Margin="0,3,0,0"/>
         </StackPanel>
 
-        <ScrollViewer Grid.Row="1"
+        <ScrollViewer x:Name="MainScrollViewer"
+                      Grid.Row="1"
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled"
                       Padding="0,0,6,0">
@@ -211,7 +212,8 @@
                              BorderThickness="1"
                              Padding="2"
                              HorizontalContentAlignment="Stretch"
-                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             PreviewMouseWheel="OnInnerScrollPreviewMouseWheel">
                         <ListBox.Resources>
                             <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#2E2D2C"/>
                             <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="#252423"/>
@@ -509,7 +511,9 @@
                                    Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
                                    Margin="4"
                                    Visibility="{Binding HasNoDates, Converter={StaticResource BooleanToVisibilityConverter}}"/>
-                        <ScrollViewer MaxHeight="155" VerticalScrollBarVisibility="Auto">
+                        <ScrollViewer MaxHeight="165"
+                                      VerticalScrollBarVisibility="Auto"
+                                      PreviewMouseWheel="OnInnerScrollPreviewMouseWheel">
                             <ItemsControl ItemsSource="{Binding StudyDates}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
