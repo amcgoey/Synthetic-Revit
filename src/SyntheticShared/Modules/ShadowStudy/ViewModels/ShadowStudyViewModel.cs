@@ -12,8 +12,8 @@ using Synthetic.Shared.UI;
 namespace Synthetic.Modules.ShadowStudy.ViewModels
 {
     /// <summary>
-    /// Presentation ViewModel for the Shadow Study composite exporter dialog, supporting both
-    /// Current View and multi-view Selected Views batch export.
+    /// Presentation ViewModel for the Shadow Study composite exporter dialog supporting
+    /// multi-view Export Range selection, hemisphere-aware built-in presets, and multi-date batches.
     /// </summary>
     public class ShadowStudyViewModel : ViewModelBase
     {
@@ -37,6 +37,12 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
             /// <summary>Gets the human-readable label.</summary>
             public string Label { get; }
         }
+
+        /// <summary>Minimum allowed target calendar year for astronomical preset resolution.</summary>
+        public const int MinAllowedTargetYear = 1900;
+
+        /// <summary>Maximum allowed target calendar year for astronomical preset resolution.</summary>
+        public const int MaxAllowedTargetYear = 2100;
 
         /// <summary>Minimum allowed solar altitude threshold in degrees.</summary>
         public const double MinAllowedSunAltitudeDegrees = 0.0;
@@ -70,6 +76,9 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
         private readonly ITextInputPromptService? _textInputPromptService;
         private readonly List<ShadowStudySelectableViewItemViewModel> _allViews;
         private readonly ShadowStudyUserPrefsStore? _userPrefsStore;
+        private readonly ObservableCollection<ShadowStudyPresetDefinition> _availablePresets;
+        private readonly ObservableCollection<ShadowStudyDateScheduleItemViewModel> _studyDates =
+            new ObservableCollection<ShadowStudyDateScheduleItemViewModel>();
 
         private ShadowStudyExportRangeMode _exportRangeMode;
         private ShadowStudyPrintSetItem _selectedPrintSet = ShadowStudyPrintSetItem.CreateInSession();
@@ -78,7 +87,10 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
         private string _printSetStatusMessage = string.Empty;
         private string _printSetErrorMessage = string.Empty;
         private string _viewSearchText = string.Empty;
-        private DateTime _selectedDate;
+        private ShadowStudyPresetDefinition? _selectedPreset;
+        private int _targetYear;
+        private string _targetYearText;
+        private DateTime _customDateToAdd = DateTime.Today;
         private int _timeStepMinutes = 60;
         private double _minSunAltitudeDegrees = 5.0;
         private string _minSunAltitudeText = "5";
@@ -90,7 +102,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
         private bool _forceWhiteBackground = true;
         private bool _exportIndividualFrames = true;
         private string _outputFolder = string.Empty;
-        private DateSolarSchedule _currentSchedule = new DateSolarSchedule();
+        private string _targetYearError = string.Empty;
         private string _timeStepError = string.Empty;
         private string _minSunAltitudeError = string.Empty;
         private string _maxCompositeDarknessError = string.Empty;
@@ -103,6 +115,8 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
 
         /// <summary>
         /// Initializes a new instance of the <see cref="ShadowStudyViewModel"/> class.
+        /// When <paramref name="initialDate"/> is <c>null</c>, defaults to the 3-date built-in Seasonal Study preset
+        /// for the current calendar year.
         /// </summary>
         public ShadowStudyViewModel(
             IShadowStudyAdapter adapter,
@@ -140,7 +154,10 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
             FilteredViews = new ObservableCollection<ShadowStudySelectableViewItemViewModel>();
             RefreshFilteredViews();
 
-            _selectedDate = (initialDate ?? DateTime.Today).Date;
+            _availablePresets = new ObservableCollection<ShadowStudyPresetDefinition>(BuiltInShadowStudyPresets.All);
+            _targetYear = initialDate.HasValue ? initialDate.Value.Year : DateTime.Today.Year;
+            _targetYearText = _targetYear.ToString(CultureInfo.InvariantCulture);
+
             LoadUserPrefs();
 
             BrowseOutputFolderCommand = new RelayCommand(_ => ExecuteBrowseOutputFolder());
@@ -148,11 +165,109 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
             SelectNoneViewsCommand = new RelayCommand(_ => ExecuteSelectNoneViews());
             SavePrintSetCommand = new RelayCommand(_ => ExecuteSavePrintSet(), _ => CanSavePrintSet);
             SaveAsPrintSetCommand = new RelayCommand(_ => ExecuteSaveAsPrintSet(), _ => CanSavePrintSet);
+            AddCustomDateCommand = new RelayCommand(_ => ExecuteAddCustomDate(), _ => CanAddCustomDate);
+            RemoveDateCommand = new RelayCommand(ExecuteRemoveDate);
             ExportCommand = new RelayCommand(_ => ExecuteExport(), _ => CanExport);
             CancelCommand = new RelayCommand(_ => RequestClose?.Invoke(false));
 
-            RecalculateSchedule();
+            if (initialDate.HasValue)
+            {
+                SetSingleCustomDate(initialDate.Value.Date);
+            }
+            else
+            {
+                SelectedPreset = BuiltInShadowStudyPresets.SeasonalStudy;
+            }
         }
+
+        /// <summary>
+        /// Gets the available built-in (and user-defined) Shadow Study Presets.
+        /// </summary>
+        public ObservableCollection<ShadowStudyPresetDefinition> AvailablePresets => _availablePresets;
+
+        /// <summary>
+        /// Gets or sets the currently selected Shadow Study Preset (<c>null</c> when customized manually).
+        /// </summary>
+        public ShadowStudyPresetDefinition? SelectedPreset
+        {
+            get => _selectedPreset;
+            set
+            {
+                if (SetProperty(ref _selectedPreset, value) && value != null)
+                {
+                    ApplyPreset(value);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets or sets the target calendar year used to resolve astronomical preset dates.
+        /// </summary>
+        public int TargetYear
+        {
+            get => _targetYear;
+            set
+            {
+                if (SetProperty(ref _targetYear, value))
+                {
+                    _targetYearText = value.ToString(CultureInfo.InvariantCulture);
+                    OnPropertyChanged(nameof(TargetYearText));
+                    ValidateTargetYear(value);
+                    if (string.IsNullOrEmpty(_targetYearError))
+                    {
+                        UpdateAstronomicalDatesForTargetYear(value);
+                        RecalculateAllSchedules();
+                    }
+                    else
+                    {
+                        RaiseValidationStateChanged();
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets or sets the editable target calendar year text.
+        /// </summary>
+        public string TargetYearText
+        {
+            get => _targetYearText;
+            set
+            {
+                string normalized = value ?? string.Empty;
+                if (SetProperty(ref _targetYearText, normalized))
+                {
+                    ApplyTargetYearText(normalized);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets or sets the custom calendar date staged for addition via <see cref="AddCustomDateCommand"/>.
+        /// </summary>
+        public DateTime CustomDateToAdd
+        {
+            get => _customDateToAdd;
+            set
+            {
+                DateTime dateOnly = value.Date;
+                if (SetProperty(ref _customDateToAdd, dateOnly))
+                {
+                    OnPropertyChanged(nameof(CanAddCustomDate));
+                    CommandManager.InvalidateRequerySuggested();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets a value indicating whether <see cref="CustomDateToAdd"/> is not already in <see cref="StudyDates"/>.
+        /// </summary>
+        public bool CanAddCustomDate => !ContainsCalendarDate(_customDateToAdd.Date);
+
+        /// <summary>
+        /// Gets the selected study date entries with live per-date solar schedules.
+        /// </summary>
+        public ObservableCollection<ShadowStudyDateScheduleItemViewModel> StudyDates => _studyDates;
 
         /// <summary>
         /// Gets the available clock-aligned time increment choices.
@@ -220,6 +335,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
         /// Gets a value indicating whether any schedule or output input has validation errors.
         /// </summary>
         public bool HasValidationErrors =>
+            !string.IsNullOrEmpty(_targetYearError) ||
             !string.IsNullOrEmpty(_timeStepError) ||
             !string.IsNullOrEmpty(_minSunAltitudeError) ||
             !string.IsNullOrEmpty(_maxCompositeDarknessError) ||
@@ -232,7 +348,8 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
         {
             get
             {
-                var errors = new List<string>(4);
+                var errors = new List<string>(5);
+                if (!string.IsNullOrEmpty(_targetYearError)) errors.Add(_targetYearError);
                 if (!string.IsNullOrEmpty(_timeStepError)) errors.Add(_timeStepError);
                 if (!string.IsNullOrEmpty(_minSunAltitudeError)) errors.Add(_minSunAltitudeError);
                 if (!string.IsNullOrEmpty(_maxCompositeDarknessError)) errors.Add(_maxCompositeDarknessError);
@@ -242,18 +359,116 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
         }
 
         /// <summary>
-        /// Gets the peak solar altitude in degrees for <see cref="SelectedDate"/>.
+        /// Gets the peak solar altitude in degrees for the primary selected date.
         /// </summary>
         public double PeakSolarAltitudeDegrees => CurrentSchedule.PeakSolarAltitudeDegrees;
 
         /// <summary>
-        /// Gets the zero-frames warning text including peak solar altitude.
+        /// Gets the zero-frames warning text including peak solar altitude when all selected dates yield 0 frames.
         /// </summary>
-        public string ZeroFramesWarningText => string.Format(
-            CultureInfo.InvariantCulture,
-            "0 valid daylight frames meet >= {0:0.##}° (Peak solar altitude: {1:F1}°). Export is disabled.",
-            MinSunAltitudeDegrees,
-            PeakSolarAltitudeDegrees);
+        public string ZeroFramesWarningText
+        {
+            get
+            {
+                if (_studyDates.Count == 0)
+                {
+                    return "No study dates selected. Select a preset or add a custom date to enable Export.";
+                }
+
+                if (_studyDates.Count == 1)
+                {
+                    return string.Format(
+                        CultureInfo.InvariantCulture,
+                        "0 valid daylight frames meet >= {0:0.##}° (Peak solar altitude: {1:F1}°). Export is disabled.",
+                        MinSunAltitudeDegrees,
+                        PeakSolarAltitudeDegrees);
+                }
+
+                return string.Format(
+                    CultureInfo.InvariantCulture,
+                    "All {0} selected study dates have 0 valid daylight frames meeting >= {1:0.##}°. Export is disabled.",
+                    _studyDates.Count,
+                    MinSunAltitudeDegrees);
+            }
+        }
+
+        /// <summary>
+        /// Gets a value indicating whether any study dates are selected.
+        /// </summary>
+        public bool HasNoDates => _studyDates.Count == 0;
+
+        /// <summary>
+        /// Gets the total valid daylight frame count summed across all selected study dates.
+        /// </summary>
+        public int TotalValidFrameCount => _studyDates.Sum(d => d.ValidFrameCount);
+
+        /// <summary>
+        /// Gets a value indicating whether at least one selected date has 0 valid frames while other dates remain valid.
+        /// </summary>
+        public bool HasSkippedZeroFrameDates => TotalValidFrameCount > 0 && _studyDates.Any(d => d.HasZeroFrames);
+
+        /// <summary>
+        /// Gets a value indicating whether the partial skipped-date warning banner should be shown.
+        /// </summary>
+        public bool ShowPartialZeroFramesNotice => HasSkippedZeroFrameDates && !HasValidationErrors;
+
+        /// <summary>
+        /// Gets the summary text describing dates that will be skipped during export.
+        /// </summary>
+        public string PartialZeroFramesNoticeText
+        {
+            get
+            {
+                int skippedCount = _studyDates.Count(d => d.HasZeroFrames);
+                if (skippedCount <= 0)
+                {
+                    return string.Empty;
+                }
+
+                return skippedCount == 1
+                    ? "1 selected date has 0 valid daylight frames and will be skipped during export."
+                    : string.Format(
+                        CultureInfo.InvariantCulture,
+                        "{0} selected dates have 0 valid daylight frames and will be skipped during export.",
+                        skippedCount);
+            }
+        }
+
+        /// <summary>
+        /// Gets a concise count summary for the Study Dates section header.
+        /// </summary>
+        public string StudyDatesSummaryText
+        {
+            get
+            {
+                if (_studyDates.Count == 0)
+                {
+                    return "0 dates";
+                }
+
+                int totalFrames = TotalValidFrameCount;
+                int skippedCount = _studyDates.Count(d => d.HasZeroFrames);
+                string dateNoun = _studyDates.Count == 1 ? "date" : "dates";
+                string frameNoun = totalFrames == 1 ? "frame" : "frames";
+
+                return skippedCount > 0 && totalFrames > 0
+                    ? string.Format(
+                        CultureInfo.InvariantCulture,
+                        "{0} {1} ({2} skipped) · {3} {4}",
+                        _studyDates.Count,
+                        dateNoun,
+                        skippedCount,
+                        totalFrames,
+                        frameNoun)
+                    : string.Format(
+                        CultureInfo.InvariantCulture,
+                        "{0} {1} · {2} {3}",
+                        _studyDates.Count,
+                        dateNoun,
+                        totalFrames,
+                        frameNoun);
+            }
+        }
 
         /// <summary>
         /// Gets a value indicating whether the normal schedule preview should be shown.
@@ -261,7 +476,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
         public bool ShowSchedulePreview => !HasZeroFrames && !HasValidationErrors;
 
         /// <summary>
-        /// Gets a value indicating whether the zero-frames warning badge should be shown.
+        /// Gets a value indicating whether the all-zero-frames warning badge should be shown.
         /// </summary>
         public bool ShowZeroFramesWarning => HasZeroFrames && !HasValidationErrors;
 
@@ -272,11 +487,22 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
         {
             get
             {
-                string dateLabel = ShadowStudyPathHelper.FormatDateLabel(SelectedDate);
+                if (_studyDates.Count == 0)
+                {
+                    return "—";
+                }
+
+                IReadOnlyList<ShadowStudyDateScheduleItemViewModel> activeDates = _studyDates.Where(d => d.HasValidFrames).ToList();
+                string? singleDateLabel = _studyDates.Count == 1
+                    ? _studyDates[0].DateLabel
+                    : (activeDates.Count == 1 ? activeDates[0].DateLabel : null);
+
                 if (ExportRangeMode == ShadowStudyExportRangeMode.CurrentView)
                 {
                     string viewLabel = ActiveView?.ViewLabel ?? "View";
-                    return ShadowStudyPathHelper.BuildFrameFolderName(viewLabel, dateLabel) + "\\";
+                    return singleDateLabel != null
+                        ? ShadowStudyPathHelper.BuildFrameFolderName(viewLabel, singleDateLabel) + "\\"
+                        : $"{viewLabel} - <DateLabel>\\";
                 }
 
                 var selectedCopies = _allViews
@@ -286,14 +512,20 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
 
                 if (selectedCopies.Count == 0)
                 {
-                    return ShadowStudyPathHelper.BuildFrameFolderName("View", dateLabel) + "\\";
+                    return ShadowStudyPathHelper.BuildFrameFolderName("View", singleDateLabel ?? "<DateLabel>") + "\\";
                 }
 
                 ShadowStudyPathHelper.AssignViewLabels(selectedCopies);
-                string firstFolder = ShadowStudyPathHelper.BuildFrameFolderName(selectedCopies[0].ViewLabel, dateLabel) + "\\";
-                return selectedCopies.Count == 1
-                    ? firstFolder
-                    : $"{firstFolder} (+{selectedCopies.Count - 1} more)";
+                if (singleDateLabel != null)
+                {
+                    string firstFolder = ShadowStudyPathHelper.BuildFrameFolderName(selectedCopies[0].ViewLabel, singleDateLabel) + "\\";
+                    return selectedCopies.Count == 1
+                        ? firstFolder
+                        : $"{firstFolder} (+{selectedCopies.Count - 1} more)";
+                }
+
+                int totalComposites = selectedCopies.Count * Math.Max(1, activeDates.Count);
+                return $"{selectedCopies[0].ViewLabel} - <DateLabel>\\ (+{Math.Max(0, totalComposites - 1)} more)";
             }
         }
 
@@ -516,18 +748,15 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
         public string DstStatusDisplay => SiteInfo.UsesDst ? "Enabled (+1 hr)" : "Disabled";
 
         /// <summary>
-        /// Gets or sets the selected study calendar date.
+        /// Gets or sets the primary selected study calendar date (replaces the list with a single custom date when set).
         /// </summary>
         public DateTime SelectedDate
         {
-            get => _selectedDate;
+            get => _studyDates.Count > 0 ? _studyDates[0].Date : _customDateToAdd;
             set
             {
                 DateTime dateOnly = value.Date;
-                if (SetProperty(ref _selectedDate, dateOnly))
-                {
-                    RecalculateSchedule();
-                }
+                SetSingleCustomDate(dateOnly);
             }
         }
 
@@ -544,7 +773,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
                     ValidateTimeStep(value);
                     if (string.IsNullOrEmpty(_timeStepError))
                     {
-                        RecalculateSchedule();
+                        RecalculateAllSchedules();
                     }
                     else
                     {
@@ -571,7 +800,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
                     ValidateMinSunAltitude(value);
                     if (string.IsNullOrEmpty(_minSunAltitudeError))
                     {
-                        RecalculateSchedule();
+                        RecalculateAllSchedules();
                     }
                     else
                     {
@@ -596,7 +825,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
                     ValidateMaxCompositeDarkness(value);
                     if (string.IsNullOrEmpty(_maxCompositeDarknessError))
                     {
-                        RecalculateSchedule();
+                        RecalculateAllSchedules();
                     }
                     else
                     {
@@ -643,41 +872,59 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
         }
 
         /// <summary>
-        /// Gets the computed solar schedule for <see cref="SelectedDate"/>.
+        /// Gets the computed solar schedule for the primary selected date.
         /// </summary>
-        public DateSolarSchedule CurrentSchedule
-        {
-            get => _currentSchedule;
-            private set => SetProperty(ref _currentSchedule, value);
-        }
+        public DateSolarSchedule CurrentSchedule =>
+            _studyDates.Count > 0 ? _studyDates[0].Schedule : new DateSolarSchedule();
 
         /// <summary>
-        /// Gets the count of valid daylight frames in <see cref="CurrentSchedule"/>.
+        /// Gets the total count of valid daylight frames across all selected study dates.
         /// </summary>
-        public int ValidFrameCount => CurrentSchedule.Frames.Count;
+        public int ValidFrameCount => TotalValidFrameCount;
 
         /// <summary>
-        /// Gets a value indicating whether zero valid daylight frames exist for the selected date.
+        /// Gets a value indicating whether total valid daylight frames across all selected dates is zero.
         /// </summary>
-        public bool HasZeroFrames => ValidFrameCount == 0;
+        public bool HasZeroFrames => _studyDates.Count == 0 || TotalValidFrameCount == 0;
 
         /// <summary>
-        /// Gets the live schedule preview summary text.
+        /// Gets the live schedule preview summary text for the primary selected date.
         /// </summary>
         public string SchedulePreviewText => CurrentSchedule.WindowSummary;
 
         /// <summary>
-        /// Gets the previewed output composite filename.
+        /// Gets the previewed output composite filename or multi-view/multi-date summary.
         /// </summary>
         public string CompositeFileNamePreview
         {
             get
             {
-                string dateLabel = ShadowStudyPathHelper.FormatDateLabel(SelectedDate);
+                if (_studyDates.Count == 0)
+                {
+                    return "Select at least one study date";
+                }
+
+                IReadOnlyList<ShadowStudyDateScheduleItemViewModel> activeDates = _studyDates.Where(d => d.HasValidFrames).ToList();
                 if (ExportRangeMode == ShadowStudyExportRangeMode.CurrentView)
                 {
                     string viewLabel = ActiveView?.ViewLabel ?? "View";
-                    return ShadowStudyPathHelper.BuildCompositeFileName(viewLabel, dateLabel);
+                    if (_studyDates.Count == 1)
+                    {
+                        return ShadowStudyPathHelper.BuildCompositeFileName(viewLabel, _studyDates[0].DateLabel);
+                    }
+
+                    if (activeDates.Count == 0)
+                    {
+                        return "0 composites (all selected dates yield 0 valid frames)";
+                    }
+
+                    return activeDates.Count == 1
+                        ? ShadowStudyPathHelper.BuildCompositeFileName(viewLabel, activeDates[0].DateLabel)
+                        : string.Format(
+                            CultureInfo.InvariantCulture,
+                            "{0} composites ({1} - <DateLabel> - Composite.png)",
+                            activeDates.Count,
+                            viewLabel);
                 }
 
                 var selectedCopies = _allViews
@@ -690,11 +937,22 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
                     return "Select at least 1 view to preview output filename";
                 }
 
+                if (activeDates.Count == 0)
+                {
+                    return "0 composites (all selected dates yield 0 valid frames)";
+                }
+
                 ShadowStudyPathHelper.AssignViewLabels(selectedCopies);
-                string firstFileName = ShadowStudyPathHelper.BuildCompositeFileName(selectedCopies[0].ViewLabel, dateLabel);
-                return selectedCopies.Count == 1
-                    ? firstFileName
-                    : $"{firstFileName} (+{selectedCopies.Count - 1} more)";
+                string firstFileName = ShadowStudyPathHelper.BuildCompositeFileName(selectedCopies[0].ViewLabel, activeDates[0].DateLabel);
+                if (activeDates.Count == 1)
+                {
+                    return selectedCopies.Count == 1
+                        ? firstFileName
+                        : $"{firstFileName} (+{selectedCopies.Count - 1} more)";
+                }
+
+                int totalComposites = selectedCopies.Count * activeDates.Count;
+                return $"{totalComposites} composites (e.g. {firstFileName})";
             }
         }
 
@@ -717,13 +975,13 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
         /// <summary>
         /// Gets a value indicating whether Export can currently execute.
         /// Requires at least one valid target view for the active mode, a non-blank output folder,
-        /// positive pixel width, and at least one valid daylight frame.
+        /// no validation errors, and at least one valid daylight frame across the selected study dates.
         /// </summary>
         public bool CanExport =>
             HasValidTargetViews() &&
             !string.IsNullOrWhiteSpace(OutputFolder) &&
             !HasValidationErrors &&
-            ValidFrameCount > 0;
+            TotalValidFrameCount > 0;
 
         /// <summary>
         /// Gets the command that opens the folder browser dialog.
@@ -752,6 +1010,16 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
         public ICommand SaveAsPrintSetCommand { get; }
 
         /// <summary>
+        /// Gets the command that adds <see cref="CustomDateToAdd"/> to <see cref="StudyDates"/>.
+        /// </summary>
+        public ICommand AddCustomDateCommand { get; }
+
+        /// <summary>
+        /// Gets the command that removes a study date item from <see cref="StudyDates"/>.
+        /// </summary>
+        public ICommand RemoveDateCommand { get; }
+
+        /// <summary>
         /// Gets the command that confirms settings and starts the export.
         /// </summary>
         public ICommand ExportCommand { get; }
@@ -762,7 +1030,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
         public ICommand CancelCommand { get; }
 
         /// <summary>
-        /// Builds the headless <see cref="ShadowStudyRunRequest"/> for the configured view(s), date, and output settings.
+        /// Builds the headless <see cref="ShadowStudyRunRequest"/> for the configured view(s), study dates, and output settings.
         /// </summary>
         public ShadowStudyRunRequest BuildRunRequest()
         {
@@ -797,7 +1065,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
             return new ShadowStudyRunRequest
             {
                 Views = targetViews,
-                DateSchedules = new[] { CurrentSchedule },
+                DateSchedules = _studyDates.Select(d => d.Schedule).ToList().AsReadOnly(),
                 OutputFolder = OutputFolder.Trim(),
                 PixelWidth = PixelWidth,
                 MaxCompositeDarknessPercent = MaxCompositeDarknessPercent,
@@ -1150,6 +1418,28 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
             }
         }
 
+        private void ApplyTargetYearText(string text)
+        {
+            if (!int.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed))
+            {
+                _targetYearError = $"Target year must be an integer between {MinAllowedTargetYear} and {MaxAllowedTargetYear}.";
+                RaiseValidationStateChanged();
+                return;
+            }
+
+            SetProperty(ref _targetYear, parsed, nameof(TargetYear));
+            ValidateTargetYear(parsed);
+            if (string.IsNullOrEmpty(_targetYearError))
+            {
+                UpdateAstronomicalDatesForTargetYear(parsed);
+                RecalculateAllSchedules();
+            }
+            else
+            {
+                RaiseValidationStateChanged();
+            }
+        }
+
         private void ApplyMinSunAltitudeText(string text)
         {
             if (!TryParseDouble(text, out double parsed))
@@ -1167,7 +1457,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
             ValidateMinSunAltitude(parsed);
             if (string.IsNullOrEmpty(_minSunAltitudeError))
             {
-                RecalculateSchedule();
+                RecalculateAllSchedules();
             }
             else
             {
@@ -1188,7 +1478,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
             ValidateMaxCompositeDarkness(parsed);
             if (string.IsNullOrEmpty(_maxCompositeDarknessError))
             {
-                RecalculateSchedule();
+                RecalculateAllSchedules();
             }
             else
             {
@@ -1208,6 +1498,13 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
             SetProperty(ref _pixelWidth, parsed, nameof(PixelWidth));
             ValidatePixelWidth(parsed);
             RaiseValidationStateChanged();
+        }
+
+        private void ValidateTargetYear(int year)
+        {
+            _targetYearError = (year < MinAllowedTargetYear || year > MaxAllowedTargetYear)
+                ? $"Target year must be between {MinAllowedTargetYear} and {MaxAllowedTargetYear}."
+                : string.Empty;
         }
 
         private void ValidateTimeStep(int stepMinutes)
@@ -1252,7 +1549,161 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
             return false;
         }
 
-        private void RecalculateSchedule()
+        private void SetSingleCustomDate(DateTime dateOnly)
+        {
+            _selectedPreset = null;
+            OnPropertyChanged(nameof(SelectedPreset));
+
+            _studyDates.Clear();
+            AddDateEntryInternal(new ShadowStudyDateEntry
+            {
+                Date = dateOnly.Date,
+                AstronomicalEvent = AstronomicalEventKind.None,
+                PresetName = string.Empty
+            });
+
+            RaiseStudyDatesChanged();
+        }
+
+        private void ApplyPreset(ShadowStudyPresetDefinition preset)
+        {
+            if (preset.TimeStepMinutes.HasValue)
+            {
+                _timeStepMinutes = preset.TimeStepMinutes.Value;
+                ValidateTimeStep(_timeStepMinutes);
+                OnPropertyChanged(nameof(TimeStepMinutes));
+            }
+
+            if (preset.MinSunAltitudeDegrees.HasValue)
+            {
+                _minSunAltitudeDegrees = preset.MinSunAltitudeDegrees.Value;
+                _minSunAltitudeText = _minSunAltitudeDegrees.ToString("0.##", CultureInfo.InvariantCulture);
+                ValidateMinSunAltitude(_minSunAltitudeDegrees);
+                OnPropertyChanged(nameof(MinSunAltitudeDegrees));
+                OnPropertyChanged(nameof(MinSunAltitudeText));
+            }
+
+            if (preset.MaxCompositeDarknessPercent.HasValue)
+            {
+                _maxCompositeDarknessPercent = preset.MaxCompositeDarknessPercent.Value;
+                _maxCompositeDarknessText = _maxCompositeDarknessPercent.ToString(CultureInfo.InvariantCulture);
+                ValidateMaxCompositeDarkness(_maxCompositeDarknessPercent);
+                OnPropertyChanged(nameof(MaxCompositeDarknessPercent));
+                OnPropertyChanged(nameof(MaxCompositeDarknessText));
+            }
+
+            if (preset.ForceHiddenLine.HasValue) ForceHiddenLine = preset.ForceHiddenLine.Value;
+            if (preset.ForceWhiteBackground.HasValue) ForceWhiteBackground = preset.ForceWhiteBackground.Value;
+            if (preset.ExportIndividualFrames.HasValue) ExportIndividualFrames = preset.ExportIndividualFrames.Value;
+
+            int effectiveYear = string.IsNullOrEmpty(_targetYearError) ? _targetYear : DateTime.Today.Year;
+            IReadOnlyList<ShadowStudyDateEntry> expanded = BuiltInShadowStudyPresets.ExpandPreset(
+                preset,
+                effectiveYear,
+                SiteInfo);
+
+            _studyDates.Clear();
+            foreach (ShadowStudyDateEntry entry in expanded)
+            {
+                if (!ContainsCalendarDate(entry.Date))
+                {
+                    AddDateEntryInternal(entry);
+                }
+            }
+
+            RaiseStudyDatesChanged();
+        }
+
+        private void ExecuteAddCustomDate()
+        {
+            DateTime dateOnly = _customDateToAdd.Date;
+            if (ContainsCalendarDate(dateOnly))
+            {
+                return;
+            }
+
+            _selectedPreset = null;
+            OnPropertyChanged(nameof(SelectedPreset));
+
+            AddDateEntryInternal(new ShadowStudyDateEntry
+            {
+                Date = dateOnly,
+                AstronomicalEvent = AstronomicalEventKind.None,
+                PresetName = string.Empty
+            });
+
+            RaiseStudyDatesChanged();
+        }
+
+        private void ExecuteRemoveDate(object? parameter)
+        {
+            if (parameter is ShadowStudyDateScheduleItemViewModel item)
+            {
+                RemoveDateItem(item);
+            }
+        }
+
+        private void RemoveDateItem(ShadowStudyDateScheduleItemViewModel item)
+        {
+            if (_studyDates.Remove(item))
+            {
+                _selectedPreset = null;
+                OnPropertyChanged(nameof(SelectedPreset));
+                RaiseStudyDatesChanged();
+            }
+        }
+
+        private bool ContainsCalendarDate(DateTime date)
+        {
+            DateTime dateOnly = date.Date;
+            return _studyDates.Any(d => d.Date.Date == dateOnly);
+        }
+
+        private void AddDateEntryInternal(ShadowStudyDateEntry entry)
+        {
+            DateSolarSchedule schedule = BuildScheduleForEntry(entry);
+            var row = new ShadowStudyDateScheduleItemViewModel(entry, schedule, RemoveDateItem);
+            _studyDates.Add(row);
+        }
+
+        private void UpdateAstronomicalDatesForTargetYear(int year)
+        {
+            if (year < MinAllowedTargetYear || year > MaxAllowedTargetYear)
+            {
+                return;
+            }
+
+            foreach (ShadowStudyDateScheduleItemViewModel item in _studyDates)
+            {
+                if (item.AstronomicalEvent != AstronomicalEventKind.None)
+                {
+                    DateTime resolved = BuiltInShadowStudyPresets.ResolveDate(
+                        item.AstronomicalEvent,
+                        year,
+                        SiteInfo);
+                    item.DateEntry.Date = resolved;
+                }
+            }
+        }
+
+        private DateSolarSchedule BuildScheduleForEntry(ShadowStudyDateEntry entry)
+        {
+            int safeStep = (TimeStepMinutes > 0 && TimeStepMinutes <= 1440) ? TimeStepMinutes : 60;
+            double safeMinAlt = (!double.IsNaN(MinSunAltitudeDegrees) && !double.IsInfinity(MinSunAltitudeDegrees) &&
+                                 MinSunAltitudeDegrees >= MinAllowedSunAltitudeDegrees && MinSunAltitudeDegrees <= MaxAllowedSunAltitudeDegrees)
+                ? MinSunAltitudeDegrees
+                : 5.0;
+            int safeDarkness = Math.Max(MinAllowedDarknessPercent, Math.Min(MaxAllowedDarknessPercent, MaxCompositeDarknessPercent));
+
+            return SolarScheduleCalculator.BuildSchedule(
+                entry,
+                SiteInfo,
+                safeStep,
+                safeMinAlt,
+                safeDarkness);
+        }
+
+        private void RecalculateAllSchedules()
         {
             if (HasValidationErrors)
             {
@@ -1260,20 +1711,33 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
                 return;
             }
 
-            CurrentSchedule = SolarScheduleCalculator.BuildSchedule(
-                new ShadowStudyDateEntry { Date = SelectedDate },
-                SiteInfo,
-                TimeStepMinutes,
-                MinSunAltitudeDegrees,
-                MaxCompositeDarknessPercent);
+            foreach (ShadowStudyDateScheduleItemViewModel item in _studyDates)
+            {
+                DateSolarSchedule updated = BuildScheduleForEntry(item.DateEntry);
+                item.UpdateSchedule(item.DateEntry.Date, updated);
+            }
 
+            RaiseStudyDatesChanged();
+        }
+
+        private void RaiseStudyDatesChanged()
+        {
+            OnPropertyChanged(nameof(SelectedDate));
+            OnPropertyChanged(nameof(CurrentSchedule));
             OnPropertyChanged(nameof(ValidFrameCount));
+            OnPropertyChanged(nameof(TotalValidFrameCount));
+            OnPropertyChanged(nameof(HasNoDates));
             OnPropertyChanged(nameof(HasZeroFrames));
+            OnPropertyChanged(nameof(HasSkippedZeroFrameDates));
+            OnPropertyChanged(nameof(ShowPartialZeroFramesNotice));
+            OnPropertyChanged(nameof(PartialZeroFramesNoticeText));
+            OnPropertyChanged(nameof(StudyDatesSummaryText));
             OnPropertyChanged(nameof(PeakSolarAltitudeDegrees));
             OnPropertyChanged(nameof(SchedulePreviewText));
             OnPropertyChanged(nameof(ZeroFramesWarningText));
             OnPropertyChanged(nameof(CompositeFileNamePreview));
             OnPropertyChanged(nameof(FrameFolderPreview));
+            OnPropertyChanged(nameof(CanAddCustomDate));
             RaiseValidationStateChanged();
         }
 
@@ -1283,6 +1747,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
             OnPropertyChanged(nameof(ValidationErrorMessage));
             OnPropertyChanged(nameof(ShowSchedulePreview));
             OnPropertyChanged(nameof(ShowZeroFramesWarning));
+            OnPropertyChanged(nameof(ShowPartialZeroFramesNotice));
             RaiseExportStateChanged();
         }
 

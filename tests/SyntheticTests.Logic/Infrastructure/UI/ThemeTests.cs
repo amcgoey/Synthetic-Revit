@@ -443,6 +443,27 @@ namespace SyntheticTests.Infrastructure.UI
         }
 
         [Test]
+        public void ShadowStudyWindow_WithDefaultSeasonalStudyPreset_ConstructsAndBindsInStaWithoutXamlErrors()
+        {
+            var adapter = new SyntheticTests.Modules.ShadowStudy.FakeShadowStudyAdapter();
+            var folderDialog = new SyntheticTests.Modules.ShadowStudy.FakeFolderDialogService();
+            var vm = new Synthetic.Modules.ShadowStudy.ViewModels.ShadowStudyViewModel(adapter, folderDialog);
+
+            Synthetic.Modules.ShadowStudy.Views.ShadowStudyWindow? window = null;
+            Assert.DoesNotThrow(() =>
+            {
+                window = new Synthetic.Modules.ShadowStudy.Views.ShadowStudyWindow(IntPtr.Zero) { DataContext = vm };
+                window.ApplyTemplate();
+                window.Measure(new Size(620, 900));
+                window.Arrange(new Rect(0, 0, 620, 900));
+                window.UpdateLayout();
+            });
+
+            Assert.IsNotNull(window);
+            window!.Close();
+        }
+
+        [Test]
         public void ShadowStudyWindow_SelectedViewsChecklist_BindsAndSwitchesModesWithoutXamlErrors()
         {
             var adapter = new SyntheticTests.Modules.ShadowStudy.FakeShadowStudyAdapter
@@ -480,6 +501,8 @@ namespace SyntheticTests.Infrastructure.UI
             {
                 window = new Synthetic.Modules.ShadowStudy.Views.ShadowStudyWindow(IntPtr.Zero) { DataContext = vm };
                 window.ApplyTemplate();
+                window.Measure(new Size(620, 900));
+                window.Arrange(new Rect(0, 0, 620, 900));
                 window.UpdateLayout();
             });
 
