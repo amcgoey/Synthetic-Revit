@@ -282,6 +282,14 @@ namespace SyntheticTests.Modules.ShadowStudy
             public ShadowStudySiteInfo GetSiteInfo() => _inner.GetSiteInfo();
             public ShadowStudyViewItem? GetActiveViewInfo() => _activeView;
             public IReadOnlyList<ShadowStudyViewItem> GetEligibleViews() => _inner.GetEligibleViews();
+            public IReadOnlyList<ShadowStudyPrintSetItem> GetPrintSets() => _inner.GetPrintSets();
+
+            public ShadowStudyPrintSetItem SavePrintSet(
+                string printSetName,
+                IReadOnlyList<string> selectedShadowViewIds,
+                bool saveAsNew,
+                string? sourcePrintSetId = null)
+                => _inner.SavePrintSet(printSetName, selectedShadowViewIds, saveAsNew, sourcePrintSetId);
 
             public RawFrameExportResult ExportRawFrames(
                 RawFrameExportRequest request,

@@ -97,6 +97,269 @@ namespace Synthetic.Modules.ShadowStudy.Adapters
         }
 
         /// <inheritdoc />
+        public IReadOnlyList<ShadowStudyPrintSetItem> GetPrintSets()
+        {
+            // Read-only collector query: never touch PrintManager or ViewSheetSetting when inspecting Print Sets.
+            var printSets = new FilteredElementCollector(_doc)
+                .OfClass(typeof(ViewSheetSet))
+                .WhereElementIsNotElementType()
+                .Cast<ViewSheetSet>()
+                .Where(vs => !string.IsNullOrWhiteSpace(vs.Name))
+                .OrderBy(vs => vs.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(MapPrintSetItem)
+                .ToList();
+
+            return printSets.AsReadOnly();
+        }
+
+        /// <inheritdoc />
+        public ShadowStudyPrintSetItem SavePrintSet(
+            string printSetName,
+            IReadOnlyList<string> selectedShadowViewIds,
+            bool saveAsNew,
+            string? sourcePrintSetId = null)
+        {
+            string trimmedName = (printSetName ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(trimmedName))
+            {
+                throw new ArgumentException("Print Set name cannot be blank.", nameof(printSetName));
+            }
+
+            if (string.Equals(trimmedName, ShadowStudyPrintSetItem.InSessionName, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException("'<In-Session>' is reserved and cannot be used as a saved Print Set name.", nameof(printSetName));
+            }
+
+            var resolvedShadowViews = new List<View>();
+            var seenIds = new HashSet<string>(StringComparer.Ordinal);
+            if (selectedShadowViewIds != null)
+            {
+                foreach (string viewId in selectedShadowViewIds)
+                {
+                    if (string.IsNullOrWhiteSpace(viewId) || !seenIds.Add(viewId))
+                    {
+                        continue;
+                    }
+
+                    View? view = _doc.GetElement(viewId) as View;
+                    if (IsEligibleView(view))
+                    {
+                        resolvedShadowViews.Add(view!);
+                    }
+                }
+            }
+
+            var existingSets = new FilteredElementCollector(_doc)
+                .OfClass(typeof(ViewSheetSet))
+                .WhereElementIsNotElementType()
+                .Cast<ViewSheetSet>()
+                .ToList();
+
+            ViewSheetSet? existingByName = existingSets.FirstOrDefault(
+                s => string.Equals(s.Name?.Trim(), trimmedName, StringComparison.OrdinalIgnoreCase));
+
+            if (saveAsNew)
+            {
+                if (existingByName != null)
+                {
+                    throw new InvalidOperationException($"A Print Set named '{trimmedName}' already exists.");
+                }
+
+                ViewSheetSet? sourceSet = !string.IsNullOrWhiteSpace(sourcePrintSetId)
+                    ? existingSets.FirstOrDefault(s => string.Equals(s.UniqueId, sourcePrintSetId, StringComparison.Ordinal))
+                    : null;
+
+                ViewSet combinedViewSet = BuildCombinedViewSet(resolvedShadowViews, sourceSet);
+                if (combinedViewSet.IsEmpty)
+                {
+                    throw new InvalidOperationException("Cannot save an empty Print Set. Select at least one view.");
+                }
+
+                var preprocessor = new CompositeFailuresPreprocessor { AllowBlanketSuppression = false };
+                preprocessor.SetContext($"ShadowStudy:SavePrintSet:{trimmedName}");
+
+                using (Transaction tx = _doc.CreateTransaction("Save Print Set", preprocessor, clearAfterRollback: true))
+                {
+                    tx.Start();
+                    try
+                    {
+                        PrintManager printManager = _doc.PrintManager;
+                        printManager.PrintRange = PrintRange.Select;
+                        printManager.Apply();
+                        ViewSheetSetting setting = printManager.ViewSheetSetting;
+
+                        // Revit's ViewSheetSetting can mutate a previously-active saved ViewSheetSet
+                        // across CurrentViewSheetSet = InSession + SaveAs in the same session; snapshot and restore it.
+                        ViewSheetSet? previousSavedSet = setting.CurrentViewSheetSet as ViewSheetSet;
+                        ViewSet? previousSavedViews = null;
+                        if (previousSavedSet != null && previousSavedSet.Views != null)
+                        {
+                            previousSavedViews = new ViewSet();
+                            foreach (View member in previousSavedSet.Views)
+                            {
+                                if (member != null)
+                                {
+                                    previousSavedViews.Insert(member);
+                                }
+                            }
+                        }
+
+                        setting.CurrentViewSheetSet = setting.InSession;
+                        setting.CurrentViewSheetSet.Views = combinedViewSet;
+
+                        if (!setting.SaveAs(trimmedName))
+                        {
+                            throw new InvalidOperationException($"Revit could not save Print Set '{trimmedName}'.");
+                        }
+
+                        if (previousSavedSet != null && previousSavedViews != null && !previousSavedViews.IsEmpty)
+                        {
+                            setting.CurrentViewSheetSet = previousSavedSet;
+                            previousSavedSet.Views = previousSavedViews;
+                            setting.CurrentViewSheetSet.Views = previousSavedViews;
+                            setting.Save();
+                        }
+
+                        tx.Commit();
+                    }
+                    catch
+                    {
+                        if (tx.GetStatus() == TransactionStatus.Started)
+                        {
+                            tx.RollBack();
+                        }
+                        throw;
+                    }
+                }
+
+                ViewSheetSet createdSet = new FilteredElementCollector(_doc)
+                    .OfClass(typeof(ViewSheetSet))
+                    .WhereElementIsNotElementType()
+                    .Cast<ViewSheetSet>()
+                    .FirstOrDefault(s => string.Equals(s.Name?.Trim(), trimmedName, StringComparison.OrdinalIgnoreCase))
+                    ?? throw new InvalidOperationException($"Saved Print Set '{trimmedName}' could not be located after commit.");
+
+                return MapPrintSetItem(createdSet);
+            }
+            else
+            {
+                ViewSheetSet? targetSet = !string.IsNullOrWhiteSpace(sourcePrintSetId)
+                    ? existingSets.FirstOrDefault(s => string.Equals(s.UniqueId, sourcePrintSetId, StringComparison.Ordinal))
+                    : null;
+                targetSet ??= existingByName;
+
+                if (targetSet == null)
+                {
+                    throw new InvalidOperationException($"Saved Print Set '{trimmedName}' was not found in the document.");
+                }
+
+                ViewSet combinedViewSet = BuildCombinedViewSet(resolvedShadowViews, targetSet);
+                if (combinedViewSet.IsEmpty)
+                {
+                    throw new InvalidOperationException("Cannot save an empty Print Set. Select at least one view.");
+                }
+
+                var preprocessor = new CompositeFailuresPreprocessor { AllowBlanketSuppression = false };
+                preprocessor.SetContext($"ShadowStudy:SavePrintSet:{targetSet.Name}");
+
+                using (Transaction tx = _doc.CreateTransaction("Save Print Set", preprocessor, clearAfterRollback: true))
+                {
+                    tx.Start();
+                    try
+                    {
+                        PrintManager printManager = _doc.PrintManager;
+                        printManager.PrintRange = PrintRange.Select;
+                        printManager.Apply();
+                        ViewSheetSetting setting = printManager.ViewSheetSetting;
+                        setting.CurrentViewSheetSet = targetSet;
+                        targetSet.Views = combinedViewSet;
+                        setting.CurrentViewSheetSet.Views = combinedViewSet;
+
+                        if (!setting.Save())
+                        {
+                            throw new InvalidOperationException($"Revit could not update Print Set '{targetSet.Name}'.");
+                        }
+
+                        tx.Commit();
+                    }
+                    catch
+                    {
+                        if (tx.GetStatus() == TransactionStatus.Started)
+                        {
+                            tx.RollBack();
+                        }
+                        throw;
+                    }
+                }
+
+                ViewSheetSet refreshedSet = (_doc.GetElement(targetSet.UniqueId) as ViewSheetSet) ?? targetSet;
+                return MapPrintSetItem(refreshedSet);
+            }
+        }
+
+        private static ViewSet BuildCombinedViewSet(IReadOnlyList<View> shadowViews, ViewSheetSet? nonShadowSourceSet)
+        {
+            var combined = new ViewSet();
+            var insertedIds = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (View shadowView in shadowViews)
+            {
+                if (shadowView != null && insertedIds.Add(shadowView.UniqueId))
+                {
+                    combined.Insert(shadowView);
+                }
+            }
+
+            if (nonShadowSourceSet != null && nonShadowSourceSet.Views != null)
+            {
+                foreach (View member in nonShadowSourceSet.Views)
+                {
+                    if (member != null && !IsEligibleView(member) && insertedIds.Add(member.UniqueId))
+                    {
+                        combined.Insert(member);
+                    }
+                }
+            }
+
+            return combined;
+        }
+
+        private static ShadowStudyPrintSetItem MapPrintSetItem(ViewSheetSet printSet)
+        {
+            var shadowIds = new List<string>();
+            var nonShadowIds = new List<string>();
+
+            if (printSet.Views != null)
+            {
+                foreach (View v in printSet.Views)
+                {
+                    if (v == null)
+                    {
+                        continue;
+                    }
+
+                    if (IsEligibleView(v))
+                    {
+                        shadowIds.Add(v.UniqueId);
+                    }
+                    else
+                    {
+                        nonShadowIds.Add(v.UniqueId);
+                    }
+                }
+            }
+
+            return new ShadowStudyPrintSetItem
+            {
+                Id = printSet.UniqueId,
+                Name = printSet.Name ?? string.Empty,
+                ShadowViewIds = shadowIds.AsReadOnly(),
+                NonShadowMemberIds = nonShadowIds.AsReadOnly(),
+                IsInSession = false
+            };
+        }
+
+        /// <inheritdoc />
         public RawFrameExportResult ExportRawFrames(
             RawFrameExportRequest request,
             IProgress<ProgressState>? progress = null,

@@ -33,6 +33,9 @@ namespace SyntheticTests.Modules.ShadowStudy
         };
 
         public List<ShadowStudyViewItem> EligibleViews { get; } = new List<ShadowStudyViewItem>();
+        public List<ShadowStudyPrintSetItem> PrintSets { get; } = new List<ShadowStudyPrintSetItem>();
+        public List<(string Name, IReadOnlyList<string> ShadowViewIds, bool SaveAsNew, string? SourcePrintSetId)> SavePrintSetCalls { get; } =
+            new List<(string, IReadOnlyList<string>, bool, string?)>();
         public List<RawFrameExportRequest> ExportRequests { get; } = new List<RawFrameExportRequest>();
         public int CancelAfterFrameCount { get; set; } = -1;
         public CancellationTokenSource? CancelSourceToTrigger { get; set; }
@@ -48,6 +51,95 @@ namespace SyntheticTests.Modules.ShadowStudy
         {
             if (EligibleViews.Count > 0) return EligibleViews;
             return ActiveView != null ? new List<ShadowStudyViewItem> { ActiveView } : new List<ShadowStudyViewItem>();
+        }
+
+        public IReadOnlyList<ShadowStudyPrintSetItem> GetPrintSets()
+        {
+            var sorted = new List<ShadowStudyPrintSetItem>(PrintSets.Count);
+            foreach (var set in PrintSets)
+            {
+                sorted.Add(ClonePrintSet(set));
+            }
+            sorted.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+            return sorted;
+        }
+
+        public ShadowStudyPrintSetItem SavePrintSet(
+            string printSetName,
+            IReadOnlyList<string> selectedShadowViewIds,
+            bool saveAsNew,
+            string? sourcePrintSetId = null)
+        {
+            string trimmed = (printSetName ?? string.Empty).Trim();
+            if (string.IsNullOrWhiteSpace(trimmed))
+            {
+                throw new ArgumentException("Print Set name cannot be blank.", nameof(printSetName));
+            }
+
+            if (string.Equals(trimmed, ShadowStudyPrintSetItem.InSessionName, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ArgumentException("'<In-Session>' is reserved.", nameof(printSetName));
+            }
+
+            SavePrintSetCalls.Add((trimmed, new List<string>(selectedShadowViewIds ?? Array.Empty<string>()), saveAsNew, sourcePrintSetId));
+
+            var shadowList = new List<string>(selectedShadowViewIds ?? Array.Empty<string>());
+            if (saveAsNew)
+            {
+                foreach (var existing in PrintSets)
+                {
+                    if (string.Equals(existing.Name, trimmed, StringComparison.OrdinalIgnoreCase))
+                    {
+                        throw new InvalidOperationException($"A Print Set named '{trimmed}' already exists.");
+                    }
+                }
+
+                ShadowStudyPrintSetItem? sourceSet = !string.IsNullOrEmpty(sourcePrintSetId)
+                    ? PrintSets.Find(p => string.Equals(p.Id, sourcePrintSetId, StringComparison.Ordinal))
+                    : null;
+
+                var nonShadow = sourceSet != null
+                    ? new List<string>(sourceSet.NonShadowMemberIds)
+                    : new List<string>();
+
+                var created = new ShadowStudyPrintSetItem
+                {
+                    Id = "ps-" + (PrintSets.Count + 1),
+                    Name = trimmed,
+                    ShadowViewIds = shadowList.AsReadOnly(),
+                    NonShadowMemberIds = nonShadow.AsReadOnly(),
+                    IsInSession = false
+                };
+                PrintSets.Add(created);
+                return ClonePrintSet(created);
+            }
+            else
+            {
+                ShadowStudyPrintSetItem? target = !string.IsNullOrEmpty(sourcePrintSetId)
+                    ? PrintSets.Find(p => string.Equals(p.Id, sourcePrintSetId, StringComparison.Ordinal))
+                    : PrintSets.Find(p => string.Equals(p.Name, trimmed, StringComparison.OrdinalIgnoreCase));
+
+                if (target == null)
+                {
+                    throw new InvalidOperationException($"Saved Print Set '{trimmed}' was not found.");
+                }
+
+                target.ShadowViewIds = shadowList.AsReadOnly();
+                return ClonePrintSet(target);
+            }
+        }
+
+        private static ShadowStudyPrintSetItem ClonePrintSet(ShadowStudyPrintSetItem source)
+        {
+            return new ShadowStudyPrintSetItem
+            {
+                Id = source.Id,
+                Name = source.Name,
+                ShadowViewIds = new List<string>(source.ShadowViewIds ?? Array.Empty<string>()).AsReadOnly(),
+                NonShadowMemberIds = new List<string>(source.NonShadowMemberIds ?? Array.Empty<string>()).AsReadOnly(),
+                IgnoredNonShadowMemberCount = source.IgnoredNonShadowMemberCount,
+                IsInSession = source.IsInSession
+            };
         }
 
         public RawFrameExportResult ExportRawFrames(

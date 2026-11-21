@@ -46,7 +46,8 @@ namespace Synthetic.Modules.ShadowStudy.Commands
                 }
 
                 var folderService = new WindowsFolderDialogService(uiapp.MainWindowHandle);
-                var vm = new ShadowStudyViewModel(adapter, folderService);
+                var textInputService = new WindowsTextInputPromptService(uiapp.MainWindowHandle);
+                var vm = new ShadowStudyViewModel(adapter, folderService, textInputPromptService: textInputService);
                 var window = new ShadowStudyWindow(uiapp.MainWindowHandle)
                 {
                     DataContext = vm
