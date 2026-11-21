@@ -441,7 +441,8 @@ namespace Synthetic.Modules.ShadowStudy.Adapters
 
                             preprocessor.SetContext($"ShadowStudy:{view.Name}");
 
-                            // 1. Temporary view preparation transaction (detaches template, isolates sun, sets HLR & white bg)
+                            // 1. Temporary view preparation transaction (detaches template, isolates sun, configures per-view visual style & background)
+                            bool usePerFrameReferenceForView = false;
                             ExecuteInnerTransaction("Prepare Shadow Study View", preprocessor, () =>
                             {
                                 if (view.ViewTemplateId != ElementId.InvalidElementId)
@@ -449,16 +450,16 @@ namespace Synthetic.Modules.ShadowStudy.Adapters
                                     view.ViewTemplateId = ElementId.InvalidElementId;
                                 }
 
-                                bool forceHlr = request.ForceHiddenLine ||
-                                                view.DisplayStyle == DisplayStyle.Wireframe ||
-                                                view.DisplayStyle == DisplayStyle.Rendering;
+                                bool useHiddenLineForView = request.ForceHiddenLine ||
+                                                            view.DisplayStyle == DisplayStyle.Wireframe ||
+                                                            view.DisplayStyle == DisplayStyle.Rendering;
 
-                                if (forceHlr && view.CanModifyDisplayStyle())
+                                if (useHiddenLineForView && view.CanModifyDisplayStyle())
                                 {
                                     view.DisplayStyle = DisplayStyle.HLR;
                                 }
 
-                                if (request.ForceWhiteBackground && IsBackgroundSupported(view.ViewType))
+                                if (useHiddenLineForView && request.ForceWhiteBackground && IsBackgroundSupported(view.ViewType))
                                 {
                                     try
                                     {
@@ -471,6 +472,10 @@ namespace Synthetic.Modules.ShadowStudy.Adapters
                                     }
                                 }
 
+                                usePerFrameReferenceForView = request.ExportPerFrameReference &&
+                                                             !useHiddenLineForView &&
+                                                             view.DisplayStyle != DisplayStyle.HLR;
+
                                 SunAndShadowSettings sun = view.SunAndShadowSettings;
                                 sun.SharesSettings = false;
                                 sun.Visible = false;
@@ -481,9 +486,9 @@ namespace Synthetic.Modules.ShadowStudy.Adapters
                                 view.ShadowIntensity = 0;
                             });
 
-                            // 2. Shared unshadowed reference pass (ShadowIntensity = 0)
+                            // 2. Shared unshadowed reference pass (ShadowIntensity = 0) for HLR / fallback views
                             string sharedReferencePngPath = string.Empty;
-                            if (!request.ExportPerFrameReference)
+                            if (!usePerFrameReferenceForView)
                             {
                                 cancellationToken.ThrowIfCancellationRequested();
                                 string refDir = Path.Combine(viewTempDir, "ref");
@@ -513,7 +518,7 @@ namespace Synthetic.Modules.ShadowStudy.Adapters
                                     });
 
                                     string? perFrameRefPath = null;
-                                    if (request.ExportPerFrameReference)
+                                    if (usePerFrameReferenceForView)
                                     {
                                         ExecuteInnerTransaction("Set Shadow Reference Frame", preprocessor, () =>
                                         {
@@ -733,7 +738,7 @@ namespace Synthetic.Modules.ShadowStudy.Adapters
                 {
                     Code = "VisualStyle",
                     Label = "Hidden Line Export",
-                    Description = $"{view.DisplayStyle} does not render cast shadows; Hidden Line (HLR) will be used during export."
+                    Description = $"{view.DisplayStyle} does not render cast shadows; Hidden Line (HLR) on a pure white background will be used during export."
                 });
             }
 

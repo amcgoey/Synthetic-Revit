@@ -42,6 +42,8 @@ namespace SyntheticTests.Modules.ShadowStudy
         public Exception? ExceptionToThrow { get; set; }
         public int ImageWidth { get; set; } = 32;
         public int ImageHeight { get; set; } = 32;
+        public Func<ShadowStudyViewItem, SolarFrameSlot, Color>? ShadedSurfaceColorProvider { get; set; }
+        public Func<ShadowStudyViewItem, SolarFrameSlot, bool>? ShadedPixelShadowedProvider { get; set; }
 
         public ShadowStudySiteInfo GetSiteInfo() => SiteInfo;
 
@@ -165,8 +167,20 @@ namespace SyntheticTests.Modules.ShadowStudy
             int exportedSoFar = 0;
             foreach (var view in request.Views)
             {
-                string refPath = Path.Combine(request.TempRootDirectory, view.Id, "ref.png");
-                WriteSolidTestPng(refPath, ImageWidth, ImageHeight, 255, 255, 255, 255);
+                bool isFallbackStyle = string.Equals(view.DisplayStyleName, "Wireframe", StringComparison.OrdinalIgnoreCase) ||
+                                       string.Equals(view.DisplayStyleName, "Rendering", StringComparison.OrdinalIgnoreCase);
+                bool isHlr = string.Equals(view.DisplayStyleName, "HLR", StringComparison.OrdinalIgnoreCase);
+                bool usePerFrameRef = request.ExportPerFrameReference &&
+                                      !request.ForceHiddenLine &&
+                                      !isFallbackStyle &&
+                                      !isHlr;
+
+                string refPath = string.Empty;
+                if (!usePerFrameRef)
+                {
+                    refPath = Path.Combine(request.TempRootDirectory, view.Id, "ref.png");
+                    WriteSolidTestPng(refPath, ImageWidth, ImageHeight, 255, 255, 255, 255);
+                }
 
                 foreach (var schedule in request.DateSchedules)
                 {
@@ -182,19 +196,48 @@ namespace SyntheticTests.Modules.ShadowStudy
                         cancellationToken.ThrowIfCancellationRequested();
 
                         var slot = schedule.Frames[i];
+                        string? perFrameRefPath = null;
+                        Color baseColor = ShadedSurfaceColorProvider != null
+                            ? ShadedSurfaceColorProvider(view, slot)
+                            : Color.FromRgb(255, 255, 255);
+
+                        if (usePerFrameRef)
+                        {
+                            perFrameRefPath = Path.Combine(
+                                request.TempRootDirectory,
+                                view.Id,
+                                schedule.DateEntry.DateLabel,
+                                $"r_{i:D3}_{slot.FrameFileStem}.png");
+                            WriteSolidTestPng(perFrameRefPath, ImageWidth, ImageHeight, baseColor.B, baseColor.G, baseColor.R, 255);
+                        }
+
                         string framePath = Path.Combine(
                             request.TempRootDirectory,
                             view.Id,
                             schedule.DateEntry.DateLabel,
                             $"f_{i:D3}_{slot.FrameFileStem}.png");
 
-                        byte shadowByte = (byte)Math.Max(0, Math.Min(255, 255 - (int)Math.Round(255.0 * schedule.ShadowIntensity / 100.0)));
-                        WriteSolidTestPng(framePath, ImageWidth, ImageHeight, shadowByte, shadowByte, shadowByte, 255);
+                        bool isShadowed = ShadedPixelShadowedProvider == null || ShadedPixelShadowedProvider(view, slot);
+                        double factor = isShadowed ? Math.Max(0.0, 1.0 - (schedule.ShadowIntensity / 100.0)) : 1.0;
+
+                        if (usePerFrameRef)
+                        {
+                            byte b = (byte)Math.Max(0, Math.Min(255, (int)Math.Round(baseColor.B * factor)));
+                            byte g = (byte)Math.Max(0, Math.Min(255, (int)Math.Round(baseColor.G * factor)));
+                            byte r = (byte)Math.Max(0, Math.Min(255, (int)Math.Round(baseColor.R * factor)));
+                            WriteSolidTestPng(framePath, ImageWidth, ImageHeight, b, g, r, 255);
+                        }
+                        else
+                        {
+                            byte shadowByte = (byte)Math.Max(0, Math.Min(255, 255 - (int)Math.Round(255.0 * schedule.ShadowIntensity / 100.0)));
+                            WriteSolidTestPng(framePath, ImageWidth, ImageHeight, shadowByte, shadowByte, shadowByte, 255);
+                        }
 
                         frames.Add(new RawExportedFrame
                         {
                             Slot = slot,
-                            FramePngPath = framePath
+                            FramePngPath = framePath,
+                            PerFrameReferencePngPath = perFrameRefPath
                         });
 
                         exportedSoFar++;

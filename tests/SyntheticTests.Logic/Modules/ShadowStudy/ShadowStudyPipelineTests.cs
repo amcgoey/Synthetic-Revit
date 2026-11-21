@@ -233,6 +233,89 @@ namespace SyntheticTests.Modules.ShadowStudy
         }
 
         [Test]
+        public void Execute_WithPreserveVisualStyle_UsesPeakSolarAltitudeReferenceAndCleansUpTempReferences()
+        {
+            var adapter = new FakeShadowStudyAdapter
+            {
+                ShadedSurfaceColorProvider = (v, slot) =>
+                {
+                    // Peak solar altitude (~12:00) is brighter warm stone (B=190, G=210, R=230),
+                    // while early morning / late afternoon are cooler/dimmer.
+                    return slot.SolarAltitudeDegrees >= 60.0
+                        ? System.Windows.Media.Color.FromRgb(230, 210, 190)
+                        : System.Windows.Media.Color.FromRgb(140, 130, 120);
+                },
+                ShadedPixelShadowedProvider = (_, _) => false
+            };
+
+            var shadedView = new ShadowStudyViewItem
+            {
+                Id = "v-shaded",
+                Name = "3D Shaded",
+                ViewType = "ThreeD",
+                DisplayStyleName = "ShadingWithEdges",
+                IsBackgroundSupported = true
+            };
+
+            var schedule = new DateSolarSchedule
+            {
+                DateEntry = new ShadowStudyDateEntry { Date = new DateTime(2026, 6, 21) },
+                ShadowIntensity = 35,
+                Frames = new[]
+                {
+                    new SolarFrameSlot
+                    {
+                        ProjectLocalTime = new DateTime(2026, 6, 21, 8, 0, 0),
+                        UtcTime = new DateTime(2026, 6, 21, 13, 0, 0, DateTimeKind.Utc),
+                        SolarAltitudeDegrees = 35.0
+                    },
+                    new SolarFrameSlot
+                    {
+                        ProjectLocalTime = new DateTime(2026, 6, 21, 12, 0, 0),
+                        UtcTime = new DateTime(2026, 6, 21, 17, 0, 0, DateTimeKind.Utc),
+                        SolarAltitudeDegrees = 70.0
+                    },
+                    new SolarFrameSlot
+                    {
+                        ProjectLocalTime = new DateTime(2026, 6, 21, 16, 0, 0),
+                        UtcTime = new DateTime(2026, 6, 21, 21, 0, 0, DateTimeKind.Utc),
+                        SolarAltitudeDegrees = 30.0
+                    }
+                }
+            };
+
+            var pipeline = new ShadowStudyPipeline(adapter);
+            ShadowStudyRunSummary summary = pipeline.Execute(new ShadowStudyRunRequest
+            {
+                Views = new[] { shadedView },
+                DateSchedules = new[] { schedule },
+                OutputFolder = _outputDir,
+                PixelWidth = 16,
+                ForceHiddenLine = false,
+                ForceWhiteBackground = true,
+                KeepIndividualFrames = true
+            });
+
+            Assert.IsTrue(adapter.ExportRequests[0].ExportPerFrameReference);
+            Assert.IsFalse(adapter.ExportRequests[0].ForceHiddenLine);
+
+            // Composite pixel must match peak-solar-altitude noon reference RGB(230, 210, 190) -> BGRA(190, 210, 230, 255), NOT frame 0!
+            byte[] compositePixels = ReadFirstPixel(summary.PrimaryCompositePath);
+            Assert.AreEqual(190, compositePixels[0]);
+            Assert.AreEqual(210, compositePixels[1]);
+            Assert.AreEqual(230, compositePixels[2]);
+            Assert.AreEqual(255, compositePixels[3]);
+
+            // Only the 3 timestamped Shadow Frames may be retained in the subfolder (zero *ref* or r_* temp passes)
+            string expectedFramesSubfolder = Path.Combine(_outputDir, "3D Shaded - 260621");
+            string[] retainedFiles = Directory.GetFiles(expectedFramesSubfolder, "*.png");
+            Assert.AreEqual(3, retainedFiles.Length);
+            Assert.IsFalse(Directory.EnumerateFiles(_outputDir, "*ref*", SearchOption.AllDirectories).Any());
+            Assert.IsFalse(Directory.EnumerateFiles(_outputDir, "*r_*", SearchOption.AllDirectories).Any());
+            Assert.IsFalse(Directory.Exists(adapter.ExportRequests[0].TempRootDirectory));
+        }
+
+        [Test]
         public void Execute_MultiDateWithPresetsAndZeroFrameSkip_FormatsPerDateLabelsAndFeedsCompletionNotices()
         {
             var adapter = new FakeShadowStudyAdapter
@@ -344,6 +427,24 @@ namespace SyntheticTests.Modules.ShadowStudy
             }));
 
             Assert.AreEqual(0, adapter.ExportRequests.Count);
+        }
+
+        private static byte[] ReadFirstPixel(string pngPath)
+        {
+            using var fs = new FileStream(pngPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            var decoder = new System.Windows.Media.Imaging.PngBitmapDecoder(
+                fs,
+                System.Windows.Media.Imaging.BitmapCreateOptions.PreservePixelFormat,
+                System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
+            var converted = new System.Windows.Media.Imaging.FormatConvertedBitmap(
+                decoder.Frames[0],
+                System.Windows.Media.PixelFormats.Bgra32,
+                null,
+                0);
+            converted.Freeze();
+            byte[] pixels = new byte[converted.PixelWidth * converted.PixelHeight * 4];
+            converted.CopyPixels(pixels, converted.PixelWidth * 4, 0);
+            return pixels;
         }
 
         private sealed class ImmediateProgress : IProgress<ProgressState>
