@@ -113,6 +113,48 @@
 
                 <!-- Selected Views Checklist -->
                 <StackPanel Visibility="{Binding IsSelectedViewsMode, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <!-- Print Set Selection & Save / Save As -->
+                    <Grid Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="6"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="6"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Column="0" Text="Print Set:"
+                                   FontSize="12"
+                                   Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,8,0"/>
+                        <ComboBox Grid.Column="1"
+                                  ItemsSource="{Binding PrintSets}"
+                                  SelectedItem="{Binding SelectedPrintSet, Mode=TwoWay}"
+                                  DisplayMemberPath="Name"/>
+                        <Button Grid.Column="3" Content="Save"
+                                Command="{Binding SavePrintSetCommand}"
+                                MinWidth="64" Padding="10,4"/>
+                        <Button Grid.Column="5" Content="Save As..."
+                                Command="{Binding SaveAsPrintSetCommand}"
+                                MinWidth="78" Padding="10,4"/>
+                    </Grid>
+
+                    <TextBlock Text="{Binding PrintSetStatusMessage}"
+                               Visibility="{Binding HasPrintSetStatus, Converter={StaticResource BooleanToVisibilityConverter}}"
+                               FontSize="11"
+                               Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,6"/>
+
+                    <TextBlock Text="{Binding PrintSetErrorMessage}"
+                               Visibility="{Binding HasPrintSetError, Converter={StaticResource BooleanToVisibilityConverter}}"
+                               FontSize="11"
+                               Foreground="{DynamicResource Synthetic.Brushes.Error}"
+                               TextWrapping="Wrap"
+                               Margin="0,0,0,6"/>
+
                     <Grid Margin="0,0,0,8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
@@ -325,11 +367,139 @@
                 BorderThickness="1" CornerRadius="4"
                 Padding="12" Margin="0,0,0,10">
             <StackPanel>
-                <TextBlock Text="Study Dates &amp; Solar Schedule"
-                           FontSize="12" FontWeight="SemiBold"
-                           Foreground="{DynamicResource Synthetic.Brushes.TextPrimary}"
-                           Margin="0,0,0,8"/>
+                <Grid Margin="0,0,0,8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="Study Dates &amp; Solar Schedule"
+                               FontSize="12" FontWeight="SemiBold"
+                               Foreground="{DynamicResource Synthetic.Brushes.TextPrimary}"/>
+                    <TextBlock Grid.Column="1" Text="{Binding StudyDatesSummaryText}"
+                               FontSize="11.5"
+                               Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
+                               VerticalAlignment="Center"/>
+                </Grid>
+
+                <!-- Preset & Target Year -->
                 <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="110"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="16"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="6"/>
+                        <ColumnDefinition Width="68"/>
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Grid.Column="0" Text="Study Preset:"
+                               FontSize="12" VerticalAlignment="Center"
+                               Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"/>
+                    <ComboBox Grid.Column="1"
+                              ItemsSource="{Binding AvailablePresets}"
+                              SelectedItem="{Binding SelectedPreset, Mode=TwoWay}"
+                              DisplayMemberPath="Name"/>
+
+                    <TextBlock Grid.Column="3" Text="Year:"
+                               FontSize="12" VerticalAlignment="Center"
+                               Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"/>
+                    <TextBox Grid.Column="5"
+                             Text="{Binding TargetYearText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                </Grid>
+
+                <!-- Add Custom Date -->
+                <Grid Margin="0,8,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="110"/>
+                        <ColumnDefinition Width="160"/>
+                        <ColumnDefinition Width="8"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Grid.Column="0" Text="Add Custom Date:"
+                               FontSize="12" VerticalAlignment="Center"
+                               Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"/>
+                    <DatePicker Grid.Column="1"
+                                SelectedDate="{Binding CustomDateToAdd, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                    <Button Grid.Column="3" Content="Add Date"
+                            Command="{Binding AddCustomDateCommand}"
+                            MinWidth="76"/>
+                </Grid>
+
+                <!-- Selected Study Dates List with Live Per-Date Schedule Preview -->
+                <Border Background="{DynamicResource Synthetic.Brushes.BackgroundBase}"
+                        BorderBrush="{DynamicResource Synthetic.Brushes.BorderNormal}"
+                        BorderThickness="1" CornerRadius="3"
+                        Padding="6" Margin="0,8,0,0">
+                    <StackPanel>
+                        <TextBlock Text="No study dates selected. Choose a preset or add a custom date above."
+                                   FontSize="11.5"
+                                   Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
+                                   Margin="4"
+                                   Visibility="{Binding HasNoDates, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                        <ScrollViewer MaxHeight="155" VerticalScrollBarVisibility="Auto">
+                            <ItemsControl ItemsSource="{Binding StudyDates}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="{DynamicResource Synthetic.Brushes.ControlSurfaceLighter}"
+                                                CornerRadius="3"
+                                                Padding="8,5" Margin="0,2">
+                                            <Border.Style>
+                                                <Style TargetType="Border">
+                                                    <Setter Property="BorderBrush" Value="{DynamicResource Synthetic.Brushes.BorderNormal}"/>
+                                                    <Setter Property="BorderThickness" Value="1"/>
+                                                    <Style.Triggers>
+                                                        <DataTrigger Binding="{Binding HasZeroFrames}" Value="True">
+                                                            <Setter Property="BorderBrush" Value="{DynamicResource Synthetic.Brushes.Warning}"/>
+                                                        </DataTrigger>
+                                                    </Style.Triggers>
+                                                </Style>
+                                            </Border.Style>
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="8"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+
+                                                <StackPanel Grid.Column="0">
+                                                    <TextBlock Text="{Binding DateLabel}"
+                                                               FontSize="12" FontWeight="SemiBold"
+                                                               Foreground="{DynamicResource Synthetic.Brushes.TextPrimary}"/>
+                                                    <TextBlock Text="{Binding WindowSummary}"
+                                                               FontSize="11"
+                                                               Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
+                                                               Visibility="{Binding HasValidFrames, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                                    <StackPanel Orientation="Horizontal" Margin="0,1,0,0"
+                                                                Visibility="{Binding HasZeroFrames, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                        <Path Data="{StaticResource Synthetic.Geometries.Warning}"
+                                                              Fill="{StaticResource Synthetic.Brushes.Warning}"
+                                                              Width="12" Height="12" Stretch="Uniform"
+                                                              VerticalAlignment="Center" Margin="0,0,5,0"/>
+                                                        <TextBlock Text="{Binding ZeroFrameWarningText}"
+                                                                   FontSize="11" TextWrapping="Wrap"
+                                                                   Foreground="{StaticResource Synthetic.Brushes.Warning}"
+                                                                   VerticalAlignment="Center"/>
+                                                    </StackPanel>
+                                                </StackPanel>
+
+                                                <Button Grid.Column="2" Content="Remove"
+                                                        Command="{Binding RemoveCommand}"
+                                                        Style="{DynamicResource Synthetic.Styles.NeutralButton}"
+                                                        MinWidth="56" MinHeight="24" Padding="6,2"
+                                                        VerticalAlignment="Center"/>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </StackPanel>
+                </Border>
+
+                <!-- Solar Schedule Parameters -->
+                <Grid Margin="0,10,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="110"/>
                         <ColumnDefinition Width="160"/>
@@ -343,60 +513,61 @@
                         <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
-                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Study Date:"
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Time Increment:"
                                FontSize="12" VerticalAlignment="Center"
                                Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"/>
-                    <DatePicker Grid.Row="0" Grid.Column="1"
-                                SelectedDate="{Binding SelectedDate, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
-
-                    <TextBlock Grid.Row="0" Grid.Column="3" Text="Time Increment:"
-                               FontSize="12" VerticalAlignment="Center"
-                               Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"/>
-                    <ComboBox Grid.Row="0" Grid.Column="4"
+                    <ComboBox Grid.Row="0" Grid.Column="1"
                               ItemsSource="{Binding TimeIncrementOptions}"
                               DisplayMemberPath="Label"
                               SelectedValuePath="Minutes"
                               SelectedValue="{Binding TimeStepMinutes, Mode=TwoWay}"/>
 
-                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Min Sun Altitude:"
+                    <TextBlock Grid.Row="0" Grid.Column="3" Text="Max Darkness:"
                                FontSize="12" VerticalAlignment="Center"
                                Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"/>
-                    <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                        <TextBox Width="68"
-                                 Text="{Binding MinSunAltitudeText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
-                        <TextBlock Text="° (0–90)"
-                                   FontSize="11.5" VerticalAlignment="Center" Margin="6,0,0,0"
-                                   Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"/>
-                    </StackPanel>
-
-                    <TextBlock Grid.Row="2" Grid.Column="3" Text="Max Darkness:"
-                               FontSize="12" VerticalAlignment="Center"
-                               Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"/>
-                    <StackPanel Grid.Row="2" Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
+                    <StackPanel Grid.Row="0" Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center">
                         <TextBox Width="68"
                                  Text="{Binding MaxCompositeDarknessText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
                         <TextBlock Text="% (1–95)"
                                    FontSize="11.5" VerticalAlignment="Center" Margin="6,0,0,0"
                                    Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"/>
                     </StackPanel>
+
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Min Sun Altitude:"
+                               FontSize="12" VerticalAlignment="Center"
+                               Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"/>
+                    <StackPanel Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="4" Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBox Width="68"
+                                 Text="{Binding MinSunAltitudeText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                        <TextBlock Text="° (0–90)"
+                                   FontSize="11.5" VerticalAlignment="Center" Margin="6,0,0,0"
+                                   Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"/>
+                    </StackPanel>
                 </Grid>
 
-                <!-- Normal Schedule Preview -->
-                <Border Background="{DynamicResource Synthetic.Brushes.ControlSurfaceLighter}"
-                        BorderBrush="{DynamicResource Synthetic.Brushes.BorderNormal}"
-                        BorderThickness="1" CornerRadius="3"
-                        Padding="10,7" Margin="0,10,0,0"
-                        Visibility="{Binding ShowSchedulePreview, Converter={StaticResource BooleanToVisibilityConverter}}">
-                    <TextBlock Text="{Binding SchedulePreviewText}"
-                               FontSize="12"
-                               Foreground="{DynamicResource Synthetic.Brushes.TextPrimary}"/>
-                </Border>
-
-                <!-- Non-blocking 0-Frame Peak Solar Altitude Warning Badge -->
+                <!-- Partial 0-Frame Skipped Date Notice -->
                 <Border Background="{DynamicResource Synthetic.Brushes.ControlSurfaceLighter}"
                         BorderBrush="{DynamicResource Synthetic.Brushes.Warning}"
                         BorderThickness="1" CornerRadius="3"
-                        Padding="10,7" Margin="0,10,0,0"
+                        Padding="10,7" Margin="0,8,0,0"
+                        Visibility="{Binding ShowPartialZeroFramesNotice, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <StackPanel Orientation="Horizontal">
+                        <Path Data="{StaticResource Synthetic.Geometries.Warning}"
+                              Fill="{StaticResource Synthetic.Brushes.Warning}"
+                              Width="14" Height="14" Stretch="Uniform"
+                              VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <TextBlock Text="{Binding PartialZeroFramesNoticeText}"
+                                   FontSize="11.5" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource Synthetic.Brushes.Warning}"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Non-blocking All-0-Frame / Empty Dates Warning Badge -->
+                <Border Background="{DynamicResource Synthetic.Brushes.ControlSurfaceLighter}"
+                        BorderBrush="{DynamicResource Synthetic.Brushes.Warning}"
+                        BorderThickness="1" CornerRadius="3"
+                        Padding="10,7" Margin="0,8,0,0"
                         Visibility="{Binding ShowZeroFramesWarning, Converter={StaticResource BooleanToVisibilityConverter}}">
                     <StackPanel Orientation="Horizontal">
                         <Path Data="{StaticResource Synthetic.Geometries.Warning}"
@@ -414,7 +585,7 @@
                 <Border Background="{DynamicResource Synthetic.Brushes.ControlSurfaceLighter}"
                         BorderBrush="{DynamicResource Synthetic.Brushes.Error}"
                         BorderThickness="1" CornerRadius="3"
-                        Padding="10,7" Margin="0,10,0,0"
+                        Padding="10,7" Margin="0,8,0,0"
                         Visibility="{Binding HasValidationErrors, Converter={StaticResource BooleanToVisibilityConverter}}">
                     <StackPanel Orientation="Horizontal">
                         <Path Data="{StaticResource Synthetic.Geometries.Blocked}"

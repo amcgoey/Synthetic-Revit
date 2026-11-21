@@ -561,5 +561,140 @@ namespace SyntheticTests.Modules.ShadowStudy
                 Assert.IsTrue(row.Warnings.Any(w => w.Code == "VisualStyle"));
             }
         }
+
+        [Test]
+        public void DefaultConstructor_SelectsSeasonalStudyForCurrentYearWithIndependentPerDateShadowIntensity()
+        {
+            var adapter = new FakeShadowStudyAdapter
+            {
+                SiteInfo = new ShadowStudySiteInfo
+                {
+                    PlaceName = "Boston, MA",
+                    LatitudeDegrees = 42.3601,
+                    LongitudeDegrees = -71.0589,
+                    TimeZoneHours = -5.0,
+                    UsesDst = false
+                }
+            };
+            var folderDialog = new FakeFolderDialogService();
+
+            var vm = new ShadowStudyViewModel(adapter, folderDialog);
+
+            Assert.IsNotNull(vm.SelectedPreset);
+            Assert.AreEqual("Seasonal Study", vm.SelectedPreset!.Name);
+            Assert.AreEqual(DateTime.Today.Year, vm.TargetYear);
+            Assert.AreEqual(3, vm.StudyDates.Count);
+            Assert.AreEqual(AstronomicalEventKind.SummerSolstice, vm.StudyDates[0].AstronomicalEvent);
+            Assert.AreEqual(AstronomicalEventKind.SpringEquinox, vm.StudyDates[1].AstronomicalEvent);
+            Assert.AreEqual(AstronomicalEventKind.WinterSolstice, vm.StudyDates[2].AstronomicalEvent);
+
+            // Summer solstice has more valid daylight frames than winter solstice,
+            // and calibrates a lower per-frame ShadowIntensity independently.
+            Assert.Greater(vm.StudyDates[0].ValidFrameCount, vm.StudyDates[2].ValidFrameCount);
+            Assert.Less(vm.StudyDates[0].ShadowIntensity, vm.StudyDates[2].ShadowIntensity);
+            Assert.AreEqual(vm.StudyDates.Sum(d => d.ValidFrameCount), vm.TotalValidFrameCount);
+
+            var request = vm.BuildRunRequest();
+            Assert.AreEqual(3, request.DateSchedules.Count);
+        }
+
+        [Test]
+        public void TargetYearAndCustomDates_UpdateAstronomicalDatesOnlyAndPreventDuplicates()
+        {
+            var adapter = new FakeShadowStudyAdapter
+            {
+                SiteInfo = new ShadowStudySiteInfo
+                {
+                    PlaceName = "Sydney, Australia",
+                    LatitudeDegrees = -33.8688,
+                    LongitudeDegrees = 151.2093,
+                    TimeZoneHours = 10.0,
+                    UsesDst = false
+                }
+            };
+            var folderDialog = new FakeFolderDialogService();
+            var vm = new ShadowStudyViewModel(adapter, folderDialog);
+
+            // Southern Hemisphere Seasonal Study starts with Dec 21, Sep 22, Jun 21
+            int initialYear = vm.TargetYear;
+            Assert.AreEqual(new DateTime(initialYear, 12, 21), vm.StudyDates[0].Date);
+            Assert.AreEqual($"{initialYear % 100:D2}1221 - Summer Solstice", vm.StudyDates[0].DateLabel);
+
+            // Add a custom calendar date
+            var customDate = new DateTime(2026, 7, 4);
+            vm.CustomDateToAdd = customDate;
+            Assert.IsTrue(vm.AddCustomDateCommand.CanExecute(null));
+            vm.AddCustomDateCommand.Execute(null);
+            Assert.AreEqual(4, vm.StudyDates.Count);
+            Assert.AreEqual("260704", vm.StudyDates[3].DateLabel);
+
+            // Duplicate date cannot be added again
+            vm.CustomDateToAdd = customDate;
+            Assert.IsFalse(vm.AddCustomDateCommand.CanExecute(null));
+            vm.AddCustomDateCommand.Execute(null);
+            Assert.AreEqual(4, vm.StudyDates.Count);
+
+            // Changing TargetYear updates astronomical dates while preserving the custom date
+            vm.TargetYearText = "2029";
+            Assert.AreEqual(2029, vm.TargetYear);
+            Assert.AreEqual(new DateTime(2029, 12, 21), vm.StudyDates[0].Date);
+            Assert.AreEqual("291221 - Summer Solstice", vm.StudyDates[0].DateLabel);
+            Assert.AreEqual(new DateTime(2029, 9, 22), vm.StudyDates[1].Date);
+            Assert.AreEqual(new DateTime(2029, 6, 21), vm.StudyDates[2].Date);
+            Assert.AreEqual(customDate, vm.StudyDates[3].Date);
+
+            // Remove Spring Equinox date
+            vm.RemoveDateCommand.Execute(vm.StudyDates[1]);
+            Assert.AreEqual(3, vm.StudyDates.Count);
+        }
+
+        [Test]
+        public void MultiDateZeroFrameHandling_KeepsExportEnabledWhenAnyDateHasFramesAndDisablesWhenAllAreZero()
+        {
+            var adapter = new FakeShadowStudyAdapter
+            {
+                SiteInfo = new ShadowStudySiteInfo
+                {
+                    PlaceName = "Tromso",
+                    LatitudeDegrees = 69.6492,
+                    LongitudeDegrees = 18.9553,
+                    TimeZoneHours = 1.0,
+                    UsesDst = false
+                }
+            };
+            var folderDialog = new FakeFolderDialogService();
+            var vm = new ShadowStudyViewModel(adapter, folderDialog)
+            {
+                OutputFolder = @"C:\Exports\Tromso",
+                TargetYear = 2026
+            };
+
+            // Seasonal Study at Tromso (69.6° N): Summer + Spring have frames, Winter (Dec 21) has 0 frames
+            Assert.AreEqual(3, vm.StudyDates.Count);
+            Assert.Greater(vm.StudyDates[0].ValidFrameCount, 0);
+            Assert.Greater(vm.StudyDates[1].ValidFrameCount, 0);
+            Assert.AreEqual(0, vm.StudyDates[2].ValidFrameCount);
+            Assert.IsTrue(vm.StudyDates[2].HasZeroFrames);
+            StringAssert.Contains(
+                vm.StudyDates[2].PeakSolarAltitudeDegrees.ToString("F1", System.Globalization.CultureInfo.InvariantCulture),
+                vm.StudyDates[2].ZeroFrameWarningText);
+
+            Assert.IsTrue(vm.HasSkippedZeroFrameDates);
+            Assert.IsFalse(vm.HasZeroFrames, "Total valid frames across all dates is positive.");
+            Assert.IsTrue(vm.CanExport, "Export must remain enabled when at least one selected date has valid frames.");
+
+            // Remove the 2 valid dates, leaving only 0-frame Winter Solstice -> Export disables
+            vm.RemoveDateCommand.Execute(vm.StudyDates[0]);
+            vm.RemoveDateCommand.Execute(vm.StudyDates[0]);
+            Assert.AreEqual(1, vm.StudyDates.Count);
+            Assert.AreEqual(0, vm.TotalValidFrameCount);
+            Assert.IsTrue(vm.HasZeroFrames);
+            Assert.IsFalse(vm.CanExport);
+
+            // Removing final date also leaves CanExport disabled
+            vm.RemoveDateCommand.Execute(vm.StudyDates[0]);
+            Assert.AreEqual(0, vm.StudyDates.Count);
+            Assert.IsFalse(vm.CanExport);
+        }
     }
 }

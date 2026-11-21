@@ -315,6 +315,120 @@ namespace SyntheticTests.Modules.ShadowStudy
             Assert.IsFalse(Directory.Exists(adapter.ExportRequests[0].TempRootDirectory));
         }
 
+        [Test]
+        public void Execute_MultiDateWithPresetsAndZeroFrameSkip_FormatsPerDateLabelsAndFeedsCompletionNotices()
+        {
+            var adapter = new FakeShadowStudyAdapter
+            {
+                SiteInfo = new ShadowStudySiteInfo
+                {
+                    PlaceName = "Tromso",
+                    LatitudeDegrees = 69.6492,
+                    LongitudeDegrees = 18.9553,
+                    TimeZoneHours = 1.0,
+                    UsesDst = false
+                }
+            };
+            var site = adapter.GetSiteInfo();
+            var view = adapter.GetActiveViewInfo()!;
+            view.Name = "Site Plan";
+
+            var summer = SolarScheduleCalculator.BuildSchedule(
+                new ShadowStudyDateEntry
+                {
+                    Date = new DateTime(2026, 6, 21),
+                    AstronomicalEvent = AstronomicalEventKind.SummerSolstice,
+                    PresetName = "Summer Solstice"
+                },
+                site,
+                stepMinutes: 120);
+
+            var custom = SolarScheduleCalculator.BuildSchedule(
+                new ShadowStudyDateEntry
+                {
+                    Date = new DateTime(2026, 7, 4),
+                    AstronomicalEvent = AstronomicalEventKind.None
+                },
+                site,
+                stepMinutes: 120);
+
+            var winterZeroFrames = SolarScheduleCalculator.BuildSchedule(
+                new ShadowStudyDateEntry
+                {
+                    Date = new DateTime(2026, 12, 21),
+                    AstronomicalEvent = AstronomicalEventKind.WinterSolstice,
+                    PresetName = "Winter Solstice"
+                },
+                site,
+                stepMinutes: 120);
+
+            Assert.IsFalse(winterZeroFrames.HasValidFrames);
+
+            var pipeline = new ShadowStudyPipeline(adapter);
+            ShadowStudyRunSummary summary = pipeline.Execute(new ShadowStudyRunRequest
+            {
+                Views = new[] { view },
+                DateSchedules = new[] { summer, custom, winterZeroFrames },
+                OutputFolder = _outputDir,
+                PixelWidth = 32,
+                KeepIndividualFrames = false
+            });
+
+            Assert.IsFalse(summary.WasCancelled);
+            Assert.AreEqual(2, summary.GeneratedCount);
+            Assert.IsTrue(File.Exists(Path.Combine(_outputDir, "Site Plan - 260621 - Summer Solstice - Composite.png")));
+            Assert.IsTrue(File.Exists(Path.Combine(_outputDir, "Site Plan - 260704 - Composite.png")));
+
+            CollectionAssert.AreEqual(new[] { "261221 - Winter Solstice" }, summary.SkippedDateLabels);
+            Assert.AreEqual(1, summary.Warnings.Count);
+            StringAssert.Contains("261221 - Winter Solstice", summary.Warnings[0]);
+
+            var completionVm = ExportCompletionViewModel.ForBatch(
+                summary.OutputFolder,
+                summary.GeneratedCount,
+                summary.PrimaryCompositePath,
+                outputNounPlural: "composites",
+                primaryActionLabel: "Open Composite",
+                warningNotices: summary.Warnings);
+
+            Assert.IsTrue(completionVm.HasWarnings);
+            Assert.AreEqual(1, completionVm.WarningNotices.Count);
+            StringAssert.Contains("261221 - Winter Solstice", completionVm.WarningNotices[0]);
+            StringAssert.Contains("Generated 2 composites", completionVm.SummaryText);
+        }
+
+        [Test]
+        public void Execute_LongAstronomicalDateLabelPath_ThrowsPathTooLongBeforeExport()
+        {
+            var adapter = new FakeShadowStudyAdapter();
+            var site = adapter.GetSiteInfo();
+            var view = adapter.GetActiveViewInfo()!;
+            view.Name = "Very Long Architectural View Name For Shadow Study";
+
+            var summer = SolarScheduleCalculator.BuildSchedule(
+                new ShadowStudyDateEntry
+                {
+                    Date = new DateTime(2026, 6, 21),
+                    AstronomicalEvent = AstronomicalEventKind.SummerSolstice,
+                    PresetName = "Summer Solstice"
+                },
+                site,
+                stepMinutes: 120);
+
+            string deepFolder = Path.Combine(_outputDir, new string('x', 150));
+            var pipeline = new ShadowStudyPipeline(adapter);
+
+            Assert.Throws<PathTooLongException>(() => pipeline.Execute(new ShadowStudyRunRequest
+            {
+                Views = new[] { view },
+                DateSchedules = new[] { summer },
+                OutputFolder = deepFolder,
+                KeepIndividualFrames = true
+            }));
+
+            Assert.AreEqual(0, adapter.ExportRequests.Count);
+        }
+
         private static byte[] ReadFirstPixel(string pngPath)
         {
             using var fs = new FileStream(pngPath, FileMode.Open, FileAccess.Read, FileShare.Read);

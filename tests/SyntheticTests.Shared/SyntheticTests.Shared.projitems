@@ -62,6 +62,8 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Tier2_ShadowStudyTracerBulletTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Tier2_ShadowStudyMultiViewTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Tier2_ShadowStudyScheduleAndFramesTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Tier2_ShadowStudyPrintSetTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Tier2_ShadowStudyMultiDateTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Tier2_ShadowStudyVisualStyleTests.cs" />
 
 
