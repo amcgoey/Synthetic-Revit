@@ -5,9 +5,6 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Windows.Input;
-using Autodesk.Revit.DB;
-using Autodesk.Revit.DB.ExtensibleStorage;
-using Synthetic.Infrastructure.Persistence;
 using Synthetic.Modules.SettingsDashboard.ViewModels;
 using Synthetic.Modules.ShadowStudy.Models;
 using Synthetic.Modules.ShadowStudy.Services;
@@ -27,11 +24,14 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
         /// </summary>
         public ShadowStudyPresetDateRowViewModel(
             ShadowStudyPresetDateSpec dateSpec,
-            Action<ShadowStudyPresetDateRowViewModel> onRemove)
+            Action<ShadowStudyPresetDateRowViewModel> onRemove,
+            Func<bool>? canRemove = null)
         {
             DateSpec = dateSpec ?? throw new ArgumentNullException(nameof(dateSpec));
             if (onRemove == null) throw new ArgumentNullException(nameof(onRemove));
-            RemoveCommand = new RelayCommand(_ => onRemove(this));
+            RemoveCommand = new RelayCommand(
+                _ => onRemove(this),
+                canRemove != null ? (Predicate<object>)(_ => canRemove()) : null);
         }
 
         /// <summary>Gets the underlying serializable date specification.</summary>
@@ -62,12 +62,9 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
                         : $"{eventName} — {CustomLabel.Trim()}";
                 }
 
-                string dateText = CustomDate.HasValue
+                return CustomDate.HasValue
                     ? CustomDate.Value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
                     : "(Invalid date)";
-                return string.IsNullOrWhiteSpace(CustomLabel)
-                    ? dateText
-                    : $"{dateText} — {CustomLabel.Trim()}";
             }
         }
 
@@ -102,7 +99,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
     /// </summary>
     public class ShadowStudySettingsViewModel : ViewModelBase, ISettingModuleViewModel
     {
-        private static readonly IReadOnlyList<AstronomicalEventOption> DefaultAstronomicalEvents =
+        internal static readonly IReadOnlyList<AstronomicalEventOption> DefaultAstronomicalEvents =
             new[]
             {
                 new AstronomicalEventOption(AstronomicalEventKind.SpringEquinox, "Spring Equinox (Mar 20 N / Sep 22 S)"),
@@ -111,12 +108,12 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
                 new AstronomicalEventOption(AstronomicalEventKind.WinterSolstice, "Winter Solstice (Dec 21 N / Jun 21 S)")
             };
 
-        private readonly Document? _doc;
         private readonly Func<ShadowStudySettings> _loadSettings;
         private readonly Action<ShadowStudySettings> _saveSettings;
         private readonly Action _deleteSettings;
         private readonly Func<bool> _isOverriddenProvider;
         private readonly ITextInputPromptService? _textInputPromptService;
+        private readonly Func<ShadowStudySettings> _loadFirmwideDefaults;
 
         private ShadowStudySettings _settings = new ShadowStudySettings();
         private bool _isOverridden;
@@ -148,42 +145,27 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
 
         private AstronomicalEventKind _selectedAstronomicalEventToAdd = AstronomicalEventKind.SummerSolstice;
         private DateTime _customDateToAdd = DateTime.Today;
-        private string _customDateLabelToAdd = string.Empty;
         private string _presetStatusMessage = string.Empty;
         private string _presetErrorMessage = string.Empty;
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="ShadowStudySettingsViewModel"/> class for a live Revit document.
-        /// </summary>
-        /// <param name="doc">The active Revit document.</param>
-        /// <param name="mainWindowHandle">The parent Revit main window handle.</param>
-        public ShadowStudySettingsViewModel(Document doc, IntPtr mainWindowHandle)
-            : this(
-                () => SettingsManager.Get<ShadowStudySettings>(RequireDocument(doc)),
-                settings => SettingsManager.Save(RequireDocument(doc), settings),
-                () => SettingsManager.Delete(RequireDocument(doc), ShadowStudySettings.Name),
-                () => HasDocumentOverride(RequireDocument(doc)),
-                ProgressCoordinator.SuppressUI ? null : new WindowsTextInputPromptService(mainWindowHandle))
-        {
-            _doc = doc;
-        }
-
-        /// <summary>
         /// Initializes a new headless instance of the <see cref="ShadowStudySettingsViewModel"/> class
-        /// using injected persistence delegates for Tier 1 testing without Revit document storage.
+        /// using injected persistence delegates for settings management without Revit document storage dependencies.
         /// </summary>
         public ShadowStudySettingsViewModel(
             Func<ShadowStudySettings> loadSettings,
             Action<ShadowStudySettings> saveSettings,
             Action deleteSettings,
             Func<bool> isOverriddenProvider,
-            ITextInputPromptService? textInputPromptService = null)
+            ITextInputPromptService? textInputPromptService = null,
+            Func<ShadowStudySettings>? loadFirmwideDefaults = null)
         {
             _loadSettings = loadSettings ?? throw new ArgumentNullException(nameof(loadSettings));
             _saveSettings = saveSettings ?? throw new ArgumentNullException(nameof(saveSettings));
             _deleteSettings = deleteSettings ?? throw new ArgumentNullException(nameof(deleteSettings));
             _isOverriddenProvider = isOverriddenProvider ?? throw new ArgumentNullException(nameof(isOverriddenProvider));
             _textInputPromptService = textInputPromptService;
+            _loadFirmwideDefaults = loadFirmwideDefaults ?? LoadFirmwideDisplaySettings;
 
             UserPresets = new ObservableCollection<ShadowStudyPresetModel>();
             SelectedPresetDates = new ObservableCollection<ShadowStudyPresetDateRowViewModel>();
@@ -246,7 +228,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
                     return true;
                 }
 
-                return !HasValidationErrors && _settings != null && _settings.IsValid(_doc!);
+                return !HasValidationErrors && _settings != null && _settings.IsValid();
             }
         }
 
@@ -582,13 +564,6 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
             }
         }
 
-        /// <summary>Gets or sets the optional label for <see cref="CustomDateToAdd"/>.</summary>
-        public string CustomDateLabelToAdd
-        {
-            get => _customDateLabelToAdd;
-            set => SetProperty(ref _customDateLabelToAdd, value ?? string.Empty);
-        }
-
         /// <summary>Gets a value indicating whether <see cref="SelectedPresetDates"/> is empty.</summary>
         public bool HasNoSelectedPresetDates => SelectedPresetDates.Count == 0;
 
@@ -645,21 +620,40 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
             !string.IsNullOrEmpty(_defaultMaxCompositeDarknessError) ||
             !string.IsNullOrEmpty(_presetTimeStepError) ||
             !string.IsNullOrEmpty(_presetMinSunAltitudeError) ||
-            !string.IsNullOrEmpty(_presetMaxCompositeDarknessError);
+            !string.IsNullOrEmpty(_presetMaxCompositeDarknessError) ||
+            GetEmptyDatePresetErrors().Any();
 
         /// <summary>Gets the concatenated inline validation error message when <see cref="HasValidationErrors"/> is true.</summary>
         public string ValidationErrorMessage
         {
             get
             {
-                var errors = new List<string>(6);
+                var errors = new List<string>(8);
                 if (!string.IsNullOrEmpty(_defaultTimeStepError)) errors.Add(_defaultTimeStepError);
                 if (!string.IsNullOrEmpty(_defaultMinSunAltitudeError)) errors.Add(_defaultMinSunAltitudeError);
                 if (!string.IsNullOrEmpty(_defaultMaxCompositeDarknessError)) errors.Add(_defaultMaxCompositeDarknessError);
                 if (!string.IsNullOrEmpty(_presetTimeStepError)) errors.Add(_presetTimeStepError);
                 if (!string.IsNullOrEmpty(_presetMinSunAltitudeError)) errors.Add(_presetMinSunAltitudeError);
                 if (!string.IsNullOrEmpty(_presetMaxCompositeDarknessError)) errors.Add(_presetMaxCompositeDarknessError);
+                errors.AddRange(GetEmptyDatePresetErrors());
                 return string.Join(" ", errors);
+            }
+        }
+
+        private IEnumerable<string> GetEmptyDatePresetErrors()
+        {
+            if (_settings?.UserPresets == null)
+            {
+                yield break;
+            }
+
+            foreach (ShadowStudyPresetModel preset in _settings.UserPresets)
+            {
+                if (preset != null && (preset.Dates == null || preset.Dates.Count == 0))
+                {
+                    string presetName = (preset.Name ?? string.Empty).Trim();
+                    yield return $"Preset '{presetName}' must include at least one study date.";
+                }
             }
         }
 
@@ -674,7 +668,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
                 if (!IsOverridden)
                 {
                     prefix = "Using Firmwide Defaults:\n\n";
-                    displaySettings = LoadFirmwideDisplaySettings();
+                    displaySettings = _loadFirmwideDefaults();
                 }
                 else
                 {
@@ -864,7 +858,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
 
                     foreach (ShadowStudyPresetDateSpec spec in preset.Dates.Where(d => d != null))
                     {
-                        SelectedPresetDates.Add(new ShadowStudyPresetDateRowViewModel(spec, RemovePresetDate));
+                        SelectedPresetDates.Add(new ShadowStudyPresetDateRowViewModel(spec, RemovePresetDate, () => IsOverridden));
                     }
                 }
             }
@@ -889,6 +883,11 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
 
         private void ExecuteAddPreset()
         {
+            if (!IsOverridden)
+            {
+                return;
+            }
+
             PresetErrorMessage = string.Empty;
             if (_textInputPromptService == null)
             {
@@ -939,6 +938,11 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
 
         private void ExecuteRenamePreset()
         {
+            if (!IsOverridden)
+            {
+                return;
+            }
+
             PresetErrorMessage = string.Empty;
             if (SelectedPreset == null)
             {
@@ -984,6 +988,11 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
 
         private void ExecuteDeletePreset()
         {
+            if (!IsOverridden)
+            {
+                return;
+            }
+
             PresetErrorMessage = string.Empty;
             if (SelectedPreset == null)
             {
@@ -999,6 +1008,11 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
 
         private void ExecuteAddAstronomicalDate()
         {
+            if (!IsOverridden)
+            {
+                return;
+            }
+
             PresetErrorMessage = string.Empty;
             if (SelectedPreset == null || !CanAddSelectedAstronomicalDate)
             {
@@ -1013,7 +1027,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
             };
 
             SelectedPreset.Dates.Add(spec);
-            SelectedPresetDates.Add(new ShadowStudyPresetDateRowViewModel(spec, RemovePresetDate));
+            SelectedPresetDates.Add(new ShadowStudyPresetDateRowViewModel(spec, RemovePresetDate, () => IsOverridden));
             OnPropertyChanged(nameof(HasNoSelectedPresetDates));
             OnPropertyChanged(nameof(CanAddSelectedAstronomicalDate));
             MarkDirtyAndRefreshValidation();
@@ -1021,6 +1035,11 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
 
         private void ExecuteAddCustomDate()
         {
+            if (!IsOverridden)
+            {
+                return;
+            }
+
             PresetErrorMessage = string.Empty;
             if (SelectedPreset == null || !CanAddCustomDate)
             {
@@ -1031,12 +1050,11 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
             {
                 AstronomicalEvent = AstronomicalEventKind.None,
                 CustomDate = CustomDateToAdd.Date,
-                CustomLabel = (CustomDateLabelToAdd ?? string.Empty).Trim()
+                CustomLabel = string.Empty
             };
 
             SelectedPreset.Dates.Add(spec);
-            SelectedPresetDates.Add(new ShadowStudyPresetDateRowViewModel(spec, RemovePresetDate));
-            CustomDateLabelToAdd = string.Empty;
+            SelectedPresetDates.Add(new ShadowStudyPresetDateRowViewModel(spec, RemovePresetDate, () => IsOverridden));
             OnPropertyChanged(nameof(HasNoSelectedPresetDates));
             OnPropertyChanged(nameof(CanAddCustomDate));
             MarkDirtyAndRefreshValidation();
@@ -1052,7 +1070,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
 
         private void RemovePresetDate(ShadowStudyPresetDateRowViewModel row)
         {
-            if (SelectedPreset == null || row == null)
+            if (!IsOverridden || SelectedPreset == null || row == null)
             {
                 return;
             }
@@ -1128,22 +1146,6 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
             }
 
             return displaySettings ?? new ShadowStudySettings().Defaults();
-        }
-
-        private static Document RequireDocument(Document doc)
-        {
-            return doc ?? throw new ArgumentNullException(nameof(doc));
-        }
-
-        private static bool HasDocumentOverride(Document doc)
-        {
-            var dataStorages = new FilteredElementCollector(doc)
-                .OfClass(typeof(DataStorage))
-                .Cast<DataStorage>()
-                .ToList();
-
-            string storageName = "Synthetic_" + ShadowStudySettings.Name;
-            return dataStorages.Any(ds => ds.Name.Equals(storageName, StringComparison.OrdinalIgnoreCase));
         }
     }
 }

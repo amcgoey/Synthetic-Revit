@@ -196,7 +196,7 @@ namespace Synthetic.Modules.ShadowStudy.Services
                     {
                         Date = spec.CustomDate.Value.Date,
                         AstronomicalEvent = AstronomicalEventKind.None,
-                        PresetName = spec.CustomLabel?.Trim() ?? string.Empty
+                        PresetName = string.Empty
                     });
                 }
             }

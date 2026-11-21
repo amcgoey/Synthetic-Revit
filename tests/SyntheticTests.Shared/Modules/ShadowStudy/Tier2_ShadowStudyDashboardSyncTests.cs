@@ -139,7 +139,6 @@ namespace SyntheticTests.Modules.ShadowStudy
                 shadowSavePage.DefaultPreserveVisualStyle = true;
                 shadowSavePage.SelectedPresetTimeIncrementMinutes = 30;
                 shadowSavePage.CustomDateToAdd = new DateTime(2026, 7, 4);
-                shadowSavePage.CustomDateLabelToAdd = "Site Open";
                 shadowSavePage.AddCustomDateCommand.Execute(null);
 
                 Assert.IsTrue(dashboardSave.SaveCommand.CanExecute(null));
@@ -181,7 +180,7 @@ namespace SyntheticTests.Modules.ShadowStudy
             {
                 doc = CreateFreshProjectDocument();
 
-                var vm = new ShadowStudySettingsViewModel(doc, IntPtr.Zero);
+                var vm = RevitShadowStudyAdapter.CreateSettingsViewModel(doc, IntPtr.Zero);
                 Assert.IsFalse(vm.IsOverridden);
 
                 SettingsManager.Save(doc, new ShadowStudySettings

@@ -191,10 +191,53 @@ namespace SyntheticTests.Modules.ShadowStudy
             {
                 UserPresets = new List<ShadowStudyPresetModel>
                 {
-                    new ShadowStudyPresetModel { Name = "   " }
+                    new ShadowStudyPresetModel
+                    {
+                        Name = "   ",
+                        Dates = new List<ShadowStudyPresetDateSpec>
+                        {
+                            new ShadowStudyPresetDateSpec { AstronomicalEvent = AstronomicalEventKind.SummerSolstice }
+                        }
+                    }
                 }
             };
+            Assert.IsFalse(blankPresetName.IsValid());
             Assert.IsFalse(blankPresetName.IsValid(null!));
+
+            var emptyDatesPreset = new ShadowStudySettings
+            {
+                UserPresets = new List<ShadowStudyPresetModel>
+                {
+                    new ShadowStudyPresetModel
+                    {
+                        Name = "Empty Dates Preset",
+                        Dates = new List<ShadowStudyPresetDateSpec>()
+                    }
+                }
+            };
+            Assert.IsFalse(emptyDatesPreset.IsValid());
+            Assert.IsFalse(emptyDatesPreset.IsValid(null!));
+
+            var invalidDateSpecPreset = new ShadowStudySettings
+            {
+                UserPresets = new List<ShadowStudyPresetModel>
+                {
+                    new ShadowStudyPresetModel
+                    {
+                        Name = "Invalid Spec Preset",
+                        Dates = new List<ShadowStudyPresetDateSpec>
+                        {
+                            new ShadowStudyPresetDateSpec
+                            {
+                                AstronomicalEvent = AstronomicalEventKind.None,
+                                CustomDate = null
+                            }
+                        }
+                    }
+                }
+            };
+            Assert.IsFalse(invalidDateSpecPreset.IsValid());
+            Assert.IsFalse(invalidDateSpecPreset.IsValid(null!));
         }
     }
 }

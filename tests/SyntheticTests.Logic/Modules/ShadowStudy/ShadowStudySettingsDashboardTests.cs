@@ -195,7 +195,6 @@ namespace SyntheticTests.Modules.ShadowStudy
             vm.SelectedAstronomicalEventToAdd = AstronomicalEventKind.WinterSolstice;
             vm.AddAstronomicalDateCommand.Execute(null);
             vm.CustomDateToAdd = new DateTime(2026, 7, 4);
-            vm.CustomDateLabelToAdd = "Site Open";
             vm.AddCustomDateCommand.Execute(null);
 
             Assert.AreEqual(3, vm.SelectedPresetDates.Count);
@@ -203,7 +202,7 @@ namespace SyntheticTests.Modules.ShadowStudy
             Assert.AreEqual(AstronomicalEventKind.WinterSolstice, vm.SelectedPresetDates[1].AstronomicalEvent);
             Assert.AreEqual(AstronomicalEventKind.None, vm.SelectedPresetDates[2].AstronomicalEvent);
             Assert.AreEqual(new DateTime(2026, 7, 4), vm.SelectedPresetDates[2].CustomDate);
-            Assert.AreEqual("Site Open", vm.SelectedPresetDates[2].CustomLabel);
+            Assert.AreEqual("2026-07-04", vm.SelectedPresetDates[2].DisplayLabel);
 
             // Remove one date
             vm.SelectedPresetDates[1].RemoveCommand.Execute(null);
@@ -318,6 +317,143 @@ namespace SyntheticTests.Modules.ShadowStudy
             Assert.IsTrue(vm.IsValid);
             vm.Save();
             Assert.AreEqual(1, deleteCalls);
+        }
+
+        [Test]
+        public void NotOverridden_AllowsInspectingPresetsAndBlocksAllMutations_AndUsesInjectedFirmwideDefaults()
+        {
+            var stored = new ShadowStudySettings
+            {
+                UserPresets = new List<ShadowStudyPresetModel>
+                {
+                    new ShadowStudyPresetModel
+                    {
+                        Name = "Preset Alpha",
+                        TimeIncrementMinutes = 30,
+                        Dates = new List<ShadowStudyPresetDateSpec>
+                        {
+                            new ShadowStudyPresetDateSpec { AstronomicalEvent = AstronomicalEventKind.SummerSolstice }
+                        }
+                    },
+                    new ShadowStudyPresetModel
+                    {
+                        Name = "Preset Beta",
+                        TimeIncrementMinutes = 15,
+                        Dates = new List<ShadowStudyPresetDateSpec>
+                        {
+                            new ShadowStudyPresetDateSpec { AstronomicalEvent = AstronomicalEventKind.WinterSolstice }
+                        }
+                    }
+                }
+            };
+
+            var firmwideDefaults = new ShadowStudySettings
+            {
+                DefaultTimeIncrementMinutes = 120,
+                DefaultMinSunAltitudeDegrees = 14.0,
+                DefaultMaxCompositeDarknessPercent = 55,
+                DefaultPreserveVisualStyle = true
+            };
+
+            var promptService = new FakeTextInputPromptService { NextResult = "Should Not Add" };
+            var vm = new ShadowStudySettingsViewModel(
+                () => stored,
+                s => stored = s.DeepClone(),
+                () => { },
+                () => false,
+                promptService,
+                () => firmwideDefaults);
+
+            Assert.IsFalse(vm.IsOverridden);
+            StringAssert.Contains("120 min", vm.SummaryText);
+            StringAssert.Contains("14°", vm.SummaryText);
+            StringAssert.Contains("55%", vm.SummaryText);
+            StringAssert.Contains("Preserve View Style", vm.SummaryText);
+
+            // Inspecting/switching presets remains possible while !IsOverridden
+            Assert.AreEqual("Preset Alpha", vm.SelectedPreset!.Name);
+            vm.SelectedPreset = vm.UserPresets.First(p => p.Name == "Preset Beta");
+            Assert.AreEqual("Preset Beta", vm.SelectedPreset!.Name);
+            Assert.AreEqual(15, vm.SelectedPresetTimeIncrementMinutes);
+            Assert.AreEqual(1, vm.SelectedPresetDates.Count);
+
+            // All mutation commands report CanExecute == false when !IsOverridden
+            Assert.IsFalse(vm.ResetToDefaultsCommand.CanExecute(null));
+            Assert.IsFalse(vm.AddPresetCommand.CanExecute(null));
+            Assert.IsFalse(vm.RenamePresetCommand.CanExecute(null));
+            Assert.IsFalse(vm.DeletePresetCommand.CanExecute(null));
+            vm.SelectedAstronomicalEventToAdd = AstronomicalEventKind.SpringEquinox;
+            Assert.IsFalse(vm.AddAstronomicalDateCommand.CanExecute(null));
+            vm.CustomDateToAdd = new DateTime(2026, 9, 1);
+            Assert.IsFalse(vm.AddCustomDateCommand.CanExecute(null));
+            Assert.IsFalse(vm.RemovePresetDateCommand.CanExecute(vm.SelectedPresetDates[0]));
+            Assert.IsFalse(vm.SelectedPresetDates[0].RemoveCommand.CanExecute(null));
+
+            // Defense-in-depth: direct execution while !IsOverridden does not mutate state
+            vm.AddPresetCommand.Execute(null);
+            vm.RenamePresetCommand.Execute(null);
+            vm.DeletePresetCommand.Execute(null);
+            vm.AddAstronomicalDateCommand.Execute(null);
+            vm.AddCustomDateCommand.Execute(null);
+            vm.SelectedPresetDates[0].RemoveCommand.Execute(null);
+
+            Assert.AreEqual(2, vm.UserPresets.Count);
+            Assert.AreEqual("Preset Beta", vm.SelectedPreset!.Name);
+            Assert.AreEqual(1, vm.SelectedPresetDates.Count);
+            Assert.IsFalse(vm.IsDirty);
+        }
+
+        [Test]
+        public void EmptyDatePreset_DisablesIsValidWithInlineError_AndClearsWhenDateAdded()
+        {
+            var stored = new ShadowStudySettings
+            {
+                UserPresets = new List<ShadowStudyPresetModel>
+                {
+                    new ShadowStudyPresetModel
+                    {
+                        Name = "Valid Preset",
+                        Dates = new List<ShadowStudyPresetDateSpec>
+                        {
+                            new ShadowStudyPresetDateSpec { AstronomicalEvent = AstronomicalEventKind.SummerSolstice }
+                        }
+                    }
+                }
+            };
+            var promptService = new FakeTextInputPromptService { NextResult = "Empty New Preset" };
+            var vm = new ShadowStudySettingsViewModel(
+                () => stored,
+                s => stored = s.DeepClone(),
+                () => { },
+                () => true,
+                promptService);
+
+            Assert.IsTrue(vm.IsValid);
+            Assert.IsFalse(vm.HasValidationErrors);
+
+            // Adding a new preset starts with 0 dates -> IsValid becomes false with inline error
+            vm.AddPresetCommand.Execute(null);
+            Assert.IsFalse(vm.IsValid);
+            Assert.IsTrue(vm.HasValidationErrors);
+            StringAssert.Contains("Preset 'Empty New Preset' must include at least one study date.", vm.ValidationErrorMessage);
+
+            // Even when switching selection to another valid preset, empty preset error persists
+            vm.SelectedPreset = vm.UserPresets.First(p => p.Name == "Valid Preset");
+            Assert.IsFalse(vm.IsValid);
+            StringAssert.Contains("Preset 'Empty New Preset' must include at least one study date.", vm.ValidationErrorMessage);
+
+            // Adding a date to the empty preset resolves the error
+            vm.SelectedPreset = vm.UserPresets.First(p => p.Name == "Empty New Preset");
+            vm.SelectedAstronomicalEventToAdd = AstronomicalEventKind.SpringEquinox;
+            vm.AddAstronomicalDateCommand.Execute(null);
+            Assert.IsTrue(vm.IsValid);
+            Assert.IsFalse(vm.HasValidationErrors);
+
+            // Removing the last date brings the validation error back
+            vm.SelectedPresetDates[0].RemoveCommand.Execute(null);
+            Assert.IsFalse(vm.IsValid);
+            Assert.IsTrue(vm.HasValidationErrors);
+            StringAssert.Contains("Preset 'Empty New Preset' must include at least one study date.", vm.ValidationErrorMessage);
         }
 
         private sealed class FakeTextInputPromptService : ITextInputPromptService

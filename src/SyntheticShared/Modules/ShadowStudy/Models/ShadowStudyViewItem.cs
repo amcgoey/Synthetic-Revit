@@ -38,11 +38,6 @@ namespace Synthetic.Modules.ShadowStudy.Models
         public string DisplayStyleName { get; set; } = string.Empty;
 
         /// <summary>
-        /// Gets or sets a value indicating whether a controlling View Template is assigned.
-        /// </summary>
-        public bool HasControllingTemplate { get; set; }
-
-        /// <summary>
         /// Gets or sets a value indicating whether the view supports ViewDisplayBackground (ThreeD, Section, Elevation).
         /// </summary>
         public bool IsBackgroundSupported { get; set; }

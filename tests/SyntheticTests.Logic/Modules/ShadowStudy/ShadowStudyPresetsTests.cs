@@ -379,6 +379,39 @@ namespace SyntheticTests.Modules.ShadowStudy
             Assert.IsFalse(reopenedVm.ExportIndividualFrames);
         }
 
+        [Test]
+        public void UserPresetWithLegacyCustomDateLabel_FormatsCustomDateStrictlyAsYyMmDd()
+        {
+            var adapter = new FakeShadowStudyAdapter
+            {
+                Settings = new ShadowStudySettings
+                {
+                    UserPresets = new List<ShadowStudyPresetModel>
+                    {
+                        new ShadowStudyPresetModel
+                        {
+                            Name = "Legacy Custom Date Preset",
+                            Dates = new List<ShadowStudyPresetDateSpec>
+                            {
+                                new ShadowStudyPresetDateSpec
+                                {
+                                    AstronomicalEvent = AstronomicalEventKind.None,
+                                    CustomDate = new DateTime(2026, 7, 4),
+                                    CustomLabel = "Legacy Label"
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+
+            var vm = new ShadowStudyViewModel(adapter, new FakeFolderDialogService());
+            vm.SelectedPreset = vm.AvailablePresets.First(p => p.Name == "Legacy Custom Date Preset");
+
+            Assert.AreEqual(1, vm.StudyDates.Count);
+            Assert.AreEqual("260704", vm.StudyDates[0].DateLabel);
+        }
+
         private sealed class FakeTextInputPromptService : ITextInputPromptService
         {
             public List<(string Title, string PromptMessage, string? InitialValue)> PromptCalls { get; } =
