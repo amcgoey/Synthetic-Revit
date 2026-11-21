@@ -584,8 +584,8 @@ namespace SyntheticTests.Infrastructure.UI
                 rootGrid.Arrange(new Rect(0, 0, 640, 520));
                 rootGrid.UpdateLayout();
 
-                Button? exportButton = FindButtonByContent(rootGrid, "Export");
-                Button? cancelButton = FindButtonByContent(rootGrid, "Cancel");
+                System.Windows.Controls.Button? exportButton = FindButtonByContent(rootGrid, "Export");
+                System.Windows.Controls.Button? cancelButton = FindButtonByContent(rootGrid, "Cancel");
                 Assert.IsNotNull(exportButton, "Export button must exist in ShadowStudyWindow.");
                 Assert.IsNotNull(cancelButton, "Cancel button must exist in ShadowStudyWindow.");
 
@@ -594,6 +594,27 @@ namespace SyntheticTests.Infrastructure.UI
                     rootGrid);
                 Assert.LessOrEqual(exportBottomRight.Y, 520.5,
                     "Pinned Export footer button must remain visible inside compact 520px content bounds without clipping.");
+
+                var mainScroller = window.FindName("MainScrollViewer") as System.Windows.Controls.ScrollViewer;
+                Assert.IsNotNull(mainScroller, "MainScrollViewer must exist in ShadowStudyWindow.");
+                Assert.Greater(mainScroller!.ScrollableHeight, 0.0,
+                    "MainScrollViewer must provide vertical scrolling when sections exceed compact window height.");
+
+                System.Windows.Controls.ListBox? viewsListBox = FindFirstOfType<System.Windows.Controls.ListBox>(rootGrid);
+                Assert.IsNotNull(viewsListBox);
+                var wheelArgs = new System.Windows.Input.MouseWheelEventArgs(
+                    System.Windows.Input.Mouse.PrimaryDevice,
+                    Environment.TickCount,
+                    -120)
+                {
+                    RoutedEvent = UIElement.PreviewMouseWheelEvent,
+                    Source = viewsListBox
+                };
+                viewsListBox!.RaiseEvent(wheelArgs);
+                rootGrid.UpdateLayout();
+
+                Assert.IsTrue(wheelArgs.Handled, "Boundary mouse-wheel event on inner ListBox must be forwarded to MainScrollViewer.");
+                Assert.Greater(mainScroller.VerticalOffset, 0.0, "MainScrollViewer must scroll downward when wheel rolls over non-overflowing inner ListBox.");
             }
             finally
             {
@@ -601,18 +622,39 @@ namespace SyntheticTests.Infrastructure.UI
             }
         }
 
-        private static Button? FindButtonByContent(DependencyObject parent, string expectedContent)
+        private static T? FindFirstOfType<T>(DependencyObject parent) where T : DependencyObject
         {
             int count = System.Windows.Media.VisualTreeHelper.GetChildrenCount(parent);
             for (int i = 0; i < count; i++)
             {
                 DependencyObject child = System.Windows.Media.VisualTreeHelper.GetChild(parent, i);
-                if (child is Button btn && string.Equals(btn.Content as string, expectedContent, StringComparison.Ordinal))
+                if (child is T typed)
+                {
+                    return typed;
+                }
+
+                T? nested = FindFirstOfType<T>(child);
+                if (nested != null)
+                {
+                    return nested;
+                }
+            }
+
+            return null;
+        }
+
+        private static System.Windows.Controls.Button? FindButtonByContent(DependencyObject parent, string expectedContent)
+        {
+            int count = System.Windows.Media.VisualTreeHelper.GetChildrenCount(parent);
+            for (int i = 0; i < count; i++)
+            {
+                DependencyObject child = System.Windows.Media.VisualTreeHelper.GetChild(parent, i);
+                if (child is System.Windows.Controls.Button btn && string.Equals(btn.Content as string, expectedContent, StringComparison.Ordinal))
                 {
                     return btn;
                 }
 
-                Button? nested = FindButtonByContent(child, expectedContent);
+                System.Windows.Controls.Button? nested = FindButtonByContent(child, expectedContent);
                 if (nested != null)
                 {
                     return nested;
