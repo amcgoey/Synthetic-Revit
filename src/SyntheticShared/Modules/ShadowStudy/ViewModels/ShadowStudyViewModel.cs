@@ -67,10 +67,16 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
 
         private readonly IShadowStudyAdapter _adapter;
         private readonly IFolderDialogService _folderDialogService;
+        private readonly ITextInputPromptService? _textInputPromptService;
         private readonly List<ShadowStudySelectableViewItemViewModel> _allViews;
         private readonly ShadowStudyUserPrefsStore? _userPrefsStore;
 
         private ShadowStudyExportRangeMode _exportRangeMode;
+        private ShadowStudyPrintSetItem _selectedPrintSet = ShadowStudyPrintSetItem.CreateInSession();
+        private bool _isApplyingPrintSetSelection;
+        private bool _isPrintSetModified;
+        private string _printSetStatusMessage = string.Empty;
+        private string _printSetErrorMessage = string.Empty;
         private string _viewSearchText = string.Empty;
         private DateTime _selectedDate;
         private int _timeStepMinutes = 60;
@@ -102,11 +108,13 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
             IShadowStudyAdapter adapter,
             IFolderDialogService folderDialogService,
             DateTime? initialDate = null,
-            ShadowStudyUserPrefsStore? userPrefsStore = null)
+            ShadowStudyUserPrefsStore? userPrefsStore = null,
+            ITextInputPromptService? textInputPromptService = null)
         {
             _adapter = adapter ?? throw new ArgumentNullException(nameof(adapter));
             _folderDialogService = folderDialogService ?? throw new ArgumentNullException(nameof(folderDialogService));
             _userPrefsStore = userPrefsStore ?? (ProgressCoordinator.SuppressUI ? null : new ShadowStudyUserPrefsStore());
+            _textInputPromptService = textInputPromptService ?? (ProgressCoordinator.SuppressUI ? null : new WindowsTextInputPromptService());
 
             SiteInfo = _adapter.GetSiteInfo() ?? new ShadowStudySiteInfo();
             ActiveView = _adapter.GetActiveViewInfo();
@@ -126,6 +134,9 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
                 ? ShadowStudyExportRangeMode.CurrentView
                 : ShadowStudyExportRangeMode.SelectedViews;
 
+            PrintSets = new ObservableCollection<ShadowStudyPrintSetItem>();
+            LoadPrintSets(selectedPrintSetId: null, applySelectionToChecklist: false);
+
             FilteredViews = new ObservableCollection<ShadowStudySelectableViewItemViewModel>();
             RefreshFilteredViews();
 
@@ -135,6 +146,8 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
             BrowseOutputFolderCommand = new RelayCommand(_ => ExecuteBrowseOutputFolder());
             SelectAllViewsCommand = new RelayCommand(_ => ExecuteSelectAllViews());
             SelectNoneViewsCommand = new RelayCommand(_ => ExecuteSelectNoneViews());
+            SavePrintSetCommand = new RelayCommand(_ => ExecuteSavePrintSet(), _ => CanSavePrintSet);
+            SaveAsPrintSetCommand = new RelayCommand(_ => ExecuteSaveAsPrintSet(), _ => CanSavePrintSet);
             ExportCommand = new RelayCommand(_ => ExecuteExport(), _ => CanExport);
             CancelCommand = new RelayCommand(_ => RequestClose?.Invoke(false));
 
@@ -314,6 +327,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
                     OnPropertyChanged(nameof(IsSelectedViewsMode));
                     OnPropertyChanged(nameof(CompositeFileNamePreview));
                     OnPropertyChanged(nameof(FrameFolderPreview));
+                    OnPropertyChanged(nameof(CanSavePrintSet));
                     RaiseExportStateChanged();
                 }
             }
@@ -338,6 +352,84 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
         /// Gets the eligible views matching <see cref="ViewSearchText"/>.
         /// </summary>
         public ObservableCollection<ShadowStudySelectableViewItemViewModel> FilteredViews { get; }
+
+        /// <summary>
+        /// Gets the Print Sets available in Selected Views mode, starting with <c>&lt;In-Session&gt;</c>
+        /// followed by saved document Print Sets ordered case-insensitively by name.
+        /// </summary>
+        public ObservableCollection<ShadowStudyPrintSetItem> PrintSets { get; }
+
+        /// <summary>
+        /// Gets or sets the currently selected Print Set in Selected Views mode.
+        /// </summary>
+        public ShadowStudyPrintSetItem SelectedPrintSet
+        {
+            get => _selectedPrintSet;
+            set
+            {
+                ShadowStudyPrintSetItem target = value ?? PrintSets.FirstOrDefault() ?? ShadowStudyPrintSetItem.CreateInSession();
+                if (SetProperty(ref _selectedPrintSet, target))
+                {
+                    ApplySelectedPrintSet(target);
+                    OnPropertyChanged(nameof(CanSavePrintSet));
+                    CommandManager.InvalidateRequerySuggested();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets a value indicating whether the view checklist has been modified since loading the active saved Print Set.
+        /// </summary>
+        public bool IsPrintSetModified
+        {
+            get => _isPrintSetModified;
+            private set => SetProperty(ref _isPrintSetModified, value);
+        }
+
+        /// <summary>
+        /// Gets the informational status message for Print Set loading or saving (for example, ignored non-shadow members).
+        /// </summary>
+        public string PrintSetStatusMessage
+        {
+            get => _printSetStatusMessage;
+            private set
+            {
+                if (SetProperty(ref _printSetStatusMessage, value ?? string.Empty))
+                {
+                    OnPropertyChanged(nameof(HasPrintSetStatus));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets a value indicating whether <see cref="PrintSetStatusMessage"/> is non-empty.
+        /// </summary>
+        public bool HasPrintSetStatus => !string.IsNullOrEmpty(_printSetStatusMessage);
+
+        /// <summary>
+        /// Gets the inline validation or save error message for Print Set operations.
+        /// </summary>
+        public string PrintSetErrorMessage
+        {
+            get => _printSetErrorMessage;
+            private set
+            {
+                if (SetProperty(ref _printSetErrorMessage, value ?? string.Empty))
+                {
+                    OnPropertyChanged(nameof(HasPrintSetError));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets a value indicating whether <see cref="PrintSetErrorMessage"/> is non-empty.
+        /// </summary>
+        public bool HasPrintSetError => !string.IsNullOrEmpty(_printSetErrorMessage);
+
+        /// <summary>
+        /// Gets a value indicating whether Save or Save As can persist a non-empty Print Set.
+        /// </summary>
+        public bool CanSavePrintSet => IsSelectedViewsMode && HasSavablePrintSetMembers();
 
         /// <summary>
         /// Gets or sets the case-insensitive search filter applied to view names and view types.
@@ -649,6 +741,17 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
         public ICommand SelectNoneViewsCommand { get; }
 
         /// <summary>
+        /// Gets the command that saves updates to the selected saved Print Set, or routes through Save As when
+        /// <c>&lt;In-Session&gt;</c> is selected.
+        /// </summary>
+        public ICommand SavePrintSetCommand { get; }
+
+        /// <summary>
+        /// Gets the command that prompts for a unique name and saves a new Print Set in the Revit document.
+        /// </summary>
+        public ICommand SaveAsPrintSetCommand { get; }
+
+        /// <summary>
         /// Gets the command that confirms settings and starts the export.
         /// </summary>
         public ICommand ExportCommand { get; }
@@ -744,11 +847,232 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
 
         private void OnViewSelectionChanged()
         {
+            if (!_isApplyingPrintSetSelection)
+            {
+                PrintSetErrorMessage = string.Empty;
+                if (SelectedPrintSet != null && !SelectedPrintSet.IsInSession)
+                {
+                    IsPrintSetModified = true;
+                }
+            }
+
             OnPropertyChanged(nameof(SelectedViewsCount));
             OnPropertyChanged(nameof(SelectedViewsSummary));
             OnPropertyChanged(nameof(CompositeFileNamePreview));
             OnPropertyChanged(nameof(FrameFolderPreview));
+            OnPropertyChanged(nameof(CanSavePrintSet));
             RaiseExportStateChanged();
+        }
+
+        private bool HasSavablePrintSetMembers()
+        {
+            if (SelectedViewsCount > 0)
+            {
+                return true;
+            }
+
+            return SelectedPrintSet != null &&
+                   !SelectedPrintSet.IsInSession &&
+                   SelectedPrintSet.IgnoredNonShadowMemberCount > 0;
+        }
+
+        private void LoadPrintSets(string? selectedPrintSetId, bool applySelectionToChecklist)
+        {
+            PrintSets.Clear();
+            PrintSets.Add(ShadowStudyPrintSetItem.CreateInSession());
+
+            IReadOnlyList<ShadowStudyPrintSetItem> savedSets = _adapter.GetPrintSets() ?? Array.Empty<ShadowStudyPrintSetItem>();
+            foreach (var set in savedSets
+                .Where(s => s != null && !s.IsInSession && !string.IsNullOrWhiteSpace(s.Name))
+                .OrderBy(s => s.Name, StringComparer.OrdinalIgnoreCase))
+            {
+                PrintSets.Add(set);
+            }
+
+            ShadowStudyPrintSetItem matched = !string.IsNullOrEmpty(selectedPrintSetId)
+                ? PrintSets.FirstOrDefault(p => string.Equals(p.Id, selectedPrintSetId, StringComparison.Ordinal)) ?? PrintSets[0]
+                : PrintSets[0];
+
+            _selectedPrintSet = matched;
+            OnPropertyChanged(nameof(SelectedPrintSet));
+
+            if (applySelectionToChecklist)
+            {
+                ApplySelectedPrintSet(matched);
+            }
+        }
+
+        private void ApplySelectedPrintSet(ShadowStudyPrintSetItem printSet)
+        {
+            PrintSetErrorMessage = string.Empty;
+            IsPrintSetModified = false;
+
+            if (printSet == null || printSet.IsInSession)
+            {
+                PrintSetStatusMessage = string.Empty;
+                return;
+            }
+
+            var targetIds = new HashSet<string>(
+                printSet.ShadowViewIds ?? Array.Empty<string>(),
+                StringComparer.Ordinal);
+
+            _isApplyingPrintSetSelection = true;
+            try
+            {
+                foreach (var viewItem in _allViews)
+                {
+                    viewItem.IsSelected = targetIds.Contains(viewItem.ViewId);
+                }
+            }
+            finally
+            {
+                _isApplyingPrintSetSelection = false;
+            }
+
+            int shadowCount = _allViews.Count(v => v.IsSelected);
+            PrintSetStatusMessage = printSet.IgnoredNonShadowMemberCount > 0
+                ? $"Loaded '{printSet.Name}' ({shadowCount} shadow view(s); {printSet.IgnoredNonShadowMemberCount} non-shadow member(s) ignored for export and preserved on Save)."
+                : string.Empty;
+        }
+
+        private void ExecuteSavePrintSet()
+        {
+            PrintSetErrorMessage = string.Empty;
+            if (SelectedPrintSet == null || SelectedPrintSet.IsInSession)
+            {
+                ExecuteSaveAsPrintSet();
+                return;
+            }
+
+            if (!HasSavablePrintSetMembers())
+            {
+                PrintSetErrorMessage = "Select at least one view before saving a Print Set.";
+                return;
+            }
+
+            List<string> selectedIds = _allViews
+                .Where(v => v.IsSelected)
+                .Select(v => v.ViewId)
+                .ToList();
+
+            try
+            {
+                ShadowStudyPrintSetItem saved = _adapter.SavePrintSet(
+                    SelectedPrintSet.Name,
+                    selectedIds,
+                    saveAsNew: false,
+                    sourcePrintSetId: SelectedPrintSet.Id);
+
+                RefreshAfterPrintSetSave(saved);
+            }
+            catch (Exception ex)
+            {
+                PrintSetErrorMessage = ex.Message;
+            }
+        }
+
+        private void ExecuteSaveAsPrintSet()
+        {
+            PrintSetErrorMessage = string.Empty;
+            if (!HasSavablePrintSetMembers())
+            {
+                PrintSetErrorMessage = "Select at least one view before saving a Print Set.";
+                return;
+            }
+
+            if (_textInputPromptService == null)
+            {
+                PrintSetErrorMessage = "Print Set name prompt service is unavailable.";
+                return;
+            }
+
+            string suggestedName = (SelectedPrintSet != null && !SelectedPrintSet.IsInSession)
+                ? $"{SelectedPrintSet.Name} Copy"
+                : string.Empty;
+
+            string? enteredName = _textInputPromptService.PromptText(
+                "Save Print Set As",
+                "Enter a unique name for the Print Set:",
+                suggestedName,
+                ValidatePrintSetName);
+
+            if (enteredName == null)
+            {
+                return;
+            }
+
+            string? validationError = ValidatePrintSetName(enteredName);
+            if (!string.IsNullOrEmpty(validationError))
+            {
+                PrintSetErrorMessage = validationError!;
+                return;
+            }
+
+            string trimmedName = enteredName.Trim();
+            string? sourceId = (SelectedPrintSet != null && !SelectedPrintSet.IsInSession)
+                ? SelectedPrintSet.Id
+                : null;
+
+            List<string> selectedIds = _allViews
+                .Where(v => v.IsSelected)
+                .Select(v => v.ViewId)
+                .ToList();
+
+            try
+            {
+                ShadowStudyPrintSetItem saved = _adapter.SavePrintSet(
+                    trimmedName,
+                    selectedIds,
+                    saveAsNew: true,
+                    sourcePrintSetId: sourceId);
+
+                RefreshAfterPrintSetSave(saved);
+            }
+            catch (Exception ex)
+            {
+                PrintSetErrorMessage = ex.Message;
+            }
+        }
+
+        private void RefreshAfterPrintSetSave(ShadowStudyPrintSetItem saved)
+        {
+            LoadPrintSets(selectedPrintSetId: saved.Id, applySelectionToChecklist: false);
+            IsPrintSetModified = false;
+            PrintSetErrorMessage = string.Empty;
+
+            int shadowCount = saved.ShadowViewIds != null ? saved.ShadowViewIds.Count : 0;
+            PrintSetStatusMessage = saved.IgnoredNonShadowMemberCount > 0
+                ? $"Saved Print Set '{saved.Name}' ({shadowCount} shadow view(s); {saved.IgnoredNonShadowMemberCount} non-shadow member(s) preserved)."
+                : $"Saved Print Set '{saved.Name}' ({shadowCount} shadow view(s)).";
+
+            OnPropertyChanged(nameof(CanSavePrintSet));
+            CommandManager.InvalidateRequerySuggested();
+        }
+
+        private string? ValidatePrintSetName(string? candidateName)
+        {
+            if (string.IsNullOrWhiteSpace(candidateName))
+            {
+                return "Print Set name cannot be blank.";
+            }
+
+            string trimmed = candidateName!.Trim();
+            if (string.Equals(trimmed, ShadowStudyPrintSetItem.InSessionName, StringComparison.OrdinalIgnoreCase))
+            {
+                return "Print Set name cannot be '<In-Session>'.";
+            }
+
+            bool exists = PrintSets.Any(p =>
+                !p.IsInSession &&
+                string.Equals((p.Name ?? string.Empty).Trim(), trimmed, StringComparison.OrdinalIgnoreCase));
+
+            if (exists)
+            {
+                return $"A Print Set named '{trimmed}' already exists. Enter a unique name.";
+            }
+
+            return null;
         }
 
         private static ShadowStudyViewItem CloneViewItem(ShadowStudyViewItem source)

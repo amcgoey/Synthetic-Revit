@@ -355,8 +355,14 @@
     </Compile>
     <Compile Include="$(MSBuildThisFileDirectory)Shared\UI\IFolderDialogService.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Shared\UI\WindowsFolderDialogService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Shared\UI\ITextInputPromptService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Shared\UI\WindowsTextInputPromptService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Shared\UI\TextInputPromptWindow.xaml.cs">
+      <DependentUpon>TextInputPromptWindow.xaml</DependentUpon>
+    </Compile>
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudySiteInfo.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudyExportRangeMode.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudyPrintSetItem.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudyViewWarningBadge.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudyViewItem.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudyDateEntry.cs" />
@@ -506,6 +512,10 @@
       <SubType>Designer</SubType>
     </Page>
     <Page Include="$(MSBuildThisFileDirectory)Shared\UI\ExportCompletionWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="$(MSBuildThisFileDirectory)Shared\UI\TextInputPromptWindow.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>
