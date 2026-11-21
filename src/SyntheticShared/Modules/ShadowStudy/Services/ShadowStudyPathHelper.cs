@@ -87,6 +87,15 @@ namespace Synthetic.Modules.ShadowStudy.Services
         }
 
         /// <summary>
+        /// Formats a study date label from a <see cref="ShadowStudyDateEntry"/> using its individual astronomical event or preset name.
+        /// </summary>
+        public static string FormatDateLabel(ShadowStudyDateEntry entry)
+        {
+            if (entry == null) throw new ArgumentNullException(nameof(entry));
+            return entry.DateLabel;
+        }
+
+        /// <summary>
         /// Formats a study date label as <c>yyMMdd</c> or <c>yyMMdd - PresetName</c>.
         /// </summary>
         public static string FormatDateLabel(DateTime date, string? presetName = null)
