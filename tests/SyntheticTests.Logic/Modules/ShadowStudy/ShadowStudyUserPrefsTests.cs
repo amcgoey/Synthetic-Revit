@@ -82,5 +82,21 @@ namespace SyntheticTests.Modules.ShadowStudy
             Assert.AreEqual(3000, loaded.PixelWidth);
             Assert.IsTrue(loaded.ExportIndividualFrames);
         }
+
+        [Test]
+        public void UserPrefs_ExcludesPreserveVisualStyleAndIgnoresLegacyFieldGracefully()
+        {
+            Assert.IsNull(typeof(ShadowStudyUserPrefs).GetProperty("PreserveVisualStyle"),
+                "ShadowStudyUserPrefs must store only LastOutputFolder, PixelWidth, and ExportIndividualFrames.");
+
+            string prefsPath = Path.Combine(_tempDir, "legacy.json");
+            File.WriteAllText(prefsPath, @"{ ""LastOutputFolder"": ""D:\\Legacy"", ""PixelWidth"": 1600, ""ExportIndividualFrames"": false, ""PreserveVisualStyle"": true }");
+            var store = new ShadowStudyUserPrefsStore(prefsPath);
+
+            ShadowStudyUserPrefs loaded = store.Load();
+            Assert.AreEqual(@"D:\Legacy", loaded.LastOutputFolder);
+            Assert.AreEqual(1600, loaded.PixelWidth);
+            Assert.IsFalse(loaded.ExportIndividualFrames);
+        }
     }
 }

@@ -378,6 +378,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudyRunRequest.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudyRunSummary.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudyUserPrefs.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Settings\ShadowStudySettings.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Adapters\IShadowStudyAdapter.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Adapters\RevitShadowStudyAdapter.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Commands\CmdShadowStudy.cs" />

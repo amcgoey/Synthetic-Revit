@@ -291,6 +291,12 @@ namespace SyntheticTests.Modules.ShadowStudy
                 string? sourcePrintSetId = null)
                 => _inner.SavePrintSet(printSetName, selectedShadowViewIds, saveAsNew, sourcePrintSetId);
 
+            public Synthetic.Modules.ShadowStudy.Settings.ShadowStudySettings LoadShadowStudySettings()
+                => _inner.LoadShadowStudySettings();
+
+            public void SaveShadowStudySettings(Synthetic.Modules.ShadowStudy.Settings.ShadowStudySettings settings)
+                => _inner.SaveShadowStudySettings(settings);
+
             public RawFrameExportResult ExportRawFrames(
                 RawFrameExportRequest request,
                 IProgress<Synthetic.Shared.UI.ProgressState>? progress = null,

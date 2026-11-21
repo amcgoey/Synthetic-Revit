@@ -429,6 +429,94 @@ namespace SyntheticTests.Modules.ShadowStudy
             Assert.AreEqual(0, adapter.ExportRequests.Count);
         }
 
+        [Test]
+        public void Execute_CombinedMultiViewAndMultiDate_HiddenLineAndShaded_RetainsOnlyShadowFrames()
+        {
+            var adapter = new FakeShadowStudyAdapter
+            {
+                ShadedSurfaceColorProvider = (_, _) => System.Windows.Media.Color.FromRgb(200, 170, 140),
+                ShadedPixelShadowedProvider = (_, _) => true
+            };
+            var site = adapter.GetSiteInfo();
+
+            var hlrView = new ShadowStudyViewItem
+            {
+                Id = "v-hlr",
+                Name = "Level 1",
+                ViewType = "FloorPlan",
+                DisplayStyleName = "HLR",
+                IsBackgroundSupported = false
+            };
+            var shadedView = new ShadowStudyViewItem
+            {
+                Id = "v-shaded",
+                Name = "Exterior 3D",
+                ViewType = "ThreeD",
+                DisplayStyleName = "ShadingWithEdges",
+                IsBackgroundSupported = true
+            };
+
+            DateSolarSchedule summer = SolarScheduleCalculator.BuildSchedule(
+                new ShadowStudyDateEntry
+                {
+                    Date = new DateTime(2026, 6, 21),
+                    AstronomicalEvent = AstronomicalEventKind.SummerSolstice,
+                    PresetName = "Summer Solstice"
+                },
+                site,
+                stepMinutes: 240);
+
+            DateSolarSchedule winter = SolarScheduleCalculator.BuildSchedule(
+                new ShadowStudyDateEntry
+                {
+                    Date = new DateTime(2026, 12, 21),
+                    AstronomicalEvent = AstronomicalEventKind.WinterSolstice,
+                    PresetName = "Winter Solstice"
+                },
+                site,
+                stepMinutes: 240);
+
+            var pipeline = new ShadowStudyPipeline(adapter);
+            ShadowStudyRunSummary summary = pipeline.Execute(new ShadowStudyRunRequest
+            {
+                Views = new[] { hlrView, shadedView },
+                DateSchedules = new[] { summer, winter },
+                OutputFolder = _outputDir,
+                PixelWidth = 16,
+                ForceHiddenLine = false,
+                ForceWhiteBackground = true,
+                KeepIndividualFrames = true
+            });
+
+            Assert.IsFalse(summary.WasCancelled);
+            Assert.AreEqual(4, summary.GeneratedCount);
+            Assert.AreEqual(1, adapter.ExportRequests.Count);
+            Assert.IsTrue(adapter.ExportRequests[0].ExportPerFrameReference);
+
+            foreach (var v in new[] { hlrView, shadedView })
+            {
+                foreach (var s in new[] { summer, winter })
+                {
+                    string dateLabel = s.DateEntry.DateLabel;
+                    string expectedComposite = Path.Combine(_outputDir, $"{v.Name} - {dateLabel} - Composite.png");
+                    Assert.IsTrue(File.Exists(expectedComposite), $"Missing composite '{expectedComposite}'.");
+
+                    string framesFolder = Path.Combine(_outputDir, $"{v.Name} - {dateLabel}");
+                    string[] retainedFrames = Directory.GetFiles(framesFolder, "*.png");
+                    Assert.AreEqual(s.Frames.Count, retainedFrames.Length);
+                    foreach (var slot in s.Frames)
+                    {
+                        string expectedFrame = Path.Combine(framesFolder, $"{v.Name} - {dateLabel} - {slot.FrameFileStem}.png");
+                        Assert.IsTrue(File.Exists(expectedFrame));
+                    }
+                }
+            }
+
+            Assert.IsFalse(Directory.EnumerateFiles(_outputDir, "*ref*", SearchOption.AllDirectories).Any());
+            Assert.IsFalse(Directory.EnumerateFiles(_outputDir, "*r_*", SearchOption.AllDirectories).Any());
+            Assert.IsFalse(Directory.Exists(adapter.ExportRequests[0].TempRootDirectory));
+        }
+
         private static byte[] ReadFirstPixel(string pngPath)
         {
             using var fs = new FileStream(pngPath, FileMode.Open, FileAccess.Read, FileShare.Read);

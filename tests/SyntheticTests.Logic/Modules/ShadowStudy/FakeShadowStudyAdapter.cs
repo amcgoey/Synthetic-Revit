@@ -6,6 +6,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Synthetic.Modules.ShadowStudy.Adapters;
 using Synthetic.Modules.ShadowStudy.Models;
+using Synthetic.Modules.ShadowStudy.Settings;
 using Synthetic.Shared.UI;
 
 namespace SyntheticTests.Modules.ShadowStudy
@@ -37,6 +38,10 @@ namespace SyntheticTests.Modules.ShadowStudy
         public List<(string Name, IReadOnlyList<string> ShadowViewIds, bool SaveAsNew, string? SourcePrintSetId)> SavePrintSetCalls { get; } =
             new List<(string, IReadOnlyList<string>, bool, string?)>();
         public List<RawFrameExportRequest> ExportRequests { get; } = new List<RawFrameExportRequest>();
+        public ShadowStudySettings Settings { get; set; } = new ShadowStudySettings();
+        public int LoadSettingsCallCount { get; private set; }
+        public List<ShadowStudySettings> SaveSettingsCalls { get; } = new List<ShadowStudySettings>();
+        public Exception? SaveSettingsExceptionToThrow { get; set; }
         public int CancelAfterFrameCount { get; set; } = -1;
         public CancellationTokenSource? CancelSourceToTrigger { get; set; }
         public Exception? ExceptionToThrow { get; set; }
@@ -129,6 +134,25 @@ namespace SyntheticTests.Modules.ShadowStudy
                 target.ShadowViewIds = shadowList.AsReadOnly();
                 return ClonePrintSet(target);
             }
+        }
+
+        public ShadowStudySettings LoadShadowStudySettings()
+        {
+            LoadSettingsCallCount++;
+            return (Settings ?? new ShadowStudySettings()).DeepClone();
+        }
+
+        public void SaveShadowStudySettings(ShadowStudySettings settings)
+        {
+            if (settings == null) throw new ArgumentNullException(nameof(settings));
+            if (SaveSettingsExceptionToThrow != null)
+            {
+                throw SaveSettingsExceptionToThrow;
+            }
+
+            ShadowStudySettings clone = settings.DeepClone();
+            SaveSettingsCalls.Add(clone);
+            Settings = clone.DeepClone();
         }
 
         private static ShadowStudyPrintSetItem ClonePrintSet(ShadowStudyPrintSetItem source)

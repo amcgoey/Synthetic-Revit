@@ -9,8 +9,10 @@ using Autodesk.Revit.UI.Events;
 using Color = Autodesk.Revit.DB.Color;
 using View = Autodesk.Revit.DB.View;
 using Synthetic.Infrastructure.FailureProcessing;
+using Synthetic.Infrastructure.Persistence;
 using Synthetic.Modules.ShadowStudy.Models;
 using Synthetic.Modules.ShadowStudy.Services;
+using Synthetic.Modules.ShadowStudy.Settings;
 using Synthetic.Shared.UI;
 
 namespace Synthetic.Modules.ShadowStudy.Adapters
@@ -295,6 +297,24 @@ namespace Synthetic.Modules.ShadowStudy.Adapters
                 ViewSheetSet refreshedSet = (_doc.GetElement(targetSet.UniqueId) as ViewSheetSet) ?? targetSet;
                 return MapPrintSetItem(refreshedSet);
             }
+        }
+
+        /// <inheritdoc />
+        public ShadowStudySettings LoadShadowStudySettings()
+        {
+            ShadowStudySettings settings = SettingsManager.Get<ShadowStudySettings>(_doc) ?? new ShadowStudySettings();
+            return settings.DeepClone();
+        }
+
+        /// <inheritdoc />
+        public void SaveShadowStudySettings(ShadowStudySettings settings)
+        {
+            if (settings == null)
+            {
+                throw new ArgumentNullException(nameof(settings));
+            }
+
+            SettingsManager.Save(_doc, settings.DeepClone());
         }
 
         private static ViewSet BuildCombinedViewSet(IReadOnlyList<View> shadowViews, ViewSheetSet? nonShadowSourceSet)

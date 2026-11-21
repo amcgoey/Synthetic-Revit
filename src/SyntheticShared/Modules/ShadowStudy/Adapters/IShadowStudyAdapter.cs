@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using Synthetic.Modules.ShadowStudy.Models;
+using Synthetic.Modules.ShadowStudy.Settings;
 using Synthetic.Shared.UI;
 
 namespace Synthetic.Modules.ShadowStudy.Adapters
@@ -48,6 +49,18 @@ namespace Synthetic.Modules.ShadowStudy.Adapters
             IReadOnlyList<string> selectedShadowViewIds,
             bool saveAsNew,
             string? sourcePrintSetId = null);
+
+        /// <summary>
+        /// Loads an isolated deep copy of <see cref="ShadowStudySettings"/> from document Extensible Storage
+        /// (or baseline defaults when absent).
+        /// </summary>
+        ShadowStudySettings LoadShadowStudySettings();
+
+        /// <summary>
+        /// Persists an isolated deep copy of <see cref="ShadowStudySettings"/> to document Extensible Storage
+        /// inside an explicit Undo-visible committed transaction.
+        /// </summary>
+        void SaveShadowStudySettings(ShadowStudySettings settings);
 
         /// <summary>
         /// Exports unshadowed reference pass(es) and calibrated Shadow Frame PNGs into temporary subdirectories

@@ -472,7 +472,7 @@ namespace SyntheticTests.Modules.ShadowStudy
         }
 
         [Test]
-        public void PreserveVisualStyle_DefaultsToFalseSyncsForceHiddenLineAndPersistsOnExportOnly()
+        public void PreserveVisualStyle_DefaultsFromStudioSettingsSyncsForceHiddenLineAndIsNotSavedInLocalPrefs()
         {
             string prefsPath = Path.Combine(_tempDir, "ShadowStudyUserPrefs.json");
             var store = new ShadowStudyUserPrefsStore(prefsPath);
@@ -495,14 +495,15 @@ namespace SyntheticTests.Modules.ShadowStudy
             Assert.IsTrue(request.ForceWhiteBackground, "ForceWhiteBackground remains true so Wireframe/Rendering fallback views still receive pure white background.");
 
             vm.CancelCommand.Execute(null);
-            Assert.IsFalse(store.Load().PreserveVisualStyle, "Cancelling must not persist PreserveVisualStyle.");
+            Assert.IsFalse(File.Exists(prefsPath), "Cancelling must not write local prefs.");
 
             vm.ExportCommand.Execute(null);
-            Assert.IsTrue(store.Load().PreserveVisualStyle);
+            Assert.IsTrue(File.Exists(prefsPath));
+            StringAssert.DoesNotContain("PreserveVisualStyle", File.ReadAllText(prefsPath));
 
             var reloadedVm = new ShadowStudyViewModel(adapter, new FakeFolderDialogService(), new DateTime(2026, 6, 21), store);
-            Assert.IsTrue(reloadedVm.PreserveVisualStyle);
-            Assert.IsFalse(reloadedVm.ForceHiddenLine);
+            Assert.IsFalse(reloadedVm.PreserveVisualStyle, "Local prefs must not override ShadowStudySettings.DefaultPreserveVisualStyle.");
+            Assert.IsTrue(reloadedVm.ForceHiddenLine);
         }
 
         [Test]

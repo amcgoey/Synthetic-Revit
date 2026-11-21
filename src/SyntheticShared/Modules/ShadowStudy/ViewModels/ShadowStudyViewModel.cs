@@ -7,6 +7,7 @@ using System.Windows.Input;
 using Synthetic.Modules.ShadowStudy.Adapters;
 using Synthetic.Modules.ShadowStudy.Models;
 using Synthetic.Modules.ShadowStudy.Services;
+using Synthetic.Modules.ShadowStudy.Settings;
 using Synthetic.Shared.UI;
 
 namespace Synthetic.Modules.ShadowStudy.ViewModels
@@ -80,6 +81,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
         private readonly ObservableCollection<ShadowStudyDateScheduleItemViewModel> _studyDates =
             new ObservableCollection<ShadowStudyDateScheduleItemViewModel>();
 
+        private ShadowStudySettings _settings;
         private ShadowStudyExportRangeMode _exportRangeMode;
         private ShadowStudyPrintSetItem _selectedPrintSet = ShadowStudyPrintSetItem.CreateInSession();
         private bool _isApplyingPrintSetSelection;
@@ -88,6 +90,10 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
         private string _printSetErrorMessage = string.Empty;
         private string _viewSearchText = string.Empty;
         private ShadowStudyPresetDefinition? _selectedPreset;
+        private bool _isApplyingPreset;
+        private bool _isPresetModified;
+        private string _presetStatusMessage = string.Empty;
+        private string _presetErrorMessage = string.Empty;
         private int _targetYear;
         private string _targetYearText;
         private DateTime _customDateToAdd = DateTime.Today;
@@ -154,7 +160,16 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
             FilteredViews = new ObservableCollection<ShadowStudySelectableViewItemViewModel>();
             RefreshFilteredViews();
 
-            _availablePresets = new ObservableCollection<ShadowStudyPresetDefinition>(BuiltInShadowStudyPresets.All);
+            _availablePresets = new ObservableCollection<ShadowStudyPresetDefinition>();
+            _settings = (_adapter.LoadShadowStudySettings() ?? new ShadowStudySettings()).DeepClone();
+            if (_settings.UserPresets == null)
+            {
+                _settings.UserPresets = new List<ShadowStudyPresetModel>();
+            }
+
+            ApplySettingsDefaultsToBackingFields();
+            RebuildAvailablePresets();
+
             _targetYear = initialDate.HasValue ? initialDate.Value.Year : DateTime.Today.Year;
             _targetYearText = _targetYear.ToString(CultureInfo.InvariantCulture);
 
@@ -165,6 +180,10 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
             SelectNoneViewsCommand = new RelayCommand(_ => ExecuteSelectNoneViews());
             SavePrintSetCommand = new RelayCommand(_ => ExecuteSavePrintSet(), _ => CanSavePrintSet);
             SaveAsPrintSetCommand = new RelayCommand(_ => ExecuteSaveAsPrintSet(), _ => CanSavePrintSet);
+            SavePresetCommand = new RelayCommand(_ => ExecuteSavePreset(), _ => CanSavePreset);
+            SavePresetAsCommand = new RelayCommand(_ => ExecuteSavePresetAs(), _ => CanSavePresetAs);
+            RenamePresetCommand = new RelayCommand(_ => ExecuteRenamePreset(), _ => CanRenamePreset);
+            DeletePresetCommand = new RelayCommand(_ => ExecuteDeletePreset(), _ => CanDeletePreset);
             AddCustomDateCommand = new RelayCommand(_ => ExecuteAddCustomDate(), _ => CanAddCustomDate);
             RemoveDateCommand = new RelayCommand(ExecuteRemoveDate);
             ExportCommand = new RelayCommand(_ => ExecuteExport(), _ => CanExport);
@@ -176,7 +195,8 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
             }
             else
             {
-                SelectedPreset = BuiltInShadowStudyPresets.SeasonalStudy;
+                SelectedPreset = _availablePresets.FirstOrDefault(p => p.Id == BuiltInShadowStudyPresets.SeasonalStudyId)
+                                 ?? BuiltInShadowStudyPresets.SeasonalStudy;
             }
         }
 
@@ -186,19 +206,132 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
         public ObservableCollection<ShadowStudyPresetDefinition> AvailablePresets => _availablePresets;
 
         /// <summary>
-        /// Gets or sets the currently selected Shadow Study Preset (<c>null</c> when customized manually).
+        /// Gets or sets the currently selected Shadow Study Preset (<c>null</c> when initialized with an explicit date).
         /// </summary>
         public ShadowStudyPresetDefinition? SelectedPreset
         {
             get => _selectedPreset;
             set
             {
-                if (SetProperty(ref _selectedPreset, value) && value != null)
+                if (SetProperty(ref _selectedPreset, value))
                 {
-                    ApplyPreset(value);
+                    if (value != null)
+                    {
+                        ApplyPreset(value);
+                    }
+                    else
+                    {
+                        RaisePresetStateChanged();
+                    }
                 }
             }
         }
+
+        /// <summary>
+        /// Gets a value indicating whether the active preset has unsaved parameter or date modifications.
+        /// </summary>
+        public bool IsPresetModified
+        {
+            get => _isPresetModified;
+            private set
+            {
+                if (SetProperty(ref _isPresetModified, value))
+                {
+                    OnPropertyChanged(nameof(PresetBadgeText));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets a value indicating whether the currently selected preset is a read-only built-in preset.
+        /// </summary>
+        public bool IsSelectedPresetBuiltIn => SelectedPreset != null && SelectedPreset.IsBuiltIn;
+
+        /// <summary>
+        /// Gets a value indicating whether the currently selected preset is a user-defined preset.
+        /// </summary>
+        public bool IsSelectedPresetUserDefined => SelectedPreset != null && !SelectedPreset.IsBuiltIn;
+
+        /// <summary>
+        /// Gets a concise indicator label for the active preset's read-only or modified state.
+        /// </summary>
+        public string PresetBadgeText
+        {
+            get
+            {
+                if (SelectedPreset == null)
+                {
+                    return IsPresetModified ? "Custom" : string.Empty;
+                }
+
+                if (SelectedPreset.IsBuiltIn)
+                {
+                    return IsPresetModified ? "Built-in (modified — Save forks)" : "Built-in (read-only)";
+                }
+
+                return IsPresetModified ? "User preset (modified)" : "User preset";
+            }
+        }
+
+        /// <summary>
+        /// Gets the informational status message for Shadow Study Preset operations.
+        /// </summary>
+        public string PresetStatusMessage
+        {
+            get => _presetStatusMessage;
+            private set
+            {
+                if (SetProperty(ref _presetStatusMessage, value ?? string.Empty))
+                {
+                    OnPropertyChanged(nameof(HasPresetStatus));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets a value indicating whether <see cref="PresetStatusMessage"/> is non-empty.
+        /// </summary>
+        public bool HasPresetStatus => !string.IsNullOrEmpty(_presetStatusMessage);
+
+        /// <summary>
+        /// Gets the inline error message for Shadow Study Preset operations.
+        /// </summary>
+        public string PresetErrorMessage
+        {
+            get => _presetErrorMessage;
+            private set
+            {
+                if (SetProperty(ref _presetErrorMessage, value ?? string.Empty))
+                {
+                    OnPropertyChanged(nameof(HasPresetError));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets a value indicating whether <see cref="PresetErrorMessage"/> is non-empty.
+        /// </summary>
+        public bool HasPresetError => !string.IsNullOrEmpty(_presetErrorMessage);
+
+        /// <summary>
+        /// Gets a value indicating whether Save can persist the active user preset or fork a built-in preset via Save As.
+        /// </summary>
+        public bool CanSavePreset => !HasValidationErrors && _studyDates.Count > 0;
+
+        /// <summary>
+        /// Gets a value indicating whether Save As can create a new user-defined preset.
+        /// </summary>
+        public bool CanSavePresetAs => !HasValidationErrors && _studyDates.Count > 0;
+
+        /// <summary>
+        /// Gets a value indicating whether the selected preset can be renamed (user-defined presets only).
+        /// </summary>
+        public bool CanRenamePreset => SelectedPreset != null && !SelectedPreset.IsBuiltIn;
+
+        /// <summary>
+        /// Gets a value indicating whether the selected preset can be deleted (user-defined presets only).
+        /// </summary>
+        public bool CanDeletePreset => SelectedPreset != null && !SelectedPreset.IsBuiltIn;
 
         /// <summary>
         /// Gets or sets the target calendar year used to resolve astronomical preset dates.
@@ -770,6 +903,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
             {
                 if (SetProperty(ref _timeStepMinutes, value))
                 {
+                    MarkPresetModifiedIfInteractive();
                     ValidateTimeStep(value);
                     if (string.IsNullOrEmpty(_timeStepError))
                     {
@@ -793,6 +927,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
             {
                 if (SetProperty(ref _minSunAltitudeDegrees, value))
                 {
+                    MarkPresetModifiedIfInteractive();
                     _minSunAltitudeText = double.IsNaN(value) || double.IsInfinity(value)
                         ? string.Empty
                         : value.ToString("0.##", CultureInfo.InvariantCulture);
@@ -820,6 +955,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
             {
                 if (SetProperty(ref _maxCompositeDarknessPercent, value))
                 {
+                    MarkPresetModifiedIfInteractive();
                     _maxCompositeDarknessText = value.ToString(CultureInfo.InvariantCulture);
                     OnPropertyChanged(nameof(MaxCompositeDarknessText));
                     ValidateMaxCompositeDarkness(value);
@@ -865,6 +1001,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
                 bool forceHlr = !value;
                 if (SetProperty(ref _forceHiddenLine, forceHlr, nameof(ForceHiddenLine)))
                 {
+                    MarkPresetModifiedIfInteractive();
                     OnPropertyChanged(nameof(PreserveVisualStyle));
                     OnPropertyChanged(nameof(VisualStyleSummaryText));
                 }
@@ -881,6 +1018,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
             {
                 if (SetProperty(ref _forceHiddenLine, value))
                 {
+                    MarkPresetModifiedIfInteractive();
                     OnPropertyChanged(nameof(PreserveVisualStyle));
                     OnPropertyChanged(nameof(VisualStyleSummaryText));
                 }
@@ -1040,6 +1178,26 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
         /// Gets the command that prompts for a unique name and saves a new Print Set in the Revit document.
         /// </summary>
         public ICommand SaveAsPrintSetCommand { get; }
+
+        /// <summary>
+        /// Gets the command that saves updates to the selected user-defined preset, or forks a built-in preset via Save As.
+        /// </summary>
+        public ICommand SavePresetCommand { get; }
+
+        /// <summary>
+        /// Gets the command that prompts for a unique name and saves a new user-defined Shadow Study Preset.
+        /// </summary>
+        public ICommand SavePresetAsCommand { get; }
+
+        /// <summary>
+        /// Gets the command that prompts for a new name and renames the selected user-defined preset.
+        /// </summary>
+        public ICommand RenamePresetCommand { get; }
+
+        /// <summary>
+        /// Gets the command that deletes the selected user-defined preset and falls back to Seasonal Study.
+        /// </summary>
+        public ICommand DeletePresetCommand { get; }
 
         /// <summary>
         /// Gets the command that adds <see cref="CustomDateToAdd"/> to <see cref="StudyDates"/>.
@@ -1426,7 +1584,6 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
                 : 3000;
             _pixelWidthText = _pixelWidth.ToString(CultureInfo.InvariantCulture);
             _exportIndividualFrames = prefs.ExportIndividualFrames;
-            _forceHiddenLine = !prefs.PreserveVisualStyle;
         }
 
         private void SaveUserPrefs()
@@ -1442,8 +1599,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
                 {
                     LastOutputFolder = OutputFolder.Trim(),
                     PixelWidth = PixelWidth,
-                    ExportIndividualFrames = ExportIndividualFrames,
-                    PreserveVisualStyle = PreserveVisualStyle
+                    ExportIndividualFrames = ExportIndividualFrames
                 });
             }
             catch
@@ -1486,6 +1642,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
             if (SetProperty(ref _minSunAltitudeDegrees, parsed, nameof(MinSunAltitudeDegrees)))
             {
                 // Keep user text untouched while typing
+                MarkPresetModifiedIfInteractive();
             }
 
             ValidateMinSunAltitude(parsed);
@@ -1508,7 +1665,10 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
                 return;
             }
 
-            SetProperty(ref _maxCompositeDarknessPercent, parsed, nameof(MaxCompositeDarknessPercent));
+            if (SetProperty(ref _maxCompositeDarknessPercent, parsed, nameof(MaxCompositeDarknessPercent)))
+            {
+                MarkPresetModifiedIfInteractive();
+            }
             ValidateMaxCompositeDarkness(parsed);
             if (string.IsNullOrEmpty(_maxCompositeDarknessError))
             {
@@ -1585,67 +1745,486 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
 
         private void SetSingleCustomDate(DateTime dateOnly)
         {
-            _selectedPreset = null;
-            OnPropertyChanged(nameof(SelectedPreset));
-
-            _studyDates.Clear();
-            AddDateEntryInternal(new ShadowStudyDateEntry
+            _isApplyingPreset = true;
+            try
             {
-                Date = dateOnly.Date,
-                AstronomicalEvent = AstronomicalEventKind.None,
-                PresetName = string.Empty
-            });
+                _selectedPreset = null;
+                OnPropertyChanged(nameof(SelectedPreset));
 
-            RaiseStudyDatesChanged();
+                _studyDates.Clear();
+                AddDateEntryInternal(new ShadowStudyDateEntry
+                {
+                    Date = dateOnly.Date,
+                    AstronomicalEvent = AstronomicalEventKind.None,
+                    PresetName = string.Empty
+                });
+
+                RaiseStudyDatesChanged();
+            }
+            finally
+            {
+                _isApplyingPreset = false;
+            }
+
+            IsPresetModified = false;
+            RaisePresetStateChanged();
+        }
+
+        private void ApplySettingsDefaultsToBackingFields()
+        {
+            _timeStepMinutes = ShadowStudySettings.IsValidTimeIncrement(_settings.DefaultTimeIncrementMinutes)
+                ? _settings.DefaultTimeIncrementMinutes
+                : 60;
+
+            _minSunAltitudeDegrees = ShadowStudySettings.IsValidSunAltitude(_settings.DefaultMinSunAltitudeDegrees)
+                ? _settings.DefaultMinSunAltitudeDegrees
+                : 5.0;
+            _minSunAltitudeText = _minSunAltitudeDegrees.ToString("0.##", CultureInfo.InvariantCulture);
+
+            _maxCompositeDarknessPercent = ShadowStudySettings.IsValidDarknessPercent(_settings.DefaultMaxCompositeDarknessPercent)
+                ? _settings.DefaultMaxCompositeDarknessPercent
+                : 80;
+            _maxCompositeDarknessText = _maxCompositeDarknessPercent.ToString(CultureInfo.InvariantCulture);
+
+            _forceHiddenLine = !_settings.DefaultPreserveVisualStyle;
+            _forceWhiteBackground = true;
+        }
+
+        private void RebuildAvailablePresets()
+        {
+            _availablePresets.Clear();
+            foreach (ShadowStudyPresetDefinition builtIn in BuiltInShadowStudyPresets.All)
+            {
+                _availablePresets.Add(builtIn);
+            }
+
+            if (_settings.UserPresets != null)
+            {
+                foreach (ShadowStudyPresetModel userPreset in _settings.UserPresets
+                    .Where(p => p != null && !string.IsNullOrWhiteSpace(p.Name))
+                    .OrderBy(p => p.Name.Trim(), StringComparer.OrdinalIgnoreCase))
+                {
+                    _availablePresets.Add(MapToPresetDefinition(userPreset));
+                }
+            }
+        }
+
+        private static ShadowStudyPresetDefinition MapToPresetDefinition(ShadowStudyPresetModel model)
+        {
+            string trimmedName = (model.Name ?? string.Empty).Trim();
+            IReadOnlyList<ShadowStudyPresetDateSpec> specs = (model.Dates ?? new List<ShadowStudyPresetDateSpec>())
+                .Where(d => d != null)
+                .Select(d => d.DeepClone())
+                .ToList()
+                .AsReadOnly();
+
+            return new ShadowStudyPresetDefinition
+            {
+                Id = "user:" + trimmedName,
+                Name = trimmedName,
+                IsBuiltIn = false,
+                IsDefault = false,
+                Description = string.Format(CultureInfo.InvariantCulture, "{0} study date(s)", specs.Count),
+                DateSpecs = specs,
+                TimeStepMinutes = model.TimeIncrementMinutes,
+                MinSunAltitudeDegrees = model.MinSunAltitudeDegrees,
+                MaxCompositeDarknessPercent = model.MaxCompositeDarknessPercent,
+                ForceHiddenLine = !model.PreserveVisualStyle,
+                ForceWhiteBackground = true
+            };
         }
 
         private void ApplyPreset(ShadowStudyPresetDefinition preset)
         {
-            if (preset.TimeStepMinutes.HasValue)
+            _isApplyingPreset = true;
+            try
             {
-                _timeStepMinutes = preset.TimeStepMinutes.Value;
-                ValidateTimeStep(_timeStepMinutes);
-                OnPropertyChanged(nameof(TimeStepMinutes));
-            }
+                int targetTimeStep = preset.IsBuiltIn
+                    ? (ShadowStudySettings.IsValidTimeIncrement(_settings.DefaultTimeIncrementMinutes)
+                        ? _settings.DefaultTimeIncrementMinutes
+                        : 60)
+                    : (preset.TimeStepMinutes ?? _settings.DefaultTimeIncrementMinutes);
 
-            if (preset.MinSunAltitudeDegrees.HasValue)
-            {
-                _minSunAltitudeDegrees = preset.MinSunAltitudeDegrees.Value;
+                double targetMinAlt = preset.IsBuiltIn
+                    ? (ShadowStudySettings.IsValidSunAltitude(_settings.DefaultMinSunAltitudeDegrees)
+                        ? _settings.DefaultMinSunAltitudeDegrees
+                        : 5.0)
+                    : (preset.MinSunAltitudeDegrees ?? _settings.DefaultMinSunAltitudeDegrees);
+
+                int targetDarkness = preset.IsBuiltIn
+                    ? (ShadowStudySettings.IsValidDarknessPercent(_settings.DefaultMaxCompositeDarknessPercent)
+                        ? _settings.DefaultMaxCompositeDarknessPercent
+                        : 80)
+                    : (preset.MaxCompositeDarknessPercent ?? _settings.DefaultMaxCompositeDarknessPercent);
+
+                bool targetForceHiddenLine = preset.IsBuiltIn
+                    ? !_settings.DefaultPreserveVisualStyle
+                    : (preset.ForceHiddenLine ?? !_settings.DefaultPreserveVisualStyle);
+
+                if (SetProperty(ref _timeStepMinutes, targetTimeStep, nameof(TimeStepMinutes)))
+                {
+                    ValidateTimeStep(_timeStepMinutes);
+                }
+
+                _minSunAltitudeDegrees = targetMinAlt;
                 _minSunAltitudeText = _minSunAltitudeDegrees.ToString("0.##", CultureInfo.InvariantCulture);
                 ValidateMinSunAltitude(_minSunAltitudeDegrees);
                 OnPropertyChanged(nameof(MinSunAltitudeDegrees));
                 OnPropertyChanged(nameof(MinSunAltitudeText));
-            }
 
-            if (preset.MaxCompositeDarknessPercent.HasValue)
-            {
-                _maxCompositeDarknessPercent = preset.MaxCompositeDarknessPercent.Value;
+                _maxCompositeDarknessPercent = targetDarkness;
                 _maxCompositeDarknessText = _maxCompositeDarknessPercent.ToString(CultureInfo.InvariantCulture);
                 ValidateMaxCompositeDarkness(_maxCompositeDarknessPercent);
                 OnPropertyChanged(nameof(MaxCompositeDarknessPercent));
                 OnPropertyChanged(nameof(MaxCompositeDarknessText));
+
+                if (SetProperty(ref _forceHiddenLine, targetForceHiddenLine, nameof(ForceHiddenLine)))
+                {
+                    OnPropertyChanged(nameof(PreserveVisualStyle));
+                    OnPropertyChanged(nameof(VisualStyleSummaryText));
+                }
+
+                if (preset.ForceWhiteBackground.HasValue)
+                {
+                    ForceWhiteBackground = preset.ForceWhiteBackground.Value;
+                }
+                else
+                {
+                    ForceWhiteBackground = true;
+                }
+
+                if (!preset.IsBuiltIn && preset.ExportIndividualFrames.HasValue)
+                {
+                    ExportIndividualFrames = preset.ExportIndividualFrames.Value;
+                }
+
+                int effectiveYear = string.IsNullOrEmpty(_targetYearError) ? _targetYear : DateTime.Today.Year;
+                IReadOnlyList<ShadowStudyDateEntry> expanded = BuiltInShadowStudyPresets.ExpandPreset(
+                    preset,
+                    effectiveYear,
+                    SiteInfo);
+
+                _studyDates.Clear();
+                foreach (ShadowStudyDateEntry entry in expanded)
+                {
+                    if (!ContainsCalendarDate(entry.Date))
+                    {
+                        AddDateEntryInternal(entry);
+                    }
+                }
+
+                RaiseStudyDatesChanged();
+            }
+            finally
+            {
+                _isApplyingPreset = false;
             }
 
-            if (preset.ForceHiddenLine.HasValue) ForceHiddenLine = preset.ForceHiddenLine.Value;
-            if (preset.ForceWhiteBackground.HasValue) ForceWhiteBackground = preset.ForceWhiteBackground.Value;
-            if (preset.ExportIndividualFrames.HasValue) ExportIndividualFrames = preset.ExportIndividualFrames.Value;
+            IsPresetModified = false;
+            PresetErrorMessage = string.Empty;
+            RaisePresetStateChanged();
+        }
 
-            int effectiveYear = string.IsNullOrEmpty(_targetYearError) ? _targetYear : DateTime.Today.Year;
-            IReadOnlyList<ShadowStudyDateEntry> expanded = BuiltInShadowStudyPresets.ExpandPreset(
-                preset,
-                effectiveYear,
-                SiteInfo);
-
-            _studyDates.Clear();
-            foreach (ShadowStudyDateEntry entry in expanded)
+        private void ExecuteSavePreset()
+        {
+            PresetErrorMessage = string.Empty;
+            if (HasValidationErrors || _studyDates.Count == 0)
             {
-                if (!ContainsCalendarDate(entry.Date))
+                PresetErrorMessage = "Select at least one study date and resolve validation errors before saving a preset.";
+                return;
+            }
+
+            // Built-in presets remain read-only: Save forks into a new user-defined preset via Save As.
+            if (SelectedPreset == null || SelectedPreset.IsBuiltIn)
+            {
+                ExecuteSavePresetAs();
+                return;
+            }
+
+            string targetName = (SelectedPreset.Name ?? string.Empty).Trim();
+            ShadowStudySettings candidate = _settings.DeepClone();
+            int existingIndex = candidate.UserPresets.FindIndex(
+                p => p != null && string.Equals((p.Name ?? string.Empty).Trim(), targetName, StringComparison.OrdinalIgnoreCase));
+
+            ShadowStudyPresetModel updatedModel = BuildPresetModelFromCurrentState(targetName);
+            if (existingIndex >= 0)
+            {
+                candidate.UserPresets[existingIndex] = updatedModel;
+            }
+            else
+            {
+                candidate.UserPresets.Add(updatedModel);
+            }
+
+            try
+            {
+                _adapter.SaveShadowStudySettings(candidate);
+                _settings = candidate;
+                RefreshAndSelectUserPreset(targetName, $"Saved preset '{targetName}'.");
+            }
+            catch (Exception ex)
+            {
+                PresetErrorMessage = ex.Message;
+            }
+        }
+
+        private void ExecuteSavePresetAs()
+        {
+            PresetErrorMessage = string.Empty;
+            if (HasValidationErrors || _studyDates.Count == 0)
+            {
+                PresetErrorMessage = "Select at least one study date and resolve validation errors before saving a preset.";
+                return;
+            }
+
+            if (_textInputPromptService == null)
+            {
+                PresetErrorMessage = "Preset name prompt service is unavailable.";
+                return;
+            }
+
+            string suggestedName = SelectedPreset != null ? $"{SelectedPreset.Name} Copy" : string.Empty;
+            string? enteredName = _textInputPromptService.PromptText(
+                "Save Shadow Study Preset As",
+                "Enter a unique name for the Shadow Study Preset:",
+                suggestedName,
+                candidate => ValidatePresetName(candidate, excludingUserPresetName: null));
+
+            if (enteredName == null)
+            {
+                return;
+            }
+
+            string? validationError = ValidatePresetName(enteredName, excludingUserPresetName: null);
+            if (!string.IsNullOrEmpty(validationError))
+            {
+                PresetErrorMessage = validationError!;
+                return;
+            }
+
+            string trimmedName = enteredName.Trim();
+            ShadowStudySettings candidateSettings = _settings.DeepClone();
+            candidateSettings.UserPresets.Add(BuildPresetModelFromCurrentState(trimmedName));
+
+            try
+            {
+                _adapter.SaveShadowStudySettings(candidateSettings);
+                _settings = candidateSettings;
+                RefreshAndSelectUserPreset(trimmedName, $"Saved preset '{trimmedName}'.");
+            }
+            catch (Exception ex)
+            {
+                PresetErrorMessage = ex.Message;
+            }
+        }
+
+        private void ExecuteRenamePreset()
+        {
+            PresetErrorMessage = string.Empty;
+            if (SelectedPreset == null || SelectedPreset.IsBuiltIn)
+            {
+                return;
+            }
+
+            if (_textInputPromptService == null)
+            {
+                PresetErrorMessage = "Preset name prompt service is unavailable.";
+                return;
+            }
+
+            string currentName = (SelectedPreset.Name ?? string.Empty).Trim();
+            string? enteredName = _textInputPromptService.PromptText(
+                "Rename Shadow Study Preset",
+                "Enter a new name for the Shadow Study Preset:",
+                currentName,
+                candidate => ValidatePresetName(candidate, excludingUserPresetName: currentName));
+
+            if (enteredName == null)
+            {
+                return;
+            }
+
+            string? validationError = ValidatePresetName(enteredName, excludingUserPresetName: currentName);
+            if (!string.IsNullOrEmpty(validationError))
+            {
+                PresetErrorMessage = validationError!;
+                return;
+            }
+
+            string trimmedNewName = enteredName.Trim();
+            if (string.Equals(trimmedNewName, currentName, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            ShadowStudySettings candidateSettings = _settings.DeepClone();
+            ShadowStudyPresetModel? existing = candidateSettings.UserPresets.FirstOrDefault(
+                p => p != null && string.Equals((p.Name ?? string.Empty).Trim(), currentName, StringComparison.OrdinalIgnoreCase));
+            if (existing == null)
+            {
+                PresetErrorMessage = $"Preset '{currentName}' was not found.";
+                return;
+            }
+
+            existing.Name = trimmedNewName;
+
+            try
+            {
+                _adapter.SaveShadowStudySettings(candidateSettings);
+                _settings = candidateSettings;
+                RefreshAndSelectUserPreset(trimmedNewName, $"Renamed preset to '{trimmedNewName}'.");
+            }
+            catch (Exception ex)
+            {
+                PresetErrorMessage = ex.Message;
+            }
+        }
+
+        private void ExecuteDeletePreset()
+        {
+            PresetErrorMessage = string.Empty;
+            if (SelectedPreset == null || SelectedPreset.IsBuiltIn)
+            {
+                return;
+            }
+
+            string currentName = (SelectedPreset.Name ?? string.Empty).Trim();
+            ShadowStudySettings candidateSettings = _settings.DeepClone();
+            int removed = candidateSettings.UserPresets.RemoveAll(
+                p => p != null && string.Equals((p.Name ?? string.Empty).Trim(), currentName, StringComparison.OrdinalIgnoreCase));
+
+            if (removed == 0)
+            {
+                PresetErrorMessage = $"Preset '{currentName}' was not found.";
+                return;
+            }
+
+            try
+            {
+                _adapter.SaveShadowStudySettings(candidateSettings);
+                _settings = candidateSettings;
+                RebuildAvailablePresets();
+
+                ShadowStudyPresetDefinition seasonal = _availablePresets.FirstOrDefault(
+                    p => p.Id == BuiltInShadowStudyPresets.SeasonalStudyId) ?? BuiltInShadowStudyPresets.SeasonalStudy;
+                SelectedPreset = seasonal;
+                PresetStatusMessage = $"Deleted preset '{currentName}'.";
+                RaisePresetStateChanged();
+            }
+            catch (Exception ex)
+            {
+                PresetErrorMessage = ex.Message;
+            }
+        }
+
+        private void RefreshAndSelectUserPreset(string presetName, string statusMessage)
+        {
+            RebuildAvailablePresets();
+            ShadowStudyPresetDefinition? matched = _availablePresets.FirstOrDefault(
+                p => !p.IsBuiltIn && string.Equals(p.Name, presetName, StringComparison.OrdinalIgnoreCase));
+
+            if (matched != null)
+            {
+                SelectedPreset = matched;
+            }
+
+            PresetStatusMessage = statusMessage;
+            RaisePresetStateChanged();
+        }
+
+        private ShadowStudyPresetModel BuildPresetModelFromCurrentState(string presetName)
+        {
+            var dateSpecs = new List<ShadowStudyPresetDateSpec>(_studyDates.Count);
+            foreach (ShadowStudyDateScheduleItemViewModel item in _studyDates)
+            {
+                if (item.AstronomicalEvent != AstronomicalEventKind.None)
                 {
-                    AddDateEntryInternal(entry);
+                    string canonicalLabel = BuiltInShadowStudyPresets.GetEventLabel(item.AstronomicalEvent);
+                    string entryLabel = (item.DateEntry.PresetName ?? string.Empty).Trim();
+                    string customLabel = string.Equals(entryLabel, canonicalLabel, StringComparison.Ordinal)
+                        ? string.Empty
+                        : entryLabel;
+
+                    dateSpecs.Add(new ShadowStudyPresetDateSpec
+                    {
+                        AstronomicalEvent = item.AstronomicalEvent,
+                        CustomDate = null,
+                        CustomLabel = customLabel
+                    });
+                }
+                else
+                {
+                    dateSpecs.Add(new ShadowStudyPresetDateSpec
+                    {
+                        AstronomicalEvent = AstronomicalEventKind.None,
+                        CustomDate = item.Date.Date,
+                        CustomLabel = (item.DateEntry.PresetName ?? string.Empty).Trim()
+                    });
                 }
             }
 
-            RaiseStudyDatesChanged();
+            return new ShadowStudyPresetModel
+            {
+                Name = presetName,
+                Dates = dateSpecs,
+                TimeIncrementMinutes = TimeStepMinutes,
+                MinSunAltitudeDegrees = MinSunAltitudeDegrees,
+                MaxCompositeDarknessPercent = MaxCompositeDarknessPercent,
+                PreserveVisualStyle = PreserveVisualStyle
+            };
+        }
+
+        private string? ValidatePresetName(string? candidateName, string? excludingUserPresetName)
+        {
+            if (string.IsNullOrWhiteSpace(candidateName))
+            {
+                return "Preset name cannot be blank.";
+            }
+
+            string trimmed = candidateName!.Trim();
+
+            bool matchesBuiltIn = BuiltInShadowStudyPresets.All.Any(
+                b => string.Equals((b.Name ?? string.Empty).Trim(), trimmed, StringComparison.OrdinalIgnoreCase));
+            if (matchesBuiltIn)
+            {
+                return $"'{trimmed}' is a built-in preset name and cannot be used. Enter a unique name.";
+            }
+
+            bool matchesExistingUser = (_settings.UserPresets ?? new List<ShadowStudyPresetModel>()).Any(p =>
+            {
+                if (p == null || string.IsNullOrWhiteSpace(p.Name))
+                {
+                    return false;
+                }
+
+                string existingTrimmed = p.Name.Trim();
+                if (!string.IsNullOrEmpty(excludingUserPresetName) &&
+                    string.Equals(existingTrimmed, excludingUserPresetName!.Trim(), StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+
+                return string.Equals(existingTrimmed, trimmed, StringComparison.OrdinalIgnoreCase);
+            });
+
+            if (matchesExistingUser)
+            {
+                return $"A preset named '{trimmed}' already exists. Enter a unique name.";
+            }
+
+            return null;
+        }
+
+        private void MarkPresetModifiedIfInteractive()
+        {
+            if (_isApplyingPreset)
+            {
+                return;
+            }
+
+            PresetErrorMessage = string.Empty;
+            PresetStatusMessage = string.Empty;
+            IsPresetModified = true;
         }
 
         private void ExecuteAddCustomDate()
@@ -1656,8 +2235,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
                 return;
             }
 
-            _selectedPreset = null;
-            OnPropertyChanged(nameof(SelectedPreset));
+            MarkPresetModifiedIfInteractive();
 
             AddDateEntryInternal(new ShadowStudyDateEntry
             {
@@ -1681,8 +2259,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
         {
             if (_studyDates.Remove(item))
             {
-                _selectedPreset = null;
-                OnPropertyChanged(nameof(SelectedPreset));
+                MarkPresetModifiedIfInteractive();
                 RaiseStudyDatesChanged();
             }
         }
@@ -1782,7 +2359,20 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
             OnPropertyChanged(nameof(ShowSchedulePreview));
             OnPropertyChanged(nameof(ShowZeroFramesWarning));
             OnPropertyChanged(nameof(ShowPartialZeroFramesNotice));
+            RaisePresetStateChanged();
             RaiseExportStateChanged();
+        }
+
+        private void RaisePresetStateChanged()
+        {
+            OnPropertyChanged(nameof(IsSelectedPresetBuiltIn));
+            OnPropertyChanged(nameof(IsSelectedPresetUserDefined));
+            OnPropertyChanged(nameof(PresetBadgeText));
+            OnPropertyChanged(nameof(CanSavePreset));
+            OnPropertyChanged(nameof(CanSavePresetAs));
+            OnPropertyChanged(nameof(CanRenamePreset));
+            OnPropertyChanged(nameof(CanDeletePreset));
+            CommandManager.InvalidateRequerySuggested();
         }
 
         private void RaiseExportStateChanged()
