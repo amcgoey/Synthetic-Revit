@@ -46,8 +46,17 @@ namespace Synthetic.Modules.ShadowStudy.Commands
                 }
 
                 var folderService = new WindowsFolderDialogService(uiapp.MainWindowHandle);
-                var textInputService = new WindowsTextInputPromptService(uiapp.MainWindowHandle);
-                var vm = new ShadowStudyViewModel(adapter, folderService, textInputPromptService: textInputService);
+                ShadowStudyUserPrefsStore? userPrefsStore = ProgressCoordinator.SuppressUI
+                    ? null
+                    : new ShadowStudyUserPrefsStore();
+                ITextInputPromptService? textInputService = ProgressCoordinator.SuppressUI
+                    ? null
+                    : new WindowsTextInputPromptService(uiapp.MainWindowHandle);
+                var vm = new ShadowStudyViewModel(
+                    adapter,
+                    folderService,
+                    userPrefsStore: userPrefsStore,
+                    textInputPromptService: textInputService);
                 var window = new ShadowStudyWindow(uiapp.MainWindowHandle)
                 {
                     DataContext = vm

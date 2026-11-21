@@ -133,9 +133,35 @@ namespace SyntheticTests.Modules.ShadowStudy
 
             var customEntry = new ShadowStudyDateEntry
             {
-                Date = new DateTime(2026, 7, 4)
+                Date = new DateTime(2026, 7, 4),
+                AstronomicalEvent = AstronomicalEventKind.None,
+                PresetName = "Legacy Custom Label"
             };
             Assert.AreEqual("260704", customEntry.DateLabel);
+
+            var presetWithLegacyCustomLabel = new ShadowStudyPresetDefinition
+            {
+                Id = "user:custom",
+                Name = "Custom Only",
+                IsBuiltIn = false,
+                DateSpecs = new[]
+                {
+                    new ShadowStudyPresetDateSpec
+                    {
+                        AstronomicalEvent = AstronomicalEventKind.None,
+                        CustomDate = new DateTime(2026, 7, 4),
+                        CustomLabel = "Site Open"
+                    }
+                }
+            };
+
+            ShadowStudyDateEntry expandedCustom = BuiltInShadowStudyPresets.ExpandPreset(
+                presetWithLegacyCustomLabel,
+                2026,
+                isSouthernHemisphere: false).Single();
+
+            Assert.AreEqual(string.Empty, expandedCustom.PresetName);
+            Assert.AreEqual("260704", expandedCustom.DateLabel);
         }
     }
 }

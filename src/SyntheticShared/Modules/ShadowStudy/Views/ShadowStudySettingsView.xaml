@@ -64,8 +64,7 @@
         <!-- Scrollable Settings Content -->
         <ScrollViewer Grid.Row="3"
                       VerticalScrollBarVisibility="Auto"
-                      HorizontalScrollBarVisibility="Disabled"
-                      IsEnabled="{Binding IsOverridden}">
+                      HorizontalScrollBarVisibility="Disabled">
             <StackPanel Margin="0,0,4,0">
                 <!-- Studio Defaults -->
                 <GroupBox Header="Studio Defaults (Inherited by Built-In Presets &amp; New Dialog Opens)"
@@ -74,7 +73,7 @@
                           Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
                           Padding="12"
                           Margin="0,0,0,14">
-                    <Grid>
+                    <Grid IsEnabled="{Binding IsOverridden}">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="175"/>
                             <ColumnDefinition Width="130"/>
@@ -185,7 +184,7 @@
                                        Foreground="{DynamicResource Synthetic.Brushes.TextPrimary}"
                                        Margin="0,0,0,8"/>
 
-                            <Grid Margin="0,0,0,10">
+                            <Grid Margin="0,0,0,10" IsEnabled="{Binding IsOverridden}">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="175"/>
                                     <ColumnDefinition Width="130"/>
@@ -241,7 +240,7 @@
                             </Grid>
 
                             <!-- Add Astronomical Event -->
-                            <Grid Margin="0,0,0,6">
+                            <Grid Margin="0,0,0,6" IsEnabled="{Binding IsOverridden}">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="130"/>
                                     <ColumnDefinition Width="*"/>
@@ -265,14 +264,13 @@
                             </Grid>
 
                             <!-- Add Custom Calendar Date -->
-                            <Grid Margin="0,0,0,8">
+                            <Grid Margin="0,0,0,8" IsEnabled="{Binding IsOverridden}">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="130"/>
                                     <ColumnDefinition Width="145"/>
-                                    <ColumnDefinition Width="6"/>
-                                    <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="8"/>
                                     <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
 
                                 <TextBlock Grid.Column="0"
@@ -281,10 +279,7 @@
                                            FontSize="12" VerticalAlignment="Center"/>
                                 <DatePicker Grid.Column="1"
                                             SelectedDate="{Binding CustomDateToAdd, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
-                                <TextBox Grid.Column="3"
-                                         Text="{Binding CustomDateLabelToAdd, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                         ToolTip="Optional date label"/>
-                                <Button Grid.Column="5"
+                                <Button Grid.Column="3"
                                         Content="Add Date"
                                         Command="{Binding AddCustomDateCommand}"
                                         MinWidth="84" Padding="8,4"/>
@@ -332,6 +327,7 @@
                                                         <Button Grid.Column="4"
                                                                 Content="Remove"
                                                                 Command="{Binding RemoveCommand}"
+                                                                IsEnabled="{Binding DataContext.IsOverridden, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                                 Style="{DynamicResource Synthetic.Styles.NeutralButton}"
                                                                 MinWidth="56" MinHeight="22" Padding="6,2"/>
                                                     </Grid>

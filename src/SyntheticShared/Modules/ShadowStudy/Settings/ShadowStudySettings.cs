@@ -136,7 +136,12 @@ namespace Synthetic.Modules.ShadowStudy.Settings
         }
 
         /// <inheritdoc />
-        public bool IsValid(Document doc)
+        public bool IsValid(Document doc) => IsValid();
+
+        /// <summary>
+        /// Validates studio defaults and all user-defined presets without requiring a Revit <see cref="Document"/>.
+        /// </summary>
+        public bool IsValid()
         {
             if (SchemaVersion < 1)
             {
@@ -313,13 +318,26 @@ namespace Synthetic.Modules.ShadowStudy.Settings
         }
 
         /// <summary>
-        /// Validates this user-defined preset's name and solar/visual parameters.
+        /// Validates this user-defined preset's name, study dates, and solar/visual parameters.
         /// </summary>
         public bool IsValid()
         {
             if (string.IsNullOrWhiteSpace(Name))
             {
                 return false;
+            }
+
+            if (Dates == null || Dates.Count == 0)
+            {
+                return false;
+            }
+
+            foreach (ShadowStudyPresetDateSpec spec in Dates)
+            {
+                if (spec == null || (spec.AstronomicalEvent == AstronomicalEventKind.None && !spec.CustomDate.HasValue))
+                {
+                    return false;
+                }
             }
 
             if (!ShadowStudySettings.IsValidTimeIncrement(TimeIncrementMinutes))

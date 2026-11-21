@@ -697,5 +697,68 @@ namespace SyntheticTests.Modules.ShadowStudy
             Assert.AreEqual(0, vm.StudyDates.Count);
             Assert.IsFalse(vm.CanExport);
         }
+
+        [Test]
+        public void AddAstronomicalDate_ResolvesHemisphereAndYear_PreventsDuplicates_AndMarksModified()
+        {
+            var adapter = new FakeShadowStudyAdapter
+            {
+                SiteInfo = new ShadowStudySiteInfo
+                {
+                    PlaceName = "Sydney, Australia",
+                    LatitudeDegrees = -33.8688,
+                    LongitudeDegrees = 151.2093,
+                    TimeZoneHours = 10.0,
+                    UsesDst = false
+                }
+            };
+            var vm = new ShadowStudyViewModel(adapter, new FakeFolderDialogService())
+            {
+                TargetYear = 2026
+            };
+
+            Assert.AreEqual(4, vm.AstronomicalEventOptions.Count);
+            Assert.AreEqual(AstronomicalEventKind.SummerSolstice, vm.SelectedAstronomicalEventToAdd);
+            // Seasonal Study already contains SummerSolstice, SpringEquinox, WinterSolstice
+            Assert.IsFalse(vm.CanAddSelectedAstronomicalDate);
+            Assert.IsFalse(vm.AddAstronomicalDateCommand.CanExecute(null));
+
+            // FallEquinox is not yet present -> enabled, resolves to Mar 20 in Southern Hemisphere
+            vm.SelectedAstronomicalEventToAdd = AstronomicalEventKind.FallEquinox;
+            Assert.IsTrue(vm.CanAddSelectedAstronomicalDate);
+            Assert.IsTrue(vm.AddAstronomicalDateCommand.CanExecute(null));
+            vm.AddAstronomicalDateCommand.Execute(null);
+
+            Assert.AreEqual(4, vm.StudyDates.Count);
+            Assert.AreEqual(AstronomicalEventKind.FallEquinox, vm.StudyDates[3].AstronomicalEvent);
+            Assert.AreEqual(new DateTime(2026, 3, 20), vm.StudyDates[3].Date);
+            Assert.AreEqual("260320 - Fall Equinox", vm.StudyDates[3].DateLabel);
+            Assert.IsTrue(vm.IsPresetModified);
+            Assert.IsFalse(vm.CanAddSelectedAstronomicalDate);
+
+            // Adding a custom calendar date matching an astronomical date blocks adding that astronomical event
+            vm.RemoveDateCommand.Execute(vm.StudyDates[3]);
+            vm.CustomDateToAdd = new DateTime(2026, 3, 20);
+            vm.AddCustomDateCommand.Execute(null);
+            Assert.IsFalse(vm.CanAddSelectedAstronomicalDate);
+
+            // Changing TargetYear to 2027 resolves FallEquinox to 2027-03-20 (no longer collides with 2026-03-20)
+            vm.TargetYear = 2027;
+            Assert.IsTrue(vm.CanAddSelectedAstronomicalDate);
+        }
+
+        [Test]
+        public void Constructor_WithoutInjectedServices_DoesNotInstantiateRevitUiServicesEvenWhenSuppressUiIsFalse()
+        {
+            ProgressCoordinator.SuppressUI = false;
+
+            var adapter = new FakeShadowStudyAdapter();
+            var vm = new ShadowStudyViewModel(adapter, new FakeFolderDialogService(), new DateTime(2026, 6, 21));
+
+            // Null prompt service reports inline error instead of attempting to open WPF window
+            vm.SavePresetAsCommand.Execute(null);
+            Assert.IsTrue(vm.HasPresetError);
+            StringAssert.Contains("unavailable", vm.PresetErrorMessage);
+        }
     }
 }

@@ -63,10 +63,5 @@ namespace Synthetic.Modules.ShadowStudy.Models
         /// Gets or sets an optional pure white background preference.
         /// </summary>
         public bool? ForceWhiteBackground { get; set; }
-
-        /// <summary>
-        /// Gets or sets an optional frame-retention preference.
-        /// </summary>
-        public bool? ExportIndividualFrames { get; set; }
     }
 }

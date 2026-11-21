@@ -30,6 +30,11 @@ namespace Synthetic.Modules.ShadowStudy.Models
         {
             get
             {
+                if (AstronomicalEvent == AstronomicalEventKind.None)
+                {
+                    return ShadowStudyPathHelper.FormatDateLabel(Date, null);
+                }
+
                 string effectiveLabel = !string.IsNullOrWhiteSpace(PresetName)
                     ? PresetName.Trim()
                     : BuiltInShadowStudyPresets.GetEventLabel(AstronomicalEvent);

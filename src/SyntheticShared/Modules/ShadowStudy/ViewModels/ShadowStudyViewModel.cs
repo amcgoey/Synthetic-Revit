@@ -96,6 +96,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
         private string _presetErrorMessage = string.Empty;
         private int _targetYear;
         private string _targetYearText;
+        private AstronomicalEventKind _selectedAstronomicalEventToAdd = AstronomicalEventKind.SummerSolstice;
         private DateTime _customDateToAdd = DateTime.Today;
         private int _timeStepMinutes = 60;
         private double _minSunAltitudeDegrees = 5.0;
@@ -133,8 +134,8 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
         {
             _adapter = adapter ?? throw new ArgumentNullException(nameof(adapter));
             _folderDialogService = folderDialogService ?? throw new ArgumentNullException(nameof(folderDialogService));
-            _userPrefsStore = userPrefsStore ?? (ProgressCoordinator.SuppressUI ? null : new ShadowStudyUserPrefsStore());
-            _textInputPromptService = textInputPromptService ?? (ProgressCoordinator.SuppressUI ? null : new WindowsTextInputPromptService());
+            _userPrefsStore = userPrefsStore;
+            _textInputPromptService = textInputPromptService;
 
             SiteInfo = _adapter.GetSiteInfo() ?? new ShadowStudySiteInfo();
             ActiveView = _adapter.GetActiveViewInfo();
@@ -184,6 +185,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
             SavePresetAsCommand = new RelayCommand(_ => ExecuteSavePresetAs(), _ => CanSavePresetAs);
             RenamePresetCommand = new RelayCommand(_ => ExecuteRenamePreset(), _ => CanRenamePreset);
             DeletePresetCommand = new RelayCommand(_ => ExecuteDeletePreset(), _ => CanDeletePreset);
+            AddAstronomicalDateCommand = new RelayCommand(_ => ExecuteAddAstronomicalDate(), _ => CanAddSelectedAstronomicalDate);
             AddCustomDateCommand = new RelayCommand(_ => ExecuteAddCustomDate(), _ => CanAddCustomDate);
             RemoveDateCommand = new RelayCommand(ExecuteRemoveDate);
             ExportCommand = new RelayCommand(_ => ExecuteExport(), _ => CanExport);
@@ -372,6 +374,49 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
                 {
                     ApplyTargetYearText(normalized);
                 }
+            }
+        }
+
+        /// <summary>
+        /// Gets the selectable solstice/equinox astronomical event options.
+        /// </summary>
+        public IReadOnlyList<AstronomicalEventOption> AstronomicalEventOptions =>
+            ShadowStudySettingsViewModel.DefaultAstronomicalEvents;
+
+        /// <summary>
+        /// Gets or sets the astronomical event staged for addition via <see cref="AddAstronomicalDateCommand"/>.
+        /// </summary>
+        public AstronomicalEventKind SelectedAstronomicalEventToAdd
+        {
+            get => _selectedAstronomicalEventToAdd;
+            set
+            {
+                if (SetProperty(ref _selectedAstronomicalEventToAdd, value))
+                {
+                    OnPropertyChanged(nameof(CanAddSelectedAstronomicalDate));
+                    CommandManager.InvalidateRequerySuggested();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Gets a value indicating whether <see cref="SelectedAstronomicalEventToAdd"/> can be added to <see cref="StudyDates"/>.
+        /// </summary>
+        public bool CanAddSelectedAstronomicalDate
+        {
+            get
+            {
+                if (_selectedAstronomicalEventToAdd == AstronomicalEventKind.None ||
+                    _studyDates.Any(d => d.AstronomicalEvent == _selectedAstronomicalEventToAdd))
+                {
+                    return false;
+                }
+
+                DateTime resolvedDate = BuiltInShadowStudyPresets.ResolveDate(
+                    _selectedAstronomicalEventToAdd,
+                    GetEffectiveTargetYear(),
+                    SiteInfo);
+                return !ContainsCalendarDate(resolvedDate);
             }
         }
 
@@ -638,17 +683,13 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
                         : $"{viewLabel} - <DateLabel>\\";
                 }
 
-                var selectedCopies = _allViews
-                    .Where(v => v.IsSelected)
-                    .Select(v => CloneViewItem(v.ViewItem))
-                    .ToList();
+                var selectedCopies = GetLabeledSelectedViewCopies();
 
                 if (selectedCopies.Count == 0)
                 {
                     return ShadowStudyPathHelper.BuildFrameFolderName("View", singleDateLabel ?? "<DateLabel>") + "\\";
                 }
 
-                ShadowStudyPathHelper.AssignViewLabels(selectedCopies);
                 if (singleDateLabel != null)
                 {
                     string firstFolder = ShadowStudyPathHelper.BuildFrameFolderName(selectedCopies[0].ViewLabel, singleDateLabel) + "\\";
@@ -1097,10 +1138,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
                             viewLabel);
                 }
 
-                var selectedCopies = _allViews
-                    .Where(v => v.IsSelected)
-                    .Select(v => CloneViewItem(v.ViewItem))
-                    .ToList();
+                var selectedCopies = GetLabeledSelectedViewCopies();
 
                 if (selectedCopies.Count == 0)
                 {
@@ -1112,7 +1150,6 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
                     return "0 composites (all selected dates yield 0 valid frames)";
                 }
 
-                ShadowStudyPathHelper.AssignViewLabels(selectedCopies);
                 string firstFileName = ShadowStudyPathHelper.BuildCompositeFileName(selectedCopies[0].ViewLabel, activeDates[0].DateLabel);
                 if (activeDates.Count == 1)
                 {
@@ -1200,6 +1237,11 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
         public ICommand DeletePresetCommand { get; }
 
         /// <summary>
+        /// Gets the command that adds <see cref="SelectedAstronomicalEventToAdd"/> to <see cref="StudyDates"/>.
+        /// </summary>
+        public ICommand AddAstronomicalDateCommand { get; }
+
+        /// <summary>
         /// Gets the command that adds <see cref="CustomDateToAdd"/> to <see cref="StudyDates"/>.
         /// </summary>
         public ICommand AddCustomDateCommand { get; }
@@ -1238,17 +1280,13 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
             }
             else
             {
-                var checkedViews = _allViews
-                    .Where(v => v.IsSelected)
-                    .Select(v => CloneViewItem(v.ViewItem))
-                    .ToList();
+                var checkedViews = GetLabeledSelectedViewCopies();
 
                 if (checkedViews.Count == 0)
                 {
                     throw new InvalidOperationException("Cannot build a Shadow Study run request without at least one selected view.");
                 }
 
-                ShadowStudyPathHelper.AssignViewLabels(checkedViews);
                 targetViews = checkedViews.AsReadOnly();
             }
 
@@ -1533,6 +1571,21 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
             return null;
         }
 
+        private List<ShadowStudyViewItem> GetLabeledSelectedViewCopies()
+        {
+            var selectedCopies = _allViews
+                .Where(v => v.IsSelected)
+                .Select(v => CloneViewItem(v.ViewItem))
+                .ToList();
+
+            if (selectedCopies.Count > 0)
+            {
+                ShadowStudyPathHelper.AssignViewLabels(selectedCopies);
+            }
+
+            return selectedCopies;
+        }
+
         private static ShadowStudyViewItem CloneViewItem(ShadowStudyViewItem source)
         {
             return new ShadowStudyViewItem
@@ -1543,7 +1596,6 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
                 ViewLabel = source.ViewLabel,
                 IsCropped = source.IsCropped,
                 DisplayStyleName = source.DisplayStyleName,
-                HasControllingTemplate = source.HasControllingTemplate,
                 IsBackgroundSupported = source.IsBackgroundSupported,
                 Warnings = source.Warnings != null
                     ? new List<ShadowStudyViewWarningBadge>(source.Warnings)
@@ -1885,12 +1937,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
                     ForceWhiteBackground = true;
                 }
 
-                if (!preset.IsBuiltIn && preset.ExportIndividualFrames.HasValue)
-                {
-                    ExportIndividualFrames = preset.ExportIndividualFrames.Value;
-                }
-
-                int effectiveYear = string.IsNullOrEmpty(_targetYearError) ? _targetYear : DateTime.Today.Year;
+                int effectiveYear = GetEffectiveTargetYear();
                 IReadOnlyList<ShadowStudyDateEntry> expanded = BuiltInShadowStudyPresets.ExpandPreset(
                     preset,
                     effectiveYear,
@@ -2150,7 +2197,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
                     {
                         AstronomicalEvent = AstronomicalEventKind.None,
                         CustomDate = item.Date.Date,
-                        CustomLabel = (item.DateEntry.PresetName ?? string.Empty).Trim()
+                        CustomLabel = string.Empty
                     });
                 }
             }
@@ -2181,6 +2228,35 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
             PresetErrorMessage = string.Empty;
             PresetStatusMessage = string.Empty;
             IsPresetModified = true;
+        }
+
+        private int GetEffectiveTargetYear()
+        {
+            return string.IsNullOrEmpty(_targetYearError) ? _targetYear : DateTime.Today.Year;
+        }
+
+        private void ExecuteAddAstronomicalDate()
+        {
+            if (!CanAddSelectedAstronomicalDate)
+            {
+                return;
+            }
+
+            DateTime resolvedDate = BuiltInShadowStudyPresets.ResolveDate(
+                SelectedAstronomicalEventToAdd,
+                GetEffectiveTargetYear(),
+                SiteInfo);
+
+            MarkPresetModifiedIfInteractive();
+
+            AddDateEntryInternal(new ShadowStudyDateEntry
+            {
+                Date = resolvedDate,
+                AstronomicalEvent = SelectedAstronomicalEventToAdd,
+                PresetName = BuiltInShadowStudyPresets.GetEventLabel(SelectedAstronomicalEventToAdd)
+            });
+
+            RaiseStudyDatesChanged();
         }
 
         private void ExecuteAddCustomDate()
@@ -2304,6 +2380,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
             OnPropertyChanged(nameof(ZeroFramesWarningText));
             OnPropertyChanged(nameof(CompositeFileNamePreview));
             OnPropertyChanged(nameof(FrameFolderPreview));
+            OnPropertyChanged(nameof(CanAddSelectedAstronomicalDate));
             OnPropertyChanged(nameof(CanAddCustomDate));
             RaiseValidationStateChanged();
         }
@@ -2315,6 +2392,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
             OnPropertyChanged(nameof(ShowSchedulePreview));
             OnPropertyChanged(nameof(ShowZeroFramesWarning));
             OnPropertyChanged(nameof(ShowPartialZeroFramesNotice));
+            OnPropertyChanged(nameof(CanAddSelectedAstronomicalDate));
             RaisePresetStateChanged();
             RaiseExportStateChanged();
         }
