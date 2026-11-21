@@ -407,6 +407,55 @@
                              Text="{Binding TargetYearText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
                 </Grid>
 
+                <!-- Preset Actions (Save / Save As / Rename / Delete) -->
+                <Grid Margin="110,6,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="6"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="6"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="6"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Button Grid.Column="0" Content="Save"
+                            Command="{Binding SavePresetCommand}"
+                            MinWidth="56" Padding="8,3"/>
+                    <Button Grid.Column="2" Content="Save As..."
+                            Command="{Binding SavePresetAsCommand}"
+                            MinWidth="72" Padding="8,3"/>
+                    <Button Grid.Column="4" Content="Rename"
+                            Command="{Binding RenamePresetCommand}"
+                            MinWidth="64" Padding="8,3"/>
+                    <Button Grid.Column="6" Content="Delete"
+                            Command="{Binding DeletePresetCommand}"
+                            MinWidth="60" Padding="8,3"/>
+                    <TextBlock Grid.Column="7"
+                               Text="{Binding PresetBadgeText}"
+                               FontSize="11"
+                               Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
+                               VerticalAlignment="Center"
+                               HorizontalAlignment="Right"
+                               TextTrimming="CharacterEllipsis"
+                               Margin="8,0,0,0"/>
+                </Grid>
+
+                <TextBlock Text="{Binding PresetStatusMessage}"
+                           Visibility="{Binding HasPresetStatus, Converter={StaticResource BooleanToVisibilityConverter}}"
+                           FontSize="11"
+                           Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
+                           TextWrapping="Wrap"
+                           Margin="110,4,0,0"/>
+
+                <TextBlock Text="{Binding PresetErrorMessage}"
+                           Visibility="{Binding HasPresetError, Converter={StaticResource BooleanToVisibilityConverter}}"
+                           FontSize="11"
+                           Foreground="{DynamicResource Synthetic.Brushes.Error}"
+                           TextWrapping="Wrap"
+                           Margin="110,4,0,0"/>
+
                 <!-- Add Custom Date -->
                 <Grid Margin="0,8,0,0">
                     <Grid.ColumnDefinitions>

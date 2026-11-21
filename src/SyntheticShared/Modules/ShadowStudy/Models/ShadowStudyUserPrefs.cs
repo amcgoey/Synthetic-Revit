@@ -20,10 +20,5 @@ namespace Synthetic.Modules.ShadowStudy.Models
         /// Gets or sets a value indicating whether individual Shadow Frame PNGs are exported (<c>true</c> default).
         /// </summary>
         public bool ExportIndividualFrames { get; set; } = true;
-
-        /// <summary>
-        /// Gets or sets a value indicating whether each view's existing Visual Style and background are preserved (<c>false</c> default).
-        /// </summary>
-        public bool PreserveVisualStyle { get; set; } = false;
     }
 }

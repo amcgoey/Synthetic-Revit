@@ -65,6 +65,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Tier2_ShadowStudyPrintSetTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Tier2_ShadowStudyMultiDateTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Tier2_ShadowStudyVisualStyleTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Tier2_ShadowStudySettingsAndBatchTests.cs" />
 
 
   </ItemGroup>
