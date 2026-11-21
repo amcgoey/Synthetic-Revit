@@ -166,15 +166,21 @@ namespace SyntheticTests.Modules.ShadowStudy
                 Assert.AreEqual(320, hlrW);
                 AssertTopLeftIsNotPureWhite(hlrPixels, "Preserved HLR view must retain its existing background when PreserveVisualStyle is enabled.");
 
-                // 4. Individual frames retention: only <HHmm>.png frames exist, zero *ref* or r_* temp reference passes
+                // 4. Individual frames retention: only <HHmm>.png frames exist, zero reference passes
                 foreach (string viewLabel in new[] { "Visual Shaded 3D", "Visual Wireframe 3D", "Visual HLR CustomBg 3D" })
                 {
                     string frameFolder = Path.Combine(_tempDir, $"{viewLabel} - {dateLabel}");
                     Assert.IsTrue(Directory.Exists(frameFolder));
-                    Assert.AreEqual(schedule.Frames.Count, Directory.GetFiles(frameFolder, "*.png").Length);
+                    string[] frameFiles = Directory.GetFiles(frameFolder, "*.png");
+                    Assert.AreEqual(schedule.Frames.Count, frameFiles.Length);
+                    foreach (var slot in schedule.Frames)
+                    {
+                        string expectedFramePath = Path.Combine(frameFolder, $"{viewLabel} - {dateLabel} - {slot.FrameFileStem}.png");
+                        Assert.IsTrue(File.Exists(expectedFramePath), $"Missing expected Shadow Frame '{expectedFramePath}'.");
+                    }
                 }
-                Assert.IsFalse(Directory.EnumerateFiles(_tempDir, "*ref*", SearchOption.AllDirectories).Any());
                 Assert.IsFalse(Directory.EnumerateFiles(_tempDir, "r_*", SearchOption.AllDirectories).Any());
+                Assert.IsFalse(Directory.EnumerateFiles(_tempDir, "ref*", SearchOption.AllDirectories).Any());
 
                 // 5. Rolled-back TransactionGroup guarantees zero permanent model / view / Undo mutations
                 Assert.IsFalse(doc.IsModified, "Export must roll back cleanly without dirtying document or Undo stack.");
@@ -302,6 +308,10 @@ namespace SyntheticTests.Modules.ShadowStudy
 
                 View3D shaded3D = View3D.CreateIsometric(doc, threeDType.Id);
                 shaded3D.Name = "Visual Shaded 3D";
+                if (shaded3D.ViewTemplateId != ElementId.InvalidElementId)
+                {
+                    shaded3D.ViewTemplateId = ElementId.InvalidElementId;
+                }
                 shaded3D.CropBoxActive = true;
                 shaded3D.DisplayStyle = DisplayStyle.ShadingWithEdges;
                 shaded3D.SetBackground(ViewDisplayBackground.CreateGradient(sky, horizon, ground));
@@ -321,12 +331,20 @@ namespace SyntheticTests.Modules.ShadowStudy
 
                 View3D wireframe3D = View3D.CreateIsometric(doc, threeDType.Id);
                 wireframe3D.Name = "Visual Wireframe 3D";
+                if (wireframe3D.ViewTemplateId != ElementId.InvalidElementId)
+                {
+                    wireframe3D.ViewTemplateId = ElementId.InvalidElementId;
+                }
                 wireframe3D.CropBoxActive = false;
                 wireframe3D.DisplayStyle = DisplayStyle.Wireframe;
                 wireframe3D.SetBackground(ViewDisplayBackground.CreateGradient(sky, horizon, ground));
 
                 View3D hlrCustomBg3D = View3D.CreateIsometric(doc, threeDType.Id);
                 hlrCustomBg3D.Name = "Visual HLR CustomBg 3D";
+                if (hlrCustomBg3D.ViewTemplateId != ElementId.InvalidElementId)
+                {
+                    hlrCustomBg3D.ViewTemplateId = ElementId.InvalidElementId;
+                }
                 hlrCustomBg3D.CropBoxActive = true;
                 hlrCustomBg3D.DisplayStyle = DisplayStyle.HLR;
                 hlrCustomBg3D.SetBackground(ViewDisplayBackground.CreateGradient(sky, horizon, ground));
