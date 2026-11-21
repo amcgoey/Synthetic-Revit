@@ -36,16 +36,22 @@ namespace Synthetic.Modules.ShadowStudy.Services
         }
 
         /// <summary>
-        /// Composites frame PNGs where each frame carries its own <c>ShadowIntensity = 0</c> reference pass.
+        /// Composites frame PNGs where each frame carries its own <c>ShadowIntensity = 0</c> reference pass,
+        /// normalizing each frame against its paired reference before Multiply-blending shadow ratios onto
+        /// the selected base reference pass (defaulting to the midpoint frame when
+        /// <paramref name="outputBaseReferenceIndex"/> is <c>null</c>).
         /// </summary>
         public void CompositePerFrameReference(
             IReadOnlyList<KeyValuePair<string, string>> frameAndReferencePaths,
-            string outputPngPath)
+            string outputPngPath,
+            int? outputBaseReferenceIndex = null)
         {
             if (frameAndReferencePaths == null || frameAndReferencePaths.Count == 0)
                 throw new ArgumentException("At least one frame/reference pair is required.", nameof(frameAndReferencePaths));
 
-            string baseReferencePath = frameAndReferencePaths[0].Value;
+            int rawIndex = outputBaseReferenceIndex ?? (frameAndReferencePaths.Count / 2);
+            int clampedIndex = Math.Max(0, Math.Min(frameAndReferencePaths.Count - 1, rawIndex));
+            string baseReferencePath = frameAndReferencePaths[clampedIndex].Value;
             CompositeInternal(baseReferencePath, frameAndReferencePaths, outputPngPath);
         }
 

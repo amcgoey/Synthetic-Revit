@@ -430,6 +430,7 @@ namespace SyntheticTests.Infrastructure.UI
             var adapter = new SyntheticTests.Modules.ShadowStudy.FakeShadowStudyAdapter();
             var folderDialog = new SyntheticTests.Modules.ShadowStudy.FakeFolderDialogService();
             var vm = new Synthetic.Modules.ShadowStudy.ViewModels.ShadowStudyViewModel(adapter, folderDialog, new DateTime(2026, 6, 21));
+            vm.PreserveVisualStyle = true;
 
             Synthetic.Modules.ShadowStudy.Views.ShadowStudyWindow? window = null;
             Assert.DoesNotThrow(() =>
@@ -474,6 +475,7 @@ namespace SyntheticTests.Infrastructure.UI
 
             var folderDialog = new SyntheticTests.Modules.ShadowStudy.FakeFolderDialogService();
             var vm = new Synthetic.Modules.ShadowStudy.ViewModels.ShadowStudyViewModel(adapter, folderDialog, new DateTime(2026, 6, 21));
+            vm.PreserveVisualStyle = true;
 
             Synthetic.Modules.ShadowStudy.Views.ShadowStudyWindow? window = null;
             Assert.DoesNotThrow(() =>

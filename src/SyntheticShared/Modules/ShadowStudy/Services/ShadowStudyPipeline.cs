@@ -164,9 +164,12 @@ namespace Synthetic.Modules.ShadowStudy.Services
                         var pairs = group.Frames
                             .Select(f => new KeyValuePair<string, string>(
                                 f.FramePngPath,
-                                f.PerFrameReferencePngPath ?? group.SharedReferencePngPath))
+                                string.IsNullOrWhiteSpace(f.PerFrameReferencePngPath)
+                                    ? group.SharedReferencePngPath
+                                    : f.PerFrameReferencePngPath!))
                             .ToList();
-                        _compositor.CompositePerFrameReference(pairs, compositePath);
+                        int peakIndex = SelectPeakSolarAltitudeFrameIndex(group.Frames);
+                        _compositor.CompositePerFrameReference(pairs, compositePath, peakIndex);
                     }
                     else
                     {
@@ -232,6 +235,35 @@ namespace Synthetic.Modules.ShadowStudy.Services
             {
                 SafeDeleteDirectory(tempRoot);
             }
+        }
+
+        internal static int SelectPeakSolarAltitudeFrameIndex(IReadOnlyList<RawExportedFrame> frames)
+        {
+            if (frames == null || frames.Count == 0)
+            {
+                return 0;
+            }
+
+            int midpoint = frames.Count / 2;
+            int bestIndex = 0;
+            double bestAltitude = double.NegativeInfinity;
+
+            for (int i = 0; i < frames.Count; i++)
+            {
+                double altitude = frames[i].Slot != null
+                    ? frames[i].Slot.SolarAltitudeDegrees
+                    : double.NegativeInfinity;
+
+                if (altitude > bestAltitude ||
+                    (Math.Abs(altitude - bestAltitude) <= 1e-9 &&
+                     Math.Abs(i - midpoint) < Math.Abs(bestIndex - midpoint)))
+                {
+                    bestAltitude = altitude;
+                    bestIndex = i;
+                }
+            }
+
+            return bestIndex;
         }
 
         private static void SafeDeleteDirectory(string path)

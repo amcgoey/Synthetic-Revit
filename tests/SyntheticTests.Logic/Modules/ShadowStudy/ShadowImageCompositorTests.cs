@@ -84,30 +84,138 @@ namespace SyntheticTests.Modules.ShadowStudy
             string frame0 = Path.Combine(_tempDir, "frame0.png");
             string ref1 = Path.Combine(_tempDir, "ref1.png");
             string frame1 = Path.Combine(_tempDir, "frame1.png");
-            string outPath = Path.Combine(_tempDir, "out_shaded.png");
+            string outPathMidpoint = Path.Combine(_tempDir, "out_shaded_midpoint.png");
+            string outPathExplicitZero = Path.Combine(_tempDir, "out_shaded_explicit0.png");
 
             // Frame 0: sunlit surface RGB(200, 180, 160), shadowed by 0.80 -> RGB(160, 144, 128)
             FakeShadowStudyAdapter.WriteSolidTestPng(ref0, 2, 2, 160, 180, 200, 255);
             FakeShadowStudyAdapter.WriteSolidTestPng(frame0, 2, 2, 128, 144, 160, 255);
 
-            // Frame 1: directional lighting shifted surface to RGB(150, 135, 120), unshadowed in this frame
+            // Frame 1 (midpoint): directional lighting shifted surface to RGB(150, 135, 120), unshadowed in this frame
             FakeShadowStudyAdapter.WriteSolidTestPng(ref1, 2, 2, 120, 135, 150, 255);
             FakeShadowStudyAdapter.WriteSolidTestPng(frame1, 2, 2, 120, 135, 150, 255);
+
+            var pairs = new[]
+            {
+                new KeyValuePair<string, string>(frame0, ref0),
+                new KeyValuePair<string, string>(frame1, ref1)
+            };
+
+            var compositor = new ShadowImageCompositor();
+
+            // Default outputBaseReferenceIndex = null selects midpoint (index 1: ref1 * 0.80 = RGB(120, 108, 96))
+            compositor.CompositePerFrameReference(pairs, outPathMidpoint);
+            byte[] midpointResult = ReadBgra32Pixels(outPathMidpoint, out _, out _);
+            Assert.AreEqual(96, midpointResult[0]);
+            Assert.AreEqual(108, midpointResult[1]);
+            Assert.AreEqual(120, midpointResult[2]);
+            Assert.AreEqual(255, midpointResult[3]);
+
+            // Explicit outputBaseReferenceIndex = 0 selects ref0 * 0.80 = RGB(160, 144, 128)
+            compositor.CompositePerFrameReference(pairs, outPathExplicitZero, outputBaseReferenceIndex: 0);
+            byte[] explicitResult = ReadBgra32Pixels(outPathExplicitZero, out _, out _);
+            Assert.AreEqual(128, explicitResult[0]);
+            Assert.AreEqual(144, explicitResult[1]);
+            Assert.AreEqual(160, explicitResult[2]);
+            Assert.AreEqual(255, explicitResult[3]);
+        }
+
+        [Test]
+        public void CompositePerFrameReference_WithVaryingHourlyShading_NormalizesLightingWithoutSelfDarkeningAndDarkensShadowsMonotonically()
+        {
+            const int width = 4;
+            const int height = 1;
+
+            // 3 timestamps where directional N*L surface lighting varies across morning, peak noon, and afternoon:
+            // x=0: sunlit colored surface in all 3 frames (must match peak ref1 without self-darkening!)
+            // x=1: black linework (0,0,0) (0/0 guard stays 0,0,0)
+            // x=2: shadowed in 1 of 3 frames (morning 0.80x)
+            // x=3: shadowed in all 3 frames (0.80^3 = 0.512x)
+            string ref0 = Path.Combine(_tempDir, "morn_ref.png");
+            string frame0 = Path.Combine(_tempDir, "morn_frame.png");
+            string ref1 = Path.Combine(_tempDir, "noon_ref.png");
+            string frame1 = Path.Combine(_tempDir, "noon_frame.png");
+            string ref2 = Path.Combine(_tempDir, "aft_ref.png");
+            string frame2 = Path.Combine(_tempDir, "aft_frame.png");
+            string outPath = Path.Combine(_tempDir, "peak_shaded.png");
+
+            byte[] r0 = new byte[width * 4];
+            SetPixel(r0, 0, 150, 170, 190, 255);
+            SetPixel(r0, 1, 0, 0, 0, 255);
+            SetPixel(r0, 2, 150, 170, 190, 255);
+            SetPixel(r0, 3, 150, 170, 190, 255);
+            WritePixelsPng(ref0, width, height, r0);
+
+            byte[] f0 = new byte[width * 4];
+            SetPixel(f0, 0, 150, 170, 190, 255); // sunlit -> ratio 1.0
+            SetPixel(f0, 1, 0, 0, 0, 255);
+            SetPixel(f0, 2, 120, 136, 152, 255); // 0.80x shadow
+            SetPixel(f0, 3, 120, 136, 152, 255); // 0.80x shadow
+            WritePixelsPng(frame0, width, height, f0);
+
+            byte[] r1 = new byte[width * 4];
+            SetPixel(r1, 0, 180, 200, 220, 255); // peak-solar-altitude noon surface
+            SetPixel(r1, 1, 0, 0, 0, 255);
+            SetPixel(r1, 2, 180, 200, 220, 255);
+            SetPixel(r1, 3, 180, 200, 220, 255);
+            WritePixelsPng(ref1, width, height, r1);
+
+            byte[] f1 = new byte[width * 4];
+            SetPixel(f1, 0, 180, 200, 220, 255); // sunlit -> ratio 1.0
+            SetPixel(f1, 1, 0, 0, 0, 255);
+            SetPixel(f1, 2, 180, 200, 220, 255); // sunlit -> ratio 1.0
+            SetPixel(f1, 3, 144, 160, 176, 255); // 0.80x shadow
+            WritePixelsPng(frame1, width, height, f1);
+
+            byte[] r2 = new byte[width * 4];
+            SetPixel(r2, 0, 125, 145, 165, 255);
+            SetPixel(r2, 1, 0, 0, 0, 255);
+            SetPixel(r2, 2, 125, 145, 165, 255);
+            SetPixel(r2, 3, 125, 145, 165, 255);
+            WritePixelsPng(ref2, width, height, r2);
+
+            byte[] f2 = new byte[width * 4];
+            SetPixel(f2, 0, 125, 145, 165, 255); // sunlit -> ratio 1.0
+            SetPixel(f2, 1, 0, 0, 0, 255);
+            SetPixel(f2, 2, 125, 145, 165, 255); // sunlit -> ratio 1.0
+            SetPixel(f2, 3, 100, 116, 132, 255); // 0.80x shadow
+            WritePixelsPng(frame2, width, height, f2);
 
             var compositor = new ShadowImageCompositor();
             compositor.CompositePerFrameReference(
                 new[]
                 {
                     new KeyValuePair<string, string>(frame0, ref0),
-                    new KeyValuePair<string, string>(frame1, ref1)
+                    new KeyValuePair<string, string>(frame1, ref1),
+                    new KeyValuePair<string, string>(frame2, ref2)
                 },
-                outPath);
+                outPath,
+                outputBaseReferenceIndex: 1);
 
-            byte[] result = ReadBgra32Pixels(outPath, out _, out _);
-            Assert.AreEqual(128, result[0]);
-            Assert.AreEqual(144, result[1]);
-            Assert.AreEqual(160, result[2]);
-            Assert.AreEqual(255, result[3]);
+            byte[] outPixels = ReadBgra32Pixels(outPath, out _, out _);
+
+            // x=0: Sunlit surface matches noon peak reference B_1 = (180, 200, 220) exactly (no self-darkening)
+            Assert.AreEqual(180, outPixels[0 * 4 + 0]);
+            Assert.AreEqual(200, outPixels[0 * 4 + 1]);
+            Assert.AreEqual(220, outPixels[0 * 4 + 2]);
+            Assert.AreEqual(255, outPixels[0 * 4 + 3]);
+
+            // x=1: Black linework preserved
+            Assert.AreEqual(0, outPixels[1 * 4 + 0]);
+            Assert.AreEqual(0, outPixels[1 * 4 + 1]);
+            Assert.AreEqual(0, outPixels[1 * 4 + 2]);
+            Assert.AreEqual(255, outPixels[1 * 4 + 3]);
+
+            // x=2: 1-frame shadow (0.80 * peak ref1) = (144, 160, 176)
+            Assert.AreEqual(144, outPixels[2 * 4 + 0]);
+            Assert.AreEqual(160, outPixels[2 * 4 + 1]);
+            Assert.AreEqual(176, outPixels[2 * 4 + 2]);
+
+            // x=3: 3-frame shadow (0.512 * peak ref1) = (92, 102, 113) -> strictly darker than 1-frame shadow
+            Assert.AreEqual(92, outPixels[3 * 4 + 0]);
+            Assert.AreEqual(102, outPixels[3 * 4 + 1]);
+            Assert.AreEqual(113, outPixels[3 * 4 + 2]);
+            Assert.Less(outPixels[3 * 4 + 0], outPixels[2 * 4 + 0]);
         }
 
         private void RunCoreCompositingVerification()

@@ -533,13 +533,45 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
         }
 
         /// <summary>
+        /// Gets or sets a value indicating whether each view's existing Visual Style (and background) is preserved during export (<c>false</c> default).
+        /// Wireframe and Rendering views still fall back to Hidden Line on a pure white background.
+        /// </summary>
+        public bool PreserveVisualStyle
+        {
+            get => !_forceHiddenLine;
+            set
+            {
+                bool forceHlr = !value;
+                if (SetProperty(ref _forceHiddenLine, forceHlr, nameof(ForceHiddenLine)))
+                {
+                    OnPropertyChanged(nameof(PreserveVisualStyle));
+                    OnPropertyChanged(nameof(VisualStyleSummaryText));
+                }
+            }
+        }
+
+        /// <summary>
         /// Gets or sets a value indicating whether views are temporarily rendered in Hidden Line (<c>HLR</c>).
         /// </summary>
         public bool ForceHiddenLine
         {
             get => _forceHiddenLine;
-            set => SetProperty(ref _forceHiddenLine, value);
+            set
+            {
+                if (SetProperty(ref _forceHiddenLine, value))
+                {
+                    OnPropertyChanged(nameof(PreserveVisualStyle));
+                    OnPropertyChanged(nameof(VisualStyleSummaryText));
+                }
+            }
         }
+
+        /// <summary>
+        /// Gets the concise visual style summary shown beneath Output Settings.
+        /// </summary>
+        public string VisualStyleSummaryText => PreserveVisualStyle
+            ? "Preserves each view's Visual Style and background (Wireframe/Rendering still use Hidden Line on pure white)."
+            : "Hidden Line (HLR) · Pure white background (3D/Section/Elevation)";
 
         /// <summary>
         /// Gets or sets a value indicating whether supported views use a pure white background.
@@ -802,6 +834,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
                 : 3000;
             _pixelWidthText = _pixelWidth.ToString(CultureInfo.InvariantCulture);
             _exportIndividualFrames = prefs.ExportIndividualFrames;
+            _forceHiddenLine = !prefs.PreserveVisualStyle;
         }
 
         private void SaveUserPrefs()
@@ -817,7 +850,8 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
                 {
                     LastOutputFolder = OutputFolder.Trim(),
                     PixelWidth = PixelWidth,
-                    ExportIndividualFrames = ExportIndividualFrames
+                    ExportIndividualFrames = ExportIndividualFrames,
+                    PreserveVisualStyle = PreserveVisualStyle
                 });
             }
             catch

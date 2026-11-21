@@ -506,10 +506,16 @@
                                TextTrimming="CharacterEllipsis"/>
                 </Grid>
 
-                <TextBlock Text="Hidden Line (HLR) · Pure white background (3D/Section/Elevation)"
+                <CheckBox Content="Preserve view's existing Visual Style"
+                          IsChecked="{Binding PreserveVisualStyle, Mode=TwoWay}"
+                          ToolTip="When checked, shaded views retain their Visual Style and background using per-timestamp reference normalization; Wireframe and Rendering views always fall back to Hidden Line on pure white."
+                          Margin="110,8,0,0"/>
+
+                <TextBlock Text="{Binding VisualStyleSummaryText}"
                            FontSize="11"
+                           TextWrapping="Wrap"
                            Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
-                           Margin="110,6,0,0"/>
+                           Margin="110,4,0,0"/>
             </StackPanel>
         </Border>
 

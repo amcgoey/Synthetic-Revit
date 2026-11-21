@@ -470,5 +470,96 @@ namespace SyntheticTests.Modules.ShadowStudy
             Assert.AreEqual(4096, afterExport.PixelWidth);
             Assert.IsTrue(afterExport.ExportIndividualFrames);
         }
+
+        [Test]
+        public void PreserveVisualStyle_DefaultsToFalseSyncsForceHiddenLineAndPersistsOnExportOnly()
+        {
+            string prefsPath = Path.Combine(_tempDir, "ShadowStudyUserPrefs.json");
+            var store = new ShadowStudyUserPrefsStore(prefsPath);
+            var adapter = new FakeShadowStudyAdapter();
+            var vm = new ShadowStudyViewModel(adapter, new FakeFolderDialogService(), new DateTime(2026, 6, 21), store)
+            {
+                OutputFolder = @"C:\Exports\VisualStyle"
+            };
+
+            Assert.IsFalse(vm.PreserveVisualStyle, "Preserve view's existing Visual Style must default to unchecked.");
+            Assert.IsTrue(vm.ForceHiddenLine);
+            StringAssert.Contains("Hidden Line", vm.VisualStyleSummaryText);
+
+            vm.PreserveVisualStyle = true;
+            Assert.IsFalse(vm.ForceHiddenLine);
+            StringAssert.Contains("Visual Style", vm.VisualStyleSummaryText);
+
+            ShadowStudyRunRequest request = vm.BuildRunRequest();
+            Assert.IsFalse(request.ForceHiddenLine);
+            Assert.IsTrue(request.ForceWhiteBackground, "ForceWhiteBackground remains true so Wireframe/Rendering fallback views still receive pure white background.");
+
+            vm.CancelCommand.Execute(null);
+            Assert.IsFalse(store.Load().PreserveVisualStyle, "Cancelling must not persist PreserveVisualStyle.");
+
+            vm.ExportCommand.Execute(null);
+            Assert.IsTrue(store.Load().PreserveVisualStyle);
+
+            var reloadedVm = new ShadowStudyViewModel(adapter, new FakeFolderDialogService(), new DateTime(2026, 6, 21), store);
+            Assert.IsTrue(reloadedVm.PreserveVisualStyle);
+            Assert.IsFalse(reloadedVm.ForceHiddenLine);
+        }
+
+        [Test]
+        public void WireframeAndRenderingViews_CoexistWithUncroppedBadgesInBothModesEvenWhenPreserveVisualStyleIsTrue()
+        {
+            var wireframeUncropped = new ShadowStudyViewItem
+            {
+                Id = "v-wf",
+                Name = "Wireframe 3D",
+                ViewType = "ThreeD",
+                IsCropped = false,
+                DisplayStyleName = "Wireframe",
+                Warnings =
+                {
+                    new ShadowStudyViewWarningBadge { Code = "Uncropped", Label = "Uncropped View" },
+                    new ShadowStudyViewWarningBadge { Code = "VisualStyle", Label = "Hidden Line Export" }
+                }
+            };
+            var renderingUncropped = new ShadowStudyViewItem
+            {
+                Id = "v-ren",
+                Name = "Rendering 3D",
+                ViewType = "ThreeD",
+                IsCropped = false,
+                DisplayStyleName = "Rendering",
+                Warnings =
+                {
+                    new ShadowStudyViewWarningBadge { Code = "Uncropped", Label = "Uncropped View" },
+                    new ShadowStudyViewWarningBadge { Code = "VisualStyle", Label = "Hidden Line Export" }
+                }
+            };
+
+            var adapter = new FakeShadowStudyAdapter
+            {
+                ActiveView = wireframeUncropped
+            };
+            adapter.EligibleViews.AddRange(new[] { wireframeUncropped, renderingUncropped });
+
+            var vm = new ShadowStudyViewModel(adapter, new FakeFolderDialogService(), new DateTime(2026, 6, 21));
+            vm.PreserveVisualStyle = true;
+
+            // CurrentView mode shows both Uncropped and VisualStyle badges simultaneously
+            Assert.IsTrue(vm.HasViewWarnings);
+            Assert.AreEqual(2, vm.ViewWarnings.Count);
+            Assert.IsTrue(vm.ViewWarnings.Any(w => w.Code == "Uncropped"));
+            Assert.IsTrue(vm.ViewWarnings.Any(w => w.Code == "VisualStyle"));
+
+            // SelectedViews mode also surfaces both badges simultaneously on both Wireframe & Rendering views
+            vm.ExportRangeMode = ShadowStudyExportRangeMode.SelectedViews;
+            Assert.AreEqual(2, vm.FilteredViews.Count);
+            foreach (var row in vm.FilteredViews)
+            {
+                Assert.IsTrue(row.HasWarnings);
+                Assert.AreEqual(2, row.Warnings.Count);
+                Assert.IsTrue(row.Warnings.Any(w => w.Code == "Uncropped"));
+                Assert.IsTrue(row.Warnings.Any(w => w.Code == "VisualStyle"));
+            }
+        }
     }
 }
