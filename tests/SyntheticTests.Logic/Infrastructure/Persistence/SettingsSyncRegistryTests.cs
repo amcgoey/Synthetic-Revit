@@ -7,6 +7,8 @@ using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 using Synthetic.Infrastructure.Persistence;
 using Synthetic.Modules.DetailItemFactory.Settings;
+using Synthetic.Modules.ShadowStudy.Models;
+using Synthetic.Modules.ShadowStudy.Settings;
 using Synthetic.Settings;
 
 namespace SyntheticTests.Infrastructure.Persistence
@@ -22,7 +24,8 @@ namespace SyntheticTests.Infrastructure.Persistence
             ProjectMaterialSettings.Name,
             FileUtilitySettings.Name,
             StandardsSettings.Name,
-            DetailItemFactorySettings.Name
+            DetailItemFactorySettings.Name,
+            ShadowStudySettings.Name
         };
 
         private static string FindTemplateJsonPath()
@@ -61,13 +64,14 @@ namespace SyntheticTests.Infrastructure.Persistence
                 { ProjectMaterialSettings.Name, new ProjectMaterialSettings().Defaults() },
                 { FileUtilitySettings.Name, new FileUtilitySettings().Defaults() },
                 { StandardsSettings.Name, new StandardsSettings().Defaults() },
-                { DetailItemFactorySettings.Name, new DetailItemFactorySettings().Defaults() }
+                { DetailItemFactorySettings.Name, new DetailItemFactorySettings().Defaults() },
+                { ShadowStudySettings.Name, new ShadowStudySettings().Defaults() }
             };
             return dict;
         }
 
         [Test]
-        public void SyncedModules_ContainsExpectedSevenModules_AndExcludesSyncSettings()
+        public void SyncedModules_ContainsExpectedEightModules_AndExcludesSyncSettings()
         {
             var modules = SettingsModuleRegistry.SyncedModules;
             Assert.IsNotNull(modules);
@@ -88,6 +92,58 @@ namespace SyntheticTests.Infrastructure.Persistence
                 Assert.IsInstanceOf(descriptor.SettingsType, created);
                 Assert.AreEqual(descriptor.ModuleKey, created.ModuleKey);
             }
+        }
+
+        [Test]
+        public void AssemblyReflection_AllConcreteSettingModules_AreRegisteredInSyncedModulesConfigAndTemplate()
+        {
+            var settingModuleInterface = typeof(ISettingModule);
+            System.Reflection.Assembly assembly = typeof(Synthetic.Core.App).Assembly;
+            Type?[] rawTypes;
+            try
+            {
+                rawTypes = assembly.GetTypes();
+            }
+            catch (System.Reflection.ReflectionTypeLoadException ex)
+            {
+                rawTypes = ex.Types;
+            }
+
+            List<Type> concreteSettingTypes = rawTypes
+                .Where(t => t != null && !t.IsAbstract && !t.IsInterface && settingModuleInterface.IsAssignableFrom(t))
+                .Cast<Type>()
+                .Where(t => t != typeof(SyncSettings))
+                .ToList();
+
+            Assert.IsNotEmpty(concreteSettingTypes, "Expected at least one concrete ISettingModule type.");
+
+            var expectedKeysByType = new List<string>(concreteSettingTypes.Count);
+            foreach (Type type in concreteSettingTypes)
+            {
+                ISettingModule? instance = Activator.CreateInstance(type) as ISettingModule;
+                Assert.IsNotNull(instance, $"Failed to instantiate {type.FullName}.");
+                Assert.IsFalse(string.IsNullOrWhiteSpace(instance!.ModuleKey),
+                    $"{type.FullName}.ModuleKey must not be blank.");
+                expectedKeysByType.Add(instance.ModuleKey);
+            }
+
+            List<string> registryKeys = SettingsModuleRegistry.SyncedModules
+                .Select(d => d.ModuleKey)
+                .ToList();
+            CollectionAssert.AreEquivalent(expectedKeysByType, registryKeys,
+                "SettingsModuleRegistry.SyncedModules must match every concrete ISettingModule in the assembly (excluding SyncSettings).");
+
+            var config = new Config().Defaults();
+            Assert.IsNotNull(config.settings);
+            CollectionAssert.AreEquivalent(expectedKeysByType, config.settings.Keys,
+                "Config.Defaults() must populate every concrete ISettingModule in the assembly (excluding SyncSettings).");
+
+            string templatePath = FindTemplateJsonPath();
+            Config? templateConfig = Config.ReadFromFile(templatePath);
+            Assert.IsNotNull(templateConfig);
+            Assert.IsNotNull(templateConfig!.settings);
+            CollectionAssert.AreEquivalent(expectedKeysByType, templateConfig.settings.Keys,
+                "SyntheticSettings.template.json must cover every concrete ISettingModule in the assembly (excluding SyncSettings).");
         }
 
         [Test]
@@ -156,7 +212,47 @@ namespace SyntheticTests.Infrastructure.Persistence
         }
 
         [Test]
-        public void ConfigDefaults_PopulatesAllSevenSyncedModules()
+        public void HasSyncDrift_LegacyJsonMissingShadowStudy_ReturnsFalse_AndModifiedShadowStudyReturnsTrue()
+        {
+            var docSettings = CreateDefaultDocumentSettings();
+            var legacyWithoutShadowStudy = new Dictionary<string, object>(docSettings);
+            legacyWithoutShadowStudy.Remove(ShadowStudySettings.Name);
+
+            string legacyJson = JsonConvert.SerializeObject(legacyWithoutShadowStudy, Formatting.Indented);
+            Assert.IsFalse(SettingsModuleRegistry.HasSyncDrift(legacyJson, docSettings));
+
+            var modifiedShadowStudy = new Dictionary<string, object>(docSettings)
+            {
+                [ShadowStudySettings.Name] = new ShadowStudySettings
+                {
+                    DefaultTimeIncrementMinutes = 30,
+                    DefaultMinSunAltitudeDegrees = 10.0,
+                    DefaultMaxCompositeDarknessPercent = 65,
+                    DefaultPreserveVisualStyle = true,
+                    UserPresets = new List<ShadowStudyPresetModel>
+                    {
+                        new ShadowStudyPresetModel
+                        {
+                            Name = "Studio Firm Preset",
+                            TimeIncrementMinutes = 15,
+                            MinSunAltitudeDegrees = 8.0,
+                            MaxCompositeDarknessPercent = 70,
+                            PreserveVisualStyle = true,
+                            Dates = new List<ShadowStudyPresetDateSpec>
+                            {
+                                new ShadowStudyPresetDateSpec { AstronomicalEvent = AstronomicalEventKind.SummerSolstice }
+                            }
+                        }
+                    }
+                }
+            };
+
+            string driftedJson = JsonConvert.SerializeObject(modifiedShadowStudy, Formatting.Indented);
+            Assert.IsTrue(SettingsModuleRegistry.HasSyncDrift(driftedJson, docSettings));
+        }
+
+        [Test]
+        public void ConfigDefaults_PopulatesAllEightSyncedModules()
         {
             var config = new Config().Defaults();
 
@@ -166,7 +262,7 @@ namespace SyntheticTests.Infrastructure.Persistence
         }
 
         [Test]
-        public void TemplateJson_CoversAllSevenSyncedModules()
+        public void TemplateJson_CoversAllEightSyncedModules()
         {
             string templatePath = FindTemplateJsonPath();
             Config? templateConfig = Config.ReadFromFile(templatePath);
@@ -178,6 +274,15 @@ namespace SyntheticTests.Infrastructure.Persistence
                 Assert.IsTrue(templateConfig.Contains(key),
                     $"SyntheticSettings.template.json is missing '{key}'.");
             }
+
+            ShadowStudySettings shadowDefaults = templateConfig.GetSettings<ShadowStudySettings>(ShadowStudySettings.Name);
+            Assert.AreEqual(1, shadowDefaults.SchemaVersion);
+            Assert.AreEqual(60, shadowDefaults.DefaultTimeIncrementMinutes);
+            Assert.AreEqual(5.0, shadowDefaults.DefaultMinSunAltitudeDegrees);
+            Assert.AreEqual(80, shadowDefaults.DefaultMaxCompositeDarknessPercent);
+            Assert.IsFalse(shadowDefaults.DefaultPreserveVisualStyle);
+            Assert.IsNotNull(shadowDefaults.UserPresets);
+            Assert.AreEqual(0, shadowDefaults.UserPresets.Count);
         }
 
         [Test]

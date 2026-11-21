@@ -10,6 +10,8 @@ using Synthetic.Infrastructure.Persistence;
 using Synthetic.Modules.DetailItemFactory.Settings;
 using Synthetic.Modules.DetailItemFactory.ViewModels;
 using Synthetic.Modules.SettingsDashboard.Handlers;
+using Synthetic.Modules.ShadowStudy.Models;
+using Synthetic.Modules.ShadowStudy.Settings;
 using Synthetic.Settings;
 using Synthetic.Shared.UI;
 using SyntheticTests.Helpers;
@@ -85,6 +87,35 @@ namespace SyntheticTests.Infrastructure.Persistence
                     OutputPath = @"C:\DetailItems\Output",
                     TargetSubcategory = "Detail Items"
                 });
+                SettingsManager.Save(doc, new ShadowStudySettings
+                {
+                    SchemaVersion = 1,
+                    DefaultTimeIncrementMinutes = 30,
+                    DefaultMinSunAltitudeDegrees = 9.5,
+                    DefaultMaxCompositeDarknessPercent = 70,
+                    DefaultPreserveVisualStyle = true,
+                    UserPresets = new List<ShadowStudyPresetModel>
+                    {
+                        new ShadowStudyPresetModel
+                        {
+                            Name = "Firmwide Equinox",
+                            TimeIncrementMinutes = 15,
+                            MinSunAltitudeDegrees = 10.0,
+                            MaxCompositeDarknessPercent = 65,
+                            PreserveVisualStyle = true,
+                            Dates = new List<ShadowStudyPresetDateSpec>
+                            {
+                                new ShadowStudyPresetDateSpec { AstronomicalEvent = AstronomicalEventKind.SpringEquinox },
+                                new ShadowStudyPresetDateSpec
+                                {
+                                    AstronomicalEvent = AstronomicalEventKind.None,
+                                    CustomDate = new DateTime(2026, 7, 4),
+                                    CustomLabel = "Site Open"
+                                }
+                            }
+                        }
+                    }
+                });
                 SettingsManager.Save(doc, new SyncSettings
                 {
                     LinkedFilePath = linkedFilePath
@@ -94,7 +125,7 @@ namespace SyntheticTests.Infrastructure.Persistence
             }
         }
 
-        private static void AssertAllSevenModulesMatchSeededValues(Document doc)
+        private static void AssertAllEightModulesMatchSeededValues(Document doc)
         {
             var worksets = SettingsManager.Get<WorksetSettings>(doc);
             Assert.AreEqual("CustomWorksets.xlsx", worksets.WorksetFile);
@@ -125,10 +156,21 @@ namespace SyntheticTests.Infrastructure.Persistence
             var detailItem = SettingsManager.Get<DetailItemFactorySettings>(doc);
             Assert.AreEqual(@"C:\DetailItems\Output", detailItem.OutputPath);
             Assert.AreEqual("Detail Items", detailItem.TargetSubcategory);
+
+            var shadowStudy = SettingsManager.Get<ShadowStudySettings>(doc);
+            Assert.AreEqual(30, shadowStudy.DefaultTimeIncrementMinutes);
+            Assert.AreEqual(9.5, shadowStudy.DefaultMinSunAltitudeDegrees, 1e-6);
+            Assert.AreEqual(70, shadowStudy.DefaultMaxCompositeDarknessPercent);
+            Assert.IsTrue(shadowStudy.DefaultPreserveVisualStyle);
+            Assert.AreEqual(1, shadowStudy.UserPresets.Count);
+            Assert.AreEqual("Firmwide Equinox", shadowStudy.UserPresets[0].Name);
+            Assert.AreEqual(2, shadowStudy.UserPresets[0].Dates.Count);
+            Assert.AreEqual(AstronomicalEventKind.SpringEquinox, shadowStudy.UserPresets[0].Dates[0].AstronomicalEvent);
+            Assert.AreEqual(new DateTime(2026, 7, 4), shadowStudy.UserPresets[0].Dates[1].CustomDate);
         }
 
         [Test]
-        public void PushAndPull_RoundTripsAllSevenSyncedModules_AcrossDocuments()
+        public void PushAndPull_RoundTripsAllEightSyncedModules_AcrossDocuments()
         {
             string tempJsonPath = CreateTempJsonPath();
             Document? sourceDoc = null;
@@ -154,7 +196,7 @@ namespace SyntheticTests.Infrastructure.Persistence
                 SettingsManager.PullFromLinkedFile(targetDoc, tempJsonPath);
                 SettingsManager.ClearCache(targetDoc);
 
-                AssertAllSevenModulesMatchSeededValues(targetDoc);
+                AssertAllEightModulesMatchSeededValues(targetDoc);
             }
             finally
             {
@@ -165,7 +207,7 @@ namespace SyntheticTests.Infrastructure.Persistence
         }
 
         [Test]
-        public void ExportAllToFile_And_ImportAllFromFile_RoundTripsAllSevenModules()
+        public void ExportAllToFile_And_ImportAllFromFile_RoundTripsAllEightModules()
         {
             string tempJsonPath = CreateTempJsonPath();
             Document? sourceDoc = null;
@@ -190,7 +232,7 @@ namespace SyntheticTests.Infrastructure.Persistence
                 SettingsManager.ImportAllFromFile(targetDoc, tempJsonPath);
                 SettingsManager.ClearCache(targetDoc);
 
-                AssertAllSevenModulesMatchSeededValues(targetDoc);
+                AssertAllEightModulesMatchSeededValues(targetDoc);
             }
             finally
             {
@@ -242,7 +284,7 @@ namespace SyntheticTests.Infrastructure.Persistence
         }
 
         [Test]
-        public void SyncExternalEventHandler_PushAndPull_SyncsAllSevenModulesWithoutUiPrompt()
+        public void SyncExternalEventHandler_PushAndPull_SyncsAllEightModulesWithoutUiPrompt()
         {
             string tempJsonPath = CreateTempJsonPath();
             Document? sourceDoc = null;
@@ -265,7 +307,7 @@ namespace SyntheticTests.Infrastructure.Persistence
                 handler.Execute(_uiapp!);
 
                 SettingsManager.ClearCache(targetDoc);
-                AssertAllSevenModulesMatchSeededValues(targetDoc);
+                AssertAllEightModulesMatchSeededValues(targetDoc);
             }
             finally
             {

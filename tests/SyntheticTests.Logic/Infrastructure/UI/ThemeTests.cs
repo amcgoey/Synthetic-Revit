@@ -511,5 +511,45 @@ namespace SyntheticTests.Infrastructure.UI
             Assert.IsNotNull(window);
             window!.Close();
         }
+
+        [Test]
+        public void ShadowStudySettingsView_ConstructsAndBindsInStaWithoutXamlErrors()
+        {
+            var stored = new Synthetic.Modules.ShadowStudy.Settings.ShadowStudySettings
+            {
+                UserPresets = new System.Collections.Generic.List<Synthetic.Modules.ShadowStudy.Settings.ShadowStudyPresetModel>
+                {
+                    new Synthetic.Modules.ShadowStudy.Settings.ShadowStudyPresetModel
+                    {
+                        Name = "STA Smoke Preset",
+                        Dates = new System.Collections.Generic.List<Synthetic.Modules.ShadowStudy.Models.ShadowStudyPresetDateSpec>
+                        {
+                            new Synthetic.Modules.ShadowStudy.Models.ShadowStudyPresetDateSpec
+                            {
+                                AstronomicalEvent = Synthetic.Modules.ShadowStudy.Models.AstronomicalEventKind.SummerSolstice
+                            }
+                        }
+                    }
+                }
+            };
+
+            var vm = new Synthetic.Modules.ShadowStudy.ViewModels.ShadowStudySettingsViewModel(
+                () => stored,
+                s => stored = s.DeepClone(),
+                () => { },
+                () => true);
+
+            Synthetic.Modules.ShadowStudy.Views.ShadowStudySettingsView? view = null;
+            Assert.DoesNotThrow(() =>
+            {
+                view = new Synthetic.Modules.ShadowStudy.Views.ShadowStudySettingsView { DataContext = vm };
+                view.ApplyTemplate();
+                view.Measure(new Size(500, 600));
+                view.Arrange(new Rect(0, 0, 500, 600));
+                view.UpdateLayout();
+            });
+
+            Assert.IsNotNull(view);
+        }
     }
 }

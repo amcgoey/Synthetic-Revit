@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
 using System.Runtime.Serialization;
 using Autodesk.Revit.DB;
 using Newtonsoft.Json;
 using Synthetic.Modules.ShadowStudy.Models;
+using Synthetic.Modules.ShadowStudy.Services;
 using Synthetic.Settings;
 
 namespace Synthetic.Modules.ShadowStudy.Settings
@@ -185,6 +188,63 @@ namespace Synthetic.Modules.ShadowStudy.Settings
         internal static bool IsValidDarknessPercent(int percent)
         {
             return percent >= 1 && percent <= 95;
+        }
+
+        internal static bool TryParseFiniteDouble(string? text, out double parsed)
+        {
+            string trimmed = (text ?? string.Empty).Trim();
+            if (double.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out parsed) ||
+                double.TryParse(trimmed, NumberStyles.Float, CultureInfo.CurrentCulture, out parsed))
+            {
+                return !double.IsNaN(parsed) && !double.IsInfinity(parsed);
+            }
+
+            parsed = 0.0;
+            return false;
+        }
+
+        internal static string? ValidatePresetName(
+            string? candidateName,
+            IEnumerable<ShadowStudyPresetModel>? existingUserPresets,
+            string? excludingUserPresetName = null)
+        {
+            if (string.IsNullOrWhiteSpace(candidateName))
+            {
+                return "Preset name cannot be blank.";
+            }
+
+            string trimmed = candidateName!.Trim();
+
+            bool matchesBuiltIn = BuiltInShadowStudyPresets.All.Any(
+                b => string.Equals((b.Name ?? string.Empty).Trim(), trimmed, StringComparison.OrdinalIgnoreCase));
+            if (matchesBuiltIn)
+            {
+                return $"'{trimmed}' is a built-in preset name and cannot be used. Enter a unique name.";
+            }
+
+            bool matchesExistingUser = (existingUserPresets ?? Enumerable.Empty<ShadowStudyPresetModel>()).Any(p =>
+            {
+                if (p == null || string.IsNullOrWhiteSpace(p.Name))
+                {
+                    return false;
+                }
+
+                string existingTrimmed = p.Name.Trim();
+                if (!string.IsNullOrEmpty(excludingUserPresetName) &&
+                    string.Equals(existingTrimmed, excludingUserPresetName!.Trim(), StringComparison.OrdinalIgnoreCase))
+                {
+                    return false;
+                }
+
+                return string.Equals(existingTrimmed, trimmed, StringComparison.OrdinalIgnoreCase);
+            });
+
+            if (matchesExistingUser)
+            {
+                return $"A preset named '{trimmed}' already exists. Enter a unique name.";
+            }
+
+            return null;
         }
     }
 
