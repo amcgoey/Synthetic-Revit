@@ -63,7 +63,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
         /// <summary>Maximum allowed horizontal export pixel width.</summary>
         public const int MaxAllowedPixelWidth = 15000;
 
-        private static readonly IReadOnlyList<ShadowStudyTimeIncrementOption> DefaultTimeIncrements =
+        internal static readonly IReadOnlyList<ShadowStudyTimeIncrementOption> DefaultTimeIncrements =
             new[]
             {
                 new ShadowStudyTimeIncrementOption(15, "15 min"),
@@ -1732,15 +1732,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
 
         private static bool TryParseDouble(string text, out double parsed)
         {
-            string trimmed = text.Trim();
-            if (double.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out parsed) ||
-                double.TryParse(trimmed, NumberStyles.Float, CultureInfo.CurrentCulture, out parsed))
-            {
-                return !double.IsNaN(parsed) && !double.IsInfinity(parsed);
-            }
-
-            parsed = 0.0;
-            return false;
+            return ShadowStudySettings.TryParseFiniteDouble(text, out parsed);
         }
 
         private void SetSingleCustomDate(DateTime dateOnly)
@@ -2176,43 +2168,7 @@ namespace Synthetic.Modules.ShadowStudy.ViewModels
 
         private string? ValidatePresetName(string? candidateName, string? excludingUserPresetName)
         {
-            if (string.IsNullOrWhiteSpace(candidateName))
-            {
-                return "Preset name cannot be blank.";
-            }
-
-            string trimmed = candidateName!.Trim();
-
-            bool matchesBuiltIn = BuiltInShadowStudyPresets.All.Any(
-                b => string.Equals((b.Name ?? string.Empty).Trim(), trimmed, StringComparison.OrdinalIgnoreCase));
-            if (matchesBuiltIn)
-            {
-                return $"'{trimmed}' is a built-in preset name and cannot be used. Enter a unique name.";
-            }
-
-            bool matchesExistingUser = (_settings.UserPresets ?? new List<ShadowStudyPresetModel>()).Any(p =>
-            {
-                if (p == null || string.IsNullOrWhiteSpace(p.Name))
-                {
-                    return false;
-                }
-
-                string existingTrimmed = p.Name.Trim();
-                if (!string.IsNullOrEmpty(excludingUserPresetName) &&
-                    string.Equals(existingTrimmed, excludingUserPresetName!.Trim(), StringComparison.OrdinalIgnoreCase))
-                {
-                    return false;
-                }
-
-                return string.Equals(existingTrimmed, trimmed, StringComparison.OrdinalIgnoreCase);
-            });
-
-            if (matchesExistingUser)
-            {
-                return $"A preset named '{trimmed}' already exists. Enter a unique name.";
-            }
-
-            return null;
+            return ShadowStudySettings.ValidatePresetName(candidateName, _settings.UserPresets, excludingUserPresetName);
         }
 
         private void MarkPresetModifiedIfInteractive()

@@ -10,6 +10,7 @@ using Synthetic.Infrastructure.Persistence;
 using Synthetic.Shared.UI;
 
 using Synthetic.Modules.DetailItemFactory.ViewModels;
+using Synthetic.Modules.ShadowStudy.ViewModels;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
@@ -69,6 +70,7 @@ namespace Synthetic.Modules.SettingsDashboard.ViewModels
                 new FileUtilitySettingsViewModel(_doc, _mainWindowHandle),
                 new StandardsSettingsViewModel(_doc, _mainWindowHandle),
                 new DetailItemFactorySettingsViewModel(_doc, _mainWindowHandle),
+                new ShadowStudySettingsViewModel(_doc, _mainWindowHandle),
                 new SyncSettingsViewModel(_doc, _mainWindowHandle)
             };
 

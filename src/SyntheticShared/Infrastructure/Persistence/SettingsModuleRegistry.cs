@@ -5,6 +5,7 @@ using Autodesk.Revit.DB;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Synthetic.Modules.DetailItemFactory.Settings;
+using Synthetic.Modules.ShadowStudy.Settings;
 using Synthetic.Settings;
 
 namespace Synthetic.Infrastructure.Persistence
@@ -96,7 +97,8 @@ namespace Synthetic.Infrastructure.Persistence
                 CreateDescriptor(ProjectMaterialSettings.Name, () => new ProjectMaterialSettings().Defaults()),
                 CreateDescriptor(FileUtilitySettings.Name, () => new FileUtilitySettings().Defaults()),
                 CreateDescriptor(StandardsSettings.Name, () => new StandardsSettings().Defaults()),
-                CreateDescriptor(DetailItemFactorySettings.Name, () => new DetailItemFactorySettings().Defaults())
+                CreateDescriptor(DetailItemFactorySettings.Name, () => new DetailItemFactorySettings().Defaults()),
+                CreateDescriptor(ShadowStudySettings.Name, () => new ShadowStudySettings().Defaults())
             });
 
         /// <summary>
