@@ -236,7 +236,6 @@ namespace SyntheticTests.Modules.ShadowStudy
                             DateEntry = fullSchedule.DateEntry,
                             PeakSolarAltitudeDegrees = fullSchedule.PeakSolarAltitudeDegrees,
                             ShadowIntensity = fullSchedule.ShadowIntensity,
-                            WindowSummary = fullSchedule.WindowSummary,
                             Frames = new[] { fullSchedule.Frames[fullSchedule.Frames.Count / 2] }
                         }
                     };
@@ -337,6 +336,7 @@ namespace SyntheticTests.Modules.ShadowStudy
 
                 PrintManager printManager = doc.PrintManager;
                 printManager.PrintRange = PrintRange.Select;
+                printManager.Apply();
                 ViewSheetSetting setting = printManager.ViewSheetSetting;
                 setting.CurrentViewSheetSet = setting.InSession;
                 setting.CurrentViewSheetSet.Views = viewSet;

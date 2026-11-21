@@ -185,13 +185,39 @@ namespace Synthetic.Modules.ShadowStudy.Adapters
                     {
                         PrintManager printManager = _doc.PrintManager;
                         printManager.PrintRange = PrintRange.Select;
+                        printManager.Apply();
                         ViewSheetSetting setting = printManager.ViewSheetSetting;
+
+                        // Revit's ViewSheetSetting can mutate a previously-active saved ViewSheetSet
+                        // across CurrentViewSheetSet = InSession + SaveAs in the same session; snapshot and restore it.
+                        ViewSheetSet? previousSavedSet = setting.CurrentViewSheetSet as ViewSheetSet;
+                        ViewSet? previousSavedViews = null;
+                        if (previousSavedSet != null && previousSavedSet.Views != null)
+                        {
+                            previousSavedViews = new ViewSet();
+                            foreach (View member in previousSavedSet.Views)
+                            {
+                                if (member != null)
+                                {
+                                    previousSavedViews.Insert(member);
+                                }
+                            }
+                        }
+
                         setting.CurrentViewSheetSet = setting.InSession;
                         setting.CurrentViewSheetSet.Views = combinedViewSet;
 
                         if (!setting.SaveAs(trimmedName))
                         {
                             throw new InvalidOperationException($"Revit could not save Print Set '{trimmedName}'.");
+                        }
+
+                        if (previousSavedSet != null && previousSavedViews != null && !previousSavedViews.IsEmpty)
+                        {
+                            setting.CurrentViewSheetSet = previousSavedSet;
+                            previousSavedSet.Views = previousSavedViews;
+                            setting.CurrentViewSheetSet.Views = previousSavedViews;
+                            setting.Save();
                         }
 
                         tx.Commit();
@@ -243,8 +269,10 @@ namespace Synthetic.Modules.ShadowStudy.Adapters
                     {
                         PrintManager printManager = _doc.PrintManager;
                         printManager.PrintRange = PrintRange.Select;
+                        printManager.Apply();
                         ViewSheetSetting setting = printManager.ViewSheetSetting;
                         setting.CurrentViewSheetSet = targetSet;
+                        targetSet.Views = combinedViewSet;
                         setting.CurrentViewSheetSet.Views = combinedViewSet;
 
                         if (!setting.Save())
@@ -264,7 +292,8 @@ namespace Synthetic.Modules.ShadowStudy.Adapters
                     }
                 }
 
-                return MapPrintSetItem(targetSet);
+                ViewSheetSet refreshedSet = (_doc.GetElement(targetSet.UniqueId) as ViewSheetSet) ?? targetSet;
+                return MapPrintSetItem(refreshedSet);
             }
         }
 
