@@ -12,6 +12,7 @@
     <GenerateDocumentationFile>True</GenerateDocumentationFile>
     <DocumentationFile>..\..\output\Synthetic\Synthetic2025.xml</DocumentationFile>
     <AssemblyName>Synthetic2025</AssemblyName>
+    <RevitVersion>2025</RevitVersion>
     <RootNamespace>Synthetic</RootNamespace>
     <UseWindowsForms>true</UseWindowsForms>
     <UseWPF>true</UseWPF>
@@ -31,7 +32,7 @@
 
   <ItemGroup>
     <Reference Include="eTransmitForRevitDB">
-      <HintPath>..\..\..\..\..\..\..\Program Files\Autodesk\eTransmit for Revit 2025\eTransmitForRevitDB.dll</HintPath>
+      <HintPath>C:\Program Files\Autodesk\eTransmit for Revit 2025\eTransmitForRevitDB.dll</HintPath>
       <Private>False</Private>
     </Reference>
   </ItemGroup>
@@ -85,7 +86,14 @@
             string pattern = "(?i)<Assembly>.*?</Assembly>";
             string replacement = "<Assembly>" + NewPath.Replace("$", "$$") + "</Assembly>";
             string newContent = Regex.Replace(content, pattern, replacement);
-            File.WriteAllText(OutputFile, newContent);
+            for (int i = 0; i < 5; i++) {
+                try {
+                    File.WriteAllText(OutputFile, newContent);
+                    break;
+                } catch (IOException) {
+                    System.Threading.Thread.Sleep(100);
+                }
+            }
         } catch (Exception ex) {
             Log.LogError("Error replacing addin path: " + ex.Message);
             return false;
@@ -108,6 +116,13 @@
     
     <!-- Execute the C# Inline Task -->
     <ReplaceAddinPath InputFile="$(SourceAddinFile)" OutputFile="$(LocalOutputAddin)" NewPath="$(NewAssemblyPath)" />
+
+    <!-- Copy the Debug manifest directly to AppData Revit Addins folder -->
+    <Copy SourceFiles="$(LocalOutputAddin)" DestinationFolder="$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)\" Condition="'$(Configuration)' == 'Debug'" />
+  </Target>
+
+  <Target Name="AfterClean">
+    <Delete Files="$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)\$(AssemblyName).addin" />
   </Target>
 
   <Target Name="SignDebugBuild" AfterTargets="Build" Condition="'$(Configuration)' == 'Debug'">
@@ -135,3 +150,4 @@
     <Exec Command="&quot;$(SignToolExe)&quot; sign /n &quot;Synthetic&quot; /fd SHA256 /a &quot;$(TargetPath)&quot;" IgnoreExitCode="true" />
   </Target>
 </Project>
+

@@ -2,7 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests.Logic.Modules.RevitDOM
 {
@@ -116,5 +119,63 @@ namespace SyntheticTests.Logic.Modules.RevitDOM
             Assert.IsTrue(results.Any(r => r.Name == "Structural Concrete"));
             Assert.IsTrue(results.Any(r => r.Name == "Exterior - 12\" Concrete"));
         }
+
+        [Test]
+        public void AreSameIdentity_Overloads_WorkCorrectly()
+        {
+            var service = new PocoIdentityService();
+
+            var idModel1 = new ElementIdModel { UniqueId = "UID-999", Name = "Column1", Class = "Autodesk.Revit.DB.FamilyInstance" };
+            var idModel2 = new ElementIdModel { UniqueId = "uid-999", Name = "Column1_Alt", Class = "Autodesk.Revit.DB.FamilyInstance" };
+
+            var elemModel1 = new ElementModel { ElementId = idModel1 };
+            var elemModel2 = new ElementModel { ElementId = idModel2 };
+
+            Assert.IsTrue(service.AreSameIdentity(idModel1, idModel2), "AreSameIdentity(ElementIdModel, ElementIdModel) overload should return true.");
+            Assert.IsTrue(service.AreSameIdentity(elemModel1, elemModel2), "AreSameIdentity(ElementModel, ElementModel) overload should return true.");
+            Assert.IsTrue(service.AreSameIdentity(idModel1, elemModel2), "AreSameIdentity(ElementIdModel, ElementModel) overload should return true.");
+            Assert.IsTrue(service.AreSameIdentity(elemModel1, idModel2), "AreSameIdentity(ElementModel, ElementIdModel) overload should return true.");
+        }
+
+        [Test]
+        public void AreSameIdentity_NullGuards_StandardizedBehavior()
+        {
+            var service = new PocoIdentityService();
+            var idModel = new ElementIdModel { UniqueId = "UID-100", Class = "Autodesk.Revit.DB.Wall" };
+            var elemModel = new ElementModel { ElementId = idModel };
+
+            // Overload 1: (ElementIdModel?, ElementIdModel?)
+            Assert.IsTrue(service.AreSameIdentity((ElementIdModel?)null, (ElementIdModel?)null));
+            Assert.IsFalse(service.AreSameIdentity(idModel, (ElementIdModel?)null));
+            Assert.IsFalse(service.AreSameIdentity((ElementIdModel?)null, idModel));
+
+            // Overload 2: (ElementModel?, ElementModel?)
+            Assert.IsTrue(service.AreSameIdentity((ElementModel?)null, (ElementModel?)null));
+            Assert.IsFalse(service.AreSameIdentity(elemModel, (ElementModel?)null));
+            Assert.IsFalse(service.AreSameIdentity((ElementModel?)null, elemModel));
+
+            // Overload 3: (ElementIdModel?, ElementModel?)
+            Assert.IsTrue(service.AreSameIdentity((ElementIdModel?)null, (ElementModel?)null));
+            Assert.IsFalse(service.AreSameIdentity(idModel, (ElementModel?)null));
+            Assert.IsFalse(service.AreSameIdentity((ElementIdModel?)null, elemModel));
+
+            // Overload 4: (ElementModel?, ElementIdModel?)
+            Assert.IsTrue(service.AreSameIdentity((ElementModel?)null, (ElementIdModel?)null));
+            Assert.IsFalse(service.AreSameIdentity(elemModel, (ElementIdModel?)null));
+            Assert.IsFalse(service.AreSameIdentity((ElementModel?)null, idModel));
+
+            // ElementModel instances with null ElementId property
+            var elemNullId1 = new ElementModel { ElementId = null };
+            var elemNullId2 = new ElementModel { ElementId = null };
+
+            // Same instance with null ElementId should return true via ReferenceEquals
+            Assert.IsTrue(service.AreSameIdentity(elemNullId1, elemNullId1));
+
+            // Distinct instances with null ElementId must NOT evaluate to true
+            Assert.IsFalse(service.AreSameIdentity(elemNullId1, elemNullId2));
+            Assert.IsFalse(service.AreSameIdentity(idModel, elemNullId1));
+            Assert.IsFalse(service.AreSameIdentity(elemNullId1, idModel));
+        }
     }
 }
+

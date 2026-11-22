@@ -5,7 +5,10 @@ using System.Windows.Threading;
 using Synthetic.Shared.UI;
 
 using Synthetic.Core;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 namespace Synthetic.Shared.UI
 {
@@ -81,6 +84,69 @@ namespace Synthetic.Shared.UI
         }
 
         /// <summary>
+        /// Creates an IProgress reporter targeting this coordinator.
+        /// </summary>
+        /// <returns>An progress reporter instance.</returns>
+        public static IProgress<ProgressState> AsProgressReporter()
+        {
+            return new Progress<ProgressState>(state =>
+            {
+                if (state.IsCompleted)
+                {
+                    Close();
+                }
+                else if (_viewModel != null)
+                {
+                    _viewModel.MainTaskDescription = state.TaskDescription;
+                    _viewModel.MaximumValue = state.MaximumBounds;
+                    _viewModel.CurrentValue = state.ProgressIndex;
+                    _viewModel.CurrentItemName = state.CurrentItemName;
+                    AllowUIToUpdate();
+                }
+            });
+        }
+
+        /// <summary>
+        /// Creates a synchronous UI-thread <see cref="IProgress{ProgressState}"/> reporter targeting this coordinator.
+        /// Unlike <see cref="Progress{T}"/>, updates are applied immediately on the calling thread and pumped via <see cref="AllowUIToUpdate"/>.
+        /// </summary>
+        /// <returns>A synchronous progress reporter instance.</returns>
+        public static IProgress<ProgressState> AsSynchronousProgressReporter()
+        {
+            return new SynchronousProgressReporter(state =>
+            {
+                if (state == null || state.IsCompleted || _viewModel == null)
+                {
+                    return;
+                }
+
+                _viewModel.MainTaskDescription = state.TaskDescription;
+                if (state.MaximumBounds > 0)
+                {
+                    _viewModel.MaximumValue = state.MaximumBounds;
+                }
+                _viewModel.CurrentValue = state.ProgressIndex;
+                _viewModel.CurrentItemName = state.CurrentItemName;
+                AllowUIToUpdate();
+            });
+        }
+
+        private sealed class SynchronousProgressReporter : IProgress<ProgressState>
+        {
+            private readonly Action<ProgressState> _callback;
+
+            public SynchronousProgressReporter(Action<ProgressState> callback)
+            {
+                _callback = callback;
+            }
+
+            public void Report(ProgressState value)
+            {
+                _callback(value);
+            }
+        }
+
+        /// <summary>
         /// Increments the current progress value by 1 and updates the current item status text.
         /// </summary>
         /// <param name="currentItemName">The name of the item currently being processed.</param>
@@ -131,6 +197,7 @@ namespace Synthetic.Shared.UI
                     {
                         try
                         {
+                            _window.AllowProgrammaticClose = true;
                             _window.Close();
                         }
                         catch { }

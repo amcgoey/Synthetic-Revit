@@ -9,7 +9,10 @@ using RevitDoc = Autodesk.Revit.DB.Document;
 using RevitFECollector = Autodesk.Revit.DB.FilteredElementCollector;
 using RevitElem = Autodesk.Revit.DB.Element;
 using Synthetic.Modules.MergeDuplicates.Handlers;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 
 //using SynthCollect = Synthetic.Collector;
@@ -139,17 +142,50 @@ namespace Synthetic.Shared.RevitAPI
         }
 
         /// <summary>
+        /// Yields Revit namespace alias candidates for a class name (Architecture <-> DB, and bare short-name qualification).
+        /// </summary>
+        internal static IEnumerable<string> GetNamespaceAliasCandidates(string? typeName)
+        {
+            if (string.IsNullOrEmpty(typeName)) yield break;
+
+            if (typeName.StartsWith("Autodesk.Revit.DB.Architecture.", StringComparison.OrdinalIgnoreCase))
+            {
+                string shortName = typeName.Substring("Autodesk.Revit.DB.Architecture.".Length);
+                yield return "Autodesk.Revit.DB." + shortName;
+            }
+            else if (typeName.StartsWith("Autodesk.Revit.DB.", StringComparison.OrdinalIgnoreCase))
+            {
+                string shortName = typeName.Substring("Autodesk.Revit.DB.".Length);
+                yield return "Autodesk.Revit.DB.Architecture." + shortName;
+            }
+            else if (!typeName.Contains("."))
+            {
+                yield return "Autodesk.Revit.DB." + typeName;
+                yield return "Autodesk.Revit.DB.Architecture." + typeName;
+            }
+        }
+
+        /// <summary>
         /// Get the Type of a Revit Class from RevitAPI.dll given its name.
         /// </summary>
         /// <param name="typeName">Name of the Autodesk.Revit.DB Class</param>
         /// <returns name="Type">The Type of a Revit Class</returns>
         public static Type? RevitClassByString(string typeName)
         {
+            if (string.IsNullOrEmpty(typeName)) return null;
+
             // Assembly and Class that the Element should be
             Assembly assembly = typeof(RevitElem).Assembly;
             Type? elemClass = assembly.GetType(typeName);
+            if (elemClass != null) return elemClass;
 
-            return elemClass;
+            foreach (var candidate in GetNamespaceAliasCandidates(typeName))
+            {
+                elemClass = assembly.GetType(candidate);
+                if (elemClass != null) return elemClass;
+            }
+
+            return null;
         }
 
         /// <summary>

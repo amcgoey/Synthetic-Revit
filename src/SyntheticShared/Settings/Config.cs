@@ -6,9 +6,13 @@ using System.Text;
 using System.IO;
 using Autodesk.Revit.DB;
 
+using Synthetic.Infrastructure.Persistence;
 using Synthetic.Settings;
 using Synthetic.Modules.DetailItemFactory.Settings;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Shared.RevitAPI;
 namespace Synthetic.Settings
@@ -116,12 +120,10 @@ namespace Synthetic.Settings
         /// <returns>This Config instance.</returns>
         public Config Defaults ()
         {
-            this.SetSettings(WorksetSettings.Name, new WorksetSettings().Defaults());
-            this.SetSettings(ViewAutoNumSettings.Name, new ViewAutoNumSettings().Defaults());
-            this.SetSettings(MaterialLibrarySettings.Name, new MaterialLibrarySettings().Defaults());
-            this.SetSettings(ProjectMaterialSettings.Name, new ProjectMaterialSettings().Defaults());
-            this.SetSettings(FileUtilitySettings.Name, new FileUtilitySettings().Defaults());
-            this.SetSettings(DetailItemFactorySettings.Name, new DetailItemFactorySettings().Defaults());
+            foreach (SettingsModuleDescriptor descriptor in SettingsModuleRegistry.SyncedModules)
+            {
+                this.SetSettings(descriptor.ModuleKey, descriptor.CreateDefault());
+            }
 
             return this;
         }

@@ -5,11 +5,14 @@ using System.Linq;
 using System.Windows.Input;
 using Autodesk.Revit.DB;
 
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Infrastructure.Serialization;
 
 using Synthetic.Shared.UI;
-using Synthetic.Modules.MergeDuplicates.Models;
+using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.Shared.RevitAPI;
 namespace Synthetic.Modules.StandardsManagement.ViewModels
 {
@@ -128,7 +131,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                         if (mapping.ParameterResolutions == null) continue;
 
                         if (mapping.SourceType == null) continue;
-                        Element? liveElement = _doc.GetElement(mapping.SourceType.RevitTypeId);
+                        Element? liveElement = _doc.GetElement(mapping.SourceType.RevitTypeId.ToElementId());
                         if (liveElement == null)
                         {
                             skippedCount += mapping.ParameterResolutions.Count;
@@ -145,7 +148,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                             }
 
                             string paramName = row.ParameterName;
-                            string winningValue = row.Values[row.WinningValueElementId];
+                            string? winningValue = row.WinningValue;
 
                             // Retrieve specific parameter by name
                             Parameter p = liveElement.LookupParameter(paramName);

@@ -4,9 +4,12 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
-using Synthetic.Modules.StandardsManagement.Engine;
-using Synthetic.Modules.MergeDuplicates.Models;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
+using Synthetic.RevitDOM.Operations.Standards;
+using Synthetic.RevitDOM.Operations.Merge;
 
 namespace SyntheticTests
 {
@@ -21,82 +24,136 @@ namespace SyntheticTests
             _uiapp = uiapp;
         }
 
-        [Test]
-        public void RunDeepScan_ShouldFlagConflict_WhenParameterMutated()
+        private struct MutatedTestContext
+        {
+            public Document Doc { get; set; }
+            public TextNoteType TextNoteType { get; set; }
+            public ElementTypeModel Model { get; set; }
+            public ParameterModel TargetParam { get; set; }
+            public TransactionGroup TxGroup { get; set; }
+        }
+
+        private MutatedTestContext CreateMutatedTextNoteTypeContext(string transactionGroupName)
         {
             Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
             var app = _uiapp!.Application;
             Document doc = app.NewProjectDocument(UnitSystem.Metric);
 
+            TransactionGroup txGroup = new TransactionGroup(doc, transactionGroupName);
+            txGroup.Start();
+
             try
             {
-                using (TransactionGroup txGroup = new TransactionGroup(doc, "Tier2_StandardsDiffEngineTests"))
+                TextNoteType? textNoteType = new FilteredElementCollector(doc)
+                    .OfClass(typeof(TextNoteType))
+                    .Cast<TextNoteType>()
+                    .FirstOrDefault();
+
+                if (textNoteType == null)
                 {
-                    txGroup.Start();
-                    try
-                    {
-                        // 1. Find a baseline element type (TextNoteType is guaranteed to exist in any project template)
-                        TextNoteType? textNoteType = new FilteredElementCollector(doc)
-                            .OfClass(typeof(TextNoteType))
-                            .Cast<TextNoteType>()
-                            .FirstOrDefault();
+                    txGroup.RollBack();
+                    doc.Close(false);
+                    Assert.Ignore("No TextNoteType found in the active document to test deep scan.");
+                }
 
-                        if (textNoteType == null)
-                        {
-                            Assert.Ignore("No TextNoteType found in the active document to test deep scan.");
-                            return;
-                        }
+                var model = (ElementTypeModel)textNoteType!.ToModel(true);
+                Assert.IsNotNull(model, "Extracted ElementTypeModel should not be null.");
+                Assert.IsNotNull(model.Parameters, "Extracted model parameters should not be null.");
 
-                        // 2. Extract its POCO standard representation
-                        var model = (ElementTypeModel)textNoteType.ToModel(true);
-                        Assert.IsNotNull(model, "Extracted ElementTypeModel should not be null.");
-                        Assert.IsNotNull(model.Parameters, "Extracted model parameters should not be null.");
+                var targetParam = model.Parameters.FirstOrDefault(p => !p.IsReadOnly);
+                if (targetParam == null)
+                {
+                    txGroup.RollBack();
+                    doc.Close(false);
+                    Assert.Ignore("No writable parameters found on TextNoteType to test mutation.");
+                }
 
-                        // 3. Find a writable parameter to mutate
-                        var targetParam = model.Parameters.FirstOrDefault(p => !p.IsReadOnly);
-                        if (targetParam == null)
-                        {
-                            Assert.Ignore("No writable parameters found on TextNoteType to test mutation.");
-                            return;
-                        }
+                string originalValue = targetParam!.Value ?? "";
+                string mutatedValue = originalValue + "_MutatedForTest";
+                if (targetParam.StorageType == "Double" || targetParam.StorageType == "Integer")
+                {
+                    mutatedValue = "999";
+                }
+                targetParam.Value = mutatedValue;
 
-                        // 4. Artificially mutate the value in memory
-                        string originalValue = targetParam.Value ?? "";
-                        string mutatedValue = originalValue + "_MutatedForTest";
-                        if (targetParam.StorageType == "Double" || targetParam.StorageType == "Integer")
-                        {
-                            mutatedValue = "999";
-                        }
-                        targetParam.Value = mutatedValue;
+                return new MutatedTestContext
+                {
+                    Doc = doc,
+                    TextNoteType = textNoteType,
+                    Model = model,
+                    TargetParam = targetParam,
+                    TxGroup = txGroup
+                };
+            }
+            catch (Exception)
+            {
+                txGroup.RollBack();
+                doc.Close(false);
+                throw;
+            }
+        }
 
-                        // 5. Run the deep scan comparison
-                        var clusters = StandardsDiffEngine.RunDeepScan(doc, new List<ElementModel> { model });
+        [Test]
+        public void RunDeepScan_ShouldFlagConflict_WhenParameterMutated()
+        {
+            var context = CreateMutatedTextNoteTypeContext("RunDeepScan_ShouldFlagConflict_WhenParameterMutated");
+            try
+            {
+                // 5. Run the comparison directly on the engine
+                var engine = new Synthetic.RevitDOM.Operations.Diffing.PocoToRevitDiffEngine();
+                var clusters = engine.Compare(new List<ObjectModel> { context.Model }, context.Doc).ToList();
 
-                        // 6. Assert that conflicts were successfully identified
-                        Assert.IsNotNull(clusters, "RunDeepScan should return a non-null collection.");
-                        Assert.IsTrue(clusters.Count > 0, "A conflict cluster should be returned.");
+                // 6. Assert that conflicts were successfully identified
+                Assert.IsNotNull(clusters, "RunDeepScan should return a non-null collection.");
+                Assert.IsTrue(clusters.Count > 0, "A conflict cluster should be returned.");
 
-                        // Find the cluster matching our element type
-                        var cluster = clusters.FirstOrDefault(c => c.TypeMappings.Any(m => m.SourceType != null && m.SourceType.RevitTypeId == textNoteType.Id));
-                        Assert.IsNotNull(cluster, "Should find a cluster matching the tested TextNoteType.");
+                // Find the cluster matching our element type
+                var cluster = clusters.FirstOrDefault(c => c.TypeMappings.Any(m => m.SourceType != null && m.SourceType.RevitTypeId.ToElementId() == context.TextNoteType.Id));
+                Assert.IsNotNull(cluster, "Should find a cluster matching the tested TextNoteType.");
 
-                        var mapping = cluster.TypeMappings.FirstOrDefault(m => m.SourceType != null && m.SourceType.RevitTypeId == textNoteType.Id);
-                        Assert.IsNotNull(mapping, "Should find a type mapping for the tested TextNoteType.");
+                var mapping = cluster!.TypeMappings.FirstOrDefault(m => m.SourceType != null && m.SourceType.RevitTypeId.ToElementId() == context.TextNoteType.Id);
+                Assert.IsNotNull(mapping, "Should find a type mapping for the tested TextNoteType.");
 
-                        var conflictRow = mapping.ParameterResolutions.FirstOrDefault(r => r.ParameterName == targetParam.Name);
-                        Assert.IsNotNull(conflictRow, $"A parameter resolution row should exist for the mutated parameter '{targetParam.Name}'.");
-                        Assert.IsTrue(conflictRow.HasConflict, "The parameter resolution row should indicate a conflict.");
-                    }
-                    finally
-                    {
-                        txGroup.RollBack();
-                    }
+                var conflictRow = mapping!.ParameterResolutions.FirstOrDefault(r => r.ParameterName == context.TargetParam.Name);
+                Assert.IsNotNull(conflictRow, $"A parameter resolution row should exist for the mutated parameter '{context.TargetParam.Name}'.");
+                Assert.IsTrue(conflictRow!.HasConflict, "The parameter resolution row should indicate a conflict.");
+            }
+            finally
+            {
+                context.TxGroup.RollBack();
+                context.Doc.Close(false);
+            }
+        }
+
+        [Test]
+        public void RunDeepScan_ShouldDelegateToAnalyze_Correctly()
+        {
+            var context = CreateMutatedTextNoteTypeContext("RunDeepScan_ShouldDelegateToAnalyze_Correctly");
+            try
+            {
+                var serializationEngine = new StandardSerializationEngine();
+                var listModels = new List<ElementModel> { context.Model };
+
+                var analyzeClusters = serializationEngine.Analyze(listModels, context.Doc).ToList();
+                var deepScanClusters = StandardsDiffEngine.RunDeepScan(context.Doc, listModels, serializationEngine).ToList();
+
+                Assert.IsNotNull(analyzeClusters);
+                Assert.IsNotNull(deepScanClusters);
+                Assert.AreEqual(analyzeClusters.Count, deepScanClusters.Count, "Analyze and RunDeepScan should return the same number of clusters.");
+
+                if (analyzeClusters.Count > 0)
+                {
+                    var clusterAnalyze = analyzeClusters[0];
+                    var clusterDeepScan = deepScanClusters[0];
+                    Assert.AreEqual(clusterAnalyze.TypeMappings.Count, clusterDeepScan.TypeMappings.Count, "Mappings count should match.");
                 }
             }
             finally
             {
-                doc.Close(false);
+                context.TxGroup.RollBack();
+                context.Doc.Close(false);
             }
         }
     }
 }
+

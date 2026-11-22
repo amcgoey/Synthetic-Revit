@@ -1,17 +1,21 @@
+using Synthetic.Modules.MergeDuplicates.Services;
 using System;
 using System.Threading;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Infrastructure.Serialization;
 
 using Synthetic.Shared.UI;
 
 using Synthetic.Shared.RevitAPI;
 using Synthetic.Infrastructure.IO;
-using Synthetic.Modules.MergeDuplicates.Engine;
+using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.Modules.MergeDuplicates.ViewModels;
 using Synthetic.Modules.MergeDuplicates.Views;
 using Synthetic.Modules.StandardsManagement.ViewModels;
@@ -40,7 +44,7 @@ namespace Synthetic.Modules.MergeDuplicates.Commands
                 }
 
                 // 1. Run Fast Scan
-                var clusters = MergeAnalysisEngine.RunFastScan(doc, CancellationToken.None);
+                var clusters = RevitMergeDataCollector.RunFastScan(doc, CancellationToken.None);
 
                 if (clusters.Count == 0)
                 {
@@ -51,7 +55,7 @@ namespace Synthetic.Modules.MergeDuplicates.Commands
                 // Run deep scan and generate recommendations for all discovered clusters
                 foreach (var cluster in clusters)
                 {
-                    MergeAnalysisEngine.RunDeepScan(doc, cluster, CancellationToken.None);
+                    MergeAnalysisEngine.RunDeepScan(cluster, CancellationToken.None);
                     MergeAnalysisEngine.GenerateRecommendations(cluster);
                 }
 

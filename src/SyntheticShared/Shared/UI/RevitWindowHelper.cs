@@ -3,7 +3,10 @@ using System.Windows;
 using System.Windows.Interop;
 using Synthetic.Shared.UI;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 namespace Synthetic.Shared.UI{
     /// <summary>
     /// Helper methods for managing WPF window parenting/owners within Revit.

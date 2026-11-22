@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="clr-namespace:Synthetic.Modules.StandardsManagement.ViewModels"
         xmlns:views="clr-namespace:Synthetic.Modules.StandardsManagement.Views"
-        xmlns:m="clr-namespace:Synthetic.Modules.MergeDuplicates.Models"
+        xmlns:m="clr-namespace:Synthetic.RevitDOM.Operations.Merge"
         xmlns:local="clr-namespace:Synthetic.Shared.UI"
         Title="Project Standards Dashboard"
         Height="700" Width="1100" MinHeight="600" MinWidth="900"
@@ -427,7 +427,7 @@
             <ColumnDefinition Width="380" MinWidth="320"/>
             <!-- GridSplitter 1 -->
             <ColumnDefinition Width="5"/>
-            <!-- Center Pane: Action Queue -->
+            <!-- Center Pane: Staging Queue -->
             <ColumnDefinition Width="*" MinWidth="300"/>
             <!-- GridSplitter 2 -->
             <ColumnDefinition Width="5"/>
@@ -589,7 +589,7 @@
         <!-- Grid Splitter 1 -->
         <GridSplitter Grid.Column="1" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Background="{DynamicResource Synthetic.Brushes.BorderNormal}"/>
 
-        <!-- ================= CENTER COLUMN: ACTION QUEUE PANE ================= -->
+        <!-- ================= CENTER COLUMN: STAGING QUEUE PANE ================= -->
         <Grid Grid.Column="2">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/> <!-- Title -->
@@ -604,7 +604,7 @@
 
             <!-- Grouped ListBox -->
             <ListBox Grid.Row="1" x:Name="QueueListBox"
-                     ItemsSource="{Binding ActionQueueView}"
+                     ItemsSource="{Binding StagingQueueView}"
                      Background="Transparent"
                      BorderBrush="{DynamicResource Synthetic.Brushes.BorderNormal}"
                      BorderThickness="1"

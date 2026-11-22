@@ -5,7 +5,7 @@ using System.Linq;
 using Synthetic.Shared.UI;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
-using Synthetic.Modules.StandardsManagement.Utilities;
+using Synthetic.RevitDOM.Operations.Standards;
 
 namespace Synthetic.Modules.StandardsManagement.ViewModels
 {

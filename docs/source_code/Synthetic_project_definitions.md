@@ -43,6 +43,7 @@
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>Synthetic</RootNamespace>
     <AssemblyName>Synthetic2022</AssemblyName>
+    <RevitVersion>2022</RevitVersion>
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <LangVersion>9.0</LangVersion>
     <Nullable>enable</Nullable>
@@ -58,7 +59,7 @@
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
     <StartAction>Program</StartAction>
-    <StartProgram>$(ProgramW6432)\Autodesk\Revit 2022\Revit.exe</StartProgram>
+    <StartProgram>$(ProgramW6432)\Autodesk\Revit $(RevitVersion)\Revit.exe</StartProgram>
     <DocumentationFile>..\..\output\Synthetic\Synthetic2022.xml</DocumentationFile>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
@@ -70,7 +71,7 @@
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
     <StartAction>Program</StartAction>
-    <StartProgram>$(ProgramW6432)\Autodesk\Revit 2022\Revit.exe</StartProgram>
+    <StartProgram>$(ProgramW6432)\Autodesk\Revit $(RevitVersion)\Revit.exe</StartProgram>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="AdWindows, Version=3.1.7.0, Culture=neutral, processorArchitecture=MSIL">
@@ -79,7 +80,7 @@
       <Private>False</Private>
     </Reference>
     <Reference Include="eTransmitForRevitDB">
-      <HintPath>..\..\..\..\..\..\..\Program Files\Autodesk\eTransmit for Revit 2022\eTransmitForRevitDB.dll</HintPath>
+      <HintPath>C:\Program Files\Autodesk\eTransmit for Revit 2022\eTransmitForRevitDB.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="Microsoft.CSharp" />
@@ -167,11 +168,13 @@
     
     <!-- Execute the C# Inline Task -->
     <ReplaceAddinPath InputFile="$(SourceAddinFile)" OutputFile="$(LocalOutputAddin)" NewPath="$(NewAssemblyPath)" />
+
+    <!-- Copy the Debug manifest directly to AppData Revit Addins folder -->
+    <Copy SourceFiles="$(LocalOutputAddin)" DestinationFolder="$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)\" Condition="'$(Configuration)' == 'Debug'" />
   </Target>
 
   <Target Name="AfterClean">
-    <Delete Files="$(AppData)\Autodesk\REVIT\Addins\2022\Synthetic2022.addin" />
-    <Delete Files="$(AppData)\Autodesk\REVIT\Addins\2022\Synthetic2022.dll" />
+    <Delete Files="$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)\$(AssemblyName).addin" />
   </Target>
 
   <Target Name="SignDebugBuild" AfterTargets="Build" Condition="'$(Configuration)' == 'Debug'">
@@ -249,6 +252,7 @@
     <ProjectTypeGuids>{60dc8134-eba5-43b8-bcc9-bb4bc16c2548};{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}</ProjectTypeGuids>
     <RootNamespace>Synthetic</RootNamespace>
     <AssemblyName>Synthetic2023</AssemblyName>
+    <RevitVersion>2023</RevitVersion>
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <LangVersion>9.0</LangVersion>
     <Nullable>enable</Nullable>
@@ -266,7 +270,7 @@
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
     <StartAction>Program</StartAction>
-    <StartProgram>$(ProgramW6432)\Autodesk\Revit 2023\Revit.exe</StartProgram>
+    <StartProgram>$(ProgramW6432)\Autodesk\Revit $(RevitVersion)\Revit.exe</StartProgram>
     <DocumentationFile>..\..\output\Synthetic\Synthetic2023.xml</DocumentationFile>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
@@ -278,7 +282,7 @@
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
     <StartAction>Program</StartAction>
-    <StartProgram>$(ProgramW6432)\Autodesk\Revit 2023\Revit.exe</StartProgram>
+    <StartProgram>$(ProgramW6432)\Autodesk\Revit $(RevitVersion)\Revit.exe</StartProgram>
   </PropertyGroup>
   <PropertyGroup>
     <StartupObject />
@@ -297,11 +301,11 @@
       <Private>False</Private>
     </Reference>
     <Reference Include="eTransmitForRevit">
-      <HintPath>..\..\..\..\..\..\..\Program Files\Autodesk\eTransmit for Revit 2023\eTransmitForRevit.dll</HintPath>
+      <HintPath>C:\Program Files\Autodesk\eTransmit for Revit 2023\eTransmitForRevit.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="eTransmitForRevitDB">
-      <HintPath>..\..\..\..\..\..\..\Program Files\Autodesk\eTransmit for Revit 2023\eTransmitForRevitDB.dll</HintPath>
+      <HintPath>C:\Program Files\Autodesk\eTransmit for Revit 2023\eTransmitForRevitDB.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="Microsoft.CSharp" />
@@ -380,11 +384,13 @@
     
     <!-- Execute the C# Inline Task -->
     <ReplaceAddinPath InputFile="$(SourceAddinFile)" OutputFile="$(LocalOutputAddin)" NewPath="$(NewAssemblyPath)" />
+
+    <!-- Copy the Debug manifest directly to AppData Revit Addins folder -->
+    <Copy SourceFiles="$(LocalOutputAddin)" DestinationFolder="$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)\" Condition="'$(Configuration)' == 'Debug'" />
   </Target>
 
   <Target Name="AfterClean">
-    <Delete Files="$(AppData)\Autodesk\REVIT\Addins\2023\Synthetic2023.addin" />
-    <Delete Files="$(AppData)\Autodesk\REVIT\Addins\2023\Synthetic2023.dll" />
+    <Delete Files="$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)\$(AssemblyName).addin" />
   </Target>
 
   <Target Name="SignDebugBuild" AfterTargets="Build" Condition="'$(Configuration)' == 'Debug'">
@@ -411,6 +417,186 @@
     
     <Exec Command="&quot;$(SignToolExe)&quot; sign /n &quot;Synthetic&quot; /fd SHA256 /a &quot;$(TargetPath)&quot;" IgnoreExitCode="true" />
   </Target>
+</Project>
+```
+
+### File: Revit API Synthetic v2/src/Synthetic2023/Synthetic2023_v20gsudp_wpftmp.csproj
+```xml
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
+  <PropertyGroup>
+    <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
+    <Platform Condition=" '$(Platform)' == '' ">x64</Platform>
+    <ProjectGuid>{2297FF48-4170-498C-A008-7E8DE1150590}</ProjectGuid>
+    <OutputType>Library</OutputType>
+    <ProjectTypeGuids>{60dc8134-eba5-43b8-bcc9-bb4bc16c2548};{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}</ProjectTypeGuids>
+    <RootNamespace>Synthetic</RootNamespace>
+    <AssemblyName>Synthetic2023</AssemblyName>
+    <RevitVersion>2023</RevitVersion>
+    <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <FileAlignment>512</FileAlignment>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
+    <PlatformTarget>x64</PlatformTarget>
+    <DebugSymbols>true</DebugSymbols>
+    <DebugType>full</DebugType>
+    <Optimize>false</Optimize>
+    <OutputPath>..\..\output\Synthetic\</OutputPath>
+    <DefineConstants>TRACE;DEBUG;REVIT2023</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+    <StartAction>Program</StartAction>
+    <StartProgram>$(ProgramW6432)\Autodesk\Revit $(RevitVersion)\Revit.exe</StartProgram>
+    <DocumentationFile>..\..\output\Synthetic\Synthetic2023.xml</DocumentationFile>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
+    <PlatformTarget>x64</PlatformTarget>
+    <DebugType>pdbonly</DebugType>
+    <Optimize>true</Optimize>
+    <OutputPath>..\..\output\Synthetic\</OutputPath>
+    <DefineConstants>TRACE;REVIT2023</DefineConstants>
+    <ErrorReport>prompt</ErrorReport>
+    <WarningLevel>4</WarningLevel>
+    <StartAction>Program</StartAction>
+    <StartProgram>$(ProgramW6432)\Autodesk\Revit $(RevitVersion)\Revit.exe</StartProgram>
+  </PropertyGroup>
+  <PropertyGroup>
+    <StartupObject />
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="App.config" />
+    <None Include="packages.config" />
+    <Content Include="Synthetic2023.addin">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <ItemGroup>
+  </ItemGroup>
+  <Import Project="..\SyntheticShared\SyntheticShared.projitems" Label="Shared" />
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <!-- Define the Inline C# Task to handle Regex replacement -->
+  <UsingTask TaskName="ReplaceAddinPath" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <InputFile ParameterType="System.String" Required="true" />
+      <OutputFile ParameterType="System.String" Required="true" />
+      <NewPath ParameterType="System.String" Required="true" />
+    </ParameterGroup>
+    <Task>
+      <Using Namespace="System" />
+      <Using Namespace="System.IO" />
+      <Using Namespace="System.Text.RegularExpressions" />
+      <Code Type="Fragment"><![CDATA[
+        try {
+            string content = File.ReadAllText(InputFile);
+            string pattern = "(?i)<Assembly>.*?</Assembly>";
+            string replacement = "<Assembly>" + NewPath.Replace("$", "$$") + "</Assembly>";
+            string newContent = Regex.Replace(content, pattern, replacement);
+            File.WriteAllText(OutputFile, newContent);
+        } catch (Exception ex) {
+            Log.LogError("Error replacing addin path: " + ex.Message);
+            return false;
+        }
+      ]]></Code>
+    </Task>
+  </UsingTask>
+  <!-- Deploy and update the .addin file for both Debug and Release configurations -->
+  <Target Name="DeployAddin" AfterTargets="Build" Condition="Exists('$(ProjectDir)$(AssemblyName).addin')">
+    <PropertyGroup>
+      <SourceAddinFile>$(ProjectDir)$(AssemblyName).addin</SourceAddinFile>
+      <LocalOutputAddin>$(TargetDir)$(AssemblyName).addin</LocalOutputAddin>
+      <!-- Determine correct Assembly Path based on Configuration -->
+      <NewAssemblyPath Condition="'$(Configuration)' == 'Debug'">$(TargetPath)</NewAssemblyPath>
+      <NewAssemblyPath Condition="'$(Configuration)' != 'Debug'">C:\ProgramData\Autodesk\Revit\Addins\Synthetic\$(AssemblyName).dll</NewAssemblyPath>
+    </PropertyGroup>
+    <Message Text="Replacing assembly path in $(Configuration) .addin: $(LocalOutputAddin) -&gt; $(NewAssemblyPath)" Importance="high" />
+    <!-- Execute the C# Inline Task -->
+    <ReplaceAddinPath InputFile="$(SourceAddinFile)" OutputFile="$(LocalOutputAddin)" NewPath="$(NewAssemblyPath)" />
+    <!-- Copy the Debug manifest directly to AppData Revit Addins folder -->
+    <Copy SourceFiles="$(LocalOutputAddin)" DestinationFolder="$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)\" Condition="'$(Configuration)' == 'Debug'" />
+  </Target>
+  <Target Name="AfterClean">
+    <Delete Files="$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)\$(AssemblyName).addin" />
+  </Target>
+  <Target Name="SignDebugBuild" AfterTargets="Build" Condition="'$(Configuration)' == 'Debug'">
+    <PropertyGroup>
+      <WindowsKitsRoot>$(registry:HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows Kits\Installed Roots@KitsRoot10)</WindowsKitsRoot>
+      <WindowsKitsRoot Condition="'$(WindowsKitsRoot)' == ''">$([MSBuild]::GetRegistryValueFromView('HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows Kits\Installed Roots', 'KitsRoot10', '', 'Registry64', 'Registry32'))</WindowsKitsRoot>
+      <WindowsKitsRoot Condition="'$(WindowsKitsRoot)' == ''">C:\Program Files (x86)\Windows Kits\10\</WindowsKitsRoot>
+      <!-- Trim trailing backslash to prevent double-backslash issues in wildcard matching -->
+      <WindowsKitsRootTrimmed>$(WindowsKitsRoot.TrimEnd('\'))</WindowsKitsRootTrimmed>
+    </PropertyGroup>
+    <ItemGroup>
+      <SignToolPaths Include="$(WindowsKitsRootTrimmed)\bin\10.*\x64\signtool.exe" />
+      <SignToolPaths Include="$(WindowsKitsRootTrimmed)\bin\x64\signtool.exe" Condition="Exists('$(WindowsKitsRootTrimmed)\bin\x64\signtool.exe')" />
+    </ItemGroup>
+    <PropertyGroup>
+      <SignToolExe>%(SignToolPaths.Identity)</SignToolExe>
+    </PropertyGroup>
+    <Message Importance="High" Text="Dynamically discovered signtool at: $(SignToolExe)" />
+    <Message Importance="High" Text="Signing local Debug build with self-signed certificate..." />
+    <Exec Command="&quot;$(SignToolExe)&quot; sign /n &quot;Synthetic&quot; /fd SHA256 /a &quot;$(TargetPath)&quot;" IgnoreExitCode="true" />
+  </Target>
+  <ItemGroup>
+    <ReferencePath Include="C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\src\packages\Revit_All_Main_Versions_API_x64.2023.0.0\lib\net48\AdWindows.dll" />
+    <ReferencePath Include="C:\Program Files\Autodesk\eTransmit for Revit 2023\eTransmitForRevit.dll" />
+    <ReferencePath Include="C:\Program Files\Autodesk\eTransmit for Revit 2023\eTransmitForRevitDB.dll" />
+    <ReferencePath Include="C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.8\Microsoft.CSharp.dll" />
+    <ReferencePath Include="C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\src\packages\Microsoft.Office.Interop.Excel.15.0.4795.1001\lib\net20\Microsoft.Office.Interop.Excel.dll">
+      <EmbedInteropTypes>True</EmbedInteropTypes>
+    </ReferencePath>
+    <ReferencePath Include="C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.8\mscorlib.dll" />
+    <ReferencePath Include="C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\src\packages\Newtonsoft.Json.13.0.3\lib\net45\Newtonsoft.Json.dll" />
+    <ReferencePath Include="C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.8\PresentationCore.dll" />
+    <ReferencePath Include="C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.8\PresentationFramework.dll" />
+    <ReferencePath Include="C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\src\packages\Revit_All_Main_Versions_API_x64.2023.0.0\lib\net48\RevitAPI.dll" />
+    <ReferencePath Include="C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\src\packages\Revit_All_Main_Versions_API_x64.2023.0.0\lib\net48\RevitAPIUI.dll" />
+    <ReferencePath Include="C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.8\System.Core.dll" />
+    <ReferencePath Include="C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.8\System.dll" />
+    <ReferencePath Include="C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.8\System.Windows.Forms.dll" />
+    <ReferencePath Include="C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.8\System.Xaml.dll" />
+    <ReferencePath Include="C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\src\packages\Revit_All_Main_Versions_API_x64.2023.0.0\lib\net48\UIFramework.dll" />
+    <ReferencePath Include="C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.8\WindowsBase.dll" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\src\Synthetic2023\obj\Debug\MergeDuplicatesWindow.g.cs" />
+    <Compile Include="C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\src\Synthetic2023\obj\Debug\NestedDataEditorWindow.g.cs" />
+    <Compile Include="C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\src\Synthetic2023\obj\Debug\SetTemplateView.g.cs" />
+    <Compile Include="C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\src\Synthetic2023\obj\Debug\ManageTemplatesView.g.cs" />
+    <Compile Include="C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\src\Synthetic2023\obj\Debug\ResolveConflictsView.g.cs" />
+    <Compile Include="C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\src\Synthetic2023\obj\Debug\DropdownSelectionView.g.cs" />
+    <Compile Include="C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\src\Synthetic2023\obj\Debug\SingleItemSelectionWindow.g.cs" />
+    <Compile Include="C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\src\Synthetic2023\obj\Debug\ListByCheckboxView.g.cs" />
+    <Compile Include="C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\src\Synthetic2023\obj\Debug\SelectSearchPathsView.g.cs" />
+    <Compile Include="C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\src\Synthetic2023\obj\Debug\ImportSummaryWindow.g.cs" />
+    <Compile Include="C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\src\Synthetic2023\obj\Debug\SharedProgressWindow.g.cs" />
+    <Compile Include="C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\src\Synthetic2023\obj\Debug\MergeDetailedReviewWindow.g.cs" />
+    <Compile Include="C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\src\Synthetic2023\obj\Debug\SettingsDashboardWindow.g.cs" />
+    <Compile Include="C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\src\Synthetic2023\obj\Debug\WorksetWizardWindow.g.cs" />
+    <Compile Include="C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\src\Synthetic2023\obj\Debug\ViewAutoNumWizardWindow.g.cs" />
+    <Compile Include="C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\src\Synthetic2023\obj\Debug\SyncResolutionWindow.g.cs" />
+    <Compile Include="C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\src\Synthetic2023\obj\Debug\SyncToastNotification.g.cs" />
+    <Compile Include="C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\src\Synthetic2023\obj\Debug\SyncWizardWindow.g.cs" />
+    <Compile Include="C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\src\Synthetic2023\obj\Debug\SyncSettingsView.g.cs" />
+    <Compile Include="C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\src\Synthetic2023\obj\Debug\StandardsSettingsView.g.cs" />
+    <Compile Include="C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\src\Synthetic2023\obj\Debug\CategorySelectionControl.g.cs" />
+    <Compile Include="C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\src\Synthetic2023\obj\Debug\StandardsClassSelectionControl.g.cs" />
+    <Compile Include="C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\src\Synthetic2023\obj\Debug\StandardsReviewWindow.g.cs" />
+    <Compile Include="C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\src\Synthetic2023\obj\Debug\ProjectStandardsDashboardWindow.g.cs" />
+    <Compile Include="C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\src\Synthetic2023\obj\Debug\SelectRevitDocumentWindow.g.cs" />
+    <Compile Include="C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\src\Synthetic2023\obj\Debug\NetworkPathsWizardWindow.g.cs" />
+    <Compile Include="C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\src\Synthetic2023\obj\Debug\DetailItemFactoryView.g.cs" />
+    <Compile Include="C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\src\Synthetic2023\obj\Debug\DetailItemFactoryResultsView.g.cs" />
+    <Compile Include="C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\src\Synthetic2023\obj\Debug\DetailItemFactorySettingsView.g.cs" />
+    <Compile Include="C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\src\Synthetic2023\obj\Debug\GuardrailPromptWindow.g.cs" />
+    <Compile Include="C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\src\Synthetic2023\obj\Debug\GeneratedInternalTypeHelper.g.cs" />
+  </ItemGroup>
 </Project>
 ```
 
@@ -459,6 +645,7 @@
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>Synthetic</RootNamespace>
     <AssemblyName>Synthetic2024</AssemblyName>
+    <RevitVersion>2024</RevitVersion>
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <LangVersion>9.0</LangVersion>
     <Nullable>enable</Nullable>
@@ -474,7 +661,7 @@
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
     <StartAction>Program</StartAction>
-    <StartProgram>$(ProgramW6432)\Autodesk\Revit 2024\Revit.exe</StartProgram>
+    <StartProgram>$(ProgramW6432)\Autodesk\Revit $(RevitVersion)\Revit.exe</StartProgram>
     <DocumentationFile>..\..\output\Synthetic\Synthetic2024.xml</DocumentationFile>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
@@ -486,7 +673,7 @@
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
     <StartAction>Program</StartAction>
-    <StartProgram>$(ProgramW6432)\Autodesk\Revit 2024\Revit.exe</StartProgram>
+    <StartProgram>$(ProgramW6432)\Autodesk\Revit $(RevitVersion)\Revit.exe</StartProgram>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="AdWindows, Version=5.0.3.1, Culture=neutral, processorArchitecture=MSIL">
@@ -495,11 +682,11 @@
       <Private>False</Private>
     </Reference>
     <Reference Include="eTransmitForRevit">
-      <HintPath>..\..\..\..\..\..\..\Program Files\Autodesk\eTransmit for Revit 2024\eTransmitForRevit.dll</HintPath>
+      <HintPath>C:\Program Files\Autodesk\eTransmit for Revit 2024\eTransmitForRevit.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="eTransmitForRevitDB">
-      <HintPath>..\..\..\..\..\..\..\Program Files\Autodesk\eTransmit for Revit 2024\eTransmitForRevitDB.dll</HintPath>
+      <HintPath>C:\Program Files\Autodesk\eTransmit for Revit 2024\eTransmitForRevitDB.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="Microsoft.CSharp" />
@@ -585,11 +772,13 @@
     
     <!-- Execute the C# Inline Task -->
     <ReplaceAddinPath InputFile="$(SourceAddinFile)" OutputFile="$(LocalOutputAddin)" NewPath="$(NewAssemblyPath)" />
+
+    <!-- Copy the Debug manifest directly to AppData Revit Addins folder -->
+    <Copy SourceFiles="$(LocalOutputAddin)" DestinationFolder="$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)\" Condition="'$(Configuration)' == 'Debug'" />
   </Target>
 
   <Target Name="AfterClean">
-    <Delete Files="$(AppData)\Autodesk\REVIT\Addins\2024\Synthetic2024.addin" />
-    <Delete Files="$(AppData)\Autodesk\REVIT\Addins\2024\Synthetic2024.dll" />
+    <Delete Files="$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)\$(AssemblyName).addin" />
   </Target>
 
   <Target Name="SignDebugBuild" AfterTargets="Build" Condition="'$(Configuration)' == 'Debug'">
@@ -657,6 +846,7 @@
     <GenerateDocumentationFile>True</GenerateDocumentationFile>
     <DocumentationFile>..\..\output\Synthetic\Synthetic2025.xml</DocumentationFile>
     <AssemblyName>Synthetic2025</AssemblyName>
+    <RevitVersion>2025</RevitVersion>
     <RootNamespace>Synthetic</RootNamespace>
     <UseWindowsForms>true</UseWindowsForms>
     <UseWPF>true</UseWPF>
@@ -676,7 +866,7 @@
 
   <ItemGroup>
     <Reference Include="eTransmitForRevitDB">
-      <HintPath>..\..\..\..\..\..\..\Program Files\Autodesk\eTransmit for Revit 2025\eTransmitForRevitDB.dll</HintPath>
+      <HintPath>C:\Program Files\Autodesk\eTransmit for Revit 2025\eTransmitForRevitDB.dll</HintPath>
       <Private>False</Private>
     </Reference>
   </ItemGroup>
@@ -753,6 +943,13 @@
     
     <!-- Execute the C# Inline Task -->
     <ReplaceAddinPath InputFile="$(SourceAddinFile)" OutputFile="$(LocalOutputAddin)" NewPath="$(NewAssemblyPath)" />
+
+    <!-- Copy the Debug manifest directly to AppData Revit Addins folder -->
+    <Copy SourceFiles="$(LocalOutputAddin)" DestinationFolder="$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)\" Condition="'$(Configuration)' == 'Debug'" />
+  </Target>
+
+  <Target Name="AfterClean">
+    <Delete Files="$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)\$(AssemblyName).addin" />
   </Target>
 
   <Target Name="SignDebugBuild" AfterTargets="Build" Condition="'$(Configuration)' == 'Debug'">
@@ -780,6 +977,7 @@
     <Exec Command="&quot;$(SignToolExe)&quot; sign /n &quot;Synthetic&quot; /fd SHA256 /a &quot;$(TargetPath)&quot;" IgnoreExitCode="true" />
   </Target>
 </Project>
+
 ```
 
 ### File: Revit API Synthetic v2/src/Synthetic2026/App.config
@@ -797,11 +995,12 @@
     <Name>Synthetic</Name>
     <Assembly>C:\ProgramData\Autodesk\Revit\Addins\Synthetic\Synthetic2026.dll</Assembly>
     <FullClassName>Synthetic.Core.App</FullClassName>
-    <ClientId>4fd5b26e-1325-460f-97b1-878804070868</ClientId>
+    <ClientId>4fd5b26e-1325-460f-97b1-878804070869</ClientId>
     <VendorId>net.amcgoey</VendorId>
     <VendorDescription>Synthetic by Arthur McGoey</VendorDescription>
   </AddIn>
 </RevitAddIns>
+
 ```
 
 ### File: Revit API Synthetic v2/src/Synthetic2026/Synthetic2026.csproj
@@ -820,6 +1019,7 @@
     <GenerateDocumentationFile>True</GenerateDocumentationFile>
     <DocumentationFile>..\..\output\Synthetic\Synthetic2026.xml</DocumentationFile>
     <AssemblyName>Synthetic2026</AssemblyName>
+    <RevitVersion>2026</RevitVersion>
     <RootNamespace>Synthetic</RootNamespace>
     <UseWindowsForms>true</UseWindowsForms>
     <UseWPF>true</UseWPF>
@@ -839,7 +1039,7 @@
 
   <ItemGroup>
     <Reference Include="eTransmitForRevitDB">
-      <HintPath>..\..\..\..\..\..\..\Program Files\Autodesk\eTransmit for Revit 2026\eTransmitForRevitDB.dll</HintPath>
+      <HintPath>C:\Program Files\Autodesk\eTransmit for Revit 2026\eTransmitForRevitDB.dll</HintPath>
       <Private>False</Private>
     </Reference>
   </ItemGroup>
@@ -892,6 +1092,13 @@
     
     <!-- Execute the C# Inline Task -->
     <ReplaceAddinPath InputFile="$(SourceAddinFile)" OutputFile="$(LocalOutputAddin)" NewPath="$(NewAssemblyPath)" />
+
+    <!-- Copy the Debug manifest directly to AppData Revit Addins folder -->
+    <Copy SourceFiles="$(LocalOutputAddin)" DestinationFolder="$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)\" Condition="'$(Configuration)' == 'Debug'" />
+  </Target>
+
+  <Target Name="AfterClean">
+    <Delete Files="$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)\$(AssemblyName).addin" />
   </Target>
 
   <Target Name="SignDebugBuild" AfterTargets="Build" Condition="'$(Configuration)' == 'Debug'">
@@ -919,6 +1126,7 @@
     <Exec Command="&quot;$(SignToolExe)&quot; sign /n &quot;Synthetic&quot; /fd SHA256 /a &quot;$(TargetPath)&quot;" IgnoreExitCode="true" />
   </Target>
 </Project>
+
 ```
 
 ### File: Revit API Synthetic v2/src/SyntheticShared/SyntheticShared.projitems
@@ -937,7 +1145,6 @@
     <Compile Include="$(MSBuildThisFileDirectory)AssemblyInfo.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Core\App.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\FamilyManagement\Commands\AuditPurgeAllFamilies.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\FamilyManagement\Commands\CmdTestAuditPurgeJournal.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\SettingsDashboard\Commands\SettingsDashboardCommand.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ViewManagement\Commands\ConvertLegendToDrafting.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ViewManagement\Commands\ConvertDraftingToLegend.cs" />
@@ -952,80 +1159,88 @@
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\Diagnostics\StorageDelete.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ViewManagement\Commands\ViewAutoNumberConfig.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\Worksets\Commands\WorksetStartView.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\BooleanModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\GraphicOverrideUtility.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\CategoryModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\CategoryGraphicOverrideModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\CategoryIdModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\StandardSerializationEngine.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\RevitDomDependencyScanner.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\IModelTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\IIdentityService.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\RevitIdentityService.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\LinePatternTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\FillPatternTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\MaterialTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\CategoryTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\TemplateDuplicatingTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\GridTypeTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\LevelTypeTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\TextElementTypeTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\SpotDimensionTypeTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\DimensionTypeTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ModelDispatcher.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ParameterEngine.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\ModelsToSerialize.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\AppearanceAssetModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\BooleanModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\BoundingBoxXYZModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\CategoryGraphicOverrideModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\CategoryIdModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\CategoryModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ColorModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\CompoundStructureModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\DimensionTypeModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ElementIdModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ElementModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ElementTypeModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\EnumModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\FilledRegionTypeModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\FillGridModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\FillPatternModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\FilterRuleModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\HostObjTypeModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ListModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\MaterialModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\MissingModels.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ObjectModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\OverrideGraphicSettingsModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ParameterFilterElementModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ParameterModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ParameterDefinitionSpec.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\PlanViewRangeModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\SerializationResultModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\StructuralAssetModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ThermalAssetModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\TransformModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\UVModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ViewFilterOverrideModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ViewModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ViewPlanModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ViewScheduleModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ViewSheetModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\XYZModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\AliasSwapEngine.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\GraphicOverrideUtility.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\ImportExecutionRunner.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\IStandardSerializationEngine.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\MaterialAssetEngine.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\ParameterEngine.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\RevitDomDependencyScanner.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\StandardSerializationEngine.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\BoundingBoxTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\BrowserOrganizationTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\CategoryGraphicOverrideTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\CategoryTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\ColorTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\DimensionTypeTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\FilledRegionTypeTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\FillPatternTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\GridTypeTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\HostObjTypeTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\IIdentityService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\IModelTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\IPocoIdentityService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\LevelTypeTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\LinePatternTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\MaterialTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\ModelDispatcher.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\ParameterElementTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\ParameterFilterElementTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\PocoIdentityService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\RevitDomExtensions.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\RevitIdentityService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\SpotDimensionTypeTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\TemplateDuplicatingTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\TextElementTypeTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\TransformTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\ViewPlanTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\ViewScheduleTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\ViewSheetTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\ViewTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\XYZTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Diffing\IDiffEngine.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Diffing\PocoToRevitDiffEngine.cs" />
 
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\SerializationResultModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ImportExecutionRunner.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\AliasSwapEngine.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\Worksets\Models\ElementsOnWorkset.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\UVModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\FillGridModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\FillPatternModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ColorModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ColorTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\CompoundStructureModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\DimensionTypeModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ElementModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ElementIdModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\RevitDomExtensions.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\FilledRegionTypeModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\FilledRegionTypeTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ElementTypeModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\EnumModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\HostObjTypeModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\HostObjTypeTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ModelsToSerialize.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ListModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\MaterialModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\AppearanceAssetModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\StructuralAssetModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ThermalAssetModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\MaterialAssetEngine.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\OverrideGraphicSettingsModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ParameterModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ViewModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ViewPlanModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ViewPlanTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ViewSheetModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ViewSheetTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ViewScheduleModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ViewScheduleTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ViewFilterOverrideModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ParameterFilterElementModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\FilterRuleModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ParameterFilterElementTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\PlanViewRangeModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\MissingModels.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\XYZModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\TransformModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\BoundingBoxXYZModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\XYZTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\TransformTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\BoundingBoxTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ViewTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ParameterElementTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\BrowserOrganizationTranslator.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Settings\ConfigCollection.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Settings\ISettingModule.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\Persistence\SyntheticSettingsJsonSchema.cs" />
@@ -1036,7 +1251,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)Settings\SyncSettings.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Settings\FileUtilitySettings.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Settings\StandardsSettings.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Core\SyntheticRibbon.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Core\RibbonManager.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Shared\UI\EnumToBooleanConverter.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\BatchPrint\Utilities\BBPrinterSettingsUtils.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Shared\RevitAPI\CommandUtil.cs" />
@@ -1052,9 +1267,13 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\Worksets\Utilities\ScopeBoxUtil.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\IO\SearchPaths.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Shared\RevitAPI\Select.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Engine\StandardsDiffEngine.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Engine\IStandardsExtractionOrchestrator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Engine\StandardsExtractionOrchestrator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\StandardsDiffEngine.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\IStandardsExtractionOrchestrator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\StandardsExtractionOrchestrator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\IFamilyEnforcer.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\IStandardsExecutionPipeline.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\RevitFamilyEnforcer.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\StandardsExecutionPipeline.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Shared\RevitAPI\StorageUtil.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\FamilyManagement\Utilities\SafeFamilyLoadOptions.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\FamilyManagement\Utilities\PurgeFailuresPreprocessor.cs" />
@@ -1071,15 +1290,17 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\Worksets\Commands\WorksetSetFile.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\Worksets\Commands\WorksetsImport.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\IO\Excel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ObjectModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\Worksets\Models\WorksetModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Models\ImportLogItem.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Models\DuplicateItemModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Models\DuplicateClusterModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Models\DuplicateTypeModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Models\RecommendedAction.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Models\TypeMappingModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Models\ParameterDiffRowModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\ImportLogItem.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\StandardsExecutionItem.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\StandardsExecutionOptions.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\StandardsExecutionResult.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Merge\DuplicateItemModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Merge\DuplicateClusterModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Merge\DuplicateTypeModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Merge\RecommendedAction.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Merge\TypeMappingModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Merge\ParameterDiffRowModel.cs" />
   </ItemGroup>
   <ItemGroup>
     <Folder Include="$(MSBuildThisFileDirectory)Views\" />
@@ -1093,10 +1314,11 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\ElementTypeWrapperVM.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\ViewModels\MergeQueueViewModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\ViewModels\MergeDuplicatesViewModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Services\RevitMergeDataCollector.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Shared\UI\RevitWindowHelper.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\AutoTagger\Models\TagTemplate.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Shared\RevitAPI\CoordinateUtility.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Engine\MergeAnalysisEngine.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Merge\MergeAnalysisEngine.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\AutoTagger\Repositories\TemplateStorageRepository.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\AutoTagger\ViewModels\SetTemplateViewModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\AutoTagger\Views\SetTemplateView.xaml.cs" />
@@ -1135,6 +1357,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Views\ImportSummaryWindow.xaml.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Shared\UI\SharedProgressWindow.xaml.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Shared\UI\ProgressCoordinator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Shared\UI\ProgressState.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\ViewModels\MergeDetailedReviewViewModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Views\MergeDetailedReviewWindow.xaml.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Handlers\ProcessMergeEventHandler.cs" />
@@ -1174,13 +1397,19 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\StandardClassModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\StandardElementModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\ProjectStandardsSourceViewModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Utilities\StandardsHierarchyUtility.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Utilities\PathResolutionUtility.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Utilities\StandardsExportService.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Utilities\IStandardsExportService.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Utilities\FindReplaceService.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Utilities\IFindReplaceService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\StandardsHierarchyUtility.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\PathResolutionUtility.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\StandardsExportService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\StandardsMergeUtility.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\IStandardsExportService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\FindReplaceService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\IFindReplaceService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\StandardsReportGenerator.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\ProjectStandardsDashboardViewModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\StandardsSourceTreeViewModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\StagingQueueViewModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\IProjectStandardsDashboard.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\StandardsExecutionPipelineViewModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Views\ProjectStandardsDashboardWindow.xaml.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\QueueItemModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\SelectRevitDocumentViewModel.cs" />
@@ -1408,6 +1637,15 @@
     <Content Include="$(MSBuildThisFileDirectory)Assets\Templates\README.txt">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <Content Include="$(MSBuildThisFileDirectory)Assets\ribbon_config.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="$(MSBuildThisFileDirectory)Assets\placeholder_16.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="$(MSBuildThisFileDirectory)Assets\placeholder_32.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
   <ItemGroup>
     <None Include="$(MSBuildThisFileDirectory)SyntheticWorksets.xlsx">
@@ -1415,6 +1653,7 @@
     </None>
   </ItemGroup>
 </Project>
+
 ```
 
 ### File: Revit API Synthetic v2/src/SyntheticShared/SyntheticShared.shproj
@@ -1491,20 +1730,28 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Synthetic2026\Synthetic2026.csproj" />
+    <Compile Include="..\SyntheticTests.Shared\Modules\RevitDOM\FakeIdentityService.cs" Link="Modules\RevitDOM\FakeIdentityService.cs" />
+    <Compile Include="..\SyntheticTests.Shared\Modules\StandardsManagement\StandardsExecutionPipelineTests.cs" Link="Modules\StandardsManagement\StandardsExecutionPipelineTests.cs" />
+    <Compile Include="..\SyntheticTests.Shared\Modules\StandardsManagement\DashboardTestFactory.cs" Link="Modules\StandardsManagement\DashboardTestFactory.cs" />
+    <Compile Include="..\SyntheticTests.Shared\Modules\StandardsManagement\FakeFileDialogService.cs" Link="Modules\StandardsManagement\FakeFileDialogService.cs" />
+    <Compile Include="..\SyntheticTests.Shared\Modules\StandardsManagement\FakeGuardrailPromptService.cs" Link="Modules\StandardsManagement\FakeGuardrailPromptService.cs" />
+    <Compile Include="..\SyntheticTests.Shared\Modules\StandardsManagement\FakeUserPromptService.cs" Link="Modules\StandardsManagement\FakeUserPromptService.cs" />
+    <Compile Include="..\SyntheticTests.Shared\Modules\MergeDuplicates\Tier2_MergeDuplicatesHeadlessTests.cs" Link="Modules\MergeDuplicates\Tier2_MergeDuplicatesHeadlessTests.cs" />
+    <Compile Remove="Infrastructure\UI\RibbonTests.cs" />
+    <Compile Include="Infrastructure\UI\RibbonTests.cs" />
   </ItemGroup>
 
   <!-- Compile mock RevitAPI and RevitAPIUI projects and copy them to output directory post-build -->
-  <Target Name="CopyMockRevitAPI" AfterTargets="Build">
+    <Target Name="CopyMockRevitAPI" AfterTargets="Build">
     <MSBuild Projects="..\RevitAPIMock\RevitAPIMock.csproj" Targets="Build" Properties="Configuration=$(Configuration);Platform=$(Platform)" />
-    <Copy SourceFiles="..\RevitAPIMock\bin\x64\$(Configuration)\net8.0-windows8.0\RevitAPI.dll" DestinationFolder="$(TargetDir)" OverwriteReadOnlyFiles="true" SkipUnchangedFiles="false" Condition="Exists('..\RevitAPIMock\bin\x64\$(Configuration)\net8.0-windows8.0\RevitAPI.dll')" />
-    <Copy SourceFiles="..\RevitAPIMock\bin\$(Configuration)\net8.0-windows8.0\RevitAPI.dll" DestinationFolder="$(TargetDir)" OverwriteReadOnlyFiles="true" SkipUnchangedFiles="false" Condition="!Exists('..\RevitAPIMock\bin\x64\$(Configuration)\net8.0-windows8.0\RevitAPI.dll')" />
+    <Copy SourceFiles="$(LocalAppData)\Temp\bin\RevitAPIMock\net8.0-windows8.0\RevitAPI.dll" DestinationFolder="$(TargetDir)" OverwriteReadOnlyFiles="true" SkipUnchangedFiles="false" />
 
     <MSBuild Projects="..\RevitAPIUIMock\RevitAPIUIMock.csproj" Targets="Build" Properties="Configuration=$(Configuration);Platform=$(Platform)" />
-    <Copy SourceFiles="..\RevitAPIUIMock\bin\x64\$(Configuration)\net8.0-windows8.0\RevitAPIUI.dll" DestinationFolder="$(TargetDir)" OverwriteReadOnlyFiles="true" SkipUnchangedFiles="false" Condition="Exists('..\RevitAPIUIMock\bin\x64\$(Configuration)\net8.0-windows8.0\RevitAPIUI.dll')" />
-    <Copy SourceFiles="..\RevitAPIUIMock\bin\$(Configuration)\net8.0-windows8.0\RevitAPIUI.dll" DestinationFolder="$(TargetDir)" OverwriteReadOnlyFiles="true" SkipUnchangedFiles="false" Condition="!Exists('..\RevitAPIUIMock\bin\x64\$(Configuration)\net8.0-windows8.0\RevitAPIUI.dll')" />
+    <Copy SourceFiles="$(LocalAppData)\Temp\bin\RevitAPIUIMock\net8.0-windows8.0\RevitAPIUI.dll" DestinationFolder="$(TargetDir)" OverwriteReadOnlyFiles="true" SkipUnchangedFiles="false" />
   </Target>
 
 </Project>
+
 ```
 
 ### File: Revit API Synthetic v2/tests/SyntheticTests.Shared/SyntheticTests.Shared.projitems
@@ -1522,14 +1769,14 @@
   <ItemGroup>
     <Compile Include="$(MSBuildThisFileDirectory)Tier2_RevitSmokeTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\CategoryModelTests.cs" />
-
-
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\FakeIdentityService.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ParameterEngineTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\RevitIdentityServiceIntegrationTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\Tier2_StandardsExtractionOrchestratorTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\RevitIdentityServiceTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\RevitDomExtensionsTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\StandardSerializationEngineTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\FakeStandardSerializationEngine.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\Tier2_DispatcherSweepTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\LinePatternTranslatorTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\FillPatternTranslatorTests.cs" />
@@ -1542,6 +1789,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\AliasSwapEngineTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\Tier2_AliasAssimilationTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ParameterModelTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ParameterDefinitionSpecTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ViewModelTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ParameterFilterElementTranslatorTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\FilledRegionTypeTranslatorTests.cs" />
@@ -1552,9 +1800,17 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\BrowserOrganizationTranslatorTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Tier2_DashboardIntegrationTests.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Tier2_StandardsDiffEngineTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\StandardsExecutionPipelineTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\DashboardTestFactory.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\FakeFileDialogService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\FakeGuardrailPromptService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\FakeUserPromptService.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\AssemblyAnalyzer\Tier2_AssemblyAnalyzerTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Tier2_MergeDuplicatesHeadlessTests.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Tier2_MergeDuplicatesIntegrationTests.cs" />
   </ItemGroup>
 </Project>
+
 ```
 
 ### File: Revit API Synthetic v2/tests/SyntheticTests.Shared/SyntheticTests.Shared.shproj
@@ -1633,6 +1889,13 @@
     
     <Exec Command="&quot;$(SignToolExe)&quot; sign /n &quot;Synthetic&quot; /fd SHA256 /a &quot;$(TargetPath)&quot;" IgnoreExitCode="true" />
   </Target>
+
+  <ItemGroup>
+    <Reference Include="PresentationCore" />
+    <Reference Include="PresentationFramework" />
+    <Reference Include="WindowsBase" />
+    <Reference Include="System.Xaml" />
+  </ItemGroup>
 </Project>
 ```
 
@@ -1695,6 +1958,13 @@
     
     <Exec Command="&quot;$(SignToolExe)&quot; sign /n &quot;Synthetic&quot; /fd SHA256 /a &quot;$(TargetPath)&quot;" IgnoreExitCode="true" />
   </Target>
+
+  <ItemGroup>
+    <Reference Include="PresentationCore" />
+    <Reference Include="PresentationFramework" />
+    <Reference Include="WindowsBase" />
+    <Reference Include="System.Xaml" />
+  </ItemGroup>
 </Project>
 ```
 
@@ -1756,6 +2026,13 @@
     
     <Exec Command="&quot;$(SignToolExe)&quot; sign /n &quot;Synthetic&quot; /fd SHA256 /a &quot;$(TargetPath)&quot;" IgnoreExitCode="true" />
   </Target>
+
+  <ItemGroup>
+    <Reference Include="PresentationCore" />
+    <Reference Include="PresentationFramework" />
+    <Reference Include="WindowsBase" />
+    <Reference Include="System.Xaml" />
+  </ItemGroup>
 </Project>
 ```
 
@@ -1765,6 +2042,8 @@
 
   <PropertyGroup>
     <TargetFramework>net8.0-windows8.0</TargetFramework>
+    <BaseIntermediateOutputPath>$(LocalAppData)\Temp\obj\SyntheticTests2026_ff610c80\</BaseIntermediateOutputPath>
+    <OutputPath>$(LocalAppData)\Temp\bin\SyntheticTests2026_ff610c80\</OutputPath>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <Platforms>x64</Platforms>
@@ -1818,5 +2097,9 @@
     <Exec Command="&quot;$(SignToolExe)&quot; sign /n &quot;Synthetic&quot; /fd SHA256 /a &quot;$(TargetPath)&quot;" IgnoreExitCode="true" />
   </Target>
 </Project>
+
+
+
+
 ```
 

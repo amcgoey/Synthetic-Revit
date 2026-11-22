@@ -11,7 +11,10 @@ using static System.Net.Mime.MediaTypeNames;
 using System.Windows.Forms;
 using Autodesk.Revit.DB.ExtensibleStorage;
 
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Infrastructure.Serialization;
 
 using Synthetic.Shared.UI;
@@ -186,7 +189,7 @@ namespace Synthetic.Shared.RevitAPI{
         /// Opens every Annotation family in the project and creates the standard element types.
         /// </summary>
         /// <param name="doc">The Revit Document</param>
-        /// <param name="standards">A ModelsToSerialize object that contains the standard element types.</param>
+        /// <param name="standards">A collection of ElementModel objects containing the standard element types.</param>
         public static void LoadStandards(Document doc, IEnumerable<ElementModel> standards)
         {
             Categories categories = doc.Settings.Categories;

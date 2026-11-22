@@ -28,9 +28,20 @@
         ]
       }
     },
+    "Standards": {
+      "StandardsFilePath": ""
+    },
     "DetailItemFactorySettings": {
       "OutputPath": "",
       "TargetSubcategory": "Detail Items"
+    },
+    "ShadowStudy": {
+      "SchemaVersion": 1,
+      "DefaultTimeIncrementMinutes": 60,
+      "DefaultMinSunAltitudeDegrees": 5.0,
+      "DefaultMaxCompositeDarknessPercent": 80,
+      "DefaultPreserveVisualStyle": false,
+      "UserPresets": []
     }
   }
 }

@@ -1,10 +1,13 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
 using System.Collections.ObjectModel;
-using Synthetic.Modules.RevitDOM;
-using Synthetic.Modules.StandardsManagement.Utilities;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
+using Synthetic.RevitDOM.Operations.Standards;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 
 namespace SyntheticTests.Modules.StandardsManagement
@@ -22,7 +25,7 @@ namespace SyntheticTests.Modules.StandardsManagement
                 new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "Oak wood" },
                 new LinePatternElementModel { Class = "Autodesk.Revit.DB.LinePatternElement", Name = "DashDot" },
                 new FilledRegionTypeModel { Class = "Autodesk.Revit.DB.FilledRegionType", Name = "Diagonal Cross" },
-                new CurtainSystemTypeModel { Class = "Autodesk.Revit.DB.CurtainSystemType", Name = "5x10 system" },
+                new HostObjTypeModel { Class = "Autodesk.Revit.DB.CurtainSystemType", Name = "5x10 system" },
                 new ParameterElementModel { Class = "Autodesk.Revit.DB.SharedParameterElement", Name = "BIM_Maint_Schedule" },
                 new ElementTypeModel { Class = "Autodesk.Revit.DB.TextNoteType", Name = "1/8 Arial" },
                 new ElementModel { Class = "Autodesk.Revit.DB.DirectShapeType", Name = "Custom Shape" } // Fallback to "Other" -> "DirectShapeType"
@@ -167,6 +170,40 @@ namespace SyntheticTests.Modules.StandardsManagement
             var viewsGroup = hierarchy[5];
             var viewsClasses = viewsGroup.Children.Cast<StandardClassModel>().Select(c => c.Name).ToArray();
             Assert.AreEqual(new[] { "Browser Organizations", "View Family Types", "View Templates", "Views" }, viewsClasses);
+        }
+
+        [Test]
+        public void BuildHierarchy_ShouldFollow5WayFamilySymbolTaxonomy()
+        {
+            var titleBlock = new ElementTypeModel { Class = "Autodesk.Revit.DB.FamilySymbol", Category = "Title Blocks", Name = "E1 30x42" };
+            var detailItem = new ElementTypeModel { Class = "Autodesk.Revit.DB.FamilySymbol", Category = "Detail Items", Name = "Breakline" };
+            var profile = new ElementTypeModel { Class = "Autodesk.Revit.DB.FamilySymbol", Category = "Profiles", Name = "Fascia Profile" };
+            var roomTag = new ElementTypeModel { Class = "Autodesk.Revit.DB.FamilySymbol", Category = "Room Tags", Name = "Room Tag with Area" };
+            var genericAnnotation = new ElementTypeModel { Class = "Autodesk.Revit.DB.FamilySymbol", Category = "Generic Annotations", Name = "North Arrow" };
+            var doorType = new ElementTypeModel { Class = "Autodesk.Revit.DB.FamilySymbol", Category = "Doors", Name = "Single Flush 36x84" };
+
+            var elements = new List<ElementModel> { titleBlock, detailItem, profile, roomTag, genericAnnotation, doorType };
+            var hierarchy = StandardsHierarchyUtility.BuildHierarchy(elements);
+
+            // Group: Annotations -> "Title Blocks", "Detail Items", "Label Types"
+            var annGroup = hierarchy.FirstOrDefault(g => g.Name == "Annotations");
+            Assert.IsNotNull(annGroup);
+            var annClasses = annGroup!.Children.Cast<StandardClassModel>().Select(c => c.Name).ToList();
+            Assert.IsTrue(annClasses.Contains("Title Blocks"));
+            Assert.IsTrue(annClasses.Contains("Detail Items"));
+            Assert.IsTrue(annClasses.Contains("Label Types"));
+
+            // Group: System Types -> "Profiles"
+            var sysGroup = hierarchy.FirstOrDefault(g => g.Name == "System Types");
+            Assert.IsNotNull(sysGroup);
+            var sysClasses = sysGroup!.Children.Cast<StandardClassModel>().Select(c => c.Name).ToList();
+            Assert.IsTrue(sysClasses.Contains("Profiles"));
+
+            // Group: Standards & Categories -> "Element Types"
+            var stdGroup = hierarchy.FirstOrDefault(g => g.Name == "Standards & Categories");
+            Assert.IsNotNull(stdGroup);
+            var stdClasses = stdGroup!.Children.Cast<StandardClassModel>().Select(c => c.Name).ToList();
+            Assert.IsTrue(stdClasses.Contains("Element Types"));
         }
     }
 }

@@ -1,7 +1,0 @@
-{
-  "plugin_id": "revit_ui_ribbon_manager",
-  "name": "RevitUIRibbonManager",
-  "version": "1.0.0",
-  "description": "Dedicated front-end architecture guardrail. Manages the single-source JSON schema layout for Revit UI tabs, panels, and pushbuttons."
-
-}

@@ -1,13 +1,18 @@
+using Synthetic.Modules.MergeDuplicates.Services;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading;
 using System.Windows.Input;
 using Newtonsoft.Json;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Infrastructure.Serialization;
 
 using Synthetic.Shared.RevitAPI;
@@ -15,10 +20,8 @@ using Synthetic.Infrastructure.IO;
 
 using Synthetic.Shared.UI;
 using Synthetic.Modules.MergeDuplicates.Handlers;
-using Synthetic.Modules.MergeDuplicates.Engine;
-using Synthetic.Modules.MergeDuplicates.Views;
-using Synthetic.Modules.MergeDuplicates.Models;
-using Synthetic.Modules.StandardsManagement.ViewModels;
+
+using Synthetic.RevitDOM.Operations.Merge;
 namespace Synthetic.Modules.MergeDuplicates.ViewModels
 {
     /// <summary>
@@ -35,12 +38,14 @@ namespace Synthetic.Modules.MergeDuplicates.ViewModels
         private ProcessMergeEventHandler? _mergeHandler;
         private ExternalEvent? _mergeEvent;
         private System.Threading.CancellationTokenSource _cts = new System.Threading.CancellationTokenSource();
+        private readonly IUserPromptService _userPromptService;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="MergeDuplicatesViewModel"/> class.
         /// </summary>
-        public MergeDuplicatesViewModel()
+        public MergeDuplicatesViewModel(IUserPromptService? userPromptService = null)
         {
+            _userPromptService = userPromptService ?? new WindowsUserPromptService();
             _scannedClusters = new ObservableCollection<DuplicateClusterModel>();
             _queueVM = new MergeQueueViewModel(cluster =>
             {
@@ -182,14 +187,62 @@ namespace Synthetic.Modules.MergeDuplicates.ViewModels
         /// </summary>
         public ICommand CmdAddStragglers { get; }
 
+        private void ProcessAndLoadClusters(IEnumerable<DuplicateClusterModel> clusters, CancellationToken token)
+        {
+            var processedList = new List<DuplicateClusterModel>();
+            foreach (var cluster in clusters)
+            {
+                token.ThrowIfCancellationRequested();
+                MergeAnalysisEngine.RunDeepScan(cluster, token);
+                MergeAnalysisEngine.GenerateRecommendations(cluster);
+                processedList.Add(cluster);
+            }
+            ScannedClusters = new ObservableCollection<DuplicateClusterModel>(processedList);
+        }
+
         private void ExecuteScanModel(object parameter)
         {
-            // Stub: Revit API logic & Analysis Engine will be implemented in subsequent steps.
+            if (Document == null) return;
+
+            try
+            {
+                var clusters = RevitMergeDataCollector.RunFastScan(Document, _cts.Token);
+                ProcessAndLoadClusters(clusters, _cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                // Scan cancelled
+            }
+            catch (Exception ex)
+            {
+                _userPromptService.ShowMessage(ex.Message, "Scan Model Error");
+            }
         }
 
         private void ExecuteLoadSelection(object parameter)
         {
-            // Stub: Revit API logic & Analysis Engine will be implemented in subsequent steps.
+            if (Document == null) return;
+
+            try
+            {
+                var uidoc = new Autodesk.Revit.UI.UIDocument(Document);
+                var selectedIds = uidoc.Selection.GetElementIds();
+                if (selectedIds == null || selectedIds.Count == 0)
+                {
+                    _userPromptService.ShowMessage("Please select one or more elements in the Revit document first.", "Load Selection");
+                    return;
+                }
+                var clusters = RevitMergeDataCollector.RunTargetedScan(Document, selectedIds, _cts.Token);
+                ProcessAndLoadClusters(clusters, _cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                // Selection load cancelled
+            }
+            catch (Exception ex)
+            {
+                _userPromptService.ShowMessage(ex.Message, "Load Selection Error");
+            }
         }
 
         private void ExecuteAddToQueue(object parameter)
@@ -198,7 +251,7 @@ namespace Synthetic.Modules.MergeDuplicates.ViewModels
             if (parameter is DuplicateClusterModel cluster)
             {
                 // Run deep scan to ensure current state is up-to-date
-                MergeAnalysisEngine.RunDeepScan(Document, cluster, System.Threading.CancellationToken.None);
+                MergeAnalysisEngine.RunDeepScan(cluster, System.Threading.CancellationToken.None);
 
                 // Run GenerateRecommendations to analyze parameter conflicts
                 MergeAnalysisEngine.GenerateRecommendations(cluster);
@@ -270,7 +323,7 @@ namespace Synthetic.Modules.MergeDuplicates.ViewModels
 
             if (targetClusterNames.Count == 0)
             {
-                Autodesk.Revit.UI.TaskDialog.Show("Move Item", "There are no other clusters available to move this item to.");
+                _userPromptService.ShowMessage("There are no other clusters available to move this item to.", "Move Item");
                 return;
             }
 
@@ -320,11 +373,8 @@ namespace Synthetic.Modules.MergeDuplicates.ViewModels
             }
 
             // Run deep scan on both affected clusters
-            if (Document != null)
-            {
-                MergeAnalysisEngine.RunDeepScan(Document!, sourceCluster, System.Threading.CancellationToken.None);
-                MergeAnalysisEngine.RunDeepScan(Document!, targetCluster, System.Threading.CancellationToken.None);
-            }
+            MergeAnalysisEngine.RunDeepScan(sourceCluster, System.Threading.CancellationToken.None);
+            MergeAnalysisEngine.RunDeepScan(targetCluster, System.Threading.CancellationToken.None);
 
             // If source cluster now has 1 or fewer items, remove it from list
             if (sourceCluster.Items.Count <= 1)
@@ -340,7 +390,7 @@ namespace Synthetic.Modules.MergeDuplicates.ViewModels
             {
                 if (cluster.TypeMappings == null || cluster.TypeMappings.Count == 0)
                 {
-                    MergeAnalysisEngine.RunDeepScan(Document, cluster, System.Threading.CancellationToken.None);
+                    MergeAnalysisEngine.RunDeepScan(cluster, System.Threading.CancellationToken.None);
                     MergeAnalysisEngine.GenerateRecommendations(cluster);
                 }
 
@@ -370,7 +420,7 @@ namespace Synthetic.Modules.MergeDuplicates.ViewModels
         {
             if (QueueVM == null || QueueVM.QueuedClusters.Count == 0)
             {
-                Autodesk.Revit.UI.TaskDialog.Show("Merge Duplicates", "No merges in the queue to process.");
+                _userPromptService.ShowMessage("No merges in the queue to process.", "Merge Duplicates");
                 return;
             }
 
@@ -421,44 +471,13 @@ namespace Synthetic.Modules.MergeDuplicates.ViewModels
 
                 // Find candidate elements in the document of the same category
                 var candidateList = new List<Tuple<string, ElementId>>();
-                var existingIds = new HashSet<ElementId>(cluster.Items.Where(i => i.RevitElementId != null).Select(i => i.RevitElementId!));
+                var existingIds = new HashSet<ElementId>(cluster.Items.Where(i => i.RevitElementId != null).Select(i => i.RevitElementId!.ToElementId()));
 
-                // Use ElementMulticlassFilter to collect Families, GroupTypes, and AssemblyTypes
-                var classes = new List<Type> { typeof(Family), typeof(GroupType), typeof(AssemblyType) };
-                var filter = new ElementMulticlassFilter(classes);
-                var collector = new FilteredElementCollector(Document!).WherePasses(filter);
-
-                foreach (var elem in collector)
-                {
-                    if (existingIds.Contains(elem.Id)) continue;
-                    if (elem is Family fam && fam.IsInPlace) continue;
-
-                    string cat = MergeAnalysisEngine.GetElementCategoryName(Document!, elem);
-                    if (cat.Equals(categoryName, StringComparison.OrdinalIgnoreCase))
-                    {
-                        candidateList.Add(Tuple.Create($"{elem.Name} ({elem.GetType().Name})", elem.Id));
-                    }
-                }
-
-                // Also collect generic ElementTypes if the category matches
-                var elementTypes = new FilteredElementCollector(Document!)
-                    .WherePasses(new ElementIsElementTypeFilter(false)) // Types
-                    .Cast<ElementType>();
-                foreach (var et in elementTypes)
-                {
-                    if (existingIds.Contains(et.Id)) continue;
-                    if (et is GroupType || et is AssemblyType || et is FamilySymbol) continue; // Exclude since already handled or nested in families
-
-                    string cat = MergeAnalysisEngine.GetElementCategoryName(Document!, et);
-                    if (cat.Equals(categoryName, StringComparison.OrdinalIgnoreCase))
-                    {
-                        candidateList.Add(Tuple.Create($"{et.Name} ({et.GetType().Name})", et.Id));
-                    }
-                }
+                candidateList = RevitMergeDataCollector.GetCandidateStragglers(Document!, categoryName, existingIds);
 
                 if (candidateList.Count == 0)
                 {
-                    Autodesk.Revit.UI.TaskDialog.Show("Add Stragglers", $"No other elements of category '{categoryName}' found in the document.");
+                    _userPromptService.ShowMessage($"No other elements of category '{categoryName}' found in the document.", "Add Stragglers");
                     return;
                 }
 
@@ -483,70 +502,15 @@ namespace Synthetic.Modules.MergeDuplicates.ViewModels
                         var elem = Document!.GetElement(id);
                         if (elem == null) continue;
 
-                        // Create DuplicateItemModel for the selected element
-                        var item = new DuplicateItemModel
-                        {
-                            RevitElementId = elem.Id,
-                            ItemName = elem.Name,
-                            CategoryName = categoryName!,
-                            IsPrimary = false,
-                            IsIncludedForMerge = true
-                        };
-
-                        // Populate nested types
-                        if (elem is Family family)
-                        {
-                            var symbolIds = family.GetFamilySymbolIds();
-                            if (symbolIds != null)
-                            {
-                                foreach (var sId in symbolIds)
-                                {
-                                    var symbol = Document!.GetElement(sId) as FamilySymbol;
-                                    if (symbol != null)
-                                    {
-                                        var typeModel = new DuplicateTypeModel
-                                        {
-                                            RevitTypeId = symbol.Id,
-                                            Name = symbol.Name,
-                                            Parameters = new Dictionary<string, string>()
-                                        };
-                                        foreach (Parameter p in symbol.Parameters)
-                                        {
-                                            if (p.Definition != null && !typeModel.Parameters.ContainsKey(p.Definition.Name))
-                                            {
-                                                if (MergeAnalysisEngine.IsIdentityParameter(p.Definition.Name)) continue;
-                                                typeModel.Parameters[p.Definition.Name] = MergeAnalysisEngine.GetParameterValueString(p, Document!);
-                                            }
-                                        }
-                                        item.Types.Add(typeModel);
-                                    }
-                                }
-                            }
-                        }
-                        else
-                        {
-                            var typeModel = new DuplicateTypeModel
-                            {
-                                RevitTypeId = elem.Id,
-                                Name = elem.Name,
-                                Parameters = new Dictionary<string, string>()
-                            };
-                            foreach (Parameter p in elem.Parameters)
-                            {
-                                if (p.Definition != null && !typeModel.Parameters.ContainsKey(p.Definition.Name))
-                                {
-                                    if (MergeAnalysisEngine.IsIdentityParameter(p.Definition.Name)) continue;
-                                    typeModel.Parameters[p.Definition.Name] = MergeAnalysisEngine.GetParameterValueString(p, Document!);
-                                }
-                            }
-                            item.Types.Add(typeModel);
-                        }
+                        // Convert to POCO first and use the shared engine to create the item model
+                        var elementModel = RevitMergeDataCollector.ConvertToPoco(Document!, elem);
+                        var item = MergeAnalysisEngine.CreateItemFromModel(elementModel, categoryName!);
 
                         cluster.Items.Add(item);
                     }
 
                     // Run deep scan and regenerate recommendations on updated cluster
-                    MergeAnalysisEngine.RunDeepScan(Document!, cluster, System.Threading.CancellationToken.None);
+                    MergeAnalysisEngine.RunDeepScan(cluster, System.Threading.CancellationToken.None);
                     MergeAnalysisEngine.GenerateRecommendations(cluster);
                     cluster.IsBlocked = false; // Reset block status so they can attempt queueing again
                 }

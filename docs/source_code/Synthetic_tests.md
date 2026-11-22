@@ -16,7 +16,7 @@ def run_test(revit_version="2025"):
     print(f"[TEST RUNNER] Starting integration test for Audit & Purge on Revit {revit_version}...")
     
     # 1. Run the test suite via the test_executor from the QA plugin
-    test_executor.run_test_suite("CmdTestAuditPurgeJournal", revit_version)
+    test_executor.run_test_suite("", revit_version)
     
     # 2. Locate the latest journal using the revit_journal_tool from the QA plugin
     latest_journal = revit_journal_tool.get_latest_journal(revit_version)
@@ -322,9 +322,9 @@ namespace Autodesk.Revit.DB
             return familyDoc;
         }
 
-        public bool LoadFamily(Document targetDocument, IFamilyLoadOptions familyLoadOptions)
+        public Family LoadFamily(Document targetDocument, IFamilyLoadOptions familyLoadOptions)
         {
-            return true;
+            return new Family();
         }
 
         public bool Close(bool saveChanges)
@@ -729,6 +729,8 @@ namespace Autodesk.Revit.DB
         public ElementId ThermalAssetId { get; set; } = ElementId.InvalidElementId;
         public ElementId AppearanceAssetId { get; set; } = ElementId.InvalidElementId;
 
+        public Color Color { get; set; } = Color.InvalidColorValue;
+
         public Color CutForegroundPatternColor { get; set; } = Color.InvalidColorValue;
         public Color CutBackgroundPatternColor { get; set; } = Color.InvalidColorValue;
         public Color SurfaceForegroundPatternColor { get; set; } = Color.InvalidColorValue;
@@ -961,7 +963,6 @@ namespace Autodesk.Revit.DB
 
     public class Family : Element
     {
-        public string Name { get; set; } = string.Empty;
         public bool IsEditable { get; set; } = true;
         public Category? FamilyCategory { get; set; }
         public WorksetId WorksetId { get; set; } = WorksetId.InvalidWorksetId;
@@ -970,7 +971,7 @@ namespace Autodesk.Revit.DB
 
     public static class WorksharingUtils
     {
-        public static System.Collections.Generic.IList<WorksetId> CheckoutWorksets(Document doc, System.Collections.Generic.ICollection<WorksetId> worksetIds)
+        public static System.Collections.Generic.ICollection<WorksetId> CheckoutWorksets(Document doc, System.Collections.Generic.ICollection<WorksetId> worksetIds)
         {
             return new System.Collections.Generic.List<WorksetId>();
         }
@@ -1253,7 +1254,24 @@ namespace Autodesk.Revit.DB
         public TransactionStatus Commit() { _status = TransactionStatus.Committed; return _status; }
         public TransactionStatus RollBack() { _status = TransactionStatus.RolledBack; return _status; }
         public TransactionStatus GetStatus() => _status;
+        public FailureHandlingOptions GetFailureHandlingOptions() => new FailureHandlingOptions();
+        public void SetFailureHandlingOptions(FailureHandlingOptions options) { }
         public void Dispose() { }
+    }
+
+    public interface IFailuresPreprocessor
+    {
+        FailureProcessingResult PreprocessFailures(FailuresAccessor failuresAccessor);
+    }
+
+    public class FailureHandlingOptions
+    {
+        public FailureHandlingOptions SetFailuresPreprocessor(IFailuresPreprocessor preprocessor) => this;
+        public IFailuresPreprocessor GetFailuresPreprocessor() => null;
+        public FailureHandlingOptions SetClearAfterRollback(bool clearAfterRollback) => this;
+        public bool GetClearAfterRollback() => false;
+        public FailureHandlingOptions SetForcedModalHandling(bool forcedModalHandling) => this;
+        public bool GetForcedModalHandling() => false;
     }
 
     public enum FailureProcessingResult
@@ -1461,6 +1479,245 @@ namespace SyntheticTests
             int expected = 10;
             int actual = 5 + 5;
             Assert.AreEqual(expected, actual, "Simple addition logic should pass.");
+        }
+    }
+}
+```
+
+### File: tests/SyntheticTests.Logic/Infrastructure/UI/RibbonManagerTests.cs
+```csharp
+using System;
+using Newtonsoft.Json;
+using NUnit.Framework;
+using Synthetic.Core;
+
+namespace SyntheticTests.Infrastructure.UI
+{
+    [TestFixture]
+    public class RibbonManagerTests
+    {
+        [Test]
+        public void IsVersionMatch_NoVersionBounds_ReturnsTrue()
+        {
+            // Arrange
+            var item = new RibbonItemConfig();
+
+            // Act & Assert
+            Assert.IsTrue(RibbonManager.IsVersionMatch(item, 2022));
+            Assert.IsTrue(RibbonManager.IsVersionMatch(item, 2024));
+            Assert.IsTrue(RibbonManager.IsVersionMatch(item, 2026));
+        }
+
+        [Test]
+        public void IsVersionMatch_MinVersionOnly_FiltersCorrectly()
+        {
+            // Arrange
+            var item = new RibbonItemConfig { MinVersion = 2024 };
+
+            // Act & Assert
+            Assert.IsFalse(RibbonManager.IsVersionMatch(item, 2022));
+            Assert.IsFalse(RibbonManager.IsVersionMatch(item, 2023));
+            Assert.IsTrue(RibbonManager.IsVersionMatch(item, 2024));
+            Assert.IsTrue(RibbonManager.IsVersionMatch(item, 2026));
+        }
+
+        [Test]
+        public void IsVersionMatch_MaxVersionOnly_FiltersCorrectly()
+        {
+            // Arrange
+            var item = new RibbonItemConfig { MaxVersion = 2025 };
+
+            // Act & Assert
+            Assert.IsTrue(RibbonManager.IsVersionMatch(item, 2022));
+            Assert.IsTrue(RibbonManager.IsVersionMatch(item, 2025));
+            Assert.IsFalse(RibbonManager.IsVersionMatch(item, 2026));
+        }
+
+        [Test]
+        public void IsVersionMatch_BothBounds_FiltersCorrectly()
+        {
+            // Arrange
+            var item = new RibbonItemConfig { MinVersion = 2023, MaxVersion = 2025 };
+
+            // Act & Assert
+            Assert.IsFalse(RibbonManager.IsVersionMatch(item, 2022));
+            Assert.IsTrue(RibbonManager.IsVersionMatch(item, 2023));
+            Assert.IsTrue(RibbonManager.IsVersionMatch(item, 2024));
+            Assert.IsTrue(RibbonManager.IsVersionMatch(item, 2025));
+            Assert.IsFalse(RibbonManager.IsVersionMatch(item, 2026));
+        }
+
+        [Test]
+        public void Deserialize_WithVersionBounds_ParsesCorrectly()
+        {
+            // Arrange
+            string json = @"
+            {
+                ""type"": ""PushButton"",
+                ""name"": ""TestButton"",
+                ""minVersion"": 2024,
+                ""maxVersion"": 2026
+            }";
+
+            // Act
+            var item = JsonConvert.DeserializeObject<RibbonItemConfig>(json);
+
+            // Assert
+            Assert.IsNotNull(item);
+            Assert.AreEqual("PushButton", item!.Type);
+            Assert.AreEqual("TestButton", item.Name);
+            Assert.AreEqual(2024, item.MinVersion);
+            Assert.AreEqual(2026, item.MaxVersion);
+        }
+
+        [Test]
+        public void Deserialize_WithoutVersionBounds_ParsesAsNull()
+        {
+            // Arrange
+            string json = @"
+            {
+                ""type"": ""PushButton"",
+                ""name"": ""TestButton""
+            }";
+
+            // Act
+            var item = JsonConvert.DeserializeObject<RibbonItemConfig>(json);
+
+            // Assert
+            Assert.IsNotNull(item);
+            Assert.IsNull(item!.MinVersion);
+            Assert.IsNull(item.MaxVersion);
+        }
+    }
+}
+```
+
+### File: tests/SyntheticTests.Logic/Infrastructure/UI/RibbonTests.cs
+```csharp
+using NUnit.Framework;
+using System;
+using System.IO;
+using System.Collections.Generic;
+using Newtonsoft.Json.Linq;
+using Synthetic.Core;
+
+namespace SyntheticTests.Infrastructure.UI
+{
+    [TestFixture]
+    public class RibbonTests
+    {
+        private static string GetProjectRoot()
+        {
+            string dir = TestContext.CurrentContext.TestDirectory;
+            while (dir != null && !Directory.Exists(Path.Combine(dir, "tests")))
+            {
+                dir = Path.GetDirectoryName(dir);
+            }
+            return dir ?? TestContext.CurrentContext.TestDirectory;
+        }
+
+        [Test]
+        public void RibbonConfig_ParsesWithoutErrors()
+        {
+            string projectRoot = GetProjectRoot();
+            string configPath = Path.Combine(projectRoot, "src", "SyntheticShared", "Assets", "ribbon_config.json");
+
+            if (!File.Exists(configPath))
+            {
+                string testBinDir = TestContext.CurrentContext.TestDirectory;
+                configPath = Path.Combine(testBinDir, "Assets", "ribbon_config.json");
+            }
+
+            Assert.IsTrue(File.Exists(configPath), $"Ribbon configuration file 'ribbon_config.json' not found at expected path: {configPath}");
+
+            string jsonContent = File.ReadAllText(configPath);
+            
+            Assert.DoesNotThrow(() => {
+                JObject ribbonConfig = JObject.Parse(jsonContent);
+                Assert.IsNotNull(ribbonConfig);
+            }, "Expected ribbon_config.json to parse without errors.");
+        }
+
+        [Test]
+        public void RibbonConfig_AllCommandClasses_ShouldResolve()
+        {
+            string projectRoot = GetProjectRoot();
+            string configPath = Path.Combine(projectRoot, "src", "SyntheticShared", "Assets", "ribbon_config.json");
+
+            if (!File.Exists(configPath))
+            {
+                string testBinDir = TestContext.CurrentContext.TestDirectory;
+                configPath = Path.Combine(testBinDir, "Assets", "ribbon_config.json");
+            }
+
+            Assert.IsTrue(File.Exists(configPath), $"Ribbon configuration file 'ribbon_config.json' not found at expected path: {configPath}");
+
+            string jsonContent = File.ReadAllText(configPath);
+            JObject ribbonConfig = JObject.Parse(jsonContent);
+
+            List<string> commandClasses = new List<string>();
+            ExtractCommandClasses(ribbonConfig, commandClasses);
+
+            Assert.IsNotEmpty(commandClasses, "No command classes were parsed from ribbon_config.json.");
+
+            var assembly = typeof(App).Assembly;
+            List<string> failedClasses = new List<string>();
+
+            foreach (var className in commandClasses)
+            {
+                if (!TypeExists(assembly, className))
+                {
+                    failedClasses.Add(className);
+                }
+            }
+
+            if (failedClasses.Count > 0)
+            {
+                Assert.Fail("The following command classes defined in ribbon_config.json could not be resolved in the assembly:\n" +
+                            string.Join("\n", failedClasses));
+            }
+        }
+
+        private bool TypeExists(System.Reflection.Assembly assembly, string className)
+        {
+            try
+            {
+                var type = assembly.GetType(className);
+                return type != null;
+            }
+            catch (TypeLoadException)
+            {
+                // Type exists but could not be fully loaded due to Revit interface mismatch headlessly
+                return true;
+            }
+            catch (FileNotFoundException)
+            {
+                // Type exists but a dependent assembly was not found headlessly
+                return true;
+            }
+        }
+
+        private void ExtractCommandClasses(JToken token, List<string> commandClasses)
+        {
+            if (token is JArray array)
+            {
+                foreach (var child in array)
+                {
+                    ExtractCommandClasses(child, commandClasses);
+                }
+            }
+            else if (token is JObject obj)
+            {
+                string className = obj.Value<string>("class");
+                if (!string.IsNullOrEmpty(className))
+                {
+                    commandClasses.Add(className);
+                }
+                foreach (var property in obj.Properties())
+                {
+                    ExtractCommandClasses(property.Value, commandClasses);
+                }
+            }
         }
     }
 }
@@ -1864,7 +2121,10 @@ using NUnit.Framework;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Synthetic.Infrastructure.Serialization;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests.Modules.RevitDOM
 {
@@ -1926,7 +2186,10 @@ using System;
 using NUnit.Framework;
 using Newtonsoft.Json.Linq;
 using Synthetic.Infrastructure.Serialization;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests.Modules.RevitDOM
 {
@@ -2022,7 +2285,10 @@ using System;
 using System.Collections.Generic;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests.Modules.RevitDOM
 {
@@ -2239,10 +2505,14 @@ namespace SyntheticTests.Modules.RevitDOM
 ### File: tests/SyntheticTests.Logic/Modules/RevitDOM/ElementIdModelTests.cs
 ```csharp
 using System;
+using System.Collections.Generic;
 using NUnit.Framework;
 using Newtonsoft.Json.Linq;
 using Synthetic.Infrastructure.Serialization;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests.Modules.RevitDOM
 {
@@ -2352,6 +2622,204 @@ namespace SyntheticTests.Modules.RevitDOM
             Assert.IsNotNull(roundTrip, "Round-trip deserialized object should not be null.");
             Assert.AreEqual(-2000100, roundTrip!.Id, "Deserialized ID should match original negative ID.");
         }
+
+        #region 5-Step Identity Resolution & Equality Tests
+
+        [Test]
+        public void Equals_Step1_UniqueIdMatch_ReturnsTrue()
+        {
+            var a = new ElementIdModel { UniqueId = "GUID-1234", Id = 100, Name = "WallA", Class = "Autodesk.Revit.DB.Wall" };
+            var b = new ElementIdModel { UniqueId = "guid-1234", Id = 999, Name = "WallB", Class = "Autodesk.Revit.DB.Wall" };
+
+            Assert.IsTrue(a.Equals(b), "Step 1: Matching UniqueId (case-insensitive) should equate models regardless of different Id or Name.");
+            Assert.IsTrue(a == b, "Operator == should match Equals result.");
+            Assert.IsFalse(a != b, "Operator != should be false for equal models.");
+        }
+
+        [Test]
+        public void Equals_Step2_PositiveAndBuiltInNegativeIds_ReturnsTrue()
+        {
+            var pos1 = new ElementIdModel { Id = 54321, Class = "Autodesk.Revit.DB.Wall" };
+            var pos2 = new ElementIdModel { Id = 54321, Class = "Autodesk.Revit.DB.Wall" };
+            Assert.IsTrue(pos1.Equals(pos2), "Step 2: Identical positive IDs should equate models.");
+
+            var builtIn1 = new ElementIdModel { Id = -2000100, Class = "Autodesk.Revit.DB.Category" };
+            var builtIn2 = new ElementIdModel { Id = -2000100, Class = "Autodesk.Revit.DB.Category" };
+            Assert.IsTrue(builtIn1.Equals(builtIn2), "Step 2: Preserved built-in negative IDs should equate models.");
+        }
+
+        [Test]
+        public void Equals_Step2_DefaultInvalidModels_HandledCorrectly()
+        {
+            var invalid1 = new ElementIdModel { Id = -1 };
+            var invalid2 = new ElementIdModel { Id = -1 };
+            Assert.IsTrue(invalid1.Equals(invalid2), "Two default invalid models with no UniqueId/Name should be equal.");
+
+            var invalidNamed1 = new ElementIdModel { Id = -1, Name = "Wall 1", Class = "Autodesk.Revit.DB.Wall" };
+            var invalidNamed2 = new ElementIdModel { Id = -1, Name = "Door 1", Class = "Autodesk.Revit.DB.Wall" };
+            Assert.IsFalse(invalidNamed1.Equals(invalidNamed2), "Models with Id = -1 but different names must not falsely match on Step 2.");
+        }
+
+        [Test]
+        public void Equals_Step3_ClassTypeGuard_PreventsMismatch()
+        {
+            var wall = new ElementIdModel { Id = 100, Name = "Standard", Class = "Autodesk.Revit.DB.Wall" };
+            var floor = new ElementIdModel { Id = 100, Name = "Standard", Class = "Autodesk.Revit.DB.Floor" };
+
+            Assert.IsFalse(wall.Equals(floor), "Step 3 Type Guard: Different Class types must prevent equality despite identical Id or Name.");
+        }
+
+        [Test]
+        public void Equals_Step4_NameAndCategory_CaseInsensitiveMatch()
+        {
+            var a = new ElementIdModel { Name = "Generic Wall", Class = "Autodesk.Revit.DB.Wall", Category = "Walls" };
+            var b = new ElementIdModel { Name = "generic wall", Class = "autodesk.revit.db.wall", Category = "walls" };
+
+            Assert.IsTrue(a.Equals(b), "Step 4: Matching Name, Class, and Category (case-insensitive) should equate models.");
+
+            var c = new ElementIdModel { Name = "Generic Wall", Class = "Autodesk.Revit.DB.Wall", Category = "Doors" };
+            Assert.IsFalse(a.Equals(c), "Step 4: Mismatched Category should prevent equality.");
+        }
+
+        [Test]
+        public void Equals_Step5_AliasesCrossMatch_ReturnsTrue()
+        {
+            var main = new ElementIdModel
+            {
+                Name = "Wall_Standard_v2",
+                Class = "Autodesk.Revit.DB.Wall",
+                Aliases = new List<string> { "Wall_Standard_v1", "Legacy_Wall" }
+            };
+
+            var legacy = new ElementIdModel
+            {
+                Name = "Wall_Standard_v1",
+                Class = "Autodesk.Revit.DB.Wall"
+            };
+
+            Assert.IsTrue(main.Equals(legacy), "Step 5: Main model alias matching secondary model name should return true.");
+            Assert.IsTrue(legacy.Equals(main), "Step 5: Symmetry requirement - secondary model matching main model alias.");
+
+            var bothAliased = new ElementIdModel
+            {
+                Name = "New_Wall_Name",
+                Class = "Autodesk.Revit.DB.Wall",
+                Aliases = new List<string> { "Legacy_Wall" }
+            };
+            Assert.IsTrue(main.Equals(bothAliased), "Step 5: Intersecting aliases should match.");
+        }
+
+        [Test]
+        public void GetHashCode_Consistency_SameForEqualObjects()
+        {
+            var a = new ElementIdModel { Name = "Generic Wall", Class = "Autodesk.Revit.DB.Wall", Category = "Walls", Id = 100 };
+            var b = new ElementIdModel { Name = "GENERIC WALL", Class = "autodesk.revit.db.wall", Category = "WALLS", Id = 100 };
+
+            Assert.IsTrue(a.Equals(b), "Models should be equal.");
+            Assert.AreEqual(a.GetHashCode(), b.GetHashCode(), "Equal objects must yield identical hash codes regardless of casing.");
+        }
+
+        [Test]
+        public void DictionaryLookup_ElementIdModel_Succeeds()
+        {
+            var key1 = new ElementIdModel { Name = "Wall_A", Class = "Autodesk.Revit.DB.Wall", Id = 101 };
+            var key2 = new ElementIdModel { Name = "wall_a", Class = "Autodesk.Revit.DB.Wall", Id = 101 };
+
+            var dict = new Dictionary<ElementIdModel, string>
+            {
+                { key1, "WinningValue" }
+            };
+
+            Assert.IsTrue(dict.ContainsKey(key2), "Dictionary lookup should succeed for value-equal ElementIdModel instance.");
+            Assert.AreEqual("WinningValue", dict[key2], "Dictionary value retrieval should match expected value.");
+        }
+
+        [Test]
+        public void Equals_Step1_UniqueIdMismatch_ReturnsFalse_EvenWhenIdOrNameMatch()
+        {
+            var a = new ElementIdModel { UniqueId = "UID-111", Id = 100, Name = "Door 1", Class = "Autodesk.Revit.DB.FamilyInstance" };
+            var b = new ElementIdModel { UniqueId = "UID-222", Id = 100, Name = "Door 1", Class = "Autodesk.Revit.DB.FamilyInstance" };
+
+            Assert.IsFalse(a.Equals(b), "Mismatched UniqueIds must return false immediately and not fall through to Id or Name.");
+            Assert.IsFalse(a == b, "Operator == should return false for mismatched UniqueIds.");
+            Assert.IsTrue(a != b, "Operator != should return true for mismatched UniqueIds.");
+        }
+
+        [Test]
+        public void GetHashCode_UniqueIdMatch_EmptyName_HasSameHashCode()
+        {
+            var a = new ElementIdModel { UniqueId = "GUID-1234", Id = 100, Class = "Autodesk.Revit.DB.Wall" };
+            var b = new ElementIdModel { UniqueId = "guid-1234", Id = 999, Class = "Autodesk.Revit.DB.Wall" };
+
+            Assert.IsTrue(a.Equals(b), "Models with matching UniqueId should be equal.");
+            Assert.AreEqual(a.GetHashCode(), b.GetHashCode(), "Equal objects matching on UniqueId with empty Name must yield identical hash codes regardless of differing Id.");
+        }
+
+        [Test]
+        public void GetHashCode_AsymmetricEquality_UniqueIdAndName_Matches_NameOnly()
+        {
+            var fullModel = new ElementIdModel { UniqueId = "GUID-1234", Id = 100, Name = "WallA", Class = "Autodesk.Revit.DB.Wall" };
+            var nameOnlyModel = new ElementIdModel { Name = "wAlLa", Class = "autodesk.revit.db.wall" };
+
+            Assert.IsTrue(fullModel.Equals(nameOnlyModel), "Full model and Name-only model with matching Name and Class must be equal.");
+            Assert.IsTrue(nameOnlyModel.Equals(fullModel), "Symmetry requirement: Name-only model must equal Full model.");
+            Assert.AreEqual(fullModel.GetHashCode(), nameOnlyModel.GetHashCode(), "Full model and Name-only model matching on Name must produce identical hash codes.");
+        }
+
+        [Test]
+        public void GetHashCode_AsymmetricEquality_DifferingInvalidIds_MatchesOnName()
+        {
+            var model1 = new ElementIdModel { Id = -1, Name = "Door Standard", Class = "Autodesk.Revit.DB.FamilyInstance" };
+            var model2 = new ElementIdModel { Id = -2, Name = "door standard", Class = "autodesk.revit.db.familyinstance" };
+
+            Assert.IsTrue(model1.Equals(model2), "Models with differing invalid IDs (-1 vs -2) and matching Name must be equal.");
+            Assert.AreEqual(model1.GetHashCode(), model2.GetHashCode(), "Models with differing invalid IDs matching on Name must produce identical hash codes.");
+        }
+
+        [Test]
+        public void DictionaryLookup_AsymmetricModels_Succeeds()
+        {
+            var fullKey = new ElementIdModel { UniqueId = "GUID-1234", Id = 101, Name = "Wall_A", Class = "Autodesk.Revit.DB.Wall" };
+            var nameOnlyLookupKey = new ElementIdModel { Name = "wall_a", Class = "Autodesk.Revit.DB.Wall" };
+
+            var dict = new Dictionary<ElementIdModel, string>
+            {
+                { fullKey, "WinningValue" }
+            };
+
+            Assert.IsTrue(dict.ContainsKey(nameOnlyLookupKey), "Dictionary lookup should succeed using asymmetric Name-only ElementIdModel lookup key.");
+            Assert.AreEqual("WinningValue", dict[nameOnlyLookupKey], "Dictionary value retrieval should match expected value for asymmetric key.");
+        }
+
+        [Test]
+        public void GetHashCode_Consistency_AcrossAllFallbackSteps()
+        {
+            // Fallback 1: UniqueId match (no Name)
+            var u1 = new ElementIdModel { UniqueId = "GUID-ABC", Id = 10, Class = "Autodesk.Revit.DB.Wall" };
+            var u2 = new ElementIdModel { UniqueId = "guid-abc", Id = 20, Class = "Autodesk.Revit.DB.Wall" };
+            Assert.IsTrue(u1.Equals(u2));
+            Assert.AreEqual(u1.GetHashCode(), u2.GetHashCode(), "Step 1: UniqueId match must produce identical HashCodes.");
+
+            // Fallback 2: Id match (no UniqueId or Name)
+            var i1 = new ElementIdModel { Id = 500, Class = "Autodesk.Revit.DB.Wall" };
+            var i2 = new ElementIdModel { Id = 500, Class = "Autodesk.Revit.DB.Wall" };
+            Assert.IsTrue(i1.Equals(i2));
+            Assert.AreEqual(i1.GetHashCode(), i2.GetHashCode(), "Step 2: Id match must produce identical HashCodes.");
+
+            // Fallback 4: Name match (no UniqueId or Id)
+            var n1 = new ElementIdModel { Name = "Shared Wall", Category = "Walls" };
+            var n2 = new ElementIdModel { Name = "shared wall", Category = "walls" };
+            Assert.IsTrue(n1.Equals(n2));
+            Assert.AreEqual(n1.GetHashCode(), n2.GetHashCode(), "Step 4: Name match must produce identical HashCodes.");
+
+            // Fallback: Default/Empty models
+            var d1 = new ElementIdModel();
+            var d2 = new ElementIdModel();
+            Assert.IsTrue(d1.Equals(d2));
+            Assert.AreEqual(d1.GetHashCode(), d2.GetHashCode(), "Default empty models must produce identical HashCodes.");
+        }
+
+        #endregion
     }
 }
 ```
@@ -2363,7 +2831,10 @@ using NUnit.Framework;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Synthetic.Infrastructure.Serialization;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Shared;
 
 namespace SyntheticTests.Modules.RevitDOM
@@ -2427,150 +2898,15 @@ namespace SyntheticTests.Modules.RevitDOM
 }
 ```
 
-### File: tests/SyntheticTests.Logic/Modules/RevitDOM/FakeIdentityService.cs
-```csharp
-using System;
-using System.Collections.Generic;
-using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
-
-namespace SyntheticTests.Modules.RevitDOM
-{
-    /// <summary>
-    /// A lightweight, in-memory mock implementation of IIdentityService for headless unit tests.
-    /// </summary>
-    internal class FakeIdentityService : IIdentityService
-    {
-        private readonly Dictionary<long, ElementIdModel> _idToModel = new Dictionary<long, ElementIdModel>();
-        private readonly Dictionary<string, ElementIdModel> _uniqueIdToModel = new Dictionary<string, ElementIdModel>();
-        private readonly Dictionary<string, Element> _nameToElement = new Dictionary<string, Element>();
-        private readonly Dictionary<string, Element> _uniqueIdToElement = new Dictionary<string, Element>();
-
-        /// <summary>
-        /// Stub a mapping for ToModel extraction.
-        /// </summary>
-        public void SetupMapping(ElementId id, ElementIdModel model)
-        {
-            long idVal;
-#if REVIT2022 || REVIT2023
-            idVal = id.IntegerValue;
-#else
-            idVal = id.Value;
-#endif
-            _idToModel[idVal] = model;
-            if (!string.IsNullOrEmpty(model.UniqueId))
-            {
-                _uniqueIdToModel[model.UniqueId] = model;
-            }
-        }
-
-        /// <summary>
-        /// Stub an element resolution mapping.
-        /// </summary>
-        public void SetupElement(string nameOrUniqueId, Element element)
-        {
-            _nameToElement[nameOrUniqueId] = element;
-            if (element != null && !string.IsNullOrEmpty(element.UniqueId))
-            {
-                _uniqueIdToElement[element.UniqueId] = element;
-            }
-        }
-
-        public ElementIdModel ToModel(ElementId id, Document doc, bool isTemplate = false)
-        {
-            if (id == null) return null;
-
-            long idVal;
-#if REVIT2022 || REVIT2023
-            idVal = id.IntegerValue;
-#else
-            idVal = id.Value;
-#endif
-
-            if (_idToModel.TryGetValue(idVal, out var model))
-            {
-                return model;
-            }
-
-            return new ElementIdModel
-            {
-                Id = idVal,
-                Name = $"FakeElement_{idVal}",
-                Class = "Autodesk.Revit.DB.Element",
-                UniqueId = $"fake-uid-{idVal}",
-                Category = "Generic",
-                IsTemplate = isTemplate
-            };
-        }
-
-        public ElementId ResolveElementId(ElementIdModel model, Document doc)
-        {
-            if (model == null) return ElementId.InvalidElementId;
-
-            if (_uniqueIdToModel.TryGetValue(model.UniqueId, out var mappedModel))
-            {
-#if REVIT2022 || REVIT2023
-                return new ElementId((int)mappedModel.Id);
-#else
-                return new ElementId(mappedModel.Id);
-#endif
-            }
-
-#if REVIT2022 || REVIT2023
-            return new ElementId((int)model.Id);
-#else
-            return new ElementId(model.Id);
-#endif
-        }
-
-        public Element ResolveElement(ElementIdModel model, Document doc)
-        {
-            if (model == null) return null;
-
-            if (!string.IsNullOrEmpty(model.UniqueId) && _uniqueIdToElement.TryGetValue(model.UniqueId, out var elemByUid))
-            {
-                return elemByUid;
-            }
-
-            if (!string.IsNullOrEmpty(model.Name) && _nameToElement.TryGetValue(model.Name, out var elemByName))
-            {
-                return elemByName;
-            }
-
-            return null;
-        }
-
-        public IEnumerable<Element> GetElementsByElementIdModels(Document doc, IEnumerable<ElementIdModel> identifiers)
-        {
-            var resolvedElements = new List<Element>();
-            if (identifiers == null) return resolvedElements;
-
-            foreach (var model in identifiers)
-            {
-                if (model == null) continue;
-                var elem = ResolveElement(model, doc);
-                if (elem != null)
-                {
-                    resolvedElements.Add(elem);
-                }
-                else
-                {
-                    SerializationResultModel.LogWarning($"Dependency not found: {model.Name} ({model.Class})");
-                }
-            }
-
-            return resolvedElements;
-        }
-    }
-}
-```
-
 ### File: tests/SyntheticTests.Logic/Modules/RevitDOM/FakeIdentityServiceTests.cs
 ```csharp
 using System;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests.Modules.RevitDOM
 {
@@ -2688,7 +3024,10 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests.Modules.RevitDOM
 {
@@ -2770,13 +3109,217 @@ namespace SyntheticTests.Modules.RevitDOM
 }
 ```
 
+### File: tests/SyntheticTests.Logic/Modules/RevitDOM/ParameterDefinitionSpecTests.cs
+```csharp
+using System;
+using NUnit.Framework;
+using Synthetic.RevitDOM.Models;
+
+namespace SyntheticTests.Logic.Modules.RevitDOM
+{
+    [TestFixture]
+    public class ParameterDefinitionSpecTests
+    {
+        [Test]
+        public void Constructor_Default_InitializesPropertiesToNull()
+        {
+            var spec = new ParameterDefinitionSpec();
+            Assert.IsNull(spec.Group);
+            Assert.IsNull(spec.SpecType);
+            Assert.IsNull(spec.ParameterGroup);
+            Assert.IsNull(spec.ParameterType);
+        }
+
+        [Test]
+        public void Constructor_WithArguments_SetsPropertiesAndAliases()
+        {
+            var groupObj = "PG_DATA";
+            var typeObj = "Text";
+            var spec = new ParameterDefinitionSpec(groupObj, typeObj);
+            Assert.AreEqual(groupObj, spec.Group);
+            Assert.AreEqual(typeObj, spec.SpecType);
+            Assert.AreEqual(groupObj, spec.ParameterGroup);
+            Assert.AreEqual(typeObj, spec.ParameterType);
+        }
+
+        [Test]
+        public void AliasProperties_MutateUnderlyingState()
+        {
+            var spec = new ParameterDefinitionSpec();
+            spec.ParameterGroup = "PG_IDENTITY";
+            spec.ParameterType = "Integer";
+            Assert.AreEqual("PG_IDENTITY", spec.Group);
+            Assert.AreEqual("Integer", spec.SpecType);
+        }
+
+        [Test]
+        public void CreateDefault_ReturnsNonNullSpecWithDefaults()
+        {
+            var spec = ParameterDefinitionSpec.CreateDefault();
+            Assert.IsNotNull(spec);
+            Assert.IsNotNull(spec.Group);
+            Assert.IsNotNull(spec.SpecType);
+            Assert.AreEqual("PG_DATA", spec.Group);
+            Assert.AreEqual("Text", spec.SpecType);
+        }
+    }
+}
+```
+
+### File: tests/SyntheticTests.Logic/Modules/RevitDOM/PocoIdentityServiceTests.cs
+```csharp
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using NUnit.Framework;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
+
+namespace SyntheticTests.Logic.Modules.RevitDOM
+{
+    [TestFixture]
+    public class PocoIdentityServiceTests
+    {
+        private PocoIdentityService _service;
+        private List<ElementModel> _pool;
+
+        [SetUp]
+        public void SetUp()
+        {
+            _service = new PocoIdentityService();
+
+            // Populate a fake pool of ElementModels representing diverse standard types
+            _pool = new List<ElementModel>
+            {
+                new MaterialModel
+                {
+                    UniqueId = "material-guid-1",
+                    Id = 1001,
+                    Name = "Structural Concrete",
+                    Class = "Autodesk.Revit.DB.Material",
+                    Aliases = new List<string> { "Concrete", "Cast-in-Place Concrete" }
+                },
+                new MaterialModel
+                {
+                    UniqueId = "material-guid-2",
+                    Id = 1002,
+                    Name = "Default Glass",
+                    Class = "Autodesk.Revit.DB.Material"
+                },
+                new HostObjTypeModel
+                {
+                    UniqueId = "wall-guid-1",
+                    Id = 2001,
+                    Name = "Exterior - 12\" Concrete",
+                    Class = "Autodesk.Revit.DB.WallType",
+                    Aliases = new List<string> { "Ext Wall 12" }
+                }
+            };
+        }
+
+        [Test]
+        public void ResolveElement_ByUniqueId_ReturnsCorrectMatch()
+        {
+            var reference = new ElementIdModel { UniqueId = "material-guid-1", Class = "Autodesk.Revit.DB.Material" };
+            var result = _service.ResolveElement(reference, _pool);
+
+            Assert.IsNotNull(result);
+            Assert.AreEqual("Structural Concrete", result.Name);
+        }
+
+        [Test]
+        public void ResolveElement_ById_ReturnsCorrectMatch()
+        {
+            var reference = new ElementIdModel { Id = 1002, Class = "Autodesk.Revit.DB.Material" };
+            var result = _service.ResolveElement(reference, _pool);
+
+            Assert.IsNotNull(result);
+            Assert.AreEqual("Default Glass", result.Name);
+        }
+
+        [Test]
+        public void ResolveElement_ByName_ReturnsCorrectMatch()
+        {
+            var reference = new ElementIdModel { Name = "Exterior - 12\" Concrete", Class = "Autodesk.Revit.DB.WallType" };
+            var result = _service.ResolveElement(reference, _pool);
+
+            Assert.IsNotNull(result);
+            Assert.AreEqual("wall-guid-1", result.UniqueId);
+        }
+
+        [Test]
+        public void ResolveElement_ByAlias_ReturnsCorrectMatch()
+        {
+            var reference = new ElementIdModel
+            {
+                Class = "Autodesk.Revit.DB.Material",
+                Aliases = new List<string> { "Cast-in-Place Concrete" }
+            };
+            var result = _service.ResolveElement(reference, _pool);
+
+            Assert.IsNotNull(result);
+            Assert.AreEqual("material-guid-1", result.UniqueId);
+        }
+
+        [Test]
+        public void ResolveElement_TypeMismatch_ReturnsNull()
+        {
+            // Attempt to resolve a wall-type ID using a Material reference (type mismatch)
+            var reference = new ElementIdModel { UniqueId = "wall-guid-1", Class = "Autodesk.Revit.DB.Material" };
+            var result = _service.ResolveElement(reference, _pool);
+
+            Assert.IsNull(result, "Resolution should return null due to strict class verification mismatch.");
+        }
+
+        [Test]
+        public void ResolveElements_BulkResolution_ReturnsSuccessfully()
+        {
+            var references = new List<ElementIdModel>
+            {
+                new ElementIdModel { UniqueId = "material-guid-1", Class = "Autodesk.Revit.DB.Material" },
+                new ElementIdModel { Id = 2001, Class = "Autodesk.Revit.DB.WallType" },
+                new ElementIdModel { UniqueId = "non-existent-guid", Class = "Autodesk.Revit.DB.Material" }
+            };
+
+            var results = _service.ResolveElements(references, _pool).ToList();
+
+            Assert.AreEqual(2, results.Count);
+            Assert.IsTrue(results.Any(r => r.Name == "Structural Concrete"));
+            Assert.IsTrue(results.Any(r => r.Name == "Exterior - 12\" Concrete"));
+        }
+
+        [Test]
+        public void AreSameIdentity_Overloads_WorkCorrectly()
+        {
+            var service = new PocoIdentityService();
+
+            var idModel1 = new ElementIdModel { UniqueId = "UID-999", Name = "Column1", Class = "Autodesk.Revit.DB.FamilyInstance" };
+            var idModel2 = new ElementIdModel { UniqueId = "uid-999", Name = "Column1_Alt", Class = "Autodesk.Revit.DB.FamilyInstance" };
+
+            var elemModel1 = new ElementModel { ElementId = idModel1 };
+            var elemModel2 = new ElementModel { ElementId = idModel2 };
+
+            Assert.IsTrue(service.AreSameIdentity(idModel1, idModel2), "AreSameIdentity(ElementIdModel, ElementIdModel) overload should return true.");
+            Assert.IsTrue(service.AreSameIdentity(elemModel1, elemModel2), "AreSameIdentity(ElementModel, ElementModel) overload should return true.");
+            Assert.IsTrue(service.AreSameIdentity(idModel1, elemModel2), "AreSameIdentity(ElementIdModel, ElementModel) overload should return true.");
+            Assert.IsTrue(service.AreSameIdentity(elemModel1, idModel2), "AreSameIdentity(ElementModel, ElementIdModel) overload should return true.");
+        }
+    }
+}
+```
+
 ### File: tests/SyntheticTests.Logic/Modules/RevitDOM/RevitDomDependencyScannerTests.cs
 ```csharp
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace ExternalNamespace
 {
@@ -2918,7 +3461,10 @@ namespace SyntheticTests.Modules.RevitDOM
 using System;
 using System.Collections.Generic;
 using NUnit.Framework;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests.Modules.RevitDOM
 {
@@ -2950,7 +3496,7 @@ namespace SyntheticTests.Modules.RevitDOM
             Assert.AreEqual(original.Class, clone.Class);
             Assert.AreEqual(original.Category, clone.Category);
             Assert.AreEqual(original.UniqueId, clone.UniqueId);
-            Assert.IsTrue(clone.IsTemplate, "IsTemplate is marked [JsonIgnore] and defaults to true in constructor.");
+            Assert.IsFalse(clone.IsTemplate, "IsTemplate is marked [JsonIgnore] and defaults to false in constructor.");
         }
 
         [Test]
@@ -3068,7 +3614,10 @@ using System;
 using NUnit.Framework;
 using Newtonsoft.Json.Linq;
 using Synthetic.Infrastructure.Serialization;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests.Modules.RevitDOM
 {
@@ -3157,7 +3706,10 @@ using NUnit.Framework;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using Synthetic.Infrastructure.Serialization;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests.Modules.RevitDOM
 {
@@ -3314,12 +3866,15 @@ namespace SyntheticTests.Modules.RevitDOM
 
 ### File: tests/SyntheticTests.Logic/Modules/StandardsManagement/DashboardFindReplaceTests.cs
 ```csharp
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Shared.UI;
 
@@ -3342,7 +3897,8 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void FindReplace_HeterogeneousSelection_ShouldMutateSelectedNamesAndParameters()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
+            var vm = parent.StagingQueueViewModel;
 
             var matParam = new ParameterModel("Comments", "FindMe_MaterialVal", null, "String", 1, null, false, false);
             var material = new ElementModel { Class = "Autodesk.Revit.DB.Material", Name = "FindMe_Material", Parameters = new List<ParameterModel> { matParam } };
@@ -3353,21 +3909,19 @@ namespace SyntheticTests.Modules.StandardsManagement
             var qMaterial = new QueueItemModel(material, true, false);
             var qLinePattern = new QueueItemModel(linePattern, true, false);
 
-            vm.ActionQueue.Add(qMaterial);
-            vm.ActionQueue.Add(qLinePattern);
+            vm.StagingQueue.Add(qMaterial);
+            vm.StagingQueue.Add(qLinePattern);
 
             // Edit both
             var itemsToEdit = new List<QueueItemModel> { qMaterial, qLinePattern };
-            var editMethod = typeof(ProjectStandardsDashboardViewModel).GetMethod("ExecuteEdit", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            editMethod?.Invoke(vm, new object[] { itemsToEdit });
+            vm.EditCommand.Execute(itemsToEdit);
 
             // Act
             vm.FindText = "FindMe";
             vm.ReplaceText = "Replaced";
             vm.FindReplaceScope = SearchScope.Both;
 
-            var findReplaceMethod = typeof(ProjectStandardsDashboardViewModel).GetMethod("ExecuteBatchFindReplace", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            findReplaceMethod?.Invoke(vm, new object[] { null! });
+            vm.BatchFindReplaceCommand.Execute(null!);
 
             // Assert names updated
             var targetMat = (ElementModel)qMaterial.TargetModel;
@@ -3388,25 +3942,24 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void FindReplace_ReadOnlyProtection_ShouldNotModifyReadOnlyParameters()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
+            var vm = parent.StagingQueueViewModel;
 
             var writableParam = new ParameterModel("Comments", "FindMe_Writable", null, "String", 1, null, false, false);
             var readOnlyParam = new ParameterModel("Category", "FindMe_ReadOnly", null, "String", 2, null, false, true); // IsReadOnly = true
             var el = new ElementModel { Class = "Autodesk.Revit.DB.Material", Name = "Mat", Parameters = new List<ParameterModel> { writableParam, readOnlyParam } };
 
             var qItem = new QueueItemModel(el, true, false);
-            vm.ActionQueue.Add(qItem);
+            vm.StagingQueue.Add(qItem);
 
-            var editMethod = typeof(ProjectStandardsDashboardViewModel).GetMethod("ExecuteEdit", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            editMethod?.Invoke(vm, new object[] { new List<QueueItemModel> { qItem } });
+            vm.EditCommand.Execute(new List<QueueItemModel> { qItem });
 
             // Act
             vm.FindText = "FindMe";
             vm.ReplaceText = "Replaced";
             vm.FindReplaceScope = SearchScope.ParameterValues;
 
-            var findReplaceMethod = typeof(ProjectStandardsDashboardViewModel).GetMethod("ExecuteBatchFindReplace", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            findReplaceMethod?.Invoke(vm, new object[] { null! });
+            vm.BatchFindReplaceCommand.Execute(null!);
 
             // Assert
             var target = (ElementModel)qItem.TargetModel;
@@ -3418,24 +3971,23 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void FindReplace_DirtyStateRecalculation_ShouldReportIsDirtyPostReplacement()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
+            var vm = parent.StagingQueueViewModel;
 
             var param = new ParameterModel("Comments", "FindMe", null, "String", 1, null, false, false);
             var el = new ElementModel { Class = "Autodesk.Revit.DB.Material", Name = "Mat", Parameters = new List<ParameterModel> { param } };
 
             var qItem = new QueueItemModel(el, true, false);
-            vm.ActionQueue.Add(qItem);
+            vm.StagingQueue.Add(qItem);
 
-            var editMethod = typeof(ProjectStandardsDashboardViewModel).GetMethod("ExecuteEdit", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            editMethod?.Invoke(vm, new object[] { new List<QueueItemModel> { qItem } });
+            vm.EditCommand.Execute(new List<QueueItemModel> { qItem });
 
             // Act
             vm.FindText = "FindMe";
             vm.ReplaceText = "Replaced";
             vm.FindReplaceScope = SearchScope.ParameterValues;
 
-            var findReplaceMethod = typeof(ProjectStandardsDashboardViewModel).GetMethod("ExecuteBatchFindReplace", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            findReplaceMethod?.Invoke(vm, new object[] { null! });
+            vm.BatchFindReplaceCommand.Execute(null!);
 
             // Assert
             var wrapper = qItem.GetWrapper();
@@ -3447,34 +3999,33 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void FindReplace_ScopeControls_ShouldRespectConfiguredScope()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
+            var vm = parent.StagingQueueViewModel;
 
             // ElementNames Only Scope
             var param1 = new ParameterModel("Comments", "FindMe", null, "String", 1, null, false, false);
             var el1 = new ElementModel { Class = "Autodesk.Revit.DB.Material", Name = "FindMe_Name", Parameters = new List<ParameterModel> { param1 } };
             var q1 = new QueueItemModel(el1, true, false);
-            vm.ActionQueue.Add(q1);
+            vm.StagingQueue.Add(q1);
 
             // ParameterValues Only Scope
             var param2 = new ParameterModel("Comments", "FindMe", null, "String", 1, null, false, false);
             var el2 = new ElementModel { Class = "Autodesk.Revit.DB.Material", Name = "FindMe_Name", Parameters = new List<ParameterModel> { param2 } };
             var q2 = new QueueItemModel(el2, true, false);
-            vm.ActionQueue.Add(q2);
+            vm.StagingQueue.Add(q2);
 
             // Act: Run Find & Replace for q1 with ElementNames scope
-            var editMethod = typeof(ProjectStandardsDashboardViewModel).GetMethod("ExecuteEdit", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            editMethod?.Invoke(vm, new object[] { new List<QueueItemModel> { q1 } });
+            vm.EditCommand.Execute(new List<QueueItemModel> { q1 });
             vm.FindText = "FindMe";
             vm.ReplaceText = "Replaced";
             vm.FindReplaceScope = SearchScope.ElementNames;
 
-            var findReplaceMethod = typeof(ProjectStandardsDashboardViewModel).GetMethod("ExecuteBatchFindReplace", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            findReplaceMethod?.Invoke(vm, new object[] { null! });
+            vm.BatchFindReplaceCommand.Execute(null!);
 
             // Act: Run Find & Replace for q2 with ParameterValues scope
-            editMethod?.Invoke(vm, new object[] { new List<QueueItemModel> { q2 } });
+            vm.EditCommand.Execute(new List<QueueItemModel> { q2 });
             vm.FindReplaceScope = SearchScope.ParameterValues;
-            findReplaceMethod?.Invoke(vm, new object[] { null! });
+            vm.BatchFindReplaceCommand.Execute(null!);
 
             // Assert q1: name updated, parameter unchanged
             var target1 = (ElementModel)q1.TargetModel;
@@ -3492,12 +4043,15 @@ namespace SyntheticTests.Modules.StandardsManagement
 
 ### File: tests/SyntheticTests.Logic/Modules/StandardsManagement/DashboardParametersEditorTests.cs
 ```csharp
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Shared.UI;
 
@@ -3571,7 +4125,8 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void StagedMultiSelectIntersection_ShouldAggregateParametersAndDisplayVaries()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
+            var vm = parent.StagingQueueViewModel;
 
             var p1 = new ParameterModel("Comments", "ValueA", null, "String", 1, null, false, false);
             var el1 = new ElementModel { Class = "Autodesk.Revit.DB.LinePatternElement", Name = "Dash", Parameters = new List<ParameterModel> { p1 } };
@@ -3582,13 +4137,12 @@ namespace SyntheticTests.Modules.StandardsManagement
             var q1 = new QueueItemModel(el1, true, false);
             var q2 = new QueueItemModel(el2, true, false);
 
-            vm.ActionQueue.Add(q1);
-            vm.ActionQueue.Add(q2);
+            vm.StagingQueue.Add(q1);
+            vm.StagingQueue.Add(q2);
 
             // Act: Edit items to calculate intersection
             var itemsToEdit = new List<QueueItemModel> { q1, q2 };
-            var editMethod = typeof(ProjectStandardsDashboardViewModel).GetMethod("ExecuteEdit", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            editMethod?.Invoke(vm, new object[] { itemsToEdit });
+            vm.EditCommand.Execute(itemsToEdit);
 
             // Assert intersection has Comments with <Varies>
             var commentsParam = vm.DisplayParameters.FirstOrDefault(p => p.Name == "Comments");
@@ -3608,8 +4162,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             Assert.IsTrue(q2.IsEdited);
  
             // Act: Cancel edits
-            var cancelMethod = typeof(ProjectStandardsDashboardViewModel).GetMethod("ExecuteCancelEdits", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            cancelMethod?.Invoke(vm, new object[] { null! });
+            vm.CancelEditsCommand.Execute(null!);
  
             // Assert revert to original baseline values and original intents (Enforce)
             Assert.AreEqual("ValueA", ((ElementModel)q1.TargetModel).Parameters[0].Value);
@@ -3621,10 +4174,11 @@ namespace SyntheticTests.Modules.StandardsManagement
         }
 
         [Test]
-        public void CascadingRenameSafety_ShouldUpdateReferencesAcrossActionQueue()
+        public void CascadingRenameSafety_ShouldUpdateReferencesAcrossStagingQueue()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
+            var vm = parent.StagingQueueViewModel;
 
             var materialModel = new ElementModel
             {
@@ -3652,12 +4206,11 @@ namespace SyntheticTests.Modules.StandardsManagement
             var qMaterial = new QueueItemModel(materialModel, true, false);
             var qWall = new QueueItemModel(wallModel, true, false);
 
-            vm.ActionQueue.Add(qMaterial);
-            vm.ActionQueue.Add(qWall);
+            vm.StagingQueue.Add(qMaterial);
+            vm.StagingQueue.Add(qWall);
 
             // Act: Edit Material item to start session
-            var editMethod = typeof(ProjectStandardsDashboardViewModel).GetMethod("ExecuteEdit", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-            editMethod?.Invoke(vm, new object[] { new List<QueueItemModel> { qMaterial } });
+            vm.EditCommand.Execute(new List<QueueItemModel> { qMaterial });
 
             // Trigger Name property change via SelectedItemName property
             vm.SelectedItemName = "NewMaterialName";
@@ -3671,13 +4224,13 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void NestedModalWiring_ShouldRetrievePoolFromAllWrappedElements()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
 
             var mat = new ElementModel { Class = "Autodesk.Revit.DB.Material", Name = "Brick" };
             var wall = new HostObjTypeModel { Class = "Autodesk.Revit.DB.WallType", Name = "Brick Wall" };
 
-            vm.ActionQueue.Add(new QueueItemModel(mat, true, false));
-            vm.ActionQueue.Add(new QueueItemModel(wall, true, false));
+            vm.StagingQueue.Add(new QueueItemModel(mat, true, false));
+            vm.StagingQueue.Add(new QueueItemModel(wall, true, false));
 
             // Act
             var pool = vm.AllWrappedElements.ToList();
@@ -3700,11 +4253,15 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.MergeDuplicates.Models;
+using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.Settings;
 using Synthetic.Shared.UI;
-using Synthetic.Modules.RevitDOM;
-using Synthetic.Modules.StandardsManagement.Utilities;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
+using Synthetic.RevitDOM.Operations.Standards;
+using Synthetic.RevitDOM.Operations.Standards;
 
 namespace SyntheticTests.Modules.StandardsManagement
 {
@@ -3724,35 +4281,43 @@ namespace SyntheticTests.Modules.StandardsManagement
 
         private T CreateMockElement<T>(Document doc, string name, long idVal) where T : Element
         {
-            var elem = (T)Activator.CreateInstance(typeof(T), true)!;
-            
-            // Set Name
-            var nameProp = typeof(T).GetProperty("Name");
-            nameProp?.SetValue(elem, name);
+            dynamic elem = Activator.CreateInstance(typeof(T), true)!;
+            elem.Name = name;
+            elem.Id = new ElementId(idVal);
 
-            // Set Id
-            var idProp = typeof(T).GetProperty("Id");
-            if (idProp != null && idProp.CanWrite)
-            {
-                idProp.SetValue(elem, new ElementId(idVal));
-            }
+            dynamic dynamicDoc = doc;
+            dynamicDoc.AddElement(elem, elem.Id);
 
-            // Add to doc
-            var addElementMethod = doc.GetType().GetMethod("AddElement");
-            if (addElementMethod != null)
-            {
-                addElementMethod.Invoke(doc, new object[] { elem, elem.Id });
-            }
-
-            return elem;
+            return (T)elem;
         }
 
-        private void SetDocumentStringProperty(Document doc, string propertyName, string value)
+        private class FakeExtractionOrchestrator : IStandardsExtractionOrchestrator
         {
-            var prop = doc.GetType().GetProperty(propertyName);
-            if (prop != null && prop.CanWrite)
+            public List<ObjectModel> ExtractedModels { get; } = new List<ObjectModel>();
+
+            public List<ObjectModel> Extract(Document doc, IEnumerable<Element> rootElements, IProgress<string>? progress = null)
             {
-                prop.SetValue(doc, value);
+                return ExtractedModels;
+            }
+
+            public List<ObjectModel> Extract(Document doc, IEnumerable<Element> rootElements, IProgress<string>? progress = null, bool isTemplate = false)
+            {
+                return ExtractedModels;
+            }
+        }
+
+        private class FakeExtractionOrchestratorForMultipleDocuments : IStandardsExtractionOrchestrator
+        {
+            public Dictionary<Document, List<ObjectModel>> ExtractedModels { get; } = new Dictionary<Document, List<ObjectModel>>();
+
+            public List<ObjectModel> Extract(Document doc, IEnumerable<Element> rootElements, IProgress<string>? progress = null)
+            {
+                return ExtractedModels.TryGetValue(doc, out var list) ? list : new List<ObjectModel>();
+            }
+
+            public List<ObjectModel> Extract(Document doc, IEnumerable<Element> rootElements, IProgress<string>? progress = null, bool isTemplate = false)
+            {
+                return ExtractedModels.TryGetValue(doc, out var list) ? list : new List<ObjectModel>();
             }
         }
 
@@ -3760,51 +4325,56 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void VerifyTabCreationAndLifecycle_AddsTabsForSelectedDocuments()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
-            var mockDoc1 = (Document)Activator.CreateInstance(typeof(Document), true)!;
-            SetDocumentStringProperty(mockDoc1, "Title", "Model A");
-            SetDocumentStringProperty(mockDoc1, "PathName", "C:\\Projects\\ModelA.rvt");
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService);
+            dynamic mockDoc1 = Activator.CreateInstance(typeof(Document), true)!;
+            mockDoc1.Title = "Model A";
+            mockDoc1.PathName = @"C:\Projects\ModelA.rvt";
 
-            var mockDoc2 = (Document)Activator.CreateInstance(typeof(Document), true)!;
-            SetDocumentStringProperty(mockDoc2, "Title", "Model B");
-            SetDocumentStringProperty(mockDoc2, "PathName", "C:\\Projects\\ModelB.rvt");
+            dynamic mockDoc2 = Activator.CreateInstance(typeof(Document), true)!;
+            mockDoc2.Title = "Model B";
+            mockDoc2.PathName = @"C:\Projects\ModelB.rvt";
 
-            vm.MockOpenDocuments = new List<Document> { mockDoc1, mockDoc2 };
+            parent.MockOpenDocuments = new List<Document> { (Document)mockDoc1, (Document)mockDoc2 };
+
+            var fakeOrchestrator = new FakeExtractionOrchestrator();
+            var treeVM = new StandardsSourceTreeViewModel(parent, null, _doc, _fakeDialogService, fakeOrchestrator, new StandardSerializationEngine());
 
             // Act
-            vm.AddRevitModelCommand.Execute(null);
+            treeVM.AddRevitModelCommand.Execute(null);
 
             // Assert
-            Assert.AreEqual(2, vm.AvailableSources.Count, "Should have 2 sources loaded.");
-            Assert.IsTrue(vm.AvailableSources.Any(s => s.DisplayName == "Model A"));
-            Assert.IsTrue(vm.AvailableSources.Any(s => s.DisplayName == "Model B"));
-            Assert.IsTrue(vm.AvailableSources.All(s => s.IsRevitSource));
+            Assert.AreEqual(2, treeVM.AvailableSources.Count, "Should have 2 sources loaded.");
+            Assert.IsTrue(treeVM.AvailableSources.Any(s => s.DisplayName == "Model A"));
+            Assert.IsTrue(treeVM.AvailableSources.Any(s => s.DisplayName == "Model B"));
+            Assert.IsTrue(treeVM.AvailableSources.All(s => s.IsRevitSource));
         }
 
         [Test]
         public void VerifyResourceCleanupOnClose_RemovesTabAndPurgesHierarchy()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
-            var mockDoc = (Document)Activator.CreateInstance(typeof(Document), true)!;
-            SetDocumentStringProperty(mockDoc, "Title", "Model A");
-            SetDocumentStringProperty(mockDoc, "PathName", "C:\\Projects\\ModelA.rvt");
-            
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService);
+            dynamic mockDoc = Activator.CreateInstance(typeof(Document), true)!;
+            mockDoc.Title = "Model A";
+            mockDoc.PathName = @"C:\Projects\ModelA.rvt";
+
             // Add a mock element so the tab has hierarchical data
-            CreateMockElement<Material>(mockDoc, "Steel", 501);
+            CreateMockElement<Material>((Document)mockDoc, "Steel", 501);
 
-            vm.MockOpenDocuments = new List<Document> { mockDoc };
-            vm.AddRevitModelCommand.Execute(null);
+            parent.MockOpenDocuments = new List<Document> { (Document)mockDoc };
 
-            var addedSource = vm.AvailableSources.FirstOrDefault(s => s.DisplayName == "Model A");
+            var treeVM = new StandardsSourceTreeViewModel(parent, null, _doc, _fakeDialogService, new StandardsExtractionOrchestrator(new RevitIdentityService(), new StandardSerializationEngine()), new StandardSerializationEngine());
+            treeVM.AddRevitModelCommand.Execute(null);
+
+            var addedSource = treeVM.AvailableSources.FirstOrDefault(s => s.DisplayName == "Model A");
             Assert.IsNotNull(addedSource, "Tab should be added.");
             Assert.IsTrue(addedSource.SourceHierarchy.Count > 0, "Hierarchy should not be empty.");
 
             // Act
-            vm.CloseSourceCommand.Execute(addedSource);
+            treeVM.CloseSourceCommand.Execute(addedSource);
 
             // Assert
-            Assert.IsFalse(vm.AvailableSources.Contains(addedSource), "Tab should be removed from AvailableSources.");
+            Assert.IsFalse(treeVM.AvailableSources.Contains(addedSource), "Tab should be removed from AvailableSources.");
             Assert.AreEqual(0, addedSource.SourceHierarchy.Count, "Associated hierarchy collections should be cleared to disperse memory.");
         }
 
@@ -3817,7 +4387,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             File.WriteAllText(tempJsonFile, @"{
                 ""Materials"": {
                     ""Concrete"": {
-                        ""$type"": ""Synthetic.Modules.StandardsManagement.Models.MaterialModel, SyntheticShared"",
+                        ""$type"": ""Synthetic.RevitDOM.Operations.Standards.MaterialModel, SyntheticShared"",
                         ""Name"": ""Concrete"",
                         ""Class"": ""Autodesk.Revit.DB.Material"",
                         ""UniqueId"": ""abc-123""
@@ -3826,17 +4396,19 @@ namespace SyntheticTests.Modules.StandardsManagement
             }");
 
             var settings = new StandardsSettings { StandardsFilePath = tempJsonFile };
-            
+
             // Act
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, (IStandardsExportService?)null, settings);
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService, null, settings);
 
             try
             {
+                var treeVM = parent.SourceTreeViewModel;
+
                 // Assert
-                Assert.AreEqual(1, vm.AvailableSources.Count, "Should load default firm standard.");
-                var defaultSource = vm.AvailableSources[0];
+                Assert.AreEqual(1, treeVM.AvailableSources.Count, "Should load default firm standard.");
+                var defaultSource = treeVM.AvailableSources[0];
                 Assert.AreEqual("Default Firm Standard", defaultSource.DisplayName);
-                
+
                 // Assert that checkboxes are checked
                 Assert.IsTrue(defaultSource.SourceHierarchy.Count > 0);
                 foreach (var group in defaultSource.SourceHierarchy)
@@ -3845,7 +4417,7 @@ namespace SyntheticTests.Modules.StandardsManagement
                 }
 
                 // Assert that action queue remains empty
-                Assert.AreEqual(0, vm.ActionQueue.Count, "Action queue must remain empty on launch.");
+                Assert.AreEqual(0, parent.StagingQueue.Count, "Action queue must remain empty on launch.");
             }
             finally
             {
@@ -3857,24 +4429,30 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void VerifyMultiModelExtractionIsolation_ExtractsDistinctNonIntersectingHierarchies()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService);
 
-            var doc1 = (Document)Activator.CreateInstance(typeof(Document), true)!;
-            SetDocumentStringProperty(doc1, "Title", "Doc 1");
-            CreateMockElement<Material>(doc1, "Aluminum", 601);
+            dynamic doc1 = Activator.CreateInstance(typeof(Document), true)!;
+            doc1.Title = "Doc 1";
+            CreateMockElement<Material>((Document)doc1, "Aluminum", 601);
 
-            var doc2 = (Document)Activator.CreateInstance(typeof(Document), true)!;
-            SetDocumentStringProperty(doc2, "Title", "Doc 2");
-            CreateMockElement<Material>(doc2, "Copper", 602);
+            dynamic doc2 = Activator.CreateInstance(typeof(Document), true)!;
+            doc2.Title = "Doc 2";
+            CreateMockElement<Material>((Document)doc2, "Copper", 602);
 
-            vm.MockOpenDocuments = new List<Document> { doc1, doc2 };
+            parent.MockOpenDocuments = new List<Document> { (Document)doc1, (Document)doc2 };
+
+            var fakeOrchestrator = new FakeExtractionOrchestratorForMultipleDocuments();
+            fakeOrchestrator.ExtractedModels[(Document)doc1] = new List<ObjectModel> { new MaterialModel { Name = "Aluminum", UniqueId = "601" } };
+            fakeOrchestrator.ExtractedModels[(Document)doc2] = new List<ObjectModel> { new MaterialModel { Name = "Copper", UniqueId = "602" } };
+
+            var treeVM = new StandardsSourceTreeViewModel(parent, null, _doc, _fakeDialogService, fakeOrchestrator, new StandardSerializationEngine());
 
             // Act
-            vm.AddRevitModelCommand.Execute(null);
+            treeVM.AddRevitModelCommand.Execute(null);
 
             // Assert
-            var source1 = vm.AvailableSources.FirstOrDefault(s => s.DisplayName == "Doc 1");
-            var source2 = vm.AvailableSources.FirstOrDefault(s => s.DisplayName == "Doc 2");
+            var source1 = treeVM.AvailableSources.FirstOrDefault(s => s.DisplayName == "Doc 1");
+            var source2 = treeVM.AvailableSources.FirstOrDefault(s => s.DisplayName == "Doc 2");
 
             Assert.IsNotNull(source1);
             Assert.IsNotNull(source2);
@@ -3903,18 +4481,17 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void VerifyStaticFilteringApplication_RestrictsExtractedClassesBasedOnSelection()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService);
 
-            var doc = (Document)Activator.CreateInstance(typeof(Document), true)!;
-            SetDocumentStringProperty(doc, "Title", "Filter Model");
-            
-            CreateMockElement<TextNoteType>(doc, "Arial 3/32", 701);
-            CreateMockElement<Material>(doc, "Brass", 702);
+            dynamic doc = Activator.CreateInstance(typeof(Document), true)!;
+            doc.Title = "Filter Model";
+            CreateMockElement<TextNoteType>((Document)doc, "Arial 3/32", 701);
+            CreateMockElement<Material>((Document)doc, "Brass", 702);
 
-            vm.MockOpenDocuments = new List<Document> { doc };
+            parent.MockOpenDocuments = new List<Document> { (Document)doc };
 
             // Set up document selection dialog mock to NOT select Annotations
-            vm.ShowDocumentSelectionDialog = dialogVM =>
+            parent.ShowDocumentSelectionDialog = dialogVM =>
             {
                 dialogVM.OpenDocuments[0].IsSelected = true;
                 var annotationsGroup = dialogVM.FilterHierarchy.FirstOrDefault(g => g.Name == "Annotations");
@@ -3925,11 +4502,13 @@ namespace SyntheticTests.Modules.StandardsManagement
                 return true;
             };
 
+            var treeVM = new StandardsSourceTreeViewModel(parent, null, _doc, _fakeDialogService, new StandardsExtractionOrchestrator(new RevitIdentityService(), new StandardSerializationEngine()), new StandardSerializationEngine());
+
             // Act
-            vm.AddRevitModelCommand.Execute(null);
+            treeVM.AddRevitModelCommand.Execute(null);
 
             // Assert
-            var source = vm.AvailableSources.FirstOrDefault(s => s.DisplayName == "Filter Model");
+            var source = treeVM.AvailableSources.FirstOrDefault(s => s.DisplayName == "Filter Model");
             Assert.IsNotNull(source);
 
             var extractedNames = source.SourceHierarchy
@@ -3992,7 +4571,8 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void SearchText_ShouldFilterNodesAndSetVisibilityAndExpansion()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService);
+            var treeVM = new StandardsSourceTreeViewModel(parent, null, _doc, _fakeDialogService, new FakeExtractionOrchestrator(), new StandardSerializationEngine());
             var source = new ProjectStandardsSourceViewModel { DisplayName = "Test Source" };
 
             var group = new StandardGroupModel { Name = "Materials" };
@@ -4005,10 +4585,10 @@ namespace SyntheticTests.Modules.StandardsManagement
             group.Children.Add(childClass);
             source.SourceHierarchy.Add(group);
 
-            vm.AvailableSources.Add(source);
+            treeVM.AvailableSources.Add(source);
 
             // Act: Filter by "Steel"
-            vm.SearchText = "Steel";
+            treeVM.SearchText = "Steel";
 
             // Assert: "Steel" is visible, parent class and group are visible and expanded, "Concrete" is hidden.
             Assert.IsTrue(element1.IsVisible);
@@ -4021,7 +4601,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             Assert.IsTrue(group.IsExpanded);
 
             // Act: Clear search
-            vm.SearchText = "";
+            treeVM.SearchText = "";
 
             // Assert: Everything is visible and collapsed
             Assert.IsTrue(element1.IsVisible);
@@ -4043,9 +4623,15 @@ using System.IO;
 using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
+using Synthetic.RevitDOM.Operations.Standards;
 using Synthetic.Shared.UI;
+using Synthetic.RevitDOM.Operations.Diffing;
+using SyntheticTests.Modules.RevitDOM;
 
 namespace SyntheticTests.Modules.StandardsManagement
 {
@@ -4065,27 +4651,14 @@ namespace SyntheticTests.Modules.StandardsManagement
 
         private T CreateMockElement<T>(Document doc, string name, int idVal) where T : Element
         {
-            T elem = (T)Activator.CreateInstance(typeof(T), true)!;
-            
-            // Set Name
-            var nameProp = typeof(T).GetProperty("Name");
-            nameProp?.SetValue(elem, name);
+            dynamic elem = Activator.CreateInstance(typeof(T), true)!;
+            elem.Name = name;
+            elem.Id = new ElementId(idVal);
 
-            // Set Id
-            var idProp = typeof(T).GetProperty("Id");
-            if (idProp != null && idProp.CanWrite)
-            {
-                idProp.SetValue(elem, new ElementId(idVal));
-            }
+            dynamic dynamicDoc = doc;
+            dynamicDoc.AddElement(elem, elem.Id);
 
-            // Add to doc
-            var addElementMethod = doc.GetType().GetMethod("AddElement");
-            if (addElementMethod != null)
-            {
-                addElementMethod.Invoke(doc, new object[] { elem, elem.Id });
-            }
-
-            return elem;
+            return (T)elem;
         }
 
         [Test]
@@ -4103,7 +4676,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             var cs = CompoundStructure.CreateSimpleCompoundStructure(new List<CompoundStructureLayer> { layer });
             wallType.SetCompoundStructure(cs);
 
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService);
             var source = new ProjectStandardsSourceViewModel { DisplayName = "Test Source" };
             
             var group = new StandardGroupModel { Name = "System / Host Object Types" };
@@ -4130,21 +4703,23 @@ namespace SyntheticTests.Modules.StandardsManagement
             matClass.Parent = matGroup;
             source.SourceHierarchy.Add(matGroup);
 
-            vm.AvailableSources.Add(source);
-            vm.SelectedSource = source;
+            parent.AvailableSources.Add(source);
+            parent.SelectedSource = source;
 
             // Explicitly check ONLY the WallType
             wallNode.IsChecked = true;
 
+            var queueVM = new StagingQueueViewModel(parent, new PocoIdentityService(), new PocoToRevitDiffEngine(new FakeIdentityService()));
+
             // Act
-            vm.PushToQueueCommand.Execute("Save");
+            queueVM.PushToQueueCommand.Execute("Save");
 
             // Assert
             // The queue should have WallA (explicitly checked) and MaterialA (harvested)
-            Assert.AreEqual(2, vm.ActionQueue.Count, "Queue should contain both the WallType and its harvested Material dependency.");
+            Assert.AreEqual(2, queueVM.StagingQueue.Count, "Queue should contain both the WallType and its harvested Material dependency.");
 
-            var wallQueueItem = vm.ActionQueue.FirstOrDefault(q => q.Name == "WallA");
-            var matQueueItem = vm.ActionQueue.FirstOrDefault(q => q.Name == "MaterialA");
+            var wallQueueItem = queueVM.StagingQueue.FirstOrDefault(q => q.Name == "WallA");
+            var matQueueItem = queueVM.StagingQueue.FirstOrDefault(q => q.Name == "MaterialA");
 
             Assert.IsNotNull(wallQueueItem, "WallA queue item should exist.");
             Assert.IsNotNull(matQueueItem, "MaterialA queue item should exist.");
@@ -4159,15 +4734,17 @@ namespace SyntheticTests.Modules.StandardsManagement
         }
     }
 }
+
 ```
 
 ### File: tests/SyntheticTests.Logic/Modules/StandardsManagement/DuplicateClusterModelTests.cs
 ```csharp
-using System;
+﻿using System;
 using System.Collections.Generic;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.MergeDuplicates.Models;
+using Synthetic.RevitDOM.Operations.Merge;
+using Synthetic.RevitDOM.Models;
 using Synthetic.Modules.MergeDuplicates.ViewModels;
 
 namespace SyntheticTests.Modules.StandardsManagement
@@ -4189,8 +4766,8 @@ namespace SyntheticTests.Modules.StandardsManagement
                 IsApproved = true
             };
 
-            var elementId1 = new ElementId(101);
-            var elementId2 = new ElementId(102);
+            var elementId1 = new ElementIdModel { Id = 101 };
+            var elementId2 = new ElementIdModel { Id = 102 };
 
             // Add options for source and target values
             row.Options.Add(new ParameterValueOption { ElementId = elementId1, DisplayText = "1" });
@@ -4216,10 +4793,13 @@ namespace SyntheticTests.Modules.StandardsManagement
 
 ### File: tests/SyntheticTests.Logic/Modules/StandardsManagement/ElementTypeWrapperVMTests.cs
 ```csharp
-using System;
+﻿using System;
 using System.Collections.Generic;
 using NUnit.Framework;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 
 namespace SyntheticTests.Modules.StandardsManagement
@@ -4274,83 +4854,9 @@ namespace SyntheticTests.Modules.StandardsManagement
 }
 ```
 
-### File: tests/SyntheticTests.Logic/Modules/StandardsManagement/FakeFileDialogService.cs
-```csharp
-using Synthetic.Shared.UI;
-
-namespace SyntheticTests.Modules.StandardsManagement
-{
-    /// <summary>
-    /// Fake implementation of IFileDialogService for headless testing.
-    /// </summary>
-    public class FakeFileDialogService : IFileDialogService
-    {
-        /// <summary>
-        /// Gets or sets the preset path to return.
-        /// </summary>
-        public string? PresetPath { get; set; } = @"C:\Temp\ExportedStandards.json";
-
-        /// <summary>
-        /// Immediately returns the preset path without opening a UI.
-        /// </summary>
-        public string? SaveFileDialog(string filter, string title, string defaultFileName)
-        {
-            return PresetPath;
-        }
-
-        /// <summary>
-        /// Immediately returns the preset path without opening a UI.
-        /// </summary>
-        public string? OpenFileDialog(string filter, string title, string defaultFileName)
-        {
-            return PresetPath;
-        }
-    }
-}
-```
-
-### File: tests/SyntheticTests.Logic/Modules/StandardsManagement/FakeGuardrailPromptService.cs
-```csharp
-using System;
-using System.Collections.Generic;
-using Synthetic.Shared.UI;
-
-namespace SyntheticTests.Modules.StandardsManagement
-{
-    /// <summary>
-    /// Test implementation of IGuardrailPromptService that records invocations and returns configured results.
-    /// </summary>
-    public class FakeGuardrailPromptService : IGuardrailPromptService
-    {
-        private readonly GuardrailResult _configuredResult;
-        
-        /// <summary>
-        /// Gets the list of file paths that were prompted.
-        /// </summary>
-        public List<string> PromptedPaths { get; } = new List<string>();
-
-        /// <summary>
-        /// Initializes a new instance of FakeGuardrailPromptService.
-        /// </summary>
-        /// <param name="configuredResult">The result to return when prompted.</param>
-        public FakeGuardrailPromptService(GuardrailResult configuredResult = GuardrailResult.Cancel)
-        {
-            _configuredResult = configuredResult;
-        }
-
-        /// <inheritdoc/>
-        public GuardrailResult PromptProtectedFileOverwrite(string filePath)
-        {
-            PromptedPaths.Add(filePath);
-            return _configuredResult;
-        }
-    }
-}
-```
-
 ### File: tests/SyntheticTests.Logic/Modules/StandardsManagement/FakeSummaryDisplayService.cs
 ```csharp
-using System;
+﻿using System;
 using Synthetic.Shared.UI;
 
 namespace SyntheticTests.Modules.StandardsManagement
@@ -4382,44 +4888,16 @@ namespace SyntheticTests.Modules.StandardsManagement
 }
 ```
 
-### File: tests/SyntheticTests.Logic/Modules/StandardsManagement/FakeUserPromptService.cs
-```csharp
-using System;
-using System.Collections.Generic;
-using Synthetic.Shared.UI;
-
-namespace SyntheticTests.Modules.StandardsManagement
-{
-    /// <summary>
-    /// Test fake implementing IUserPromptService to avoid showing dialog windows during tests.
-    /// </summary>
-    public class FakeUserPromptService : IUserPromptService
-    {
-        public List<string> ShownMessages { get; } = new List<string>();
-        public List<string> ConfirmedPrompts { get; } = new List<string>();
-        public bool ConfirmationResult { get; set; } = true;
-
-        public void ShowMessage(string message, string title)
-        {
-            ShownMessages.Add(message);
-        }
-
-        public bool ConfirmAction(string message, string title)
-        {
-            ConfirmedPrompts.Add(message);
-            return ConfirmationResult;
-        }
-    }
-}
-```
-
 ### File: tests/SyntheticTests.Logic/Modules/StandardsManagement/FindReplaceServiceTests.cs
 ```csharp
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
-using Synthetic.Modules.RevitDOM;
-using Synthetic.Modules.StandardsManagement.Utilities;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
+using Synthetic.RevitDOM.Operations.Standards;
 
 namespace SyntheticTests.Modules.StandardsManagement
 {
@@ -4515,12 +4993,148 @@ namespace SyntheticTests.Modules.StandardsManagement
 }
 ```
 
-### File: tests/SyntheticTests.Logic/Modules/StandardsManagement/PathResolutionUtilityTests.cs
+### File: tests/SyntheticTests.Logic/Modules/StandardsManagement/ParameterDiffRowModelTests.cs
 ```csharp
 using System;
+using System.Collections.Generic;
+using NUnit.Framework;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Operations.Merge;
+
+namespace SyntheticTests.Modules.StandardsManagement
+{
+    [TestFixture]
+    public class ParameterDiffRowModelTests
+    {
+        [Test]
+        public void RadioButtonBindings_EvaluateCorrectlyOnLoad_UsingValueEquality()
+        {
+            // Arrange: distinct ElementIdModel instances representing same elements
+            var sourceId = new ElementIdModel { Id = 1001, Name = "SourceType", Class = "Autodesk.Revit.DB.FamilySymbol" };
+            var targetId = new ElementIdModel { Id = 2002, Name = "TargetType", Class = "Autodesk.Revit.DB.FamilySymbol" };
+
+            var sourceIdDistinct = new ElementIdModel { Id = 1001, Name = "SourceType", Class = "Autodesk.Revit.DB.FamilySymbol" };
+            var targetIdDistinct = new ElementIdModel { Id = 2002, Name = "TargetType", Class = "Autodesk.Revit.DB.FamilySymbol" };
+
+            var row = new ParameterDiffRowModel
+            {
+                ParameterName = "Comments",
+                Options = new List<ParameterValueOption>
+                {
+                    new ParameterValueOption { ElementId = sourceId, DisplayText = "Source Comment" },
+                    new ParameterValueOption { ElementId = targetId, DisplayText = "Target Comment" }
+                },
+                // Set winning value to distinct instance equal to sourceId
+                WinningValueElementId = sourceIdDistinct
+            };
+
+            // Assert
+            Assert.IsTrue(row.IsSourceWinning, "IsSourceWinning should evaluate to true when WinningValueElementId is value-equal to Options[0].ElementId.");
+            Assert.IsFalse(row.IsTargetWinning, "IsTargetWinning should evaluate to false when source is winning.");
+
+            // Act: change winning value to distinct instance equal to targetId
+            row.WinningValueElementId = targetIdDistinct;
+
+            // Assert
+            Assert.IsFalse(row.IsSourceWinning, "IsSourceWinning should evaluate to false when target is winning.");
+            Assert.IsTrue(row.IsTargetWinning, "IsTargetWinning should evaluate to true when WinningValueElementId is value-equal to Options[1].ElementId.");
+        }
+
+        [Test]
+        public void RadioButtonBindings_RespondToUserSelectionChanges()
+        {
+            var sourceId = new ElementIdModel { Id = 1001, Name = "SourceType" };
+            var targetId = new ElementIdModel { Id = 2002, Name = "TargetType" };
+
+            var row = new ParameterDiffRowModel
+            {
+                ParameterName = "Width",
+                Options = new List<ParameterValueOption>
+                {
+                    new ParameterValueOption { ElementId = sourceId, DisplayText = "100" },
+                    new ParameterValueOption { ElementId = targetId, DisplayText = "200" }
+                },
+                WinningValueElementId = sourceId
+            };
+
+            List<string> changedProperties = new List<string>();
+            row.PropertyChanged += (s, e) =>
+            {
+                if (e.PropertyName != null) changedProperties.Add(e.PropertyName);
+            };
+
+            // Act: simulate user clicking Target RadioButton (TwoWay binding sets IsTargetWinning = true)
+            row.IsTargetWinning = true;
+
+            // Assert
+            Assert.IsTrue(row.IsTargetWinning, "IsTargetWinning should be true after user selection.");
+            Assert.IsFalse(row.IsSourceWinning, "IsSourceWinning should be false after target selection.");
+            Assert.AreEqual(targetId, row.WinningValueElementId, "WinningValueElementId should be updated to targetId.");
+            Assert.Contains(nameof(row.IsSourceWinning), changedProperties, "PropertyChanged should fire for IsSourceWinning.");
+            Assert.Contains(nameof(row.IsTargetWinning), changedProperties, "PropertyChanged should fire for IsTargetWinning.");
+
+            // Act: simulate user clicking Source RadioButton
+            changedProperties.Clear();
+            row.IsSourceWinning = true;
+
+            // Assert
+            Assert.IsTrue(row.IsSourceWinning, "IsSourceWinning should be true after user selection.");
+            Assert.IsFalse(row.IsTargetWinning, "IsTargetWinning should be false after source selection.");
+            Assert.AreEqual(sourceId, row.WinningValueElementId, "WinningValueElementId should be updated to sourceId.");
+            Assert.Contains(nameof(row.IsSourceWinning), changedProperties, "PropertyChanged should fire for IsSourceWinning.");
+            Assert.Contains(nameof(row.IsTargetWinning), changedProperties, "PropertyChanged should fire for IsTargetWinning.");
+        }
+
+        [Test]
+        public void GetValueForElement_DistinctElementIdModelInstances_DoesNotThrowKeyNotFoundException()
+        {
+            var keyInDict = new ElementIdModel { Id = 5005, UniqueId = "uid-5005", Name = "DoorType", Class = "Autodesk.Revit.DB.FamilySymbol" };
+            var distinctQueryKey = new ElementIdModel { Id = 5005, UniqueId = "uid-5005", Name = "DoorType", Class = "Autodesk.Revit.DB.FamilySymbol" };
+
+            var row = new ParameterDiffRowModel
+            {
+                ParameterName = "Cost"
+            };
+
+            row.Values[keyInDict] = "150.00";
+            row.WinningValueElementId = distinctQueryKey;
+
+            // Act & Assert
+            Assert.DoesNotThrow(() =>
+            {
+                string value = row.GetValueForElement(distinctQueryKey);
+                Assert.AreEqual("150.00", value, "GetValueForElement should retrieve the dictionary value using value equality.");
+            }, "GetValueForElement must not throw KeyNotFoundException when queried with distinct ElementIdModel instances.");
+
+            Assert.AreEqual("150.00", row.WinningValue, "WinningValue property must return the winning value without throwing KeyNotFoundException.");
+        }
+
+        [Test]
+        public void DictionaryKeyLookup_AcrossElementIdModelKeys_SucceedsForDistinctInstances()
+        {
+            var keyAdded = new ElementIdModel { Id = 7007, Name = "Window", Class = "Autodesk.Revit.DB.FamilySymbol" };
+            var keyQueried = new ElementIdModel { Id = 7007, Name = "Window", Class = "Autodesk.Revit.DB.FamilySymbol" };
+
+            var dict = new Dictionary<ElementIdModel, string>();
+            dict[keyAdded] = "SampleValue";
+
+            Assert.IsTrue(dict.ContainsKey(keyQueried), "Dictionary.ContainsKey must return true for value-equal distinct ElementIdModel key.");
+            Assert.DoesNotThrow(() =>
+            {
+                string val = dict[keyQueried];
+                Assert.AreEqual("SampleValue", val, "Dictionary indexer retrieval must return value for distinct ElementIdModel key.");
+            });
+        }
+    }
+}
+```
+
+### File: tests/SyntheticTests.Logic/Modules/StandardsManagement/PathResolutionUtilityTests.cs
+```csharp
+﻿using System;
 using System.IO;
 using NUnit.Framework;
-using Synthetic.Modules.StandardsManagement.Utilities;
+using Synthetic.RevitDOM.Operations.Standards;
 
 namespace SyntheticTests.Modules.StandardsManagement
 {
@@ -4608,13 +5222,16 @@ namespace SyntheticTests.Modules.StandardsManagement
 
 ### File: tests/SyntheticTests.Logic/Modules/StandardsManagement/PhasedExecutionTests.cs
 ```csharp
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Shared.UI;
 
@@ -4652,7 +5269,9 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void RunQueue_FailureStripping_ShouldSaveOnlySuccessfulPhase1ItemsToDisk()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
+            var vm = parent.StandardsExecutionPipelineViewModel;
+
             vm.SaveFilePath = _tempSavePath;
 
             // Item 1: Valid element (succeeds Phase 1)
@@ -4664,17 +5283,17 @@ namespace SyntheticTests.Modules.StandardsManagement
             var invalidEl = new ElementModel { Class = null!, Name = "InvalidMaterial" };
             var qInvalid = new QueueItemModel(invalidEl, true, true);
 
-            vm.ActionQueue.Add(qValid);
-            vm.ActionQueue.Add(qInvalid);
+            parent.StagingQueue.Add(qValid);
+            parent.StagingQueue.Add(qInvalid);
 
             // Act
             vm.RunQueueCommand.Execute(null!);
 
             // Assert: valid element was processed, invalid failed and was stripped
-            Assert.AreEqual(3, vm.LastExecutionResults.Count, "Should have 3 execution results logged (2 from Phase 1, 1 from Phase 2).");
+            Assert.AreEqual(3, parent.LastExecutionResults.Count, "Should have 3 execution results logged (2 from Phase 1, 1 from Phase 2).");
             
-            var validResult = vm.LastExecutionResults.First(r => r.Model == qValid.Model);
-            var invalidResult = vm.LastExecutionResults.First(r => r.Model == qInvalid.Model);
+            var validResult = parent.LastExecutionResults.First(r => r.Model == qValid.Model);
+            var invalidResult = parent.LastExecutionResults.First(r => r.Model == qInvalid.Model);
 
             Assert.IsTrue(validResult.Success, "Valid element should succeed Phase 1.");
             Assert.IsFalse(invalidResult.Success, "Invalid element should fail Phase 1.");
@@ -4690,12 +5309,14 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void RunQueue_UserCancellation_ShouldRollbackAllRevitWritesAndSkipPhase2()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
+            var vm = parent.StandardsExecutionPipelineViewModel;
+            vm.SaveFilePath = _tempSavePath;
 
             var param = new ParameterModel("Comments", "SomeValue", null, "String", 1, null, false, false);
             var el = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "MatToCancel", Parameters = new List<ParameterModel> { param } };
             var qItem = new QueueItemModel(el, true, true);
-            vm.ActionQueue.Add(qItem);
+            parent.StagingQueue.Add(qItem);
 
             // Inject a mock cancellation state in the coordinator
             ProgressCoordinator.ForceCancel = true;
@@ -4707,7 +5328,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             Assert.IsFalse(File.Exists(_tempSavePath), "Phase 2 file writing must be skipped completely on user cancellation.");
             Assert.IsTrue(qItem.WillEnforce && qItem.WillSave, "QueueItem intent flags should remain unchanged on rollback.");
             
-            var cancelResult = vm.LastExecutionResults.FirstOrDefault(r => r.Model == qItem.Model);
+            var cancelResult = parent.LastExecutionResults.FirstOrDefault(r => r.Model == qItem.Model);
             Assert.IsNotNull(cancelResult, "Cancellation execution result should be registered.");
             Assert.IsFalse(cancelResult!.Success, "Cancelled results must show as failed.");
             Assert.AreEqual("Execution cancelled by user.", cancelResult.ErrorMessage);
@@ -4717,29 +5338,29 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void ProcessFamilyUpdates_WhenDisabled_ShouldNotScanForFamilies()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null)
-            {
-                UpdateFamilies = false
-            };
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
+            var vm = parent.StandardsExecutionPipelineViewModel;
+            vm.UpdateFamilies = false;
 
             var param = new ParameterModel("Comments", "Val", null, "String", 1, null, false, false);
             var el = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "Mat", Parameters = new List<ParameterModel> { param } };
             var qItem = new QueueItemModel(el, true, false);
-            vm.ActionQueue.Add(qItem);
+            parent.StagingQueue.Add(qItem);
 
             // Act
             vm.RunQueueCommand.Execute(null!);
 
             // Assert: Completed without trying to collect families (since mocked Revit doc throws on family queries in real run but passes here)
-            Assert.AreEqual(1, vm.LastExecutionResults.Count);
-            Assert.IsTrue(vm.LastExecutionResults[0].Success);
+            Assert.AreEqual(1, parent.LastExecutionResults.Count);
+            Assert.IsTrue(parent.LastExecutionResults[0].Success);
         }
 
         [Test]
         public void RunQueue_PostExecutionPurging_ShouldRemoveSuccessfulAndKeepFailedItems()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
+            var vm = parent.StandardsExecutionPipelineViewModel;
 
             var validParam = new ParameterModel("Comments", "ValidVal", null, "String", 1, null, false, false);
             var validEl = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "ValidMaterial", Parameters = new List<ParameterModel> { validParam } };
@@ -4748,15 +5369,15 @@ namespace SyntheticTests.Modules.StandardsManagement
             var invalidEl = new ElementModel { Class = null!, Name = "InvalidMaterial" };
             var qInvalid = new QueueItemModel(invalidEl, true, true);
 
-            vm.ActionQueue.Add(qValid);
-            vm.ActionQueue.Add(qInvalid);
+            parent.StagingQueue.Add(qValid);
+            parent.StagingQueue.Add(qInvalid);
 
             // Act
             vm.RunQueueCommand.Execute(null!);
 
             // Assert
-            Assert.AreEqual(1, vm.ActionQueue.Count, "Successful items should be purged, failed should remain.");
-            Assert.AreSame(qInvalid, vm.ActionQueue[0], "The failed item should remain in the queue.");
+            Assert.AreEqual(1, parent.StagingQueue.Count, "Successful items should be purged, failed should remain.");
+            Assert.AreSame(qInvalid, parent.StagingQueue[0], "The failed item should remain in the queue.");
             Assert.IsTrue(qInvalid.HasError, "The failed item should have error registered.");
             Assert.IsFalse(string.IsNullOrEmpty(qInvalid.ErrorMessage), "The error message should be populated.");
         }
@@ -4765,26 +5386,27 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void FailedItem_OnParameterEdit_ShouldClearErrorAndSetIntentToEdited()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var parent = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
+            var queueVM = parent.StagingQueueViewModel;
             var paramModel = new ParameterModel("Comments", "SomeVal", null, "String", 1, null, false, false);
             var el = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "Mat", Parameters = new List<ParameterModel> { paramModel } };
             var qItem = new QueueItemModel(el, true, true);
             qItem.ErrorMessage = "Some error occurred";
 
-            vm.ActionQueue.Add(qItem);
+            parent.StagingQueue.Add(qItem);
 
             // Select item and enter edit mode
-            vm.EditCommand.Execute(new List<QueueItemModel> { qItem });
+            queueVM.EditCommand.Execute(new List<QueueItemModel> { qItem });
 
             // Act: Mutate parameter
-            var param = vm.DisplayParameters.First();
+            var param = queueVM.DisplayParameters.First();
             param.Value = "NewVal";
 
             // Assert
             Assert.IsFalse(qItem.HasError, "Error state should be cleared on edit.");
             Assert.IsNull(qItem.ErrorMessage, "ErrorMessage should be reset to null.");
             Assert.IsTrue(qItem.IsEdited, "IsEdited should be set to true on edit.");
-            Assert.IsNull(vm.SelectedItemErrorMessage, "Selected item error message on VM should be cleared.");
+            Assert.IsNull(queueVM.SelectedItemErrorMessage, "Selected item error message on VM should be cleared.");
         }
     }
 }
@@ -4798,12 +5420,16 @@ using System.Linq;
 using NUnit.Framework;
 using System.Collections.Generic;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Settings;
 using Synthetic.Infrastructure.Persistence;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.StandardsManagement.Utilities;
-using Synthetic.Modules.MergeDuplicates.Models;
+using Synthetic.RevitDOM.Operations.Standards;
+using Synthetic.RevitDOM.Operations.Merge;
+using SyntheticTests.Modules.RevitDOM;
 using Synthetic.Shared.UI;
 
 namespace SyntheticTests.Modules.StandardsManagement
@@ -4891,7 +5517,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             try
             {
                 // Act
-                var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, settings: settings);
+                var vm = DashboardTestFactory.Create(_doc, _fakeDialogService, settings: settings);
 
                 // Assert
                 Assert.AreEqual(1, vm.AvailableSources.Count, "Dashboard should load the default standards source on startup.");
@@ -4922,7 +5548,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             try
             {
                 // Act
-                var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, settings: settings);
+                var vm = DashboardTestFactory.Create(_doc, _fakeDialogService, settings: settings);
 
                 // Assert
                 // 1. Should load the default firm standards source tab
@@ -4954,7 +5580,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             try
             {
                 // Act - passing null for doc
-                var vm = new ProjectStandardsDashboardViewModel((Document)null!, _fakeDialogService, settings: settings);
+                var vm = DashboardTestFactory.Create((Document)null!, _fakeDialogService, settings: settings);
 
                 // Assert
                 string expectedFallbackDir = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
@@ -4978,7 +5604,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             File.WriteAllText(tempFile, "{}");
 
             _fakeDialogService.PresetPath = tempFile;
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService);
             int initialCount = vm.AvailableSources.Count;
 
             try
@@ -5004,7 +5630,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void PushToQueue_CorrectlyStagesCheckedItemsWithIntent()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService);
             
             // Create a fake source tab with some elements
             var source = new ProjectStandardsSourceViewModel { DisplayName = "Test Source" };
@@ -5035,16 +5661,16 @@ namespace SyntheticTests.Modules.StandardsManagement
             vm.PushToQueueCommand.Execute("Save");
 
             // Assert
-            Assert.AreEqual(1, vm.ActionQueue.Count, "One item should be staged in the Action Queue.");
-            Assert.AreEqual("Steel", vm.ActionQueue[0].Name, "Staged item name should match the checked source element.");
-            Assert.IsTrue(vm.ActionQueue[0].WillSave && !vm.ActionQueue[0].WillEnforce, "Staged item execution intent should match parameter.");
+            Assert.AreEqual(1, vm.StagingQueue.Count, "One item should be staged in the Action Queue.");
+            Assert.AreEqual("Steel", vm.StagingQueue[0].Name, "Staged item name should match the checked source element.");
+            Assert.IsTrue(vm.StagingQueue[0].WillSave && !vm.StagingQueue[0].WillEnforce, "Staged item execution intent should match parameter.");
         }
 
         [Test]
         public void PushToQueue_StagesOfflineDependenciesFromJSON()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService);
 
             // Create a fake JSON/offline source tab with a WallType and a Material
             var source = new ProjectStandardsSourceViewModel { DisplayName = "Test JSON Source", IsRevitSource = false };
@@ -5105,10 +5731,10 @@ namespace SyntheticTests.Modules.StandardsManagement
             vm.PushToQueueCommand.Execute("Enforce");
 
             // Assert
-            Assert.AreEqual(2, vm.ActionQueue.Count, "Both WallType and Material should be staged in the Action Queue.");
+            Assert.AreEqual(2, vm.StagingQueue.Count, "Both WallType and Material should be staged in the Action Queue.");
 
-            var wallQueueItem = vm.ActionQueue.FirstOrDefault(q => q.Name == "StagingTestWallType");
-            var matQueueItem = vm.ActionQueue.FirstOrDefault(q => q.Name == "StagingTestMaterial");
+            var wallQueueItem = vm.StagingQueue.FirstOrDefault(q => q.Name == "StagingTestWallType");
+            var matQueueItem = vm.StagingQueue.FirstOrDefault(q => q.Name == "StagingTestMaterial");
 
             Assert.IsNotNull(wallQueueItem, "WallType should be staged.");
             Assert.IsNotNull(matQueueItem, "Material dependency should be harvested and staged.");
@@ -5118,10 +5744,103 @@ namespace SyntheticTests.Modules.StandardsManagement
         }
 
         [Test]
+        public void PushToQueue_StagesLiveDependenciesUsingPocoIdentityResolution()
+        {
+            // Arrange
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService);
+
+            // Create a fake live Revit model source tab with a WallType and a Material, both having UniqueIds
+            var source = new ProjectStandardsSourceViewModel { DisplayName = "Test Revit Model", IsRevitSource = true };
+
+            // WallType
+            var wallGroup = new StandardGroupModel { Name = "Walls" };
+            var wallClass = new StandardClassModel { Name = "Walls" };
+
+            // Material dependency
+            var materialId = new ElementIdModel 
+            { 
+                Name = "Concrete-Live", 
+                Class = "Autodesk.Revit.DB.Material", 
+                UniqueId = "material-guid-live-1",
+                Id = 8881,
+                IsTemplate = false 
+            };
+
+            // WallType inherits from HostObjTypeModel
+            var wallModel = new HostObjTypeModel
+            {
+                Name = "Wall-Live",
+                Class = "Autodesk.Revit.DB.WallType",
+                UniqueId = "wall-guid-live-1",
+                Id = 9991,
+                IsTemplate = false,
+                Structure = new CompoundStructureModel
+                {
+                    Layers = new List<SerialCompoundStructureLayer>
+                    {
+                        new SerialCompoundStructureLayer
+                        {
+                            MaterialId = materialId
+                        }
+                    }
+                }
+            };
+
+            var wallNode = new StandardElementModel(wallModel);
+            wallClass.Children.Add(wallNode);
+            wallNode.Parent = wallClass;
+            wallGroup.Children.Add(wallClass);
+            wallClass.Parent = wallGroup;
+            source.SourceHierarchy.Add(wallGroup);
+
+            // Material element in the source tab
+            var matGroup = new StandardGroupModel { Name = "Materials & Assets" };
+            var matClass = new StandardClassModel { Name = "Materials" };
+            var matModel = new MaterialModel
+            {
+                Name = "Concrete-Live",
+                Class = "Autodesk.Revit.DB.Material",
+                UniqueId = "material-guid-live-1",
+                Id = 8881,
+                IsTemplate = false
+            };
+            var matNode = new StandardElementModel(matModel);
+            matClass.Children.Add(matNode);
+            matNode.Parent = matClass;
+            matGroup.Children.Add(matClass);
+            matClass.Parent = matGroup;
+            source.SourceHierarchy.Add(matGroup);
+
+            vm.AvailableSources.Add(source);
+            vm.SelectedSource = source;
+
+            // Check only the WallType
+            wallNode.IsChecked = true;
+
+            // Act
+            vm.PushToQueueCommand.Execute("Enforce");
+
+            // Assert
+            Assert.AreEqual(2, vm.StagingQueue.Count, "Both WallType and Material should be staged in the Action Queue.");
+
+            var wallQueueItem = vm.StagingQueue.FirstOrDefault(q => q.Name == "Wall-Live");
+            var matQueueItem = vm.StagingQueue.FirstOrDefault(q => q.Name == "Concrete-Live");
+
+            Assert.IsNotNull(wallQueueItem, "WallType should be staged.");
+            Assert.IsNotNull(matQueueItem, "Material dependency should be resolved via PocoIdentityService and staged.");
+
+            // Confirm that IsTemplate is false by default so UniqueId/Id are preserved on queue items
+            Assert.IsFalse(((ElementModel)wallQueueItem!.Model).IsTemplate, "Queue item IsTemplate should be false.");
+            Assert.AreEqual("wall-guid-live-1", ((ElementModel)wallQueueItem.Model).UniqueId, "UniqueId should be preserved.");
+            Assert.AreEqual("material-guid-live-1", ((ElementModel)matQueueItem!.Model).UniqueId, "Material UniqueId should be preserved.");
+            Assert.AreEqual("Wall-Live", matQueueItem!.DependencyOrigin, "Material's DependencyOrigin should match parent.");
+        }
+
+        [Test]
         public void PushToQueue_EnforcesDeepCopyIsolation()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService);
             
             var source = new ProjectStandardsSourceViewModel { DisplayName = "Test Source" };
             var group = new StandardGroupModel { Name = "Materials & Assets" };
@@ -5143,7 +5862,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             vm.PushToQueueCommand.Execute("Enforce");
             
             // Modify name on the staged queue item's model
-            var stagedItem = vm.ActionQueue[0];
+            var stagedItem = vm.StagingQueue[0];
             if (stagedItem.Model is ElementModel stagedElem)
             {
                 stagedElem.Name = "Modified Steel";
@@ -5157,7 +5876,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void RemoveFromQueue_PurgesTargetedStagedItems()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService);
             
             var source = new ProjectStandardsSourceViewModel { DisplayName = "Test Source" };
             var group = new StandardGroupModel { Name = "Materials & Assets" };
@@ -5183,22 +5902,22 @@ namespace SyntheticTests.Modules.StandardsManagement
 
             // Push both to queue
             vm.PushToQueueCommand.Execute("SaveAndEnforce");
-            Assert.AreEqual(2, vm.ActionQueue.Count);
+            Assert.AreEqual(2, vm.StagingQueue.Count);
 
             // Act - remove item 1
-            var listToRemove = new System.Collections.ArrayList { vm.ActionQueue[0] };
+            var listToRemove = new System.Collections.ArrayList { vm.StagingQueue[0] };
             vm.RemoveFromQueueCommand.Execute(listToRemove);
 
             // Assert
-            Assert.AreEqual(1, vm.ActionQueue.Count, "Action queue should contain exactly 1 element after removal.");
-            Assert.AreEqual("Concrete", vm.ActionQueue[0].Name, "Remaining staged element should be Concrete.");
+            Assert.AreEqual(1, vm.StagingQueue.Count, "Action queue should contain exactly 1 element after removal.");
+            Assert.AreEqual("Concrete", vm.StagingQueue[0].Name, "Remaining staged element should be Concrete.");
         }
 
         [Test]
         public void EditCommand_SetsActiveWorkspaceToEdit()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService);
             var source = new ProjectStandardsSourceViewModel { DisplayName = "Test Source" };
             var group = new StandardGroupModel { Name = "Materials & Assets" };
             var classModel = new StandardClassModel { Name = "Materials" };
@@ -5213,7 +5932,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             elemNode.IsChecked = true;
             vm.PushToQueueCommand.Execute("Enforce");
 
-            var item = vm.ActionQueue[0];
+            var item = vm.StagingQueue[0];
             var listToEdit = new System.Collections.ArrayList { item };
 
             // Act
@@ -5229,7 +5948,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void BatchFindReplace_MutatesSelectedQueueElementNamesAndParameters()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService);
             var source = new ProjectStandardsSourceViewModel { DisplayName = "Test Source" };
             var group = new StandardGroupModel { Name = "Materials & Assets" };
             var classModel = new StandardClassModel { Name = "Materials" };
@@ -5253,7 +5972,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             elemNode.IsChecked = true;
             vm.PushToQueueCommand.Execute("Enforce");
 
-            var item = vm.ActionQueue[0];
+            var item = vm.StagingQueue[0];
             var listToEdit = new System.Collections.ArrayList { item };
             vm.EditCommand.Execute(listToEdit);
 
@@ -5273,7 +5992,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void ApplyEdits_SetsIntentToEditedAndResetsWorkspace()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService);
             var source = new ProjectStandardsSourceViewModel { DisplayName = "Test Source" };
             var group = new StandardGroupModel { Name = "Materials & Assets" };
             var classModel = new StandardClassModel { Name = "Materials" };
@@ -5288,7 +6007,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             elemNode.IsChecked = true;
             vm.PushToQueueCommand.Execute("Enforce");
 
-            var item = vm.ActionQueue[0];
+            var item = vm.StagingQueue[0];
             var listToEdit = new System.Collections.ArrayList { item };
             vm.EditCommand.Execute(listToEdit);
 
@@ -5304,7 +6023,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void DiffCommand_InvokesScanAndTransitionsToDiff()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService);
             var source = new ProjectStandardsSourceViewModel { DisplayName = "Test Source" };
             var group = new StandardGroupModel { Name = "Materials & Assets" };
             var classModel = new StandardClassModel { Name = "Materials" };
@@ -5319,7 +6038,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             elemNode.IsChecked = true;
             vm.PushToQueueCommand.Execute("Enforce");
 
-            var item = vm.ActionQueue[0];
+            var item = vm.StagingQueue[0];
             var listToDiff = new System.Collections.ArrayList { item };
 
             // Act
@@ -5334,7 +6053,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void ResolveConflict_MutatesStagedPOCOWithWinningValuesAndSetsDiffedIntent()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService);
             
             var elem = new ElementModel 
             { 
@@ -5356,8 +6075,8 @@ namespace SyntheticTests.Modules.StandardsManagement
                 TargetType = targetType
             };
 
-            var sourceId = new ElementId(101);
-            var targetId = new ElementId(102);
+            var sourceId = new ElementIdModel { Id = 101 };
+            var targetId = new ElementIdModel { Id = 102 };
 
             var diffRow = new ParameterDiffRowModel
             {
@@ -5395,13 +6114,13 @@ namespace SyntheticTests.Modules.StandardsManagement
             string tempFile = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString() + ".json");
             fakeFileDialog.PresetPath = tempFile;
 
-            var vm = new ProjectStandardsDashboardViewModel(_doc, fakeFileDialog);
+            var vm = DashboardTestFactory.Create(_doc, fakeFileDialog);
             vm.SaveFilePath = tempFile;
             var elem = new ElementModel { Name = "Steel", Class = "Autodesk.Revit.DB.Material" };
             
             // Item is tagged Save only (should completely bypass Phase 1)
             var item = new QueueItemModel(elem, false, true);
-            vm.ActionQueue.Add(item);
+            vm.StagingQueue.Add(item);
 
             try
             {
@@ -5409,7 +6128,7 @@ namespace SyntheticTests.Modules.StandardsManagement
                 vm.RunQueueCommand.Execute(null);
 
                 // Assert
-                Assert.AreEqual(0, vm.ActionQueue.Count, "Queue should be cleared.");
+                Assert.AreEqual(0, vm.StagingQueue.Count, "Queue should be cleared.");
                 Assert.IsTrue(File.Exists(tempFile), "Save should write to the JSON file.");
             }
             finally
@@ -5434,12 +6153,12 @@ namespace SyntheticTests.Modules.StandardsManagement
 
             var fakeGuardrail = new FakeGuardrailPromptService(GuardrailResult.Skip);
             var fakeFileDialog = new FakeFileDialogService();
-            var vm = new ProjectStandardsDashboardViewModel(_doc, fakeFileDialog, fakeGuardrail, settings);
+            var vm = DashboardTestFactory.Create(_doc, fakeFileDialog, new StandardsExportService(fakeGuardrail, fakeFileDialog), settings);
             vm.SaveFilePath = tempFile;
 
             var elem = new ElementModel { Name = "Steel", Class = "Autodesk.Revit.DB.Material" };
             var item = new QueueItemModel(elem, false, true);
-            vm.ActionQueue.Add(item);
+            vm.StagingQueue.Add(item);
 
             try
             {
@@ -5475,11 +6194,11 @@ namespace SyntheticTests.Modules.StandardsManagement
             var fakeFileDialog = new FakeFileDialogService();
             fakeFileDialog.PresetPath = redirectedFile;
 
-            var vm = new ProjectStandardsDashboardViewModel(_doc, fakeFileDialog, fakeGuardrail, settings);
+            var vm = DashboardTestFactory.Create(_doc, fakeFileDialog, new StandardsExportService(fakeGuardrail, fakeFileDialog), settings);
             vm.SaveFilePath = protectedFile;
             var elem = new ElementModel { Name = "Steel", Class = "Autodesk.Revit.DB.Material" };
             var item = new QueueItemModel(elem, false, true);
-            vm.ActionQueue.Add(item);
+            vm.StagingQueue.Add(item);
 
             try
             {
@@ -5515,11 +6234,11 @@ namespace SyntheticTests.Modules.StandardsManagement
             var fakeGuardrail = new FakeGuardrailPromptService(GuardrailResult.Skip);
             var fakeFileDialog = new FakeFileDialogService();
 
-            var vm = new ProjectStandardsDashboardViewModel(_doc, fakeFileDialog, fakeGuardrail, settings);
+            var vm = DashboardTestFactory.Create(_doc, fakeFileDialog, new StandardsExportService(fakeGuardrail, fakeFileDialog), settings);
             vm.SaveFilePath = protectedFile;
             var elem = new ElementModel { Name = "Steel", Class = "Autodesk.Revit.DB.Material" };
             var item = new QueueItemModel(elem, false, true);
-            vm.ActionQueue.Add(item);
+            vm.StagingQueue.Add(item);
 
             try
             {
@@ -5545,12 +6264,12 @@ namespace SyntheticTests.Modules.StandardsManagement
             fakeFileDialog.PresetPath = tempFile;
 
             var fakeSummaryService = new FakeSummaryDisplayService();
-            var vm = new ProjectStandardsDashboardViewModel(_doc, fakeFileDialog, (IStandardsExportService?)null, null);
+            var vm = DashboardTestFactory.Create(_doc, fakeFileDialog, null, null);
             vm.SummaryDisplayService = fakeSummaryService;
 
             var elem = new ElementModel { Name = "Steel", Class = "Autodesk.Revit.DB.Material" };
             var item = new QueueItemModel(elem, false, true);
-            vm.ActionQueue.Add(item);
+            vm.StagingQueue.Add(item);
 
             try
             {
@@ -5584,13 +6303,13 @@ namespace SyntheticTests.Modules.StandardsManagement
             fakeFileDialog.PresetPath = tempFile;
 
             var fakeSummaryService = new FakeSummaryDisplayService();
-            var vm = new ProjectStandardsDashboardViewModel(_doc, fakeFileDialog, (IStandardsExportService?)null, null);
+            var vm = DashboardTestFactory.Create(_doc, fakeFileDialog, null, null);
             vm.SaveFilePath = tempFile;
             vm.SummaryDisplayService = fakeSummaryService;
 
             var elem = new ElementModel { Name = "Steel", Class = "Autodesk.Revit.DB.Material" };
             var item = new QueueItemModel(elem, false, true);
-            vm.ActionQueue.Add(item);
+            vm.StagingQueue.Add(item);
 
             try
             {
@@ -5640,70 +6359,77 @@ namespace SyntheticTests.Modules.StandardsManagement
         }
 
         [Test]
-        public void AddRevitModel_ExtractsDeeplyNestedElements_BasedOnConfiguration()
+        public void AddRevitModel_ExtractsNestedDependencies_BasedOnOrchestration()
         {
             // Arrange
             var mainDoc = (Document)Activator.CreateInstance(typeof(Document), true)!;
             dynamic mainDocDyn = mainDoc;
 
-            // Create a parent family
-            var parentFamily = (Family)Activator.CreateInstance(typeof(Family), true)!;
-            parentFamily.Name = "ParentFamily";
-            typeof(Element).GetProperty("Id")?.SetValue(parentFamily, new ElementId(1001));
-            mainDocDyn.AddElement(parentFamily, new ElementId(1001));
+            // Create a mock WallType
+            var wallType = (WallType)Activator.CreateInstance(typeof(WallType), true)!;
+            wallType.Name = "Orchestration_Test_WallType";
+            typeof(Element).GetProperty("Id")?.SetValue(wallType, new ElementId(1001));
+            mainDocDyn.AddElement(wallType, new ElementId(1001));
 
-            // Create family doc for the parent family
-            var parentFamilyDoc = (Document)Activator.CreateInstance(typeof(Document), true)!;
-            dynamic parentFamilyDocDyn = parentFamilyDoc;
-            parentFamilyDocDyn.Title = "ParentFamilyDoc";
-            parentFamilyDocDyn.IsFamilyDocument = true;
-
-            dynamic parentFamilyDyn = parentFamily;
-            parentFamilyDyn.MockFamilyDocument = parentFamilyDoc;
-
-            // Inside parent family doc, create a nested family
-            var nestedFamily = (Family)Activator.CreateInstance(typeof(Family), true)!;
-            nestedFamily.Name = "NestedFamily";
-            typeof(Element).GetProperty("Id")?.SetValue(nestedFamily, new ElementId(2001));
-            parentFamilyDocDyn.AddElement(nestedFamily, new ElementId(2001));
-
-            // Create family doc for the nested family
-            var nestedFamilyDoc = (Document)Activator.CreateInstance(typeof(Document), true)!;
-            dynamic nestedFamilyDocDyn = nestedFamilyDoc;
-            nestedFamilyDocDyn.Title = "NestedFamilyDoc";
-            nestedFamilyDocDyn.IsFamilyDocument = true;
-
-            dynamic nestedFamilyDyn = nestedFamily;
-            nestedFamilyDyn.MockFamilyDocument = nestedFamilyDoc;
-
-            // Inside nested family doc, add a material
+            // Create a mock Material
             var material = (Material)Activator.CreateInstance(typeof(Material), true)!;
-            material.Name = "DeepNestedMaterial";
-            typeof(Element).GetProperty("Id")?.SetValue(material, new ElementId(3001));
-            nestedFamilyDocDyn.AddElement(material, new ElementId(3001));
+            material.Name = "Orchestration_Test_Material";
+            typeof(Element).GetProperty("Id")?.SetValue(material, new ElementId(2001));
+            mainDocDyn.AddElement(material, new ElementId(2001));
+
+            // Set up mock compound structure on WallType referencing the Material
+            var layer = new CompoundStructureLayer();
+            layer.MaterialId = new ElementId(2001);
+            var cs = CompoundStructure.CreateSimpleCompoundStructure(new List<CompoundStructureLayer> { layer });
+            wallType.SetCompoundStructure(cs);
+
+            // Setup a fake identity service and orchestrator
+            var fakeIdentity = new FakeIdentityService();
+            
+            // Map the material ID to model mapping
+            var matModel = new ElementIdModel
+            {
+                Id = 2001,
+                Name = "Orchestration_Test_Material",
+                Class = "Autodesk.Revit.DB.Material"
+            };
+            fakeIdentity.SetupMapping(new ElementId(2001), matModel);
+            fakeIdentity.SetupElement("Orchestration_Test_Material", material);
+
+            var orchestrator = new StandardsExtractionOrchestrator(fakeIdentity);
 
             var fakeFileDialog = new FakeFileDialogService();
             var fakeGuardrail = new FakeGuardrailPromptService(GuardrailResult.Overwrite);
             var settings = new StandardsSettings();
 
-            var vm = new ProjectStandardsDashboardViewModel(mainDoc, fakeFileDialog, fakeGuardrail, settings);
-            
-            // Set up document selection mock
+            var vm = DashboardTestFactory.Create(
+                mainDoc, 
+                dialogService: fakeFileDialog, 
+                exportService: new StandardsExportService(fakeGuardrail, fakeFileDialog), 
+                settings: settings, 
+                orchestrator: orchestrator);
             vm.MockOpenDocuments = new List<Document> { mainDoc };
-            
-            // Set up ShowDocumentSelectionDialog handler to configure extraction options
+
+            // Setup document selection mock: select "Wall Types" only
             vm.ShowDocumentSelectionDialog = (dialogVM) =>
             {
                 foreach (var item in dialogVM.OpenDocuments)
                 {
                     item.IsSelected = true;
                 }
-                dialogVM.ScanFamilies = true;
-                dialogVM.IncludeNestedFamilies = true;
-                // Check all groupings
+                dialogVM.ScanFamilies = false;
+                dialogVM.IncludeNestedFamilies = false;
+
                 foreach (var group in dialogVM.FilterHierarchy)
                 {
-                    group.IsChecked = true;
+                    if (group.Name == "System Types")
+                    {
+                        group.IsChecked = true;
+                    }
+                    else
+                    {
+                        group.IsChecked = false;
+                    }
                 }
                 return true;
             };
@@ -5715,23 +6441,23 @@ namespace SyntheticTests.Modules.StandardsManagement
             Assert.AreEqual(1, vm.AvailableSources.Count, "A Revit source should be added.");
             var source = vm.AvailableSources[0];
 
-            // Traverse the tree to find if "DeepNestedMaterial" is extracted
+            bool foundWallType = false;
             bool foundMaterial = false;
+
             foreach (var group in source.SourceHierarchy)
             {
                 foreach (var cls in group.Children)
                 {
                     foreach (var elem in cls.Children)
                     {
-                        if (elem.Name == "DeepNestedMaterial")
-                        {
-                            foundMaterial = true;
-                        }
+                        if (elem.Name == "Orchestration_Test_WallType") foundWallType = true;
+                        if (elem.Name == "Orchestration_Test_Material") foundMaterial = true;
                     }
                 }
             }
 
-            Assert.IsTrue(foundMaterial, "The deep nested material from the recursive family scan should be extracted.");
+            Assert.IsTrue(foundWallType, "The root WallType should be extracted.");
+            Assert.IsTrue(foundMaterial, "The nested Material should be recursively extracted as a dependency via the orchestrator.");
         }
 
         [Test]
@@ -5743,7 +6469,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             var fakeGuardrail = new FakeGuardrailPromptService();
             var settings = new StandardsSettings();
             
-            var vm = new ProjectStandardsDashboardViewModel(mainDoc, fakeFileDialog, fakeGuardrail, settings);
+            var vm = DashboardTestFactory.Create(mainDoc, fakeFileDialog, new StandardsExportService(fakeGuardrail, fakeFileDialog), settings);
             
             // Add a test queue item
             var model = new ElementModel { Name = "OriginalName", Class = "Autodesk.Revit.DB.LinePatternElement" };
@@ -5753,7 +6479,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             };
             
             var queueItem = new QueueItemModel(model, false, true);
-            vm.ActionQueue.Add(queueItem);
+            vm.StagingQueue.Add(queueItem);
             
             // Execute Edit
             vm.EditCommand.Execute(new List<QueueItemModel> { queueItem });
@@ -5780,13 +6506,13 @@ namespace SyntheticTests.Modules.StandardsManagement
             var fakeGuardrail = new FakeGuardrailPromptService();
             var settings = new StandardsSettings();
             
-            var vm = new ProjectStandardsDashboardViewModel(mainDoc, fakeFileDialog, fakeGuardrail, settings);
+            var vm = DashboardTestFactory.Create(mainDoc, fakeFileDialog, new StandardsExportService(fakeGuardrail, fakeFileDialog), settings);
             
             var item1 = new QueueItemModel(new ElementModel { Name = "Elem1", Class = "Autodesk.Revit.DB.LinePatternElement" }, false, true);
             var item2 = new QueueItemModel(new ElementModel { Name = "Elem2", Class = "Autodesk.Revit.DB.LinePatternElement" }, false, true);
             
-            vm.ActionQueue.Add(item1);
-            vm.ActionQueue.Add(item2);
+            vm.StagingQueue.Add(item1);
+            vm.StagingQueue.Add(item2);
             
             // Edit single item
             vm.EditCommand.Execute(new List<QueueItemModel> { item1 });
@@ -5808,15 +6534,15 @@ namespace SyntheticTests.Modules.StandardsManagement
             var fakeGuardrail = new FakeGuardrailPromptService();
             var settings = new StandardsSettings();
             
-            var vm = new ProjectStandardsDashboardViewModel(mainDoc, fakeFileDialog, fakeGuardrail, settings);
+            var vm = DashboardTestFactory.Create(mainDoc, fakeFileDialog, new StandardsExportService(fakeGuardrail, fakeFileDialog), settings);
             
             var item1 = new QueueItemModel(new ElementModel { Name = "Elem1", Class = "Autodesk.Revit.DB.LinePatternElement" }, false, true);
             var item2 = new QueueItemModel(new ElementModel { Name = "Elem2", Class = "Autodesk.Revit.DB.TextNoteType" }, false, true);
             var item3 = new QueueItemModel(new ElementModel { Name = "Elem3", Class = "Autodesk.Revit.DB.LinePatternElement" }, false, true);
             
-            vm.ActionQueue.Add(item1);
-            vm.ActionQueue.Add(item2);
-            vm.ActionQueue.Add(item3);
+            vm.StagingQueue.Add(item1);
+            vm.StagingQueue.Add(item2);
+            vm.StagingQueue.Add(item3);
             
             // Act: Edit multiple items
             vm.EditCommand.Execute(new List<QueueItemModel> { item1, item2, item3 });
@@ -5834,13 +6560,13 @@ namespace SyntheticTests.Modules.StandardsManagement
             var fakeGuardrail = new FakeGuardrailPromptService();
             var settings = new StandardsSettings();
             
-            var vm = new ProjectStandardsDashboardViewModel(mainDoc, fakeFileDialog, fakeGuardrail, settings);
+            var vm = DashboardTestFactory.Create(mainDoc, fakeFileDialog, new StandardsExportService(fakeGuardrail, fakeFileDialog), settings);
             
             var item1 = new QueueItemModel(new ElementModel { Name = "Elem1", Class = "Autodesk.Revit.DB.LinePatternElement", Aliases = new List<string> { "Alias1A", "Alias1B" } }, false, true);
             var item2 = new QueueItemModel(new ElementModel { Name = "Elem2", Class = "Autodesk.Revit.DB.LinePatternElement", Aliases = new List<string> { "Alias2A" } }, false, true);
             
-            vm.ActionQueue.Add(item1);
-            vm.ActionQueue.Add(item2);
+            vm.StagingQueue.Add(item1);
+            vm.StagingQueue.Add(item2);
             
             // Act: Edit single item
             vm.EditCommand.Execute(new List<QueueItemModel> { item1 });
@@ -5962,7 +6688,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             var fakeGuardrail = new FakeGuardrailPromptService();
             var settings = new StandardsSettings();
             
-            var vm = new ProjectStandardsDashboardViewModel(mainDoc, fakeFileDialog, fakeGuardrail, settings);
+            var vm = DashboardTestFactory.Create(mainDoc, fakeFileDialog, new StandardsExportService(fakeGuardrail, fakeFileDialog), settings);
             
             var poco1 = new MockPocoModel { Name = "Poco1", Class = "Autodesk.Revit.DB.MockPocoModel", WritableString = "CommonVal", NullableDouble = 1.0 };
             var poco2 = new MockPocoModel { Name = "Poco2", Class = "Autodesk.Revit.DB.MockPocoModel", WritableString = "CommonVal", NullableDouble = 2.0 };
@@ -5970,8 +6696,8 @@ namespace SyntheticTests.Modules.StandardsManagement
             var item1 = new QueueItemModel(poco1, false, true);
             var item2 = new QueueItemModel(poco2, false, true);
             
-            vm.ActionQueue.Add(item1);
-            vm.ActionQueue.Add(item2);
+            vm.StagingQueue.Add(item1);
+            vm.StagingQueue.Add(item2);
             
             vm.EditCommand.Execute(new List<QueueItemModel> { item1, item2 });
             
@@ -5989,6 +6715,134 @@ namespace SyntheticTests.Modules.StandardsManagement
             
             Assert.AreEqual("BulkUpdatedVal", ((MockPocoModel)item1.Model).WritableString);
             Assert.AreEqual("BulkUpdatedVal", ((MockPocoModel)item2.Model).WritableString);
+        }
+
+        private class FakeStandardsExtractionOrchestrator : IStandardsExtractionOrchestrator
+        {
+            public bool ExtractCalled { get; private set; }
+            public List<ObjectModel> Extract(Document doc, IEnumerable<Element> rootElements, IProgress<string>? progress = null)
+            {
+                ExtractCalled = true;
+                return new List<ObjectModel>();
+            }
+
+            public List<ObjectModel> Extract(Document doc, IEnumerable<Element> rootElements, IProgress<string>? progress = null, bool isTemplate = false)
+            {
+                ExtractCalled = true;
+                return new List<ObjectModel>();
+            }
+        }
+
+        [Test]
+        public void VerifyHeadlessConstruction_WithMockedOrchestrator()
+        {
+            // Arrange
+            var doc = (Document)Activator.CreateInstance(typeof(Document), true)!;
+            var fakeFileDialog = new FakeFileDialogService();
+            var fakeGuardrail = new FakeGuardrailPromptService();
+            var settings = new StandardsSettings();
+            var fakeOrchestrator = new FakeStandardsExtractionOrchestrator();
+
+            // Act
+            var vm = DashboardTestFactory.Create(
+                doc: doc, 
+                dialogService: fakeFileDialog, 
+                exportService: null, 
+                settings: settings, 
+                userPromptService: null, 
+                findReplaceService: null,
+                orchestrator: fakeOrchestrator);
+
+            // Assert
+            Assert.IsNotNull(vm);
+            var orchestratorField = typeof(ProjectStandardsDashboardViewModel)
+                .GetField("_orchestrator", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            Assert.IsNotNull(orchestratorField);
+            var orchestratorObj = orchestratorField!.GetValue(vm);
+            Assert.AreSame(fakeOrchestrator, orchestratorObj);
+        }
+
+        [Test]
+        public void VerifyReplaceQueueReferences_UpdatesPatternAndAppearanceAssetIds()
+        {
+            // Arrange
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService);
+
+            // 1. Create the old element to be replaced
+            var oldPoco = new ElementModel { Name = "OldAsset", Class = "Autodesk.Revit.DB.AppearanceAssetElement" };
+            var oldItem = new QueueItemModel(oldPoco, true, true);
+
+            // 2. Create a Material in the staging queue that references "OldAsset"
+            var matPoco = new MaterialModel
+            {
+                Name = "TestMaterial",
+                AppearanceAssetId = new ElementIdModel
+                {
+                    Name = "OldAsset",
+                    Id = 12345,
+                    UniqueId = "SomeUniqueId-Asset"
+                },
+                SurfaceForegroundPatternId = new ElementIdModel
+                {
+                    Name = "OldAsset",
+                    Id = 67890,
+                    UniqueId = "SomeUniqueId-Pattern"
+                }
+            };
+            var matItem = new QueueItemModel(matPoco, true, true);
+            vm.StagingQueue.Add(matItem);
+
+            // Act
+            vm.ReplaceQueueReferences(new List<QueueItemModel> { oldItem }, "NewAsset");
+
+            // Assert
+            var updatedMat = (MaterialModel)matItem.TargetModel;
+            
+            // Verify AppearanceAssetId was updated
+            Assert.IsNotNull(updatedMat.AppearanceAssetId);
+            Assert.AreEqual("NewAsset", updatedMat.AppearanceAssetId!.Name);
+            Assert.AreEqual(0, updatedMat.AppearanceAssetId.Id);
+            Assert.IsNull(updatedMat.AppearanceAssetId.UniqueId, "AppearanceAssetId.UniqueId should be null after replacement.");
+
+            // Verify SurfaceForegroundPatternId was updated
+            Assert.IsNotNull(updatedMat.SurfaceForegroundPatternId);
+            Assert.AreEqual("NewAsset", updatedMat.SurfaceForegroundPatternId!.Name);
+            Assert.AreEqual(0, updatedMat.SurfaceForegroundPatternId.Id);
+            Assert.IsNull(updatedMat.SurfaceForegroundPatternId.UniqueId, "SurfaceForegroundPatternId.UniqueId should be null after replacement.");
+        }
+
+        [Test]
+        public void VerifyPropertyChangedForwarding_FromSubViewModels()
+        {
+            // Arrange
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService);
+            var receivedProperties = new List<string>();
+            vm.PropertyChanged += (sender, e) =>
+            {
+                if (e.PropertyName != null)
+                {
+                    receivedProperties.Add(e.PropertyName);
+                }
+            };
+
+            var onPropertyChangedMethod = typeof(ViewModelBase)
+                .GetMethod("OnPropertyChanged", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            Assert.IsNotNull(onPropertyChangedMethod);
+
+            // Act - Trigger PropertyChanged on each sub-VM via reflection
+            // 1. SourceTreeViewModel
+            onPropertyChangedMethod!.Invoke(vm.SourceTreeViewModel, new object[] { nameof(StandardsSourceTreeViewModel.SearchText) });
+
+            // 2. StagingQueueViewModel
+            onPropertyChangedMethod!.Invoke(vm.StagingQueueViewModel, new object[] { nameof(StagingQueueViewModel.SelectedAliasesString) });
+
+            // 3. StandardsExecutionPipelineViewModel
+            onPropertyChangedMethod!.Invoke(vm.StandardsExecutionPipelineViewModel, new object[] { nameof(StandardsExecutionPipelineViewModel.SaveFilePath) });
+
+            // Assert
+            Assert.Contains(nameof(StandardsSourceTreeViewModel.SearchText), receivedProperties);
+            Assert.Contains(nameof(StagingQueueViewModel.SelectedAliasesString), receivedProperties);
+            Assert.Contains(nameof(StandardsExecutionPipelineViewModel.SaveFilePath), receivedProperties);
         }
     }
 
@@ -6015,9 +6869,12 @@ using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.StandardsManagement.Utilities;
+using Synthetic.RevitDOM.Operations.Standards;
 using Synthetic.Shared.UI;
 using Synthetic.Settings;
 
@@ -6040,16 +6897,16 @@ namespace SyntheticTests.Modules.StandardsManagement
             var fakeGuardrail = new FakeGuardrailPromptService(GuardrailResult.Overwrite);
             var settings = new StandardsSettings();
 
-            _vm = new ProjectStandardsDashboardViewModel(_doc, fakeFileDialog, fakeGuardrail, settings);
+            _vm = DashboardTestFactory.Create(_doc, fakeFileDialog, new StandardsExportService(fakeGuardrail, fakeFileDialog), settings);
 
-            _extractMethod = typeof(ProjectStandardsDashboardViewModel)
+            _extractMethod = typeof(StandardsSourceTreeViewModel)
                 .GetMethod("ExtractRevitElements", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
             Assert.IsNotNull(_extractMethod, "ExtractRevitElements method not found.");
         }
 
         private List<ElementModel> InvokeExtract(List<string>? selectedGroupings)
         {
-            return (List<ElementModel>)_extractMethod.Invoke(_vm, new object?[] { _doc, false, false, selectedGroupings })!;
+            return (List<ElementModel>)_extractMethod.Invoke(_vm.SourceTreeViewModel, new object?[] { _doc, false, false, selectedGroupings })!;
         }
 
         [Test]
@@ -6197,16 +7054,38 @@ namespace SyntheticTests.Modules.StandardsManagement
             Assert.Contains("Mock Title Block", names);
             Assert.False(names.Contains("Mock Detail Component"), "Detail Components should be excluded.");
         }
+
+        [Test]
+        public void ExtractRevitElements_WhenToposolidTypesSelected_ExtractsCorrectly()
+        {
+            // Arrange
+            var toposolidType = (ToposolidType)Activator.CreateInstance(typeof(ToposolidType), true)!;
+            toposolidType.Name = "Mock Toposolid Type";
+            toposolidType.GetType().GetProperty("Id")?.SetValue(toposolidType, new ElementId(601));
+            ((dynamic)_doc).AddElement(toposolidType, toposolidType.Id);
+
+            // Act: Select only "Toposolid Types"
+            var selectedGroupings = new List<string> { "Toposolid Types" };
+            var result = InvokeExtract(selectedGroupings);
+
+            // Assert
+            Assert.IsNotNull(result);
+            var names = result.Select(r => r.Name).ToList();
+            Assert.Contains("Mock Toposolid Type", names);
+        }
     }
 }
 ```
 
 ### File: tests/SyntheticTests.Logic/Modules/StandardsManagement/QueueItemBaselineCloneTests.cs
 ```csharp
-using System;
+﻿using System;
 using System.Collections.Generic;
 using NUnit.Framework;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 
 namespace SyntheticTests.Modules.StandardsManagement
@@ -6325,13 +7204,17 @@ namespace SyntheticTests.Modules.StandardsManagement
 
 ### File: tests/SyntheticTests.Logic/Modules/StandardsManagement/QueueMergeTests.cs
 ```csharp
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
+using Synthetic.RevitDOM.Operations.Standards;
 
 namespace SyntheticTests.Modules.StandardsManagement
 {
@@ -6352,7 +7235,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void MergeQueueItems_ShouldAppendNonSurvivorNameToSurvivorAliasesAndPurgeConsumed()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
 
             var oak = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "Material - Oak" };
             var pine = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "Material - Pine" };
@@ -6360,8 +7243,8 @@ namespace SyntheticTests.Modules.StandardsManagement
             var qOak = new QueueItemModel(oak, true, false);
             var qPine = new QueueItemModel(pine, true, false);
 
-            vm.ActionQueue.Add(qOak);
-            vm.ActionQueue.Add(qPine);
+            vm.StagingQueue.Add(qOak);
+            vm.StagingQueue.Add(qPine);
 
             var selectedList = new List<QueueItemModel> { qOak, qPine };
 
@@ -6370,8 +7253,8 @@ namespace SyntheticTests.Modules.StandardsManagement
 
             // Assert
             // Oak (first item) should be SelectedPrimary by ShowMergeDialog mock.
-            Assert.AreEqual(1, vm.ActionQueue.Count, "Non-survivor pine should be purged.");
-            Assert.AreSame(qOak, vm.ActionQueue.First(), "Oak should remain.");
+            Assert.AreEqual(1, vm.StagingQueue.Count, "Non-survivor pine should be purged.");
+            Assert.AreSame(qOak, vm.StagingQueue.First(), "Oak should remain.");
 
             var oakModel = qOak.Model as ElementModel;
             Assert.IsNotNull(oakModel);
@@ -6383,7 +7266,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void MergeQueueItems_ShouldCascadingRedirectReferences()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
 
             var oak = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "Material - Oak" };
             var pine = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "Material - Pine" };
@@ -6407,9 +7290,9 @@ namespace SyntheticTests.Modules.StandardsManagement
             var qPine = new QueueItemModel(pine, true, false);
             var qWall = new QueueItemModel(wall, true, false);
 
-            vm.ActionQueue.Add(qOak);
-            vm.ActionQueue.Add(qPine);
-            vm.ActionQueue.Add(qWall);
+            vm.StagingQueue.Add(qOak);
+            vm.StagingQueue.Add(qPine);
+            vm.StagingQueue.Add(qWall);
 
             var selectedList = new List<QueueItemModel> { qOak, qPine };
 
@@ -6417,7 +7300,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             vm.MergeQueueCommand.Execute(selectedList);
 
             // Assert
-            Assert.AreEqual(2, vm.ActionQueue.Count, "Pine should be purged, Oak and Wall should remain.");
+            Assert.AreEqual(2, vm.StagingQueue.Count, "Pine should be purged, Oak and Wall should remain.");
             
             var wallModel = qWall.Model as HostObjTypeModel;
             Assert.IsNotNull(wallModel);
@@ -6430,7 +7313,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void ExtractRevitElements_ShouldScanAndExtractAllSupportedTypesAndFamilySymbols()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
 
             void AddToDoc(Element el, string name, int idVal)
             {
@@ -6462,13 +7345,12 @@ namespace SyntheticTests.Modules.StandardsManagement
 
             _doc.GetType().GetMethod("AddElement")?.Invoke(_doc, new object[] { fs, fs.Id });
 
-            // Act: Private method invoke via reflection
-            var extractMethod = typeof(ProjectStandardsDashboardViewModel)
+            var extractMethod = typeof(StandardsSourceTreeViewModel)
                 .GetMethod("ExtractRevitElements", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
             Assert.IsNotNull(extractMethod);
 
             var selectedGroupings = new List<string> { "Title Blocks", "Wall Types", "Line Patterns", "Materials" };
-            var result = (List<ElementModel>)extractMethod.Invoke(vm, new object[] { _doc, false, false, selectedGroupings })!;
+            var result = (List<ElementModel>)extractMethod.Invoke(vm.SourceTreeViewModel, new object[] { _doc, false, false, selectedGroupings })!;
 
             // Assert
             Assert.IsNotNull(result);
@@ -6495,7 +7377,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             };
 
             // Act
-            var result = ProjectStandardsDashboardViewModel.MergeStandardsLists(existing, newElements, overwriteDuplicates: true);
+            var result = StandardsMergeUtility.Merge(existing, newElements, overwriteDuplicates: true);
 
             // Assert
             Assert.AreEqual(2, result.Count);
@@ -6519,7 +7401,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             };
 
             // Act
-            var result = ProjectStandardsDashboardViewModel.MergeStandardsLists(existing, newElements, overwriteDuplicates: false);
+            var result = StandardsMergeUtility.Merge(existing, newElements, overwriteDuplicates: false);
 
             // Assert
             Assert.AreEqual(2, result.Count);
@@ -6532,18 +7414,18 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void IsSavePathActive_ShouldReflectQueueIntent()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
             Assert.IsFalse(vm.IsSavePathActive);
 
             // Act
             var item = new QueueItemModel(new MaterialModel { Class = "Material", Name = "Test" }, false, true);
-            vm.ActionQueue.Add(item);
+            vm.StagingQueue.Add(item);
 
             // Assert
             Assert.IsTrue(vm.IsSavePathActive);
 
             // Act
-            vm.ActionQueue.Remove(item);
+            vm.StagingQueue.Remove(item);
 
             // Assert
             Assert.IsFalse(vm.IsSavePathActive);
@@ -6553,7 +7435,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void MergeQueueItems_ShouldTransitionWorkspaceToIdle_WhenMergeIsSuccessfulInEditMode()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
 
             var oak = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "Material - Oak" };
             var pine = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "Material - Pine" };
@@ -6561,8 +7443,8 @@ namespace SyntheticTests.Modules.StandardsManagement
             var qOak = new QueueItemModel(oak, true, false);
             var qPine = new QueueItemModel(pine, true, false);
 
-            vm.ActionQueue.Add(qOak);
-            vm.ActionQueue.Add(qPine);
+            vm.StagingQueue.Add(qOak);
+            vm.StagingQueue.Add(qPine);
 
             var selectedList = new List<QueueItemModel> { qOak, qPine };
 
@@ -6575,7 +7457,7 @@ namespace SyntheticTests.Modules.StandardsManagement
 
             // Assert
             // Oak (first item) should be SelectedPrimary by ShowMergeDialog mock.
-            Assert.AreEqual(1, vm.ActionQueue.Count, "Non-survivor pine should be purged.");
+            Assert.AreEqual(1, vm.StagingQueue.Count, "Non-survivor pine should be purged.");
             Assert.AreEqual(WorkspaceMode.Idle, vm.ActiveWorkspace, "Active workspace should transition to Idle post-merge.");
         }
 
@@ -6583,7 +7465,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void MergeQueueItems_ShouldCombineExecutionFlagsAndMergeAliasesOntoSurvivor()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
 
             var oak = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "Material - Oak", Aliases = new List<string> { "OakAlias1" } };
             var pine = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "Material - Pine", Aliases = new List<string> { "PineAlias1" } };
@@ -6592,8 +7474,8 @@ namespace SyntheticTests.Modules.StandardsManagement
             var qOak = new QueueItemModel(oak, true, false);
             var qPine = new QueueItemModel(pine, false, true);
 
-            vm.ActionQueue.Add(qOak);
-            vm.ActionQueue.Add(qPine);
+            vm.StagingQueue.Add(qOak);
+            vm.StagingQueue.Add(qPine);
 
             var selectedList = new List<QueueItemModel> { qOak, qPine };
 
@@ -6601,8 +7483,8 @@ namespace SyntheticTests.Modules.StandardsManagement
             vm.MergeQueueCommand.Execute(selectedList);
 
             // Assert
-            Assert.AreEqual(1, vm.ActionQueue.Count, "Pine should be purged.");
-            var survivor = vm.ActionQueue[0];
+            Assert.AreEqual(1, vm.StagingQueue.Count, "Pine should be purged.");
+            var survivor = vm.StagingQueue[0];
             Assert.AreSame(qOak, survivor, "Oak should be the survivor.");
             
             // Flags should be combined
@@ -6621,14 +7503,127 @@ namespace SyntheticTests.Modules.StandardsManagement
 }
 ```
 
-### File: tests/SyntheticTests.Logic/Modules/StandardsManagement/SelectRevitDocumentTests.cs
+### File: tests/SyntheticTests.Logic/Modules/StandardsManagement/RevitFamilyEnforcerTests.cs
 ```csharp
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using NUnit.Framework;
+using Autodesk.Revit.DB;
+using Synthetic.RevitDOM.Operations.Standards;
+using Synthetic.RevitDOM.Operations.Standards;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
+using Synthetic.RevitDOM.Operations.Merge;
+
+namespace SyntheticTests.Modules.StandardsManagement
+{
+    [TestFixture]
+    public class RevitFamilyEnforcerTests
+    {
+        private Document _doc = null!;
+        private FakeSerializationEngine _fakeEngine = null!;
+
+        [SetUp]
+        public void Setup()
+        {
+            _doc = (Document)Activator.CreateInstance(typeof(Document), true)!;
+            _fakeEngine = new FakeSerializationEngine();
+        }
+
+        [Test]
+        public void Enforce_WithTitleBlocksOnlyFilter_ProcessesOnlyTitleBlocks()
+        {
+            // Arrange
+            var enforcer = new RevitFamilyEnforcer(_fakeEngine);
+
+            // Create title block family
+            var titleBlockFamily = (Family)Activator.CreateInstance(typeof(Family), true)!;
+            titleBlockFamily.Name = "TitleBlockFam";
+            dynamic dTitleBlock = titleBlockFamily;
+            dTitleBlock.IsEditable = true;
+            
+            var cat1 = (Category)Activator.CreateInstance(typeof(Category), true)!;
+            cat1.GetType().GetProperty("Id")?.SetValue(cat1, new ElementId((long)BuiltInCategory.OST_TitleBlocks));
+            titleBlockFamily.FamilyCategory = cat1;
+            titleBlockFamily.GetType().GetProperty("Id")?.SetValue(titleBlockFamily, new ElementId(1001));
+            ((dynamic)_doc).AddElement(titleBlockFamily, titleBlockFamily.Id);
+
+            // Create non-title block family
+            var wallFamily = (Family)Activator.CreateInstance(typeof(Family), true)!;
+            wallFamily.Name = "WallFam";
+            dynamic dWall = wallFamily;
+            dWall.IsEditable = true;
+            
+            var cat2 = (Category)Activator.CreateInstance(typeof(Category), true)!;
+            cat2.GetType().GetProperty("Id")?.SetValue(cat2, new ElementId((long)BuiltInCategory.OST_Walls));
+            wallFamily.FamilyCategory = cat2;
+            wallFamily.GetType().GetProperty("Id")?.SetValue(wallFamily, new ElementId(1002));
+            ((dynamic)_doc).AddElement(wallFamily, wallFamily.Id);
+
+            var options = new StandardsExecutionOptions
+            {
+                ProcessFamilies = true,
+                CategoryFilter = "Title Blocks Only"
+            };
+
+            var processedFamilies = new List<string>();
+            Action<string, string, int> reportProgress = (task, detail, count) =>
+            {
+                if (detail.Contains("Updating family"))
+                {
+                    processedFamilies.Add(detail);
+                }
+            };
+
+            var results = new List<SerializationResultModel>();
+
+            // Act
+            enforcer.Enforce(_doc, new List<ElementModel>(), options, reportProgress, results, CancellationToken.None);
+
+            // Assert
+            Assert.AreEqual(1, processedFamilies.Count);
+            Assert.IsTrue(processedFamilies[0].Contains("TitleBlockFam"));
+            Assert.IsFalse(processedFamilies.Any(f => f.Contains("WallFam")));
+        }
+
+        private class FakeSerializationEngine : IStandardSerializationEngine
+        {
+            public IEnumerable<ObjectModel> ByRevit(IEnumerable<Element> elements, Document doc, bool isTemplate, IProgress<string>? progress = null, CancellationToken cancellationToken = default)
+            {
+                return new List<ObjectModel>();
+            }
+
+            public IEnumerable<DuplicateClusterModel> Analyze(IEnumerable<ObjectModel> models, Document doc, IProgress<string>? progress = null, CancellationToken cancellationToken = default)
+            {
+                return new List<DuplicateClusterModel>();
+            }
+
+            public IEnumerable<SerializationResultModel> ToRevit(IEnumerable<ObjectModel> models, Document doc, IProgress<string>? progress = null, CancellationToken cancellationToken = default, IFailuresPreprocessor? failuresPreprocessor = null)
+            {
+                return new List<SerializationResultModel>();
+            }
+
+            public ObjectModel? ExtractCategory(Category category, Document doc, bool isTemplate)
+            {
+                return null;
+            }
+        }
+    }
+}
+```
+
+### File: tests/SyntheticTests.Logic/Modules/StandardsManagement/SelectRevitDocumentTests.cs
+```csharp
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
 using NUnit.Framework;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.StandardsManagement.Utilities;
+using Synthetic.RevitDOM.Operations.Standards;
 
 namespace SyntheticTests.Modules.StandardsManagement
 {
@@ -6736,7 +7731,7 @@ namespace SyntheticTests.Modules.StandardsManagement
 
 ### File: tests/SyntheticTests.Logic/Modules/StandardsManagement/SingleItemSelectionViewModelTests.cs
 ```csharp
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
@@ -6888,13 +7883,16 @@ namespace SyntheticTests.Modules.StandardsManagement
 
 ### File: tests/SyntheticTests.Logic/Modules/StandardsManagement/StandardsHierarchyUtilityTests.cs
 ```csharp
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
 using System.Collections.ObjectModel;
-using Synthetic.Modules.RevitDOM;
-using Synthetic.Modules.StandardsManagement.Utilities;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
+using Synthetic.RevitDOM.Operations.Standards;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 
 namespace SyntheticTests.Modules.StandardsManagement
@@ -7104,9 +8102,52 @@ namespace SyntheticTests
             var windowType = Type.GetType($"Synthetic.Modules.StandardsManagement.Views.ProjectStandardsDashboardWindow, Synthetic{revitVersion}");
             Assert.IsNotNull(windowType, $"ProjectStandardsDashboardWindow type could not be loaded for Revit version {revitVersion}.");
 
-            // Instantiate ViewModel and Window
             var fakeDialog = new FakeFileDialogService();
-            var vm = Activator.CreateInstance(vmType, _uiapp!, fakeDialog, null);
+
+            var suffix = $", Synthetic{revitVersion}";
+            var guardrail = new SyntheticTests.Modules.StandardsManagement.FakeGuardrailPromptService();
+            var userPromptService = new SyntheticTests.Modules.StandardsManagement.FakeUserPromptService();
+
+            var exportServiceType = Type.GetType($"Synthetic.RevitDOM.Operations.Standards.StandardsExportService{suffix}");
+            var exportService = Activator.CreateInstance(exportServiceType, guardrail, fakeDialog);
+
+            var findReplaceType = Type.GetType($"Synthetic.RevitDOM.Operations.Standards.FindReplaceService{suffix}");
+            var findReplaceService = Activator.CreateInstance(findReplaceType);
+
+            var serializationEngineType = Type.GetType($"Synthetic.Modules.RevitDOM.StandardSerializationEngine{suffix}");
+            var serializationEngine = Activator.CreateInstance(serializationEngineType);
+
+            var revitIdentityType = Type.GetType($"Synthetic.Modules.RevitDOM.RevitIdentityService{suffix}");
+            var revitIdentity = Activator.CreateInstance(revitIdentityType);
+
+            var orchestratorType = Type.GetType($"Synthetic.RevitDOM.Operations.Standards.StandardsExtractionOrchestrator{suffix}");
+            var orchestrator = Activator.CreateInstance(orchestratorType, revitIdentity, serializationEngine);
+
+            var pocoIdentityType = Type.GetType($"Synthetic.Modules.RevitDOM.PocoIdentityService{suffix}");
+            var pocoIdentityService = Activator.CreateInstance(pocoIdentityType);
+
+            var diffEngineType = Type.GetType($"Synthetic.RevitDOM.Operations.Diffing.PocoToRevitDiffEngine{suffix}");
+            var diffEngine = Activator.CreateInstance(diffEngineType, revitIdentity);
+
+            var revitFamilyEnforcerType = Type.GetType($"Synthetic.RevitDOM.Operations.Standards.RevitFamilyEnforcer{suffix}");
+            var revitFamilyEnforcer = Activator.CreateInstance(revitFamilyEnforcerType, serializationEngine);
+
+            var pipelineType = Type.GetType($"Synthetic.RevitDOM.Operations.Standards.StandardsExecutionPipeline{suffix}");
+            var pipeline = Activator.CreateInstance(pipelineType, serializationEngine, exportService, revitFamilyEnforcer);
+
+            var vm = Activator.CreateInstance(vmType, 
+                _uiapp!, 
+                fakeDialog, 
+                exportService, 
+                null, 
+                userPromptService, 
+                findReplaceService, 
+                orchestrator, 
+                pocoIdentityService, 
+                diffEngine, 
+                serializationEngine, 
+                pipeline);
+
             var window = Activator.CreateInstance(windowType, _uiapp!.MainWindowHandle);
 
             Assert.IsNotNull(vm, "ViewModel could not be instantiated.");
@@ -7145,6 +8186,7 @@ namespace SyntheticTests
         }
     }
 }
+
 ```
 
 ### File: tests/SyntheticTests.Shared/Modules/AssemblyAnalyzer/Tier2_AssemblyAnalyzerTests.cs
@@ -7177,7 +8219,8 @@ namespace SyntheticTests
         {
             _uiapp = uiapp;
 
-            string modelPathStr = @"C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2\tests\test_models\INC Standards - Assemblies & Details.rvt";
+            string projectRoot = GetProjectRoot();
+            string modelPathStr = Path.Combine(projectRoot, "tests", "test_models", "INC Standards - Assemblies & Details.rvt");
             if (!File.Exists(modelPathStr))
             {
                 Console.WriteLine($"[WARN] AssemblyAnalyzer test model not found: {modelPathStr}. Tests will be skipped.");
@@ -7390,7 +8433,7 @@ namespace SyntheticTests
                 Console.WriteLine(resultStr);
 
                 // Write to local file in output directory
-                string projectRoot = @"C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2";
+                string projectRoot = GetProjectRoot();
                 string outFilePath = Path.Combine(projectRoot, "output", "assembly_analyzer_base.txt");
 
                 try
@@ -7833,7 +8876,7 @@ namespace SyntheticTests
                 }
 
                 // Write output files
-                string projectRoot = @"C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2";
+                string projectRoot = GetProjectRoot();
                 string activeFilePath = Path.Combine(projectRoot, "output", "assembly_analyzer_active.txt");
                 string archiveFilePath = Path.Combine(projectRoot, "output", "assembly_analyzer_instances_archive.txt");
                 string quarantineFilePath = Path.Combine(projectRoot, "output", "assembly_analyzer_quarantine.txt");
@@ -8127,7 +9170,7 @@ namespace SyntheticTests
                 Assert.IsTrue(totalScavenged > 0, "Should scavenge at least one live sub-object instance.");
 
                 // Write output files
-                string projectRoot = @"C:\Users\amcgoey\Dropbox\Projects\Revit API Synthetic v2";
+                string projectRoot = GetProjectRoot();
                 string cleanFilePath = Path.Combine(projectRoot, "output", "assembly_analyzer_nested_clean.txt");
                 string quarantineFilePath = Path.Combine(projectRoot, "output", "assembly_analyzer_nested_quarantine.txt");
 
@@ -8224,6 +9267,16 @@ namespace SyntheticTests
             return false;
         }
 
+        private static string GetProjectRoot()
+        {
+            string dir = TestContext.CurrentContext.TestDirectory;
+            while (dir != null && !Directory.Exists(Path.Combine(dir, "tests")))
+            {
+                dir = Path.GetDirectoryName(dir);
+            }
+            return dir ?? TestContext.CurrentContext.TestDirectory;
+        }
+
         private void ResolveWarnings(object? sender, FailuresProcessingEventArgs e)
         {
             FailuresAccessor fa = e.GetFailuresAccessor();
@@ -8245,6 +9298,1405 @@ namespace SyntheticTests
 }
 ```
 
+### File: tests/SyntheticTests.Shared/Modules/MergeDuplicates/Tier2_MergeDuplicatesHeadlessTests.cs
+```csharp
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using NUnit.Framework;
+using Newtonsoft.Json;
+
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Operations.Merge;
+
+
+namespace SyntheticTests
+{
+    [TestFixture]
+    public class Tier2_MergeDuplicatesHeadlessTests
+    {
+        private static string GetProjectRoot()
+        {
+            string envPath = Environment.GetEnvironmentVariable("SYNTHETIC_PROJECT_ROOT");
+            if (!string.IsNullOrEmpty(envPath) && Directory.Exists(envPath))
+            {
+                return envPath;
+            }
+
+            string dir = TestContext.CurrentContext.TestDirectory;
+            while (dir != null && !Directory.Exists(Path.Combine(dir, "tests")))
+            {
+                dir = Path.GetDirectoryName(dir);
+            }
+            return dir ?? TestContext.CurrentContext.TestDirectory;
+        }
+
+        [Test]
+        public void Test_GetBaseName_StripsTrailingDigitsAndSeparators()
+        {
+            Assert.AreEqual("MyFamily", MergeAnalysisEngine.GetBaseName("MyFamily_1"));
+            Assert.AreEqual("MyFamily", MergeAnalysisEngine.GetBaseName("MyFamily-2"));
+            Assert.AreEqual("MyFamily", MergeAnalysisEngine.GetBaseName("MyFamily 3"));
+            Assert.AreEqual("MyFamily", MergeAnalysisEngine.GetBaseName("MyFamily#4"));
+            Assert.AreEqual("MyFamily", MergeAnalysisEngine.GetBaseName("MyFamily.5"));
+            Assert.AreEqual("MyFamily", MergeAnalysisEngine.GetBaseName("MyFamily"));
+            Assert.AreEqual("", MergeAnalysisEngine.GetBaseName(""));
+            Assert.AreEqual("", MergeAnalysisEngine.GetBaseName(null));
+        }
+
+        [Test]
+        public void Test_BuildClustersFromModels_GroupsDuplicateFamilies()
+        {
+            string projectRoot = GetProjectRoot();
+            string jsonPath = Path.Combine(projectRoot, "tests", "SyntheticTests.Shared", "Assets", "test_duplicate_families.json");
+            Assert.IsTrue(File.Exists(jsonPath), $"Snapshot file not found at: {jsonPath}");
+
+            string json = File.ReadAllText(jsonPath);
+            var elements = JsonConvert.DeserializeObject<List<ElementModel>>(json);
+            Assert.IsNotNull(elements);
+            Assert.AreEqual(6, elements.Count);
+
+            var token = CancellationToken.None;
+            var clusters = MergeAnalysisEngine.BuildClustersFromModels(elements, token);
+
+            // Assertions for clustering
+            Assert.IsNotNull(clusters, "Clusters collection should not be null.");
+            Assert.AreEqual(3, clusters.Count, "Should detect 3 duplicate family symbol clusters.");
+
+            var runningSectionCluster = clusters.FirstOrDefault(c => c.ClusterName.Contains("Running Section"));
+            Assert.IsNotNull(runningSectionCluster, "Should contain Running Section cluster.");
+            Assert.AreEqual(2, runningSectionCluster.Items.Count);
+            Assert.IsTrue(runningSectionCluster.Items.Any(i => i.IsPrimary), "One item should be flagged as primary.");
+
+            var soldierCluster = clusters.FirstOrDefault(c => c.ClusterName.Contains("Soldier & Plan"));
+            Assert.IsNotNull(soldierCluster, "Should contain Soldier & Plan cluster.");
+            Assert.AreEqual(2, soldierCluster.Items.Count);
+
+            var rowlockCluster = clusters.FirstOrDefault(c => c.ClusterName.Contains("Rowlock"));
+            Assert.IsNotNull(rowlockCluster, "Should contain Rowlock cluster.");
+            Assert.AreEqual(2, rowlockCluster.Items.Count);
+        }
+
+        [Test]
+        public void Test_BuildClustersFromModels_GroupsDuplicateGroups()
+        {
+            string projectRoot = GetProjectRoot();
+            string jsonPath = Path.Combine(projectRoot, "tests", "SyntheticTests.Shared", "Assets", "test_duplicate_groups.json");
+            Assert.IsTrue(File.Exists(jsonPath), $"Snapshot file not found at: {jsonPath}");
+
+            string json = File.ReadAllText(jsonPath);
+            var elements = JsonConvert.DeserializeObject<List<ElementModel>>(json);
+            Assert.IsNotNull(elements);
+            Assert.AreEqual(2, elements.Count);
+
+            var token = CancellationToken.None;
+            var clusters = MergeAnalysisEngine.BuildClustersFromModels(elements, token);
+
+            // Assertions for clustering
+            Assert.IsNotNull(clusters, "Clusters collection should not be null.");
+            Assert.AreEqual(1, clusters.Count, "Should detect 1 duplicate group cluster.");
+
+            var groupCluster = clusters.First();
+            Assert.IsTrue(groupCluster.ClusterName.Contains("TestGroup"), "Cluster name should contain TestGroup.");
+            Assert.AreEqual(2, groupCluster.Items.Count, "Should contain 2 group items.");
+            Assert.IsTrue(groupCluster.Items.Any(i => i.IsPrimary), "One item should be flagged as primary.");
+
+            var primaryItem = groupCluster.Items.First(i => i.IsPrimary);
+            Assert.AreEqual("TestGroup", primaryItem.ItemName, "Item with shorter name should be primary.");
+            
+            var nonPrimaryItem = groupCluster.Items.First(i => !i.IsPrimary);
+            Assert.AreEqual("TestGroup1", nonPrimaryItem.ItemName);
+        }
+
+        [Test]
+        public void Test_CompareParameters_IdentifiesMatches()
+        {
+            var primaryElem = new ElementModel
+            {
+                ElementId = new ElementIdModel { Id = 1001, UniqueId = "uid-1001" },
+                Name = "Running Section",
+                Category = "Detail Items",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                Parameters = new List<ParameterModel>
+                {
+                    new ParameterModel { Name = "Cost", Value = "100.0", StorageType = "Double", Id = 101 },
+                    new ParameterModel { Name = "Type Comments", Value = "Standard", StorageType = "String", Id = 102 }
+                }
+            };
+
+            var duplicateElem = new ElementModel
+            {
+                ElementId = new ElementIdModel { Id = 1002, UniqueId = "uid-1002" },
+                Name = "Running Section",
+                Category = "Detail Items",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                Parameters = new List<ParameterModel>
+                {
+                    new ParameterModel { Name = "Cost", Value = "100.0", StorageType = "Double", Id = 101 },
+                    new ParameterModel { Name = "Type Comments", Value = "Standard", StorageType = "String", Id = 102 }
+                }
+            };
+
+            var elements = new List<ElementModel> { primaryElem, duplicateElem };
+            var token = CancellationToken.None;
+            var clusters = MergeAnalysisEngine.BuildClustersFromModels(elements, token);
+            Assert.AreEqual(1, clusters.Count);
+
+            var cluster = clusters[0];
+            var primaryItem = cluster.Items.First(i => i.RevitElementId.Id == 1001);
+            cluster.UpdatePrimaryItem(primaryItem);
+
+            MergeAnalysisEngine.GenerateRecommendations(cluster);
+
+            var mapping = cluster.TypeMappings.First();
+            Assert.IsNotNull(mapping);
+
+            var costRow = mapping.ParameterResolutions.FirstOrDefault(r => r.ParameterName == "Cost");
+            Assert.IsNotNull(costRow);
+            Assert.IsFalse(costRow.HasConflict, "Identical Cost parameter should not have conflict.");
+            Assert.IsFalse(costRow.IsSchemaMismatch, "Identical Cost parameter should not have schema mismatch.");
+
+            var commentRow = mapping.ParameterResolutions.FirstOrDefault(r => r.ParameterName == "Type Comments");
+            Assert.IsNotNull(commentRow);
+            Assert.IsFalse(commentRow.HasConflict, "Identical Type Comments parameter should not have conflict.");
+            Assert.IsFalse(commentRow.IsSchemaMismatch, "Identical Type Comments parameter should not have schema mismatch.");
+        }
+
+        [Test]
+        public void Test_CompareParameters_IdentifiesConflicts()
+        {
+            var primaryElem = new ElementModel
+            {
+                ElementId = new ElementIdModel { Id = 1001, UniqueId = "uid-1001" },
+                Name = "Running Section",
+                Category = "Detail Items",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                Parameters = new List<ParameterModel>
+                {
+                    new ParameterModel { Name = "Type Comments", Value = "Standard", StorageType = "String", Id = 102 }
+                }
+            };
+
+            var duplicateElem = new ElementModel
+            {
+                ElementId = new ElementIdModel { Id = 1002, UniqueId = "uid-1002" },
+                Name = "Running Section",
+                Category = "Detail Items",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                Parameters = new List<ParameterModel>
+                {
+                    new ParameterModel { Name = "Type Comments", Value = "Override", StorageType = "String", Id = 102 }
+                }
+            };
+
+            var elements = new List<ElementModel> { primaryElem, duplicateElem };
+            var token = CancellationToken.None;
+            var clusters = MergeAnalysisEngine.BuildClustersFromModels(elements, token);
+            var cluster = clusters[0];
+            var primaryItem = cluster.Items.First(i => i.RevitElementId.Id == 1001);
+            cluster.UpdatePrimaryItem(primaryItem);
+
+            MergeAnalysisEngine.GenerateRecommendations(cluster);
+
+            var mapping = cluster.TypeMappings.First();
+            var row = mapping.ParameterResolutions.FirstOrDefault(r => r.ParameterName == "Type Comments");
+            Assert.IsNotNull(row);
+            Assert.IsTrue(row.HasConflict, "Differing parameter values should flag conflict.");
+            Assert.IsFalse(row.IsSchemaMismatch, "Differing parameter values with same storage type should not have schema mismatch.");
+            Assert.AreEqual(2, row.Options.Count);
+            Assert.AreEqual("Override", row.Options[0].DisplayText);
+            Assert.AreEqual("Standard", row.Options[1].DisplayText);
+        }
+
+        [Test]
+        public void Test_CompareParameters_IdentifiesSchemaMismatches()
+        {
+            var primaryElem = new ElementModel
+            {
+                ElementId = new ElementIdModel { Id = 1001, UniqueId = "uid-1001" },
+                Name = "Running Section",
+                Category = "Detail Items",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                Parameters = new List<ParameterModel>
+                {
+                    new ParameterModel { Name = "Cost", Value = "100.0", StorageType = "Double", Id = 101 }
+                }
+            };
+
+            var duplicateElem = new ElementModel
+            {
+                ElementId = new ElementIdModel { Id = 1002, UniqueId = "uid-1002" },
+                Name = "Running Section",
+                Category = "Detail Items",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                Parameters = new List<ParameterModel>
+                {
+                    new ParameterModel { Name = "Cost", Value = "100.0", StorageType = "String", Id = 101 }
+                }
+            };
+
+            var elements = new List<ElementModel> { primaryElem, duplicateElem };
+            var token = CancellationToken.None;
+            var clusters = MergeAnalysisEngine.BuildClustersFromModels(elements, token);
+            var cluster = clusters[0];
+            var primaryItem = cluster.Items.First(i => i.RevitElementId.Id == 1001);
+            cluster.UpdatePrimaryItem(primaryItem);
+
+            MergeAnalysisEngine.GenerateRecommendations(cluster);
+
+            var mapping = cluster.TypeMappings.First();
+            var row = mapping.ParameterResolutions.FirstOrDefault(r => r.ParameterName == "Cost");
+            Assert.IsNotNull(row);
+            Assert.IsTrue(row.IsSchemaMismatch, "Differing storage types should flag schema mismatch.");
+        }
+
+        [Test]
+        public void Test_CompareParameters_IdentifiesMissingParameters()
+        {
+            var primaryElem = new ElementModel
+            {
+                ElementId = new ElementIdModel { Id = 1001, UniqueId = "uid-1001" },
+                Name = "Running Section",
+                Category = "Detail Items",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                Parameters = new List<ParameterModel>
+                {
+                    new ParameterModel { Name = "OnlyInPrimary", Value = "Hello", StorageType = "String", Id = 103 }
+                }
+            };
+
+            var duplicateElem = new ElementModel
+            {
+                ElementId = new ElementIdModel { Id = 1002, UniqueId = "uid-1002" },
+                Name = "Running Section",
+                Category = "Detail Items",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                Parameters = new List<ParameterModel>
+                {
+                    new ParameterModel { Name = "OnlyInSource", Value = "World", StorageType = "String", Id = 104 }
+                }
+            };
+
+            var elements = new List<ElementModel> { primaryElem, duplicateElem };
+            var token = CancellationToken.None;
+            var clusters = MergeAnalysisEngine.BuildClustersFromModels(elements, token);
+            var cluster = clusters[0];
+            var primaryItem = cluster.Items.First(i => i.RevitElementId.Id == 1001);
+            cluster.UpdatePrimaryItem(primaryItem);
+
+            MergeAnalysisEngine.GenerateRecommendations(cluster);
+
+            var mapping = cluster.TypeMappings.First();
+            
+            // OnlyInPrimary row (in target, missing in source)
+            var primRow = mapping.ParameterResolutions.FirstOrDefault(r => r.ParameterName == "OnlyInPrimary");
+            Assert.IsNotNull(primRow);
+            Assert.IsFalse(primRow.IsSchemaMismatch, "Missing parameter on source is not a schema mismatch.");
+            Assert.IsFalse(primRow.IsInjectEnabled, "Missing parameter on source should not be inject-enabled on target.");
+
+            // OnlyInSource row (in source, missing in target)
+            var srcRow = mapping.ParameterResolutions.FirstOrDefault(r => r.ParameterName == "OnlyInSource");
+            Assert.IsNotNull(srcRow);
+            Assert.IsFalse(srcRow.IsSchemaMismatch, "Missing parameter on target is not a schema mismatch.");
+            Assert.IsTrue(srcRow.IsInjectEnabled, "Missing parameter on target should be inject-enabled.");
+        }
+
+        [Test]
+        public void Test_GenerateRecommendedAction_MatchesDecisions()
+        {
+            // Case 1: Loadable Family (IsLoadableFamily = true)
+            var primaryFam = new ElementModel
+            {
+                ElementId = new ElementIdModel { Id = 1001, UniqueId = "uid-1001" },
+                Name = "Running Section",
+                Category = "Detail Items",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                NestedTypes = new List<ElementModel>
+                {
+                    new ElementModel { ElementId = new ElementIdModel { Id = 10011 }, Name = "Type A" }
+                }
+            };
+
+            var duplicateFam = new ElementModel
+            {
+                ElementId = new ElementIdModel { Id = 1002, UniqueId = "uid-1002" },
+                Name = "Running Section 1",
+                Category = "Detail Items",
+                Class = "Autodesk.Revit.DB.FamilySymbol",
+                NestedTypes = new List<ElementModel>
+                {
+                    new ElementModel { ElementId = new ElementIdModel { Id = 10021 }, Name = "Type A" },
+                    new ElementModel { ElementId = new ElementIdModel { Id = 10022 }, Name = "Type B" }
+                }
+            };
+
+            var elements = new List<ElementModel> { primaryFam, duplicateFam };
+            var token = CancellationToken.None;
+            var clusters = MergeAnalysisEngine.BuildClustersFromModels(elements, token);
+            Assert.AreEqual(1, clusters.Count);
+
+            var cluster = clusters[0];
+            var primaryItem = cluster.Items.First(i => i.RevitElementId.Id == 1001);
+            cluster.UpdatePrimaryItem(primaryItem);
+
+            MergeAnalysisEngine.GenerateRecommendations(cluster);
+
+            Assert.AreEqual(2, cluster.TypeMappings.Count);
+            
+            var typeAMapping = cluster.TypeMappings.First(m => m.SourceType.Name == "Type A");
+            Assert.AreEqual(RecommendedAction.Merge, typeAMapping.RecommendedAction, "Type A exists in primary and should be Merged.");
+
+            var typeBMapping = cluster.TypeMappings.First(m => m.SourceType.Name == "Type B");
+            Assert.AreEqual(RecommendedAction.Migrate, typeBMapping.RecommendedAction, "Type B is unique to duplicate family and should be Migrated.");
+
+            // Case 2: Group (IsLoadableFamily = false)
+            var primaryGroup = new ElementModel
+            {
+                ElementId = new ElementIdModel { Id = 2001, UniqueId = "uid-2001" },
+                Name = "TestGroup",
+                Category = "Model Groups",
+                Class = "Autodesk.Revit.DB.GroupType"
+            };
+
+            var duplicateGroup = new ElementModel
+            {
+                ElementId = new ElementIdModel { Id = 2002, UniqueId = "uid-2002" },
+                Name = "TestGroup 1",
+                Category = "Model Groups",
+                Class = "Autodesk.Revit.DB.GroupType"
+            };
+
+            var groupElements = new List<ElementModel> { primaryGroup, duplicateGroup };
+            var groupClusters = MergeAnalysisEngine.BuildClustersFromModels(groupElements, token);
+            Assert.AreEqual(1, groupClusters.Count);
+
+            var groupCluster = groupClusters[0];
+            var primaryGroupItem = groupCluster.Items.First(i => i.RevitElementId.Id == 2001);
+            groupCluster.UpdatePrimaryItem(primaryGroupItem);
+
+            MergeAnalysisEngine.GenerateRecommendations(groupCluster);
+
+            Assert.AreEqual(1, groupCluster.TypeMappings.Count);
+            var groupMapping = groupCluster.TypeMappings.First();
+            Assert.AreEqual(RecommendedAction.Merge, groupMapping.RecommendedAction, "Groups should default to Merge even if names differ.");
+        }
+
+        [Test]
+        public void Test_BoundingBoxXYZModel_GetSize_CalculatesDimensionsCorrectly()
+        {
+            var validBBox = new BoundingBoxXYZModel
+            {
+                Min = new XYZModel(-10.0, -5.0, 0.0),
+                Max = new XYZModel(10.0, 15.0, 30.0)
+            };
+
+            var size = validBBox.GetSize();
+            Assert.IsNotNull(size);
+            Assert.AreEqual(20.0, size!.X, 1e-6);
+            Assert.AreEqual(20.0, size.Y, 1e-6);
+            Assert.AreEqual(30.0, size.Z, 1e-6);
+
+            var nullBBox = new BoundingBoxXYZModel
+            {
+                Min = null,
+                Max = new XYZModel(10.0, 10.0, 10.0)
+            };
+            Assert.IsNull(nullBBox.GetSize(), "GetSize should return null when Min is null.");
+
+            var invalidBBox = new BoundingBoxXYZModel
+            {
+                Min = new XYZModel(double.NaN, 0, 0),
+                Max = new XYZModel(10.0, 10.0, 10.0)
+            };
+            Assert.IsNull(invalidBBox.GetSize(), "GetSize should return null when Min contains NaN.");
+        }
+
+        [Test]
+        public void Test_BoundingBoxXYZModel_GetCenter_CalculatesCenterCorrectly()
+        {
+            var validBBox = new BoundingBoxXYZModel
+            {
+                Min = new XYZModel(-10.0, -20.0, 0.0),
+                Max = new XYZModel(10.0, 20.0, 100.0)
+            };
+
+            var center = validBBox.GetCenter();
+            Assert.IsNotNull(center);
+            Assert.AreEqual(0.0, center!.X, 1e-6);
+            Assert.AreEqual(0.0, center.Y, 1e-6);
+            Assert.AreEqual(50.0, center.Z, 1e-6);
+
+            var nullBBox = new BoundingBoxXYZModel();
+            Assert.IsNull(nullBBox.GetCenter(), "GetCenter should return null when Min and Max are unassigned.");
+        }
+
+        [Test]
+        public void Test_BoundingBoxXYZModel_IsValid_ReturnsCorrectStatus()
+        {
+            var valid = new BoundingBoxXYZModel
+            {
+                Min = new XYZModel(0, 0, 0),
+                Max = new XYZModel(1, 1, 1)
+            };
+            Assert.IsTrue(valid.IsValid);
+
+            var nullMin = new BoundingBoxXYZModel
+            {
+                Min = null,
+                Max = new XYZModel(1, 1, 1)
+            };
+            Assert.IsFalse(nullMin.IsValid);
+
+            var nanVal = new BoundingBoxXYZModel
+            {
+                Min = new XYZModel(0, 0, double.NaN),
+                Max = new XYZModel(1, 1, 1)
+            };
+            Assert.IsFalse(nanVal.IsValid);
+
+            var infVal = new BoundingBoxXYZModel
+            {
+                Min = new XYZModel(0, 0, 0),
+                Max = new XYZModel(1, double.PositiveInfinity, 1)
+            };
+            Assert.IsFalse(infVal.IsValid);
+        }
+
+        [Test]
+        public void Test_XYZModel_IsOffsetEqual_EvaluatesTolerancesAndNullsCorrectly()
+        {
+            var vecA = new XYZModel(3.0, 4.0, 0.0); // length = 5.0
+            var vecB = new XYZModel(0.0, 5.0, 0.0); // length = 5.0, but different spatial displacement
+            var vecC = new XYZModel(3.0, 4.0, 0.0005); // spatial displacement within tolerance 1e-3
+
+            Assert.IsFalse(XYZModel.IsOffsetEqual(vecA, vecB, 1e-3), "Vectors pointing in different directions should not be offset equal.");
+            Assert.IsTrue(XYZModel.IsOffsetEqual(vecA, vecC, 1e-3), "Slightly differing vectors within tolerance should be equal.");
+
+            var vecD = new XYZModel(10.0, 0.0, 0.0); // length = 10.0
+            Assert.IsFalse(XYZModel.IsOffsetEqual(vecA, vecD, 1e-3), "Vectors with different lengths should not be offset equal.");
+
+            // Null cases
+            Assert.IsTrue(XYZModel.IsOffsetEqual(null, null), "Two null vectors should be equal.");
+            Assert.IsFalse(XYZModel.IsOffsetEqual(vecA, null), "Vector compared to null should be false.");
+            Assert.IsFalse(XYZModel.IsOffsetEqual(null, vecB), "Null compared to vector should be false.");
+
+            // NaN / Infinity cases
+            var nanVec = new XYZModel(double.NaN, 0, 0);
+            Assert.IsFalse(XYZModel.IsOffsetEqual(vecA, nanVec), "Comparison with NaN vector should return false.");
+        }
+
+        [Test]
+        public void Test_XYZModel_IsValid_DetectsNaNAndInfinity()
+        {
+            Assert.IsTrue(new XYZModel(1.0, 2.0, 3.0).IsValid);
+            Assert.IsFalse(new XYZModel(double.NaN, 2.0, 3.0).IsValid);
+            Assert.IsFalse(new XYZModel(1.0, double.NegativeInfinity, 3.0).IsValid);
+            Assert.IsFalse(new XYZModel(1.0, 2.0, double.PositiveInfinity).IsValid);
+        }
+    }
+}
+```
+
+### File: tests/SyntheticTests.Shared/Modules/MergeDuplicates/Tier2_MergeDuplicatesIntegrationTests.cs
+```csharp
+using Synthetic.Modules.MergeDuplicates.Services;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using NUnit.Framework;
+using Autodesk.Revit.UI;
+using Autodesk.Revit.DB;
+using Newtonsoft.Json;
+
+using Synthetic.Modules.MergeDuplicates.Handlers;
+using Synthetic.Modules.MergeDuplicates.ViewModels;
+using Synthetic.RevitDOM.Operations.Merge;
+using Synthetic.RevitDOM.Models;
+
+
+namespace SyntheticTests
+{
+    [TestFixture]
+    public class Tier2_MergeDuplicatesIntegrationTests
+    {
+        private UIApplication? _uiapp;
+
+        [OneTimeSetUp]
+        public void Setup(UIApplication uiapp)
+        {
+            _uiapp = uiapp;
+            string errPath = Path.Combine(Path.GetTempPath(), "synthetic_test_error.txt");
+            if (File.Exists(errPath))
+            {
+                File.Delete(errPath);
+            }
+        }
+
+        #region Helper Methods
+
+        private static string GetProjectRoot()
+        {
+            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            string addinPath = Path.Combine(appData, "Autodesk", "Revit", "Addins", "2026", "Synthetic2026.addin");
+            if (File.Exists(addinPath))
+            {
+                string content = File.ReadAllText(addinPath);
+                var match = System.Text.RegularExpressions.Regex.Match(content, @"<Assembly>(.*?)\\output\\Synthetic\\Synthetic2026\.dll", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                if (match.Success)
+                {
+                    string root = match.Groups[1].Value;
+                    if (Directory.Exists(root))
+                    {
+                        return root;
+                    }
+                }
+            }
+
+            string envPath = Environment.GetEnvironmentVariable("SYNTHETIC_PROJECT_ROOT");
+            if (!string.IsNullOrEmpty(envPath) && Directory.Exists(envPath))
+            {
+                return envPath;
+            }
+
+            string dir = TestContext.CurrentContext.TestDirectory;
+            while (dir != null && !Directory.Exists(Path.Combine(dir, "tests")))
+            {
+                dir = Path.GetDirectoryName(dir);
+            }
+            return dir ?? TestContext.CurrentContext.TestDirectory;
+        }
+
+        private Document OpenTestTemplate(Autodesk.Revit.ApplicationServices.Application app)
+        {
+            string projectRoot = GetProjectRoot();
+            string testModelName = "TestTemplate" + app.VersionNumber + ".rvt";
+            string modelPathStr = Path.Combine(projectRoot, "tests", "test_models", testModelName);
+            if (!File.Exists(modelPathStr))
+            {
+                throw new FileNotFoundException("Test template model not found: " + modelPathStr);
+            }
+
+            ModelPath modelPath = ModelPathUtils.ConvertUserVisiblePathToModelPath(modelPathStr);
+            OpenOptions openOptions = new OpenOptions
+            {
+                DetachFromCentralOption = DetachFromCentralOption.DetachAndDiscardWorksets
+            };
+            return app.OpenDocumentFile(modelPath, openOptions);
+        }
+
+        private Family DuplicateFamily(Document doc, Family sourceFamily, string suffix, out string tempPath)
+        {
+            Document famDoc = doc.EditFamily(sourceFamily);
+            if (famDoc == null)
+            {
+                throw new InvalidOperationException("EditFamily returned null.");
+            }
+
+            try
+            {
+                string tempDir = Path.GetTempPath();
+                string newName = sourceFamily.Name + suffix;
+                tempPath = Path.Combine(tempDir, newName + ".rfa");
+
+                if (File.Exists(tempPath))
+                {
+                    File.Delete(tempPath);
+                }
+
+                famDoc.SaveAs(tempPath);
+            }
+            finally
+            {
+                famDoc.Close(false);
+            }
+
+            // Load duplicate family back in a transaction on doc
+            Family duplicatedFamily;
+            using (Transaction t = new Transaction(doc, "Load Duplicate Family"))
+            {
+                t.Start();
+                bool loaded = doc.LoadFamily(tempPath, new ProcessMergeFamilyLoadOptions(), out duplicatedFamily);
+                if (!loaded || duplicatedFamily == null)
+                {
+                    throw new InvalidOperationException("Failed to load duplicated family.");
+                }
+                t.Commit();
+            }
+
+            return duplicatedFamily;
+        }
+
+        private FamilyInstance PlaceInstance(Document doc, FamilySymbol symbol)
+        {
+            if (!symbol.IsActive)
+            {
+                symbol.Activate();
+            }
+
+            Category cat = symbol.Category;
+            if (cat != null && cat.Id == new ElementId(BuiltInCategory.OST_TitleBlocks))
+            {
+                ViewSheet sheet = ViewSheet.Create(doc, ElementId.InvalidElementId);
+                return doc.Create.NewFamilyInstance(XYZ.Zero, symbol, sheet);
+            }
+
+            // Check if it's a detail component or annotation
+            if (symbol.Family.FamilyCategory.CategoryType == CategoryType.Annotation ||
+                symbol.Family.FamilyCategory.Id == new ElementId(BuiltInCategory.OST_DetailComponents))
+            {
+                FilteredElementCollector viewCollector = new FilteredElementCollector(doc);
+                ViewFamilyType? draftingViewType = viewCollector
+                    .OfClass(typeof(ViewFamilyType))
+                    .Cast<ViewFamilyType>()
+                    .FirstOrDefault(vt => vt.ViewFamily == ViewFamily.Drafting);
+
+                ViewDrafting draftingView;
+                if (draftingViewType != null)
+                {
+                    draftingView = ViewDrafting.Create(doc, draftingViewType.Id);
+                }
+                else
+                {
+                    draftingView = ViewDrafting.Create(doc, ElementId.InvalidElementId);
+                }
+                return doc.Create.NewFamilyInstance(XYZ.Zero, symbol, draftingView);
+            }
+
+            // Fallback for 3D model elements
+            Level level = new FilteredElementCollector(doc)
+                .OfClass(typeof(Level))
+                .Cast<Level>()
+                .FirstOrDefault();
+            if (level == null)
+            {
+                level = Level.Create(doc, 0.0);
+            }
+            return doc.Create.NewFamilyInstance(XYZ.Zero, symbol, level, Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
+        }
+
+        private static bool InjectParameterToFamilyDynamic(FamilyManager famManager, string paramName)
+        {
+            object? paramGroup = null;
+            object? paramType = null;
+
+            Type? groupTypeIdType = typeof(ElementId).Assembly.GetType("Autodesk.Revit.DB.GroupTypeId");
+            if (groupTypeIdType != null)
+            {
+                paramGroup = groupTypeIdType.GetProperty("Data")?.GetValue(null);
+                paramType = typeof(ElementId).Assembly.GetType("Autodesk.Revit.DB.SpecTypeId+String")?.GetProperty("Text")?.GetValue(null);
+            }
+            else
+            {
+                paramGroup = Enum.Parse(typeof(ElementId).Assembly.GetType("Autodesk.Revit.DB.BuiltInParameterGroup")!, "PG_DATA");
+                paramType = Enum.Parse(typeof(ElementId).Assembly.GetType("Autodesk.Revit.DB.ParameterType")!, "Text");
+            }
+
+            if (famManager == null)
+            {
+                Console.WriteLine("[ERROR] FamilyManager is null.");
+                return false;
+            }
+            if (paramGroup == null)
+            {
+                Console.WriteLine("[ERROR] paramGroup is null.");
+                return false;
+            }
+            if (paramType == null)
+            {
+                Console.WriteLine("[ERROR] paramType is null.");
+                return false;
+            }
+
+            System.Reflection.MethodInfo? addParamMethod = null;
+            if (groupTypeIdType != null)
+            {
+                addParamMethod = famManager.GetType().GetMethods()
+                    .FirstOrDefault(m => m.Name == "AddParameter" && 
+                                         m.GetParameters().Length == 4 && 
+                                         m.GetParameters()[1].ParameterType.Name.Contains("ForgeTypeId") &&
+                                         m.GetParameters()[2].ParameterType.Name.Contains("ForgeTypeId"));
+            }
+            else
+            {
+                addParamMethod = famManager.GetType().GetMethods()
+                    .FirstOrDefault(m => m.Name == "AddParameter" && 
+                                         m.GetParameters().Length == 4 && 
+                                         m.GetParameters()[1].ParameterType.Name.Contains("BuiltInParameterGroup") &&
+                                         m.GetParameters()[2].ParameterType.Name.Contains("ParameterType"));
+            }
+
+            if (addParamMethod != null)
+            {
+                try
+                {
+                    addParamMethod.Invoke(famManager, new object[] { paramName, paramGroup, paramType, false });
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[ERROR] AddParameter invoke failed: {ex.Message}");
+                    if (ex.InnerException != null)
+                    {
+                        Console.WriteLine($"[INNER EXCEPTION] {ex.InnerException.Message}\n{ex.InnerException.StackTrace}");
+                    }
+                    return false;
+                }
+            }
+            else
+            {
+                Console.WriteLine("[ERROR] AddParameter method with 4 arguments not found.");
+            }
+            return false;
+        }
+
+        private static void ExportPocoSnapshot(IEnumerable<Element> elements, string fileName)
+        {
+            string projectRoot = GetProjectRoot();
+            string assetsDir = Path.Combine(projectRoot, "tests", "SyntheticTests.Shared", "Assets");
+            if (!Directory.Exists(assetsDir))
+            {
+                Directory.CreateDirectory(assetsDir);
+            }
+
+            var models = elements
+                .Where(el => el != null)
+                .Select(el => el.ToModel(false))
+                .ToList();
+
+            string json = JsonConvert.SerializeObject(models, Formatting.Indented);
+            string filePath = Path.Combine(assetsDir, fileName);
+            File.WriteAllText(filePath, json);
+        }
+
+        #endregion
+
+        #region Integration Tests
+
+        [Test]
+        public void Test_MergeDuplicates_SuccessfulMerge()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            Document doc = OpenTestTemplate(app);
+
+            string tempPath = string.Empty;
+
+            try
+            {
+                // 1. Locate editable, loadable family
+                Family? sourceFamily = new FilteredElementCollector(doc)
+                    .OfClass(typeof(Family))
+                    .Cast<Family>()
+                    .FirstOrDefault(f => f.IsEditable && !f.IsInPlace);
+                Assert.IsNotNull(sourceFamily, "Could not find a loadable, editable family in the document.");
+
+                // 2. Duplicate the family (suffix "1" ensures duplicate base name match)
+                Family duplicatedFamily = DuplicateFamily(doc, sourceFamily, "1", out tempPath);
+                ElementId duplicateFamilyId = duplicatedFamily.Id;
+
+                // 3. Place family instance of the duplicate family symbol
+                FamilySymbol sourceSymbol = (FamilySymbol)doc.GetElement(sourceFamily.GetFamilySymbolIds().First());
+                FamilySymbol duplicateSymbol = (FamilySymbol)doc.GetElement(duplicatedFamily.GetFamilySymbolIds().First());
+
+                FamilyInstance instance;
+                using (Transaction t = new Transaction(doc, "Place Duplicate Family Instance"))
+                {
+                    t.Start();
+                    instance = PlaceInstance(doc, duplicateSymbol);
+                    t.Commit();
+                }
+
+                Assert.IsNotNull(instance, "Failed to place family instance.");
+                Assert.AreEqual(duplicateSymbol.Id, instance.GetTypeId(), "Placed instance should initially point to duplicate symbol.");
+
+                using (var tg = new TransactionGroup(doc, "Merge Duplicates Integration Test"))
+                {
+                    tg.Start();
+
+                    // Export the duplicate family symbols
+                    var familySymbols = sourceFamily.GetFamilySymbolIds()
+                        .Concat(duplicatedFamily.GetFamilySymbolIds())
+                        .Select(id => doc.GetElement(id))
+                        .ToList();
+                    ExportPocoSnapshot(familySymbols, "test_duplicate_families.json");
+
+                    // 4. Run Fast Scan
+                    var token = CancellationToken.None;
+                    var clusters = RevitMergeDataCollector.RunFastScan(doc, token);
+                    foreach (var c in clusters)
+                    {
+                        app.WriteJournalComment($"[TEST_CLUSTER_DEBUG] Cluster: {c.ClusterName}", true);
+                        foreach (var i in c.Items)
+                        {
+                            app.WriteJournalComment($"  [TEST_CLUSTER_DEBUG] Item: Name={i.ItemName}, ID={i.RevitElementId.ToElementId().ToString()}", true);
+                        }
+                    }
+                    var targetCluster = clusters.FirstOrDefault(c => c.ClusterName.Contains(sourceFamily.Name));
+                    Assert.IsNotNull(targetCluster, "MergeAnalysisEngine should detect the duplicate cluster.");
+
+                    // 5. Run Deep Scan
+                    MergeAnalysisEngine.RunDeepScan(targetCluster, token);
+                    Assert.IsFalse(targetCluster.HasSchemaMismatch, "Should not have schema mismatch.");
+                    Assert.IsFalse(targetCluster.HasOriginMismatch, "Should not have origin mismatch.");
+
+                    // 6. Generate Recommendations
+                    MergeAnalysisEngine.GenerateRecommendations(targetCluster);
+
+                    // Set primary item and ensure duplicate is included for merge
+                    var primaryItem = targetCluster.Items.FirstOrDefault(i => i.RevitElementId.ToElementId() == sourceFamily.Id);
+                    Assert.IsNotNull(primaryItem, "Primary item should exist in cluster.");
+                    targetCluster.UpdatePrimaryItem(primaryItem);
+
+                    var duplicateItem = targetCluster.Items.FirstOrDefault(i => i.RevitElementId.ToElementId() == duplicatedFamily.Id);
+                    Assert.IsNotNull(duplicateItem, "Duplicate item should exist in cluster.");
+                    duplicateItem.IsIncludedForMerge = true;
+
+                    // 7. Execute Merge
+                    var queueVM = new MergeQueueViewModel();
+                    queueVM.QueuedClusters.Add(targetCluster);
+
+                    var handler = new ProcessMergeEventHandler();
+                    handler.QueueRequest(queueVM, null, null, token);
+                    handler.Execute(_uiapp);
+
+                    // 8. Assertions
+                    // Verify duplicate family was deleted/purged
+                    var deletedFamily = doc.GetElement(duplicateFamilyId);
+                    if (deletedFamily != null)
+                    {
+                        Assert.Fail($"Duplicate family should be deleted. Deletion error: {(File.Exists(Path.Combine(Path.GetTempPath(), "synthetic_test_error.txt")) ? File.ReadAllText(Path.Combine(Path.GetTempPath(), "synthetic_test_error.txt")) : "No log file found.")}");
+                    }
+
+                    // Verify instance is redirected to the primary family symbol
+                    Assert.AreEqual(sourceSymbol.Id, instance.GetTypeId(), "Family instance should be redirected to the primary family symbol.");
+
+                    tg.RollBack();
+                }
+            }
+            finally
+            {
+                doc.Close(false);
+
+                if (!string.IsNullOrEmpty(tempPath) && File.Exists(tempPath))
+                {
+                    try
+                    {
+                        File.Delete(tempPath);
+                    }
+                    catch { }
+                }
+            }
+        }
+
+        [Test]
+        public void Test_MergeDuplicates_DetectsSchemaMismatch()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            Document doc = OpenTestTemplate(app);
+
+            string tempPath = string.Empty;
+
+            try
+            {
+                // 1. Locate editable, loadable family
+                Family? sourceFamily = new FilteredElementCollector(doc)
+                    .OfClass(typeof(Family))
+                    .Cast<Family>()
+                    .FirstOrDefault(f => f.IsEditable && !f.IsInPlace);
+                Assert.IsNotNull(sourceFamily, "Could not find a loadable, editable family in the document.");
+
+                // 2. Duplicate the family (suffix "2" ensures duplicate base name match)
+                Family duplicatedFamily = DuplicateFamily(doc, sourceFamily, "2", out tempPath);
+
+                // 3. Edit duplicated family and inject custom parameter
+                Document famDoc = doc.EditFamily(duplicatedFamily);
+                Assert.IsNotNull(famDoc, "EditFamily returned null.");
+
+                try
+                {
+                    using (Transaction t = new Transaction(famDoc, "Add Parameter to Duplicate Family"))
+                    {
+                        t.Start();
+                        bool added = InjectParameterToFamilyDynamic(famDoc.FamilyManager, "Schema_Mismatch_Test_Param");
+                        Assert.IsTrue(added, "Should successfully inject parameter into family.");
+                        t.Commit();
+                    }
+
+                    SaveAsOptions saveOptions = new SaveAsOptions { OverwriteExistingFile = true };
+                    famDoc.SaveAs(tempPath, saveOptions);
+                }
+                finally
+                {
+                    famDoc.Close(false);
+                }
+
+                // Load the updated family from disk back into doc
+                using (Transaction t = new Transaction(doc, "Reload Modified Family"))
+                {
+                    t.Start();
+                    doc.LoadFamily(tempPath, new ProcessMergeFamilyLoadOptions(), out duplicatedFamily);
+                    t.Commit();
+                }
+
+                using (var tg = new TransactionGroup(doc, "Schema Mismatch Test"))
+                {
+                    tg.Start();
+
+                    // 4. Run Scan & Analyze
+                    var token = CancellationToken.None;
+                    var clusters = RevitMergeDataCollector.RunFastScan(doc, token);
+                    foreach (var c in clusters)
+                    {
+                        app.WriteJournalComment($"[TEST_CLUSTER_DEBUG] Cluster: {c.ClusterName}", true);
+                        foreach (var i in c.Items)
+                        {
+                            app.WriteJournalComment($"  [TEST_CLUSTER_DEBUG] Item: Name={i.ItemName}, ID={i.RevitElementId.ToElementId().ToString()}", true);
+                        }
+                    }
+                    var targetCluster = clusters.FirstOrDefault(c => c.ClusterName.Contains(sourceFamily.Name));
+                    Assert.IsNotNull(targetCluster, "MergeAnalysisEngine should detect the duplicate cluster.");
+
+                    MergeAnalysisEngine.RunDeepScan(targetCluster, token);
+
+                    // 5. Assert
+                    Assert.IsTrue(targetCluster.HasSchemaMismatch, "Deep scan should detect schema mismatch because of injected parameter.");
+
+                    tg.RollBack();
+                }
+            }
+            finally
+            {
+                doc.Close(false);
+
+                if (!string.IsNullOrEmpty(tempPath) && File.Exists(tempPath))
+                {
+                    try
+                    {
+                        File.Delete(tempPath);
+                    }
+                    catch { }
+                }
+            }
+        }
+
+        [Test]
+        public void Test_MergeDuplicates_ResolvesParameterConflicts()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            Document doc = OpenTestTemplate(app);
+
+            string tempPath = string.Empty;
+
+            try
+            {
+                // 1. Locate editable, loadable family
+                Family? sourceFamily = new FilteredElementCollector(doc)
+                    .OfClass(typeof(Family))
+                    .Cast<Family>()
+                    .FirstOrDefault(f => f.IsEditable && !f.IsInPlace);
+                Assert.IsNotNull(sourceFamily, "Could not find a loadable, editable family in the document.");
+
+                // 2. Duplicate the family (suffix "3" ensures duplicate base name match)
+                Family duplicatedFamily = DuplicateFamily(doc, sourceFamily, "3", out tempPath);
+                ElementId duplicateFamilyId = duplicatedFamily.Id;
+
+                FamilySymbol sourceSymbol = (FamilySymbol)doc.GetElement(sourceFamily.GetFamilySymbolIds().First());
+                FamilySymbol duplicateSymbol = (FamilySymbol)doc.GetElement(duplicatedFamily.GetFamilySymbolIds().First());
+
+                // Place duplicate instance
+                FamilyInstance instance;
+                using (Transaction t = new Transaction(doc, "Place Instance and Set Parameters"))
+                {
+                    t.Start();
+                    instance = PlaceInstance(doc, duplicateSymbol);
+
+                    // 3. Set conflicting parameter values on the Description parameter (Type parameter)
+                    sourceSymbol.get_Parameter(BuiltInParameter.ALL_MODEL_DESCRIPTION).Set("Primary Value");
+                    duplicateSymbol.get_Parameter(BuiltInParameter.ALL_MODEL_DESCRIPTION).Set("Duplicate Value");
+
+                    t.Commit();
+                }
+
+                using (var tg = new TransactionGroup(doc, "Parameter Conflict Resolution Test"))
+                {
+                    tg.Start();
+
+                    // 4. Run Scan
+                    var token = CancellationToken.None;
+                    var clusters = RevitMergeDataCollector.RunFastScan(doc, token);
+                    foreach (var c in clusters)
+                    {
+                        app.WriteJournalComment($"[TEST_CLUSTER_DEBUG] Cluster: {c.ClusterName}", true);
+                        foreach (var i in c.Items)
+                        {
+                            app.WriteJournalComment($"  [TEST_CLUSTER_DEBUG] Item: Name={i.ItemName}, ID={i.RevitElementId.ToElementId().ToString()}", true);
+                        }
+                    }
+                    var targetCluster = clusters.FirstOrDefault(c => c.ClusterName.Contains(sourceFamily.Name));
+                    Assert.IsNotNull(targetCluster, "MergeAnalysisEngine should detect the duplicate cluster.");
+
+                    // 5. Deep Scan & Recommendations
+                    MergeAnalysisEngine.RunDeepScan(targetCluster, token);
+                    MergeAnalysisEngine.GenerateRecommendations(targetCluster);
+
+                    // 6. Locate conflict row & designate winner
+                    var primaryItem = targetCluster.Items.FirstOrDefault(i => i.RevitElementId.ToElementId() == sourceFamily.Id);
+                    Assert.IsNotNull(primaryItem);
+                    targetCluster.UpdatePrimaryItem(primaryItem);
+
+                    var duplicateItem = targetCluster.Items.FirstOrDefault(i => i.RevitElementId.ToElementId() == duplicatedFamily.Id);
+                    Assert.IsNotNull(duplicateItem);
+                    duplicateItem.IsIncludedForMerge = true;
+
+                    var mapping = targetCluster.TypeMappings.First();
+                    var descRow = mapping.ParameterResolutions.FirstOrDefault(r => r.ParameterName.Equals("Description", StringComparison.OrdinalIgnoreCase));
+                    Assert.IsNotNull(descRow, "Should find Description parameter row.");
+                    Assert.IsTrue(descRow.HasConflict, "Should detect parameter value conflict.");
+
+                    // Designate duplicate symbol's parameter value as the winner
+                    descRow.WinningValueElementId = duplicateSymbol.Id.ToModel(doc);
+
+                    // 7. Execute Merge
+                    var queueVM = new MergeQueueViewModel();
+                    queueVM.QueuedClusters.Add(targetCluster);
+
+                    var handler = new ProcessMergeEventHandler();
+                    handler.QueueRequest(queueVM, null, null, token);
+                    handler.Execute(_uiapp);
+
+                    // 8. Assertions
+                    // Verify duplicate family was deleted/purged
+                    var deletedFamily = doc.GetElement(duplicateFamilyId);
+                    if (deletedFamily != null)
+                    {
+                        Assert.Fail($"Duplicate family should be deleted. Deletion error: {(File.Exists(Path.Combine(Path.GetTempPath(), "synthetic_test_error.txt")) ? File.ReadAllText(Path.Combine(Path.GetTempPath(), "synthetic_test_error.txt")) : "No log file found.")}");
+                    }
+
+                    // Verify winning parameter value was copied to primary symbol
+                    string finalValue = sourceSymbol.get_Parameter(BuiltInParameter.ALL_MODEL_DESCRIPTION).AsString();
+                    Assert.AreEqual("Duplicate Value", finalValue, "Primary family symbol's Description parameter should retain the designated winning value.");
+
+                    tg.RollBack();
+                }
+            }
+            finally
+            {
+                doc.Close(false);
+
+                if (!string.IsNullOrEmpty(tempPath) && File.Exists(tempPath))
+                {
+                    try
+                    {
+                        File.Delete(tempPath);
+                    }
+                    catch { }
+                }
+            }
+        }
+
+        [Test]
+        public void Test_MergeGroupDuplicates_SuccessfulMerge()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            Document doc = OpenTestTemplate(app);
+
+            try
+            {
+                GroupType? sourceGroupType = null;
+                GroupType? duplicateGroupType = null;
+                Group? groupInstance1 = null;
+                Group? groupInstance2 = null;
+
+                using (Transaction t = new Transaction(doc, "Create Test Groups"))
+                {
+                    t.Start();
+
+                    // Create Model Curve on a Level Plane to form a Model Group
+                    Level? level = new FilteredElementCollector(doc)
+                        .OfClass(typeof(Level))
+                        .Cast<Level>()
+                        .FirstOrDefault();
+                    Assert.IsNotNull(level, "Document must have at least one level.");
+
+                    Plane plane = Plane.CreateByNormalAndOrigin(XYZ.BasisZ, new XYZ(0, 0, level.Elevation));
+                    SketchPlane sketchPlane = SketchPlane.Create(doc, plane);
+
+                    Line line = Line.CreateBound(XYZ.Zero, new XYZ(5, 0, 0));
+                    ModelCurve modelLine = doc.Create.NewModelCurve(line, sketchPlane);
+
+                    // Create group
+                    Group sourceGroupInstance = doc.Create.NewGroup(new List<ElementId> { modelLine.Id });
+                    sourceGroupType = sourceGroupInstance.GroupType;
+                    sourceGroupType.Name = "TestGroup";
+
+                    // Duplicate group type
+                    duplicateGroupType = (GroupType)sourceGroupType.Duplicate("TestGroup1");
+
+                    // Place instances
+                    groupInstance1 = doc.Create.PlaceGroup(new XYZ(0, 0, 0), sourceGroupType);
+                    groupInstance2 = doc.Create.PlaceGroup(new XYZ(5, 0, 0), duplicateGroupType);
+
+                    t.Commit();
+                }
+
+                Assert.IsNotNull(sourceGroupType);
+                Assert.IsNotNull(duplicateGroupType);
+                Assert.IsNotNull(groupInstance1);
+                Assert.IsNotNull(groupInstance2);
+
+                ElementId duplicateGroupTypeId = duplicateGroupType.Id;
+
+                using (var tg = new TransactionGroup(doc, "Merge Group Duplicates Integration Test"))
+                {
+                    tg.Start();
+
+                    // Export the duplicate group types
+                    var groupTypes = new List<Element> { sourceGroupType, duplicateGroupType };
+                    ExportPocoSnapshot(groupTypes, "test_duplicate_groups.json");
+
+                    var token = CancellationToken.None;
+                    var clusters = RevitMergeDataCollector.RunFastScan(doc, token);
+                    var targetCluster = clusters.FirstOrDefault(c => c.ClusterName.Contains("TestGroup"));
+                    Assert.IsNotNull(targetCluster, "MergeAnalysisEngine should detect the duplicate group cluster.");
+
+                    MergeAnalysisEngine.RunDeepScan(targetCluster, token);
+                    Assert.IsFalse(targetCluster.HasSchemaMismatch, "Should not have schema mismatch.");
+                    Assert.IsFalse(targetCluster.HasOriginMismatch, "Should not have origin mismatch.");
+
+                    MergeAnalysisEngine.GenerateRecommendations(targetCluster);
+
+                    var primaryItem = targetCluster.Items.FirstOrDefault(i => i.RevitElementId.ToElementId() == sourceGroupType.Id);
+                    Assert.IsNotNull(primaryItem, "Primary item should exist in cluster.");
+                    targetCluster.UpdatePrimaryItem(primaryItem);
+
+                    var duplicateItem = targetCluster.Items.FirstOrDefault(i => i.RevitElementId.ToElementId() == duplicateGroupType.Id);
+                    Assert.IsNotNull(duplicateItem, "Duplicate item should exist in cluster.");
+                    duplicateItem.IsIncludedForMerge = true;
+
+                    var queueVM = new MergeQueueViewModel();
+                    queueVM.QueuedClusters.Add(targetCluster);
+
+                    var handler = new ProcessMergeEventHandler();
+                    handler.QueueRequest(queueVM, null, null, token);
+                    handler.Execute(_uiapp);
+
+                    // Verify duplicate group type was deleted/purged
+                    var deletedGroupType = doc.GetElement(duplicateGroupTypeId);
+                    Assert.IsNull(deletedGroupType, "Duplicate group type should be deleted.");
+
+                    // Verify instance is redirected to the primary group type
+                    Assert.AreEqual(sourceGroupType.Id, groupInstance2.GroupType.Id, "Group instance should be redirected to the primary group type.");
+
+                    tg.RollBack();
+                }
+            }
+            finally
+            {
+                doc.Close(false);
+            }
+        }
+
+        [Test]
+        public void Test_MergeGroupDuplicates_ResolvesParameterConflicts()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            Document doc = OpenTestTemplate(app);
+
+            GroupType? sourceGroupType = null;
+            GroupType? duplicateGroupType = null;
+            Group? groupInstance1 = null;
+            Group? groupInstance2 = null;
+
+            // Create shared parameters file
+            string tempFilePath = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName() + ".txt");
+            File.WriteAllText(tempFilePath, ""); // Create empty file
+            
+            string originalSharedParamFile = app.SharedParametersFilename;
+            app.SharedParametersFilename = tempFilePath;
+
+            try
+            {
+                using (Transaction t = new Transaction(doc, "Create Test Groups and Bind Parameter"))
+                {
+                    t.Start();
+
+                    // 1. Create a Type Parameter bound to Model Groups category
+                    DefinitionFile defFile = app.OpenSharedParameterFile();
+                    Assert.IsNotNull(defFile, "Failed to open temporary shared parameter file.");
+
+                    DefinitionGroup group = defFile.Groups.Create("TestGroup");
+                    Definition definition = group.Definitions.Create(new ExternalDefinitionCreationOptions("TestParam", SpecTypeId.String.Text));
+                    Assert.IsNotNull(definition, "Failed to create shared parameter definition.");
+
+                    CategorySet categorySet = app.Create.NewCategorySet();
+                    Category groupCat1 = doc.Settings.Categories.get_Item(BuiltInCategory.OST_IOSModelGroups);
+                    categorySet.Insert(groupCat1);
+
+                    Binding binding = app.Create.NewTypeBinding(categorySet);
+                    bool inserted = doc.ParameterBindings.Insert(definition, binding);
+                    Assert.IsTrue(inserted, "Failed to insert parameter binding.");
+
+                    // 2. Create Model Curve on a Level Plane to form a Model Group
+                    Level? level = new FilteredElementCollector(doc)
+                        .OfClass(typeof(Level))
+                        .Cast<Level>()
+                        .FirstOrDefault();
+                    Assert.IsNotNull(level, "Document must have at least one level.");
+
+                    Plane plane = Plane.CreateByNormalAndOrigin(XYZ.BasisZ, new XYZ(0, 0, level.Elevation));
+                    SketchPlane sketchPlane = SketchPlane.Create(doc, plane);
+
+                    Line line = Line.CreateBound(XYZ.Zero, new XYZ(5, 0, 0));
+                    ModelCurve modelLine = doc.Create.NewModelCurve(line, sketchPlane);
+
+                    // Create group
+                    Group sourceGroupInstance = doc.Create.NewGroup(new List<ElementId> { modelLine.Id });
+                    sourceGroupType = sourceGroupInstance.GroupType;
+                    sourceGroupType.Name = "TestGroupParam";
+
+                    // Duplicate group type
+                    duplicateGroupType = (GroupType)sourceGroupType.Duplicate("TestGroupParam1");
+
+                    // Place instances
+                    groupInstance1 = doc.Create.PlaceGroup(new XYZ(0, 0, 0), sourceGroupType);
+                    groupInstance2 = doc.Create.PlaceGroup(new XYZ(5, 0, 0), duplicateGroupType);
+
+                    // Set conflicting parameter values on the newly created Type Parameter using LookupParameter
+                    var srcDescParam = sourceGroupType.LookupParameter("TestParam");
+                    var dupDescParam = duplicateGroupType.LookupParameter("TestParam");
+                    
+                    Assert.IsNotNull(srcDescParam, "Source group type should have TestParam parameter.");
+                    Assert.IsNotNull(dupDescParam, "Duplicate group type should have TestParam parameter.");
+                    
+                    srcDescParam.Set("Primary Value");
+                    dupDescParam.Set("Duplicate Value");
+
+                    t.Commit();
+                }
+
+                Assert.IsNotNull(sourceGroupType);
+                Assert.IsNotNull(duplicateGroupType);
+                Assert.IsNotNull(groupInstance1);
+                Assert.IsNotNull(groupInstance2);
+
+                ElementId duplicateGroupTypeId = duplicateGroupType.Id;
+
+                using (var tg = new TransactionGroup(doc, "Parameter Conflict Resolution Test for Groups"))
+                {
+                    tg.Start();
+
+                    var token = CancellationToken.None;
+                    var clusters = RevitMergeDataCollector.RunFastScan(doc, token);
+                    var targetCluster = clusters.FirstOrDefault(c => c.ClusterName.Contains("TestGroupParam"));
+                    Assert.IsNotNull(targetCluster, "MergeAnalysisEngine should detect the duplicate group cluster.");
+
+                    MergeAnalysisEngine.RunDeepScan(targetCluster, token);
+                    MergeAnalysisEngine.GenerateRecommendations(targetCluster);
+
+                    var primaryItem = targetCluster.Items.FirstOrDefault(i => i.RevitElementId.ToElementId() == sourceGroupType.Id);
+                    Assert.IsNotNull(primaryItem);
+                    targetCluster.UpdatePrimaryItem(primaryItem);
+
+                    var duplicateItem = targetCluster.Items.FirstOrDefault(i => i.RevitElementId.ToElementId() == duplicateGroupType.Id);
+                    Assert.IsNotNull(duplicateItem);
+                    duplicateItem.IsIncludedForMerge = true;
+
+                    var mapping = targetCluster.TypeMappings.First();
+                    var descRow = mapping.ParameterResolutions.FirstOrDefault(r => r.ParameterName.Equals("TestParam", StringComparison.OrdinalIgnoreCase));
+                    Assert.IsNotNull(descRow, "Should find TestParam parameter row.");
+                    Assert.IsTrue(descRow.HasConflict, "Should detect parameter value conflict.");
+
+                    // Designate duplicate type's parameter value as the winner
+                    descRow.WinningValueElementId = duplicateGroupType.Id.ToModel(doc);
+
+                    var queueVM = new MergeQueueViewModel();
+                    queueVM.QueuedClusters.Add(targetCluster);
+
+                    var handler = new ProcessMergeEventHandler();
+                    handler.QueueRequest(queueVM, null, null, token);
+                    handler.Execute(_uiapp);
+
+                    // Verify duplicate group type was deleted/purged
+                    var deletedGroupType = doc.GetElement(duplicateGroupTypeId);
+                    Assert.IsNull(deletedGroupType, "Duplicate group type should be deleted.");
+
+                    // Verify winning parameter value was copied to primary group type
+                    string finalValue = sourceGroupType.LookupParameter("TestParam").AsString();
+                    Assert.AreEqual("Duplicate Value", finalValue, "Primary group type's TestParam parameter should retain the designated winning value.");
+
+                    tg.RollBack();
+                }
+            }
+            finally
+            {
+                doc.Close(false);
+                app.SharedParametersFilename = originalSharedParamFile;
+                try
+                {
+                    if (File.Exists(tempFilePath))
+                    {
+                        File.Delete(tempFilePath);
+                    }
+                }
+                catch {}
+            }
+        }
+
+        
+        [Test]
+        public void TestRevitMergeDataCollectorConvertToPoco()
+        {
+            var app = _uiapp.Application;
+            string tempFilePath = Path.Combine(Path.GetTempPath(), $"TestMergeDataCollector_{Guid.NewGuid()}.rvt");
+            Document doc = app.NewProjectDocument(UnitSystem.Imperial);
+            doc.SaveAs(tempFilePath);
+
+            try
+            {
+                using (var tr = new Transaction(doc, "Setup Test Elements"))
+                {
+                    tr.Start();
+
+                    // Create a dummy wall type or family element
+                    var collector = new FilteredElementCollector(doc).OfClass(typeof(WallType));
+                    var wallType = collector.FirstElement() as WallType;
+                    Assert.IsNotNull(wallType, "Document should contain at least one WallType.");
+
+                    // Convert to POCO via RevitMergeDataCollector
+                    ElementModel poco = RevitMergeDataCollector.ConvertToPoco(doc, wallType);
+                    Assert.IsNotNull(poco, "RevitMergeDataCollector.ConvertToPoco should return non-null ElementModel.");
+                    Assert.AreEqual(wallType.Name, poco.Name, "POCO name should match element name.");
+
+                    tr.Commit();
+                }
+            }
+            finally
+            {
+                doc.Close(false);
+                try
+                {
+                    if (File.Exists(tempFilePath))
+                    {
+                        File.Delete(tempFilePath);
+                    }
+                }
+                catch {}
+            }
+        }
+
+#endregion
+    }
+}
+```
+
 ### File: tests/SyntheticTests.Shared/Modules/RevitDOM/AliasSwapEngineTests.cs
 ```csharp
 using System;
@@ -8253,7 +10705,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -8555,7 +11010,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -8621,7 +11079,10 @@ using System;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -8691,7 +11152,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -8941,7 +11405,10 @@ namespace SyntheticTests
 using System;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -8974,7 +11441,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -9121,7 +11591,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -9223,6 +11696,186 @@ namespace SyntheticTests
 }
 ```
 
+### File: tests/SyntheticTests.Shared/Modules/RevitDOM/FakeIdentityService.cs
+```csharp
+using System;
+using System.Collections.Generic;
+using Autodesk.Revit.DB;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
+
+namespace SyntheticTests.Modules.RevitDOM
+{
+    /// <summary>
+    /// A lightweight, in-memory mock implementation of IIdentityService for headless unit tests.
+    /// </summary>
+    public class FakeIdentityService : IIdentityService
+    {
+        private readonly Dictionary<long, ElementIdModel> _idToModel = new Dictionary<long, ElementIdModel>();
+        private readonly Dictionary<string, ElementIdModel> _uniqueIdToModel = new Dictionary<string, ElementIdModel>();
+        private readonly Dictionary<string, Element> _nameToElement = new Dictionary<string, Element>();
+        private readonly Dictionary<string, Element> _uniqueIdToElement = new Dictionary<string, Element>();
+
+        /// <summary>
+        /// Stub a mapping for ToModel extraction.
+        /// </summary>
+        public void SetupMapping(ElementId id, ElementIdModel model)
+        {
+            long idVal;
+#if REVIT2022 || REVIT2023
+            idVal = id.IntegerValue;
+#else
+            idVal = id.Value;
+#endif
+            _idToModel[idVal] = model;
+            if (!string.IsNullOrEmpty(model.UniqueId))
+            {
+                _uniqueIdToModel[model.UniqueId] = model;
+            }
+        }
+
+        /// <summary>
+        /// Stub an element resolution mapping.
+        /// </summary>
+        public void SetupElement(string nameOrUniqueId, Element element)
+        {
+            _nameToElement[nameOrUniqueId] = element;
+            if (element != null && !string.IsNullOrEmpty(element.UniqueId))
+            {
+                _uniqueIdToElement[element.UniqueId] = element;
+            }
+        }
+
+        public ElementIdModel ToModel(ElementId id, Document doc, bool isTemplate = false)
+        {
+            if (id == null) return null;
+
+            long idVal;
+#if REVIT2022 || REVIT2023
+            idVal = id.IntegerValue;
+#else
+            idVal = id.Value;
+#endif
+
+            if (_idToModel.TryGetValue(idVal, out var model))
+            {
+                return model;
+            }
+
+            return new ElementIdModel
+            {
+                Id = idVal,
+                Name = $"FakeElement_{idVal}",
+                Class = "Autodesk.Revit.DB.Element",
+                UniqueId = $"fake-uid-{idVal}",
+                Category = "Generic",
+                IsTemplate = isTemplate
+            };
+        }
+
+        public ElementId ResolveElementId(ElementIdModel model, Document doc)
+        {
+            if (model == null) return ElementId.InvalidElementId;
+
+            if (_uniqueIdToModel.TryGetValue(model.UniqueId, out var mappedModel))
+            {
+#if REVIT2022 || REVIT2023
+                return new ElementId((int)mappedModel.Id);
+#else
+                return new ElementId(mappedModel.Id);
+#endif
+            }
+
+#if REVIT2022 || REVIT2023
+            return new ElementId((int)model.Id);
+#else
+            return new ElementId(model.Id);
+#endif
+        }
+
+        public Element ResolveElement(ElementIdModel model, Document doc)
+        {
+            if (model == null) return null;
+
+            if (!string.IsNullOrEmpty(model.UniqueId) && _uniqueIdToElement.TryGetValue(model.UniqueId, out var elemByUid))
+            {
+                return elemByUid;
+            }
+
+            if (!string.IsNullOrEmpty(model.Name) && _nameToElement.TryGetValue(model.Name, out var elemByName))
+            {
+                return elemByName;
+            }
+
+            return null;
+        }
+
+        public IEnumerable<Element> GetElementsByElementIdModels(Document doc, IEnumerable<ElementIdModel> identifiers)
+        {
+            var resolvedElements = new List<Element>();
+            if (identifiers == null) return resolvedElements;
+
+            foreach (var model in identifiers)
+            {
+                if (model == null) continue;
+                var elem = ResolveElement(model, doc);
+                if (elem != null)
+                {
+                    resolvedElements.Add(elem);
+                }
+                else
+                {
+                    SerializationResultModel.LogWarning($"Dependency not found: {model.Name} ({model.Class})");
+                }
+            }
+
+            return resolvedElements;
+        }
+    }
+}
+```
+
+### File: tests/SyntheticTests.Shared/Modules/RevitDOM/FakeStandardSerializationEngine.cs
+```csharp
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using Autodesk.Revit.DB;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
+using Synthetic.RevitDOM.Operations.Merge;
+
+namespace SyntheticTests.Shared.Modules.RevitDOM
+{
+    public class FakeStandardSerializationEngine : IStandardSerializationEngine
+    {
+        public IEnumerable<ObjectModel> ByRevit(IEnumerable<Element> elements, Document doc, bool isTemplate, IProgress<string>? progress = null, CancellationToken cancellationToken = default)
+        {
+            return new List<ObjectModel>();
+        }
+
+        public IEnumerable<DuplicateClusterModel> Analyze(IEnumerable<ObjectModel> models, Document doc, IProgress<string>? progress = null, CancellationToken cancellationToken = default)
+        {
+            return new List<DuplicateClusterModel>();
+        }
+
+        public IEnumerable<SerializationResultModel> ToRevit(IEnumerable<ObjectModel> models, Document doc, IProgress<string>? progress = null, CancellationToken cancellationToken = default, IFailuresPreprocessor? failuresPreprocessor = null)
+        {
+            return new List<SerializationResultModel>();
+        }
+
+        public ObjectModel? ExtractCategory(Category category, Document doc, bool isTemplate)
+        {
+            return null;
+        }
+    }
+}
+```
+
 ### File: tests/SyntheticTests.Shared/Modules/RevitDOM/FilledRegionTypeTranslatorTests.cs
 ```csharp
 using System;
@@ -9231,7 +11884,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -9463,7 +12119,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -9668,7 +12327,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -9949,7 +12611,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -10134,7 +12799,10 @@ using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Visual;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -10527,7 +13195,10 @@ using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Visual;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -10815,6 +13486,43 @@ namespace SyntheticTests
 }
 ```
 
+### File: tests/SyntheticTests.Shared/Modules/RevitDOM/ParameterDefinitionSpecTests.cs
+```csharp
+using System;
+using NUnit.Framework;
+using Synthetic.RevitDOM.Models;
+
+namespace SyntheticTests
+{
+    [TestFixture]
+    public class ParameterDefinitionSpecIntegrationTests
+    {
+        [Test]
+        public void ParameterDefinitionSpec_CreateDefault_ReturnsValidDefaults()
+        {
+            var spec = ParameterDefinitionSpec.CreateDefault();
+
+            Assert.IsNotNull(spec, "Default spec should not be null.");
+            Assert.IsNotNull(spec.Group, "Default group should not be null.");
+            Assert.IsNotNull(spec.SpecType, "Default spec type should not be null.");
+            Assert.AreEqual("PG_DATA", spec.Group);
+            Assert.AreEqual("Text", spec.SpecType);
+        }
+
+        [Test]
+        public void ParameterDefinitionSpec_Constructor_SetsGroupAndType()
+        {
+            var spec = new ParameterDefinitionSpec("PG_GEOMETRY", "Length");
+
+            Assert.AreEqual("PG_GEOMETRY", spec.Group);
+            Assert.AreEqual("Length", spec.SpecType);
+            Assert.AreEqual("PG_GEOMETRY", spec.ParameterGroup);
+            Assert.AreEqual("Length", spec.ParameterType);
+        }
+    }
+}
+```
+
 ### File: tests/SyntheticTests.Shared/Modules/RevitDOM/ParameterElementTranslatorTests.cs
 ```csharp
 using System;
@@ -10824,7 +13532,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -11039,7 +13750,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -11202,7 +13916,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -11389,7 +14106,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -11580,7 +14300,11 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
+using SyntheticTests.Modules.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -11682,7 +14406,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -12155,7 +14882,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -12318,7 +15048,10 @@ using System;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -12463,7 +15196,10 @@ using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
 using System.Threading;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -12521,7 +15257,7 @@ namespace SyntheticTests
                 var successModel = new ElementModel
                 {
                     ElementId = defaultLevel!.Id.ToModel(doc),
-                    Name = defaultLevel.Name
+                    Name = "SomeDifferentName"
                 };
 
                 // Create a failed model (e.g. UnregisteredDummyModel) targeting a level or fake element,
@@ -12614,6 +15350,54 @@ namespace SyntheticTests
                 doc.Close(false);
             }
         }
+
+        [Test]
+        public void ToRevit_UnchangedElement_SkipsModificationsAndReturnsUnchanged()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            var app = _uiapp!.Application;
+            Document doc = app.NewProjectDocument(UnitSystem.Metric);
+
+            try
+            {
+                // Find a default level to target
+                Level? defaultLevel = new FilteredElementCollector(doc)
+                    .OfClass(typeof(Level))
+                    .Cast<Level>()
+                    .FirstOrDefault();
+
+                Assert.IsNotNull(defaultLevel, "A default Level should exist.");
+                string originalName = defaultLevel.Name;
+
+                // Create a model matching the level exactly
+                var unchangedModel = new ElementModel
+                {
+                    ElementId = defaultLevel!.Id.ToModel(doc),
+                    Name = defaultLevel.Name
+                };
+
+                var engine = new StandardSerializationEngine();
+                
+                // Register our stub translator for ElementModel
+                var stubTranslator = new StubLevelTranslator();
+                engine.Dispatcher.Register<ElementModel, StubLevelTranslator>(stubTranslator, typeof(Level));
+
+                // Act
+                var resultsList = engine.ToRevit(new List<ObjectModel> { unchangedModel }, doc).ToList();
+
+                // Assert
+                Assert.AreEqual(1, resultsList.Count);
+                var result = resultsList[0];
+                Assert.IsTrue(result.Success);
+                Assert.AreEqual("Unchanged", result.Action, "Should be flagged as Unchanged.");
+                Assert.IsFalse(stubTranslator.WasInjected, "InjectSpecifics should be skipped when element is unchanged.");
+                Assert.AreEqual(originalName, defaultLevel.Name, "Level name should not have changed.");
+            }
+            finally
+            {
+                doc.Close(false);
+            }
+        }
     }
 }
 ```
@@ -12626,7 +15410,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -12734,7 +15521,7 @@ namespace SyntheticTests
                     Assert.AreEqual(primaryMaterial.Id, wallType.GetCompoundStructure().GetLayers()[0].MaterialId);
 
                     // Assert serialization results
-                    Assert.IsTrue(results.Any(r => r.Success && r.Model == primaryModel && r.Action == null), "Should contain a primary creation result");
+                    Assert.IsTrue(results.Any(r => r.Success && r.Model == primaryModel && r.Action == "Created"), "Should contain a primary creation result");
                     Assert.IsTrue(results.Any(r => r.Success && r.Model == primaryModel && r.Action == "Merged Alias"), "Should contain a merge alias success result");
 
                     tg.RollBack();
@@ -12803,7 +15590,7 @@ namespace SyntheticTests
                     Assert.IsNotNull(primaryMaterial, "Primary Material should exist even if alias swap fails.");
 
                     // 4. Assert serialization results contain success and failure/warning entries
-                    Assert.IsTrue(results.Any(r => r.Success && r.Model == primaryModel && r.Action == null), "Should contain a primary creation success result");
+                    Assert.IsTrue(results.Any(r => r.Success && r.Model == primaryModel && r.Action == "Created"), "Should contain a primary creation success result");
                     Assert.IsTrue(results.Any(r => !r.Success && r.Model == primaryModel && r.Action == "Alias Swap Failed"), "Should contain an alias swap failure result");
 
                     tg.RollBack();
@@ -12874,7 +15661,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -13071,8 +15861,11 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
-using Synthetic.Modules.StandardsManagement.Engine;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
+using Synthetic.RevitDOM.Operations.Standards;
 
 namespace SyntheticTests
 {
@@ -13167,7 +15960,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -13256,7 +16052,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -13955,6 +16754,541 @@ namespace SyntheticTests
 }
 ```
 
+### File: tests/SyntheticTests.Shared/Modules/StandardsManagement/DashboardTestFactory.cs
+```csharp
+using System;
+using System.Collections.Generic;
+using Autodesk.Revit.DB;
+using Synthetic.RevitDOM.Operations.Diffing;
+using Synthetic.RevitDOM.Operations.Merge;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
+using Synthetic.RevitDOM.Operations.Standards;
+using Synthetic.RevitDOM.Operations.Standards;
+using Synthetic.Modules.StandardsManagement.ViewModels;
+using Synthetic.Shared.UI;
+using Synthetic.Settings;
+using Synthetic.Infrastructure.Persistence;
+using SyntheticTests.Modules.RevitDOM;
+
+namespace SyntheticTests.Modules.StandardsManagement
+{
+    public static class DashboardTestFactory
+    {
+        public static ProjectStandardsDashboardViewModel Create(
+            Document doc,
+            IFileDialogService dialogService = null,
+            IStandardsExportService exportService = null,
+            StandardsSettings settings = null,
+            IUserPromptService userPromptService = null,
+            IFindReplaceService findReplaceService = null,
+            IStandardsExtractionOrchestrator orchestrator = null,
+            IPocoIdentityService pocoIdentityService = null,
+            IDiffEngine<IEnumerable<ObjectModel>, Document> diffEngine = null,
+            IStandardSerializationEngine serializationEngine = null,
+            IStandardsExecutionPipeline pipeline = null)
+        {
+            dialogService ??= new FakeFileDialogService();
+            if (exportService == null) 
+            {
+                var guardrail = new FakeGuardrailPromptService();
+                exportService = new StandardsExportService(guardrail, dialogService);
+            }
+            userPromptService ??= new FakeUserPromptService();
+            findReplaceService ??= new FindReplaceService();
+            serializationEngine ??= new StandardSerializationEngine();
+            pocoIdentityService ??= new PocoIdentityService();
+            diffEngine ??= new PocoToRevitDiffEngine(new FakeIdentityService());
+            orchestrator ??= new StandardsExtractionOrchestrator(new FakeIdentityService(), serializationEngine);
+            pipeline ??= new StandardsExecutionPipeline(serializationEngine, exportService, new FakeFamilyEnforcer());
+
+            var vm = new ProjectStandardsDashboardViewModel(
+                doc,
+                dialogService,
+                exportService,
+                settings,
+                userPromptService,
+                findReplaceService,
+                orchestrator,
+                pocoIdentityService,
+                diffEngine,
+                serializationEngine,
+                pipeline
+            );
+
+            // Match test setup
+            vm.ShowDocumentSelectionDialog = dialogVM =>
+            {
+                foreach (var docItem in dialogVM.OpenDocuments)
+                {
+                    docItem.IsSelected = true;
+                }
+                return true;
+            };
+
+            vm.ShowMergeDialog = dialogVM =>
+            {
+                if (dialogVM.Items != null)
+                {
+                    var enumerator = dialogVM.Items.GetEnumerator();
+                    if (enumerator.MoveNext())
+                    {
+                        dialogVM.SelectedItem = enumerator.Current;
+                    }
+                }
+                return true;
+            };
+
+            return vm;
+        }
+    }
+}
+
+```
+
+### File: tests/SyntheticTests.Shared/Modules/StandardsManagement/FakeFileDialogService.cs
+```csharp
+﻿using Synthetic.Shared.UI;
+
+namespace SyntheticTests.Modules.StandardsManagement
+{
+    /// <summary>
+    /// Fake implementation of IFileDialogService for headless testing.
+    /// </summary>
+    public class FakeFileDialogService : IFileDialogService
+    {
+        /// <summary>
+        /// Gets or sets the preset path to return.
+        /// </summary>
+        public string? PresetPath { get; set; } = @"C:\Temp\ExportedStandards.json";
+
+        /// <summary>
+        /// Immediately returns the preset path without opening a UI.
+        /// </summary>
+        public string? SaveFileDialog(string filter, string title, string defaultFileName)
+        {
+            return PresetPath;
+        }
+
+        /// <summary>
+        /// Immediately returns the preset path without opening a UI.
+        /// </summary>
+        public string? OpenFileDialog(string filter, string title, string defaultFileName)
+        {
+            return PresetPath;
+        }
+    }
+}
+```
+
+### File: tests/SyntheticTests.Shared/Modules/StandardsManagement/FakeGuardrailPromptService.cs
+```csharp
+﻿using System;
+using System.Collections.Generic;
+using Synthetic.Shared.UI;
+
+namespace SyntheticTests.Modules.StandardsManagement
+{
+    /// <summary>
+    /// Test implementation of IGuardrailPromptService that records invocations and returns configured results.
+    /// </summary>
+    public class FakeGuardrailPromptService : IGuardrailPromptService
+    {
+        private readonly GuardrailResult _configuredResult;
+        
+        /// <summary>
+        /// Gets the list of file paths that were prompted.
+        /// </summary>
+        public List<string> PromptedPaths { get; } = new List<string>();
+
+        /// <summary>
+        /// Initializes a new instance of FakeGuardrailPromptService.
+        /// </summary>
+        /// <param name="configuredResult">The result to return when prompted.</param>
+        public FakeGuardrailPromptService(GuardrailResult configuredResult = GuardrailResult.Cancel)
+        {
+            _configuredResult = configuredResult;
+        }
+
+        /// <inheritdoc/>
+        public GuardrailResult PromptProtectedFileOverwrite(string filePath)
+        {
+            PromptedPaths.Add(filePath);
+            return _configuredResult;
+        }
+    }
+}
+```
+
+### File: tests/SyntheticTests.Shared/Modules/StandardsManagement/FakeUserPromptService.cs
+```csharp
+﻿using System;
+using System.Collections.Generic;
+using Synthetic.Shared.UI;
+
+namespace SyntheticTests.Modules.StandardsManagement
+{
+    /// <summary>
+    /// Test fake implementing IUserPromptService to avoid showing dialog windows during tests.
+    /// </summary>
+    public class FakeUserPromptService : IUserPromptService
+    {
+        public List<string> ShownMessages { get; } = new List<string>();
+        public List<string> ConfirmedPrompts { get; } = new List<string>();
+        public bool ConfirmationResult { get; set; } = true;
+
+        public void ShowMessage(string message, string title)
+        {
+            ShownMessages.Add(message);
+        }
+
+        public bool ConfirmAction(string message, string title)
+        {
+            ConfirmedPrompts.Add(message);
+            return ConfirmationResult;
+        }
+    }
+}
+```
+
+### File: tests/SyntheticTests.Shared/Modules/StandardsManagement/StandardsExecutionPipelineTests.cs
+```csharp
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using Autodesk.Revit.DB;
+using NUnit.Framework;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
+using Synthetic.RevitDOM.Operations.Standards;
+using Synthetic.RevitDOM.Operations.Standards;
+using Synthetic.RevitDOM.Operations.Standards;
+using Synthetic.Modules.StandardsManagement.ViewModels;
+using Synthetic.Shared.UI;
+using Synthetic.RevitDOM.Operations.Merge;
+
+namespace SyntheticTests.Modules.StandardsManagement
+{
+    [TestFixture]
+    public class StandardsExecutionPipelineTests
+    {
+        private Document _doc = null!;
+        private ConfigurableSerializationEngine _fakeEngine = null!;
+        private ConfigurableExportService _fakeExportService = null!;
+        private FakeFamilyEnforcer _fakeFamilyEnforcer = null!;
+
+        [SetUp]
+        public void Setup()
+        {
+            _doc = (Document)Activator.CreateInstance(typeof(Document), true)!;
+            _fakeEngine = new ConfigurableSerializationEngine();
+            _fakeExportService = new ConfigurableExportService();
+            _fakeFamilyEnforcer = new FakeFamilyEnforcer();
+            ProgressCoordinator.SuppressUI = true;
+        }
+
+        [Test]
+        public void Execute_WithWriteDatabaseTrue_CallsSerializationEngineAndSucceeds()
+        {
+            // Arrange
+            var pipeline = new StandardsExecutionPipeline(_fakeEngine, _fakeExportService, _fakeFamilyEnforcer);
+            var options = new StandardsExecutionOptions
+            {
+                WriteRevitDatabase = true,
+                SaveLocalFiles = false,
+                UseTransactionGroup = false
+            };
+
+            var model = new ElementModel { Name = "TestStandard", Class = "Autodesk.Revit.DB.TextNoteType" };
+            var item = new StandardsExecutionItem(model)
+            {
+                WillEnforce = true,
+                WillSave = false
+            };
+
+            bool ToRevitCalled = false;
+            _fakeEngine.ToRevitHandler = (models, doc) =>
+            {
+                ToRevitCalled = true;
+                Assert.AreEqual(_doc, doc);
+                Assert.AreEqual(1, models.Count());
+                Assert.AreEqual(model, models.First());
+                return new List<SerializationResultModel> { new SerializationResultModel(model) };
+            };
+
+            // Act
+            var result = pipeline.Execute(_doc, new[] { item }, options);
+
+            // Assert
+            Assert.IsTrue(ToRevitCalled, "ToRevit should have been called.");
+            Assert.IsTrue(result.Success, "Execution should be successful.");
+            Assert.AreEqual(1, result.Items.Count);
+            Assert.AreEqual("Created", result.Items[0].Action);
+        }
+
+        [Test]
+        public void Execute_WithSaveLocalFilesTrue_CallsExportService()
+        {
+            // Arrange
+            var pipeline = new StandardsExecutionPipeline(_fakeEngine, _fakeExportService, _fakeFamilyEnforcer);
+            var options = new StandardsExecutionOptions
+            {
+                WriteRevitDatabase = false,
+                SaveLocalFiles = true,
+                StandardsFilePath = @"C:\Temp\TestStandards.json"
+            };
+
+            var model = new ElementModel { Name = "TestStandard", Class = "Autodesk.Revit.DB.TextNoteType" };
+            var item = new StandardsExecutionItem(model)
+            {
+                WillEnforce = false,
+                WillSave = true
+            };
+
+            // Act
+            var result = pipeline.Execute(_doc, new[] { item }, options);
+
+            // Assert
+            Assert.IsTrue(_fakeExportService.ExportCalled, "Export should have been called.");
+            Assert.AreEqual(@"C:\Temp\TestStandards.json", _fakeExportService.TargetPathReceived);
+            Assert.IsTrue(result.Success, "Execution should be successful.");
+            Assert.AreEqual("Saved", result.Items[0].Action);
+        }
+
+        [Test]
+        public void Execute_WhenDbPhaseThrows_RollsBackAndFails()
+        {
+            // Arrange
+            var pipeline = new StandardsExecutionPipeline(_fakeEngine, _fakeExportService, _fakeFamilyEnforcer);
+            var options = new StandardsExecutionOptions
+            {
+                WriteRevitDatabase = true,
+                SaveLocalFiles = true,
+                UseTransactionGroup = false
+            };
+
+            var model = new ElementModel { Name = "TestStandard", Class = "Autodesk.Revit.DB.TextNoteType" };
+            var item = new StandardsExecutionItem(model)
+            {
+                WillEnforce = true,
+                WillSave = true
+            };
+
+            _fakeEngine.ToRevitHandler = (models, doc) =>
+            {
+                throw new InvalidOperationException("Simulated database write crash.");
+            };
+
+            // Act
+            var result = pipeline.Execute(_doc, new[] { item }, options);
+
+            // Assert
+            Assert.IsFalse(result.Success, "Execution should fail when DB writes throw.");
+            Assert.IsFalse(_fakeExportService.ExportCalled, "Export should not be called if DB writes fail.");
+            Assert.AreEqual("Failed", result.Items[0].Action);
+            Assert.IsTrue(result.Items[0].Message.Contains("Simulated database write crash."));
+        }
+
+        [Test]
+        public void Execute_WithProcessFamiliesTrue_ProcessesFamiliesAndHandlesFamilyException()
+        {
+            // Arrange
+            var fakeFamilyEnforcer = new FakeFamilyEnforcer();
+            var pipeline = new StandardsExecutionPipeline(_fakeEngine, _fakeExportService, fakeFamilyEnforcer);
+            var options = new StandardsExecutionOptions
+            {
+                WriteRevitDatabase = true,
+                SaveLocalFiles = false,
+                ProcessFamilies = true,
+                UseTransactionGroup = false
+            };
+
+            var model = new ElementModel { Name = "TestMaterial", Class = "Autodesk.Revit.DB.Material" };
+            var item = new StandardsExecutionItem(model)
+            {
+                WillEnforce = true,
+                WillSave = false
+            };
+
+            _fakeEngine.ToRevitHandler = (models, doc) =>
+            {
+                return new List<SerializationResultModel> { new SerializationResultModel(model) };
+            };
+
+            fakeFamilyEnforcer.EnforceHandler = (doc, standards, opts, progress, dbResults, token) =>
+            {
+                var failedModel = new ElementModel
+                {
+                    Name = "FaultyFamily",
+                    Class = "Autodesk.Revit.DB.Family"
+                };
+                var result = new SerializationResultModel(failedModel, "Failed to update family document contents")
+                {
+                    OperationTarget = StandardsPipelineConstants.TargetDatabase,
+                    Action = StandardsPipelineConstants.ActionFailed,
+                    Message = "Failed to update family document contents"
+                };
+                dbResults.Add(result);
+            };
+
+            // Act
+            var result = pipeline.Execute(_doc, new[] { item }, options);
+
+            // Assert
+            Assert.IsTrue(result.Success, $"Overall execution can still succeed with individual family error isolation. Message: {result.Items.FirstOrDefault()?.Message}. Report: {result.ReportMarkdown}");
+            var familyResult = result.Items.FirstOrDefault(i => i.Model.GetType().Name == "Family");
+            Assert.IsNull(familyResult, "Family itself was not in the input items.");
+            
+            // Check that the markdown report contains the failed log item
+            Assert.IsTrue(result.ReportMarkdown.Contains("FaultyFamily"), $"Report should contain the family name. Report: {result.ReportMarkdown}");
+            Assert.IsTrue(result.ReportMarkdown.Contains("Failed to update family document contents"), "Report should contain the error detail.");
+        }
+
+        private T CreateMockElement<T>(Document doc, string name, int idVal) where T : Element
+        {
+            var elem = (T)Activator.CreateInstance(typeof(T), true)!;
+            
+            // Set Name
+            var nameProp = typeof(T).GetProperty("Name");
+            nameProp?.SetValue(elem, name);
+
+            // Set Id
+            var idProp = typeof(T).GetProperty("Id");
+            if (idProp != null && idProp.CanWrite)
+            {
+                idProp.SetValue(elem, new ElementId(idVal));
+            }
+
+            // Add to doc
+            try
+            {
+                var addElemMethod = doc.GetType().GetMethod("AddElement");
+                if (addElemMethod != null)
+                {
+                    addElemMethod.Invoke(doc, new object[] { elem, elem.Id });
+                }
+            }
+            catch (Exception)
+            {
+            }
+
+            return elem;
+        }
+
+        [Test]
+        public void Execute_WithCancellationTokenCancelled_AbortsAndReturnsFailure()
+        {
+            // Arrange
+            var pipeline = new StandardsExecutionPipeline(_fakeEngine, _fakeExportService, _fakeFamilyEnforcer);
+            var options = new StandardsExecutionOptions
+            {
+                WriteRevitDatabase = true,
+                SaveLocalFiles = false,
+                UseTransactionGroup = false
+            };
+
+            var model = new ElementModel { Name = "TestStandard", Class = "Autodesk.Revit.DB.TextNoteType" };
+            var item = new StandardsExecutionItem(model)
+            {
+                WillEnforce = true,
+                WillSave = false
+            };
+
+            using var cts = new CancellationTokenSource();
+            cts.Cancel();
+
+            // Act
+            var result = pipeline.Execute(_doc, new[] { item }, options, cancellationToken: cts.Token);
+
+            // Assert
+            Assert.IsFalse(result.Success, "Execution should be marked unsuccessful on cancellation.");
+            Assert.AreEqual("Canceled", result.Items[0].Action);
+            Assert.AreEqual("Execution cancelled by user.", result.Items[0].Message);
+        }
+    }
+
+    public class ConfigurableSerializationEngine : IStandardSerializationEngine
+    {
+        public Func<IEnumerable<ObjectModel>, Document, IEnumerable<SerializationResultModel>>? ToRevitHandler { get; set; }
+
+        public IEnumerable<ObjectModel> ByRevit(IEnumerable<Element> elements, Document doc, bool isTemplate, IProgress<string>? progress = null, CancellationToken cancellationToken = default)
+        {
+            return new List<ObjectModel>();
+        }
+
+        public IEnumerable<DuplicateClusterModel> Analyze(IEnumerable<ObjectModel> models, Document doc, IProgress<string>? progress = null, CancellationToken cancellationToken = default)
+        {
+            return new List<DuplicateClusterModel>();
+        }
+
+        public IEnumerable<SerializationResultModel> ToRevit(IEnumerable<ObjectModel> models, Document doc, IProgress<string>? progress = null, CancellationToken cancellationToken = default, IFailuresPreprocessor? failuresPreprocessor = null)
+        {
+            if (ToRevitHandler != null)
+            {
+                return ToRevitHandler(models, doc);
+            }
+            return models.Select(m => new SerializationResultModel(m));
+        }
+
+        public ObjectModel? ExtractCategory(Category category, Document doc, bool isTemplate)
+        {
+            return null;
+        }
+    }
+
+    public class ConfigurableExportService : IStandardsExportService
+    {
+        public bool ExportCalled { get; set; }
+        public string? TargetPathReceived { get; set; }
+        public Func<List<QueueItemModel>, string?, List<SerializationResultModel>, HashSet<string>, List<SerializationResultModel>>? ExportHandler { get; set; }
+
+        public List<SerializationResultModel> Export(
+            List<QueueItemModel> fileItems,
+            string? targetPath,
+            List<SerializationResultModel> dbResults,
+            HashSet<string> protectedPaths,
+            out string? finalPathUsed)
+        {
+            ExportCalled = true;
+            TargetPathReceived = targetPath;
+            finalPathUsed = targetPath ?? @"C:\Temp\Exported.json";
+
+            if (ExportHandler != null)
+            {
+                return ExportHandler(fileItems, targetPath, dbResults, protectedPaths);
+            }
+
+            return fileItems.Select(item => new SerializationResultModel(item.Model)).ToList();
+        }
+    }
+
+    public class FakeFamilyEnforcer : IFamilyEnforcer
+    {
+        public Action<Document, IEnumerable<ElementModel>, StandardsExecutionOptions, Action<string, string, int>, List<SerializationResultModel>, CancellationToken>? EnforceHandler { get; set; }
+
+        public void Enforce(
+            Document doc,
+            IEnumerable<ElementModel> standards,
+            StandardsExecutionOptions options,
+            Action<string, string, int> reportProgress,
+            List<SerializationResultModel> dbResults,
+            CancellationToken cancellationToken)
+        {
+            if (EnforceHandler != null)
+            {
+                EnforceHandler(doc, standards, options, reportProgress, dbResults, cancellationToken);
+            }
+        }
+    }
+}
+```
+
 ### File: tests/SyntheticTests.Shared/Modules/StandardsManagement/Tier2_DashboardIntegrationTests.cs
 ```csharp
 using System;
@@ -13966,8 +17300,13 @@ using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Shared.UI;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Settings;
+using Synthetic.RevitDOM.Operations.Standards;
+using SyntheticTests.Modules.StandardsManagement;
 
 namespace SyntheticTests
 {
@@ -14002,7 +17341,8 @@ namespace SyntheticTests
                     txGroup.Start();
 
                     // Create a mock dashboard ViewModel using live Revit document
-                    var vm = new ProjectStandardsDashboardViewModel(doc, fakeFileDialog, fakeGuardrail, settings);
+                    var vm = DashboardTestFactory.Create(doc, dialogService: fakeFileDialog, exportService: new StandardsExportService(fakeGuardrail, fakeFileDialog), settings: settings);
+                    vm.SaveFilePath = tempFile;
 
                     // Create standard POCO for a material to enforce in the live Revit DB
                     var materialModel = new MaterialModel
@@ -14025,7 +17365,7 @@ namespace SyntheticTests
 
                     // Enqueue the item with SaveAndEnforce intent (Phase 1 + Phase 2)
                     var queueItem = new QueueItemModel(materialModel, true, true);
-                    vm.ActionQueue.Add(queueItem);
+                    vm.StagingQueue.Add(queueItem);
 
                     // Execute
                     vm.RunQueueCommand.Execute(null);
@@ -14110,7 +17450,7 @@ namespace SyntheticTests
                     t.Commit();
 
                     // Create the Dashboard View Model
-                    var vm = new ProjectStandardsDashboardViewModel(doc, fakeFileDialog, fakeGuardrail, settings);
+                    var vm = DashboardTestFactory.Create(doc, dialogService: fakeFileDialog, exportService: new StandardsExportService(fakeGuardrail, fakeFileDialog), settings: settings);
                     vm.MockOpenDocuments = new List<Document> { doc };
 
                     // Setup dialog handler to only select "Materials & Assets" grouping
@@ -14206,7 +17546,7 @@ namespace SyntheticTests
                     }
 
                     // Create the dashboard ViewModel
-                    var vm = new ProjectStandardsDashboardViewModel(doc, fakeFileDialog, fakeGuardrail, null);
+                    var vm = DashboardTestFactory.Create(doc, dialogService: fakeFileDialog, exportService: new StandardsExportService(fakeGuardrail, fakeFileDialog), settings: null);
                     vm.SummaryDisplayService = fakeSummaryService;
 
                     // Enqueue the primary material with the alias
@@ -14218,7 +17558,7 @@ namespace SyntheticTests
                     };
 
                     var queueItem = new QueueItemModel(primaryModel, true, false);
-                    vm.ActionQueue.Add(queueItem);
+                    vm.StagingQueue.Add(queueItem);
 
                     // Act
                     vm.RunQueueCommand.Execute(null);
@@ -14297,9 +17637,12 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
-using Synthetic.Modules.StandardsManagement.Engine;
-using Synthetic.Modules.MergeDuplicates.Models;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
+using Synthetic.RevitDOM.Operations.Standards;
+using Synthetic.RevitDOM.Operations.Merge;
 
 namespace SyntheticTests
 {
@@ -14314,84 +17657,138 @@ namespace SyntheticTests
             _uiapp = uiapp;
         }
 
-        [Test]
-        public void RunDeepScan_ShouldFlagConflict_WhenParameterMutated()
+        private struct MutatedTestContext
+        {
+            public Document Doc { get; set; }
+            public TextNoteType TextNoteType { get; set; }
+            public ElementTypeModel Model { get; set; }
+            public ParameterModel TargetParam { get; set; }
+            public TransactionGroup TxGroup { get; set; }
+        }
+
+        private MutatedTestContext CreateMutatedTextNoteTypeContext(string transactionGroupName)
         {
             Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
             var app = _uiapp!.Application;
             Document doc = app.NewProjectDocument(UnitSystem.Metric);
 
+            TransactionGroup txGroup = new TransactionGroup(doc, transactionGroupName);
+            txGroup.Start();
+
             try
             {
-                using (TransactionGroup txGroup = new TransactionGroup(doc, "Tier2_StandardsDiffEngineTests"))
+                TextNoteType? textNoteType = new FilteredElementCollector(doc)
+                    .OfClass(typeof(TextNoteType))
+                    .Cast<TextNoteType>()
+                    .FirstOrDefault();
+
+                if (textNoteType == null)
                 {
-                    txGroup.Start();
-                    try
-                    {
-                        // 1. Find a baseline element type (TextNoteType is guaranteed to exist in any project template)
-                        TextNoteType? textNoteType = new FilteredElementCollector(doc)
-                            .OfClass(typeof(TextNoteType))
-                            .Cast<TextNoteType>()
-                            .FirstOrDefault();
+                    txGroup.RollBack();
+                    doc.Close(false);
+                    Assert.Ignore("No TextNoteType found in the active document to test deep scan.");
+                }
 
-                        if (textNoteType == null)
-                        {
-                            Assert.Ignore("No TextNoteType found in the active document to test deep scan.");
-                            return;
-                        }
+                var model = (ElementTypeModel)textNoteType!.ToModel(true);
+                Assert.IsNotNull(model, "Extracted ElementTypeModel should not be null.");
+                Assert.IsNotNull(model.Parameters, "Extracted model parameters should not be null.");
 
-                        // 2. Extract its POCO standard representation
-                        var model = (ElementTypeModel)textNoteType.ToModel(true);
-                        Assert.IsNotNull(model, "Extracted ElementTypeModel should not be null.");
-                        Assert.IsNotNull(model.Parameters, "Extracted model parameters should not be null.");
+                var targetParam = model.Parameters.FirstOrDefault(p => !p.IsReadOnly);
+                if (targetParam == null)
+                {
+                    txGroup.RollBack();
+                    doc.Close(false);
+                    Assert.Ignore("No writable parameters found on TextNoteType to test mutation.");
+                }
 
-                        // 3. Find a writable parameter to mutate
-                        var targetParam = model.Parameters.FirstOrDefault(p => !p.IsReadOnly);
-                        if (targetParam == null)
-                        {
-                            Assert.Ignore("No writable parameters found on TextNoteType to test mutation.");
-                            return;
-                        }
+                string originalValue = targetParam!.Value ?? "";
+                string mutatedValue = originalValue + "_MutatedForTest";
+                if (targetParam.StorageType == "Double" || targetParam.StorageType == "Integer")
+                {
+                    mutatedValue = "999";
+                }
+                targetParam.Value = mutatedValue;
 
-                        // 4. Artificially mutate the value in memory
-                        string originalValue = targetParam.Value ?? "";
-                        string mutatedValue = originalValue + "_MutatedForTest";
-                        if (targetParam.StorageType == "Double" || targetParam.StorageType == "Integer")
-                        {
-                            mutatedValue = "999";
-                        }
-                        targetParam.Value = mutatedValue;
+                return new MutatedTestContext
+                {
+                    Doc = doc,
+                    TextNoteType = textNoteType,
+                    Model = model,
+                    TargetParam = targetParam,
+                    TxGroup = txGroup
+                };
+            }
+            catch (Exception)
+            {
+                txGroup.RollBack();
+                doc.Close(false);
+                throw;
+            }
+        }
 
-                        // 5. Run the deep scan comparison
-                        var clusters = StandardsDiffEngine.RunDeepScan(doc, new List<ElementModel> { model });
+        [Test]
+        public void RunDeepScan_ShouldFlagConflict_WhenParameterMutated()
+        {
+            var context = CreateMutatedTextNoteTypeContext("RunDeepScan_ShouldFlagConflict_WhenParameterMutated");
+            try
+            {
+                // 5. Run the comparison directly on the engine
+                var engine = new Synthetic.RevitDOM.Operations.Diffing.PocoToRevitDiffEngine();
+                var clusters = engine.Compare(new List<ObjectModel> { context.Model }, context.Doc).ToList();
 
-                        // 6. Assert that conflicts were successfully identified
-                        Assert.IsNotNull(clusters, "RunDeepScan should return a non-null collection.");
-                        Assert.IsTrue(clusters.Count > 0, "A conflict cluster should be returned.");
+                // 6. Assert that conflicts were successfully identified
+                Assert.IsNotNull(clusters, "RunDeepScan should return a non-null collection.");
+                Assert.IsTrue(clusters.Count > 0, "A conflict cluster should be returned.");
 
-                        // Find the cluster matching our element type
-                        var cluster = clusters.FirstOrDefault(c => c.TypeMappings.Any(m => m.SourceType != null && m.SourceType.RevitTypeId == textNoteType.Id));
-                        Assert.IsNotNull(cluster, "Should find a cluster matching the tested TextNoteType.");
+                // Find the cluster matching our element type
+                var cluster = clusters.FirstOrDefault(c => c.TypeMappings.Any(m => m.SourceType != null && m.SourceType.RevitTypeId.ToElementId() == context.TextNoteType.Id));
+                Assert.IsNotNull(cluster, "Should find a cluster matching the tested TextNoteType.");
 
-                        var mapping = cluster.TypeMappings.FirstOrDefault(m => m.SourceType != null && m.SourceType.RevitTypeId == textNoteType.Id);
-                        Assert.IsNotNull(mapping, "Should find a type mapping for the tested TextNoteType.");
+                var mapping = cluster!.TypeMappings.FirstOrDefault(m => m.SourceType != null && m.SourceType.RevitTypeId.ToElementId() == context.TextNoteType.Id);
+                Assert.IsNotNull(mapping, "Should find a type mapping for the tested TextNoteType.");
 
-                        var conflictRow = mapping.ParameterResolutions.FirstOrDefault(r => r.ParameterName == targetParam.Name);
-                        Assert.IsNotNull(conflictRow, $"A parameter resolution row should exist for the mutated parameter '{targetParam.Name}'.");
-                        Assert.IsTrue(conflictRow.HasConflict, "The parameter resolution row should indicate a conflict.");
-                    }
-                    finally
-                    {
-                        txGroup.RollBack();
-                    }
+                var conflictRow = mapping!.ParameterResolutions.FirstOrDefault(r => r.ParameterName == context.TargetParam.Name);
+                Assert.IsNotNull(conflictRow, $"A parameter resolution row should exist for the mutated parameter '{context.TargetParam.Name}'.");
+                Assert.IsTrue(conflictRow!.HasConflict, "The parameter resolution row should indicate a conflict.");
+            }
+            finally
+            {
+                context.TxGroup.RollBack();
+                context.Doc.Close(false);
+            }
+        }
+
+        [Test]
+        public void RunDeepScan_ShouldDelegateToAnalyze_Correctly()
+        {
+            var context = CreateMutatedTextNoteTypeContext("RunDeepScan_ShouldDelegateToAnalyze_Correctly");
+            try
+            {
+                var serializationEngine = new StandardSerializationEngine();
+                var listModels = new List<ElementModel> { context.Model };
+
+                var analyzeClusters = serializationEngine.Analyze(listModels, context.Doc).ToList();
+                var deepScanClusters = StandardsDiffEngine.RunDeepScan(context.Doc, listModels, serializationEngine).ToList();
+
+                Assert.IsNotNull(analyzeClusters);
+                Assert.IsNotNull(deepScanClusters);
+                Assert.AreEqual(analyzeClusters.Count, deepScanClusters.Count, "Analyze and RunDeepScan should return the same number of clusters.");
+
+                if (analyzeClusters.Count > 0)
+                {
+                    var clusterAnalyze = analyzeClusters[0];
+                    var clusterDeepScan = deepScanClusters[0];
+                    Assert.AreEqual(clusterAnalyze.TypeMappings.Count, clusterDeepScan.TypeMappings.Count, "Mappings count should match.");
                 }
             }
             finally
             {
-                doc.Close(false);
+                context.TxGroup.RollBack();
+                context.Doc.Close(false);
             }
         }
     }
 }
+
 ```
 

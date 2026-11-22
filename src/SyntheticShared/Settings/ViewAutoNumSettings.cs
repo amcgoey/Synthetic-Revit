@@ -10,7 +10,10 @@ using RevitDoc = Autodesk.Revit.DB.Document;
 
 using Synthetic.Settings;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Shared.RevitAPI;
 namespace Synthetic.Settings
 {

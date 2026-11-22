@@ -7,16 +7,17 @@ using System.Windows;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using Newtonsoft.Json;
-
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Infrastructure.Serialization;
-
 using Synthetic.Shared.UI;
-using Synthetic.Modules.MergeDuplicates.Handlers;
 using Synthetic.Modules.MergeDuplicates.ViewModels;
-using Synthetic.Modules.MergeDuplicates.Models;
+using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Shared.RevitAPI;
+using Synthetic.Modules.MergeDuplicates.Services;
 
 namespace Synthetic.Modules.MergeDuplicates.Handlers
 {
@@ -29,28 +30,23 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
         /// Gets or sets the name of the merge cluster.
         /// </summary>
         public string ClusterName { get; set; } = string.Empty;
-
         /// <summary>
         /// Gets or sets the count of instances swapped during the merge.
         /// </summary>
         public int InstancesSwappedCount { get; set; }
-
         /// <summary>
         /// Gets or sets the count of duplicate types purged.
         /// </summary>
         public int DuplicateTypesPurged { get; set; }
-
         /// <summary>
         /// Gets or sets a value indicating whether the merge execution succeeded.
         /// </summary>
         public bool ExecutionSuccessStatus { get; set; }
-
         /// <summary>
         /// Gets or sets the error message if the execution failed.
         /// </summary>
         public string? ErrorMessage { get; set; }
     }
-
     /// <summary>
     /// Standard family load options to automatically overwrite parameter values.
     /// </summary>
@@ -67,7 +63,6 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
             overwriteParameterValues = true;
             return true;
         }
-
         /// <summary>
         /// Called when a shared family is found in the target document. Overwrites parameter values.
         /// </summary>
@@ -83,18 +78,18 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
             return true;
         }
     }
-
     /// <summary>
     /// External event handler to process the active merge queue on the Revit API thread.
     /// </summary>
     public class ProcessMergeEventHandler : IExternalEventHandler
     {
+        private const string MigratedSuffix = "_Migrated";
+        private const string MergeWarningPrefix = "[MERGE_WARNING]";
         private readonly object _lock = new object();
         private MergeQueueViewModel? _queueVM;
         private Window? _parentWindow;
         private MergeDuplicatesViewModel? _mainVM;
         private CancellationToken _cancellationToken;
-
         /// <summary>
         /// Queues a merge execution request with its corresponding UI/VM contexts.
         /// </summary>
@@ -108,7 +103,6 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                 _cancellationToken = cancellationToken;
             }
         }
-
         /// <summary>
         /// Executes the merge processing on the Revit API thread.
         /// </summary>
@@ -118,40 +112,67 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
             Window? currentWindow;
             MergeDuplicatesViewModel? currentMainVM;
             CancellationToken currentToken;
-
             lock (_lock)
             {
                 currentQueue = _queueVM;
                 currentWindow = _parentWindow;
                 currentMainVM = _mainVM;
                 currentToken = _cancellationToken;
-
                 // Reset state
                 _queueVM = null;
                 _parentWindow = null;
                 _mainVM = null;
                 _cancellationToken = CancellationToken.None;
             }
-
             if (currentQueue == null || currentQueue.QueuedClusters.Count == 0) return;
-
-            Document? doc = app.ActiveUIDocument?.Document;
+            Document? doc = null;
+            var primItem = currentQueue.QueuedClusters.FirstOrDefault()?.SelectedPrimary;
+            if (primItem != null && app.Application.Documents != null)
+            {
+                var targetId = primItem.RevitElementId.ToElementId();
+                foreach (Document openDoc in app.Application.Documents)
+                {
+                    if (!openDoc.IsFamilyDocument)
+                    {
+                        try
+                        {
+                            if (openDoc.GetElement(targetId) != null)
+                            {
+                                doc = openDoc;
+                                break;
+                            }
+                        }
+                        catch {}
+                    }
+                }
+            }
+            if (doc == null)
+            {
+                doc = app.ActiveUIDocument?.Document;
+            }
+            if (doc == null && app.Application.Documents != null)
+            {
+                foreach (Document openDoc in app.Application.Documents)
+                {
+                    if (!openDoc.IsFamilyDocument)
+                    {
+                        doc = openDoc;
+                        break;
+                    }
+                }
+            }
             if (doc == null) return;
-
             // 1. Disable UI during processing to prevent concurrent modifications
             if (currentWindow != null)
             {
                 currentWindow.Dispatcher.Invoke(() => currentWindow.IsEnabled = false);
             }
-
             var reports = new List<MergeExecutionReport>();
             var clustersToProcess = currentQueue.QueuedClusters.ToList();
             bool wasCancelled = false;
-
             using (var transGroup = new TransactionGroup(doc, "Merge Duplicates"))
             {
                 transGroup.Start();
-
                 foreach (var cluster in clustersToProcess)
                 {
                     // Check cancellation token boundary
@@ -161,36 +182,31 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                         transGroup.RollBack();
                         break;
                     }
-
                     var report = new MergeExecutionReport
                     {
                         ClusterName = cluster.ClusterName,
                         ExecutionSuccessStatus = false
                     };
-
                     var primaryItem = cluster.SelectedPrimary;
                     if (primaryItem == null)
                     {
                         reports.Add(report);
                         continue;
                     }
-
                     var duplicateItems = cluster.Items
                         .Where(i => i != primaryItem && i.IsIncludedForMerge)
                         .ToList();
-
                     var typeMap = new Dictionary<ElementId, ElementId>();
                     using (var trans = new Transaction(doc, $"Merge Cluster Step 1: {cluster.ClusterName}"))
                     {
                         trans.Start();
-
                         try
                         {
-                            Element primElement = doc.GetElement(primaryItem.RevitElementId);
+                            Element primElement = doc.GetElement(primaryItem.RevitElementId.ToElementId());
                             if (primElement != null)
                             {
-                                // 1. Schema Parameter Injection
-                                if (primElement is Family primFamily)
+                                // 1. Schema Parameter Injection (bypassed for system elements and non-loadable families)
+                                if (!RevitMergeDataCollector.IsSystemElement(primElement) && primElement is Family primFamily)
                                 {
                                     var parametersToInject = new List<string>();
                                     foreach (var mapping in cluster.TypeMappings)
@@ -204,7 +220,6 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                                             }
                                         }
                                     }
-
                                     if (parametersToInject.Count > 0)
                                     {
                                         Document famDoc = doc.EditFamily(primFamily);
@@ -215,7 +230,6 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                                             {
                                                 famTrans.Start();
                                                 FamilyManager famManager = famDoc.FamilyManager;
-
                                                 foreach (var paramName in parametersToInject)
                                                 {
                                                     bool paramExists = false;
@@ -227,35 +241,26 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                                                             break;
                                                         }
                                                     }
-
                                                     if (!paramExists)
                                                     {
-                                                        object? paramGroup = null;
-                                                        object? paramType = null;
-                                                        bool foundSource = false;
-
+                                                        ParameterDefinitionSpec? spec = null; bool foundSource = false;
                                                         foreach (var mapping in cluster.TypeMappings)
                                                         {
                                                             if (mapping.RecommendedAction == RecommendedAction.Exclude) continue;
                                                             if (mapping.SourceType == null) continue;
-                                                            FamilySymbol? sourceSymbol = doc.GetElement(mapping.SourceType.RevitTypeId) as FamilySymbol;
+                                                            FamilySymbol? sourceSymbol = doc.GetElement(mapping.SourceType.RevitTypeId.ToElementId()) as FamilySymbol;
                                                             if (sourceSymbol != null)
                                                             {
                                                                 Parameter sourceParam = sourceSymbol.LookupParameter(paramName);
                                                                 if (sourceParam != null)
                                                                 {
-                                                                    foundSource = GetParamGroupAndTypeFromSource(sourceParam, out paramGroup, out paramType);
+                                                                    spec = GetParamGroupAndTypeFromSource(sourceParam); if (spec != null && spec.Group != null && spec.SpecType != null) { foundSource = true; break; }
                                                                     if (foundSource) break;
                                                                 }
                                                             }
                                                         }
-
-                                                        if (!foundSource)
-                                                        {
-                                                            GetDefaultGroupAndType(out paramGroup, out paramType);
-                                                        }
-
-                                                        if (InjectParameterToFamily(famManager, paramName, paramGroup, paramType))
+                                                        if (!foundSource || spec == null || spec.Group == null || spec.SpecType == null) { spec = GetDefaultGroupAndType(); }
+                                                        if (InjectParameterToFamily(famManager, paramName, spec))
                                                         {
                                                             anyInjected = true;
                                                         }
@@ -263,30 +268,25 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                                                 }
                                                 famTrans.Commit();
                                             }
-
                                             if (anyInjected)
                                             {
                                                 primFamily = famDoc.LoadFamily(doc, new ProcessMergeFamilyLoadOptions());
                                             }
                                             famDoc.Close(false);
-
                                             // Re-retrieve primary element reference in case LoadFamily updated it
-                                            primElement = doc.GetElement(primaryItem.RevitElementId);
+                                            primElement = doc.GetElement(primaryItem.RevitElementId.ToElementId());
                                         }
                                     }
                                 }
-
                                 // 2. Type Mapping & Value Copying
                                 foreach (var mapping in cluster.TypeMappings)
                                 {
                                     if (mapping.RecommendedAction == RecommendedAction.Exclude) continue;
                                     if (mapping.SourceType == null || mapping.TargetType == null) continue;
-
-                                    ElementId resolvedTargetTypeId = mapping.TargetType.RevitTypeId;
-
-                                    if (mapping.RecommendedAction == RecommendedAction.Migrate && primElement is Family)
+                                    ElementId resolvedTargetTypeId = mapping.TargetType.RevitTypeId.ToElementId();
+                                    if (mapping.RecommendedAction == RecommendedAction.Migrate)
                                     {
-                                        ElementType? targetTypeElement = doc.GetElement(mapping.TargetType.RevitTypeId) as ElementType;
+                                        ElementType? targetTypeElement = doc.GetElement(mapping.TargetType.RevitTypeId.ToElementId()) as ElementType;
                                         if (targetTypeElement != null)
                                         {
                                             string targetName = mapping.MigrateRenameText;
@@ -295,8 +295,7 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                                                 targetName = mapping.SourceType.Name;
                                             }
                                             targetName = SanitizeRevitTypeName(targetName);
-
-                                            FamilySymbol? existingSymbol = null;
+                                            ElementType? existingSymbol = null;
                                             if (primElement is Family f)
                                             {
                                                 foreach (ElementId symbolId in f.GetFamilySymbolIds())
@@ -309,7 +308,10 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                                                     }
                                                 }
                                             }
-
+                                            else
+                                            {
+                                                existingSymbol = RevitMergeDataCollector.FindExistingElementType(doc, targetTypeElement, targetName);
+                                            }
                                             if (existingSymbol != null)
                                             {
                                                 resolvedTargetTypeId = existingSymbol.Id;
@@ -321,49 +323,55 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                                                 {
                                                     duplicatedType = targetTypeElement.Duplicate(targetName);
                                                 }
-                                                catch (Exception)
+                                                catch (Exception primaryDuplicateException)
                                                 {
-                                                    string fallbackName = SanitizeRevitTypeName(targetName + "_Migrated");
+                                                    app.Application.WriteJournalComment($"[MERGE_WARNING] Duplicate('{targetName}') failed: {primaryDuplicateException.Message}. Trying fallback name.", true);
+                                                    string fallbackName = SanitizeRevitTypeName(targetName + MigratedSuffix);
                                                     try
                                                     {
                                                         duplicatedType = targetTypeElement.Duplicate(fallbackName);
                                                     }
-                                                    catch (Exception exInner)
+                                                    catch (Exception fallbackException)
                                                     {
                                                         int suffixCounter = 1;
                                                         while (duplicatedType == null && suffixCounter <= 10)
                                                         {
                                                             try
                                                             {
-                                                                duplicatedType = targetTypeElement.Duplicate($"{targetName}_Migrated_{suffixCounter}");
+                                                                duplicatedType = targetTypeElement.Duplicate($"{targetName}{MigratedSuffix}_{suffixCounter}");
                                                             }
-                                                            catch
+                                                            catch (Exception suffixException)
                                                             {
                                                                 suffixCounter++;
                                                             }
                                                         }
-                                                        if (duplicatedType == null)
-                                                        {
-                                                            throw new InvalidOperationException($"Failed to duplicate type '{targetName}' after multiple suffix attempts.", exInner);
-                                                        }
                                                     }
+                                                }
+
+                                                // Safe Fallback for non-duplicable system symbols: use target element as-is without mutating original in-place
+                                                if (duplicatedType == null)
+                                                {
+                                                    app.Application.WriteJournalComment($"[MERGE_WARNING] Unable to duplicate system type '{targetName}'. Using target type '{targetTypeElement.Name}' as-is.", true);
+                                                    duplicatedType = targetTypeElement;
                                                 }
 
                                                 if (duplicatedType != null)
                                                 {
                                                     resolvedTargetTypeId = duplicatedType.Id;
-
-                                                    // Copy all parameters from source type to the duplicated type
-                                                    Element sourceSymbol = doc.GetElement(mapping.SourceType.RevitTypeId);
-                                                    if (sourceSymbol != null)
+                                                    // Copy parameters only if a new duplicated type was successfully created
+                                                    if (duplicatedType.Id != targetTypeElement.Id)
                                                     {
-                                                        foreach (Parameter sourceParam in sourceSymbol.Parameters)
+                                                        Element sourceSymbol = doc.GetElement(mapping.SourceType.RevitTypeId.ToElementId());
+                                                        if (sourceSymbol != null)
                                                         {
-                                                            if (sourceParam.IsReadOnly || !sourceParam.HasValue) continue;
-                                                            Parameter targetParam = duplicatedType.LookupParameter(sourceParam.Definition.Name);
-                                                            if (targetParam != null && !targetParam.IsReadOnly)
+                                                            foreach (Parameter sourceParam in sourceSymbol.Parameters)
                                                             {
-                                                                CopyParameterValue(sourceParam, targetParam);
+                                                                if (sourceParam.IsReadOnly || !sourceParam.HasValue) continue;
+                                                                Parameter targetParam = duplicatedType.LookupParameter(sourceParam.Definition.Name);
+                                                                if (targetParam != null && !targetParam.IsReadOnly)
+                                                                {
+                                                                    CopyParameterValue(sourceParam, targetParam);
+                                                                }
                                                             }
                                                         }
                                                     }
@@ -371,14 +379,13 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                                             }
                                         }
                                     }
-
                                     // Apply resolved parameters
                                     Element targetTypeObj = doc.GetElement(resolvedTargetTypeId);
                                     if (targetTypeObj != null)
                                     {
                                         foreach (var row in mapping.ParameterResolutions)
                                         {
-                                            Element winningElement = doc.GetElement(row.WinningValueElementId);
+                                            Element winningElement = doc.GetElement(row.WinningValueElementId.ToElementId());
                                             if (winningElement != null)
                                             {
                                                 Parameter winningParam = winningElement.LookupParameter(row.ParameterName);
@@ -390,77 +397,9 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                                             }
                                         }
                                     }
-
-                                    typeMap[mapping.SourceType.RevitTypeId] = resolvedTargetTypeId;
+                                    typeMap[mapping.SourceType.RevitTypeId.ToElementId()] = resolvedTargetTypeId;
                                 }
-
-                                // 3. Swap Instances
-                                int instancesSwapped = 0;
-                                var dupTypeIds = typeMap.Keys.ToList();
-                                if (dupTypeIds.Count > 0)
-                                {
-                                    if (primElement is Family)
-                                    {
-                                        var instances = new FilteredElementCollector(doc)
-                                            .OfClass(typeof(FamilyInstance))
-                                            .Cast<FamilyInstance>()
-                                            .Where(fi => dupTypeIds.Contains(fi.GetTypeId()))
-                                            .ToList();
-
-                                        foreach (var instance in instances)
-                                        {
-                                            ElementId targetTypeId = typeMap[instance.GetTypeId()];
-                                            FamilySymbol? targetSymbol = doc.GetElement(targetTypeId) as FamilySymbol;
-                                            if (targetSymbol != null)
-                                            {
-                                                if (!targetSymbol.IsActive)
-                                                {
-                                                    targetSymbol.Activate();
-                                                }
-                                                instance.Symbol = targetSymbol;
-                                                instancesSwapped++;
-                                            }
-                                        }
-                                    }
-                                    else if (primElement is GroupType)
-                                    {
-                                        var groups = new FilteredElementCollector(doc)
-                                            .OfClass(typeof(Group))
-                                            .Cast<Group>()
-                                            .Where(g => dupTypeIds.Contains(g.GetTypeId()))
-                                            .ToList();
-
-                                        foreach (var group in groups)
-                                        {
-                                            ElementId targetTypeId = typeMap[group.GetTypeId()];
-                                            GroupType? targetGroupType = doc.GetElement(targetTypeId) as GroupType;
-                                            if (targetGroupType != null)
-                                            {
-                                                group.GroupType = targetGroupType;
-                                                instancesSwapped++;
-                                            }
-                                        }
-                                    }
-                                    else if (primElement is AssemblyType)
-                                    {
-                                        var assemblies = new FilteredElementCollector(doc)
-                                            .OfClass(typeof(AssemblyInstance))
-                                            .Cast<AssemblyInstance>()
-                                            .Where(a => dupTypeIds.Contains(a.GetTypeId()))
-                                            .ToList();
-
-                                        foreach (var assembly in assemblies)
-                                        {
-                                            ElementId targetTypeId = typeMap[assembly.GetTypeId()];
-                                            assembly.ChangeTypeId(targetTypeId);
-                                            instancesSwapped++;
-                                        }
-                                    }
-                                }
-
-                                report.InstancesSwappedCount = instancesSwapped;
                             }
-
                             trans.Commit();
                         }
                         catch (Exception ex)
@@ -473,52 +412,78 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                             continue;
                         }
                     }
-
                     // 3.5 AliasSwapEngine deep scan and swap (outside any active transaction!)
                     try
                     {
-                        foreach (var kvp in typeMap)
+                        int totalInstancesSwapped = 0;
+                        if (typeMap != null && typeMap.Count > 0)
                         {
-                            AliasSwapEngine.SwapElementReferences(doc, kvp.Key, kvp.Value);
+                            var redirectionResult = AliasSwapEngine.SwapElementReferences(doc, typeMap);
+                            if (redirectionResult != null)
+                            {
+                                totalInstancesSwapped += redirectionResult.InstancesCount;
+
+                                if (redirectionResult.Errors != null && redirectionResult.Errors.Count > 0)
+                                {
+                                    report.ExecutionSuccessStatus = false;
+                                    string errStr = string.Join("; ", redirectionResult.Errors);
+                                    report.ErrorMessage = string.IsNullOrEmpty(report.ErrorMessage) ? errStr : $"{report.ErrorMessage}; {errStr}";
+                                }
+                                if (redirectionResult.Warnings != null && redirectionResult.Warnings.Count > 0)
+                                {
+                                    foreach (var warn in redirectionResult.Warnings)
+                                    {
+                                        app.Application.WriteJournalComment($"[MERGE_WARNING] {warn}", true);
+                                    }
+                                }
+                            }
                         }
+                        report.InstancesSwappedCount = totalInstancesSwapped;
                     }
                     catch (Exception ex)
                     {
-                        app.Application.WriteJournalComment($"[MERGE_ERROR] Error swapping alias references outside transaction: {ex.Message}", true);
+                        report.ExecutionSuccessStatus = false;
+                        string exMsg = $"Error swapping alias references: {ex.Message}";
+                        report.ErrorMessage = string.IsNullOrEmpty(report.ErrorMessage) ? exMsg : $"{report.ErrorMessage}; {exMsg}";
+                        app.Application.WriteJournalComment($"[MERGE_ERROR] {exMsg}", true);
                     }
-
                     // 4. Redundancy Deletion in Transaction 2
                     using (var trans2 = new Transaction(doc, $"Merge Cluster Step 2: {cluster.ClusterName}"))
                     {
                         trans2.Start();
                         try
                         {
-                            Element primElement = doc.GetElement(primaryItem.RevitElementId);
+                            Element primElement = doc.GetElement(primaryItem.RevitElementId.ToElementId());
                             int purgedCount = 0;
                             foreach (var dupItem in duplicateItems)
                             {
                                 bool allTypesMergedOrMigrated = true;
                                 foreach (var t in dupItem.Types)
                                 {
-                                    var mapping = cluster.TypeMappings.FirstOrDefault(m => m.SourceType != null && m.SourceType.RevitTypeId == t.RevitTypeId);
+                                    var mapping = cluster.TypeMappings.FirstOrDefault(m => m.SourceType != null && m.SourceType.RevitTypeId.ToElementId() == t.RevitTypeId.ToElementId());
                                     if (mapping != null && mapping.RecommendedAction == RecommendedAction.Exclude)
                                     {
                                         allTypesMergedOrMigrated = false;
                                         break;
                                     }
                                 }
-
                                 if (allTypesMergedOrMigrated)
                                 {
                                     try
                                     {
-                                        doc.Delete(dupItem.RevitElementId);
+                                        doc.Delete(dupItem.RevitElementId.ToElementId());
                                         purgedCount++;
                                     }
-                                    catch (Exception)
-                                    {
-                                        // Silently handle deletion error
-                                    }
+                                     catch (Exception ex)
+                                     {
+                                         try
+                                         {
+                                             System.IO.File.WriteAllText(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "synthetic_test_error.txt"), ex.ToString());
+                                         }
+                                         catch {}
+                                         report.ExecutionSuccessStatus = false;
+                                         report.ErrorMessage = "Family deletion failed: " + ex.Message + " | " + ex.StackTrace;
+                                     }
                                 }
                                 else
                                 {
@@ -526,12 +491,12 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                                     {
                                         foreach (var t in dupItem.Types)
                                         {
-                                            var mapping = cluster.TypeMappings.FirstOrDefault(m => m.SourceType != null && m.SourceType.RevitTypeId == t.RevitTypeId);
+                                            var mapping = cluster.TypeMappings.FirstOrDefault(m => m.SourceType != null && m.SourceType.RevitTypeId.ToElementId() == t.RevitTypeId.ToElementId());
                                             if (mapping != null && mapping.RecommendedAction != RecommendedAction.Exclude)
                                             {
                                                 try
                                                 {
-                                                    doc.Delete(t.RevitTypeId);
+                                                    doc.Delete(t.RevitTypeId.ToElementId());
                                                     purgedCount++;
                                                 }
                                                 catch (Exception)
@@ -543,7 +508,6 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                                     }
                                 }
                             }
-
                             report.DuplicateTypesPurged = purgedCount;
                             trans2.Commit();
                             report.ExecutionSuccessStatus = true;
@@ -556,9 +520,7 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                             app.Application.WriteJournalComment($"[MERGE_ERROR] Error processing cluster step 2 '{cluster.ClusterName}': {ex.Message}", true);
                         }
                     }
-
                     reports.Add(report);
-
                     // Safely update UI Queue collections on Dispatcher
                     if (currentWindow != null && report.ExecutionSuccessStatus)
                     {
@@ -572,16 +534,13 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                         });
                     }
                 }
-
                 if (!wasCancelled)
                 {
                     transGroup.Assimilate();
                 }
             }
-
             // Export execution summary to JSON file
             ExportStep6ResultsSummary(reports);
-
             // Re-enable UI window
             if (currentWindow != null)
             {
@@ -600,11 +559,9 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                 });
             }
         }
-
         private static void CopyParameterValue(Parameter sourceParam, Parameter targetParam)
         {
             if (sourceParam == null || targetParam == null || targetParam.IsReadOnly || !sourceParam.HasValue) return;
-
             switch (sourceParam.StorageType)
             {
                 case StorageType.Double:
@@ -621,90 +578,82 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                     break;
             }
         }
-
-        private static void GetDefaultGroupAndType(out object? paramGroup, out object? paramType)
+                private static ParameterDefinitionSpec GetDefaultGroupAndType()
         {
-            paramGroup = null;
-            paramType = null;
+            return ParameterDefinitionSpec.CreateDefault();
+        }
 
-            // Check if we are in Revit 2024+ by looking for GroupTypeId class
-            Type? groupTypeIdType = typeof(ElementId).Assembly.GetType("Autodesk.Revit.DB.GroupTypeId");
-            if (groupTypeIdType != null)
+        private static ParameterDefinitionSpec GetParamGroupAndTypeFromSource(Parameter sourceParam)
+        {
+            if (sourceParam == null) return GetDefaultGroupAndType();
+
+            object? group = null;
+            object? specType = null;
+
+            Definition def = sourceParam.Definition;
+            if (def != null)
             {
-                var dataProp = groupTypeIdType.GetProperty("Data");
-                if (dataProp != null)
+#if REVIT2022
+                group = def.ParameterGroup;
+                specType = def.ParameterType;
+#elif REVIT2023
+                group = def.ParameterGroup;
+                specType = def.GetDataType();
+#else
+                // Default baseline: Revit 2024+
+                group = def.GetGroupTypeId();
+                specType = def.GetDataType();
+#endif
+
+                // Reflection fallbacks for cross-version / mock execution contexts
+                if (group == null)
                 {
-                    paramGroup = dataProp.GetValue(null);
+                    var groupProp = def.GetType().GetProperty("ParameterGroup");
+                    if (groupProp != null)
+                    {
+                        group = groupProp.GetValue(def);
+                    }
+                    else
+                    {
+                        var groupMethod = def.GetType().GetMethod("GetGroupTypeId");
+                        if (groupMethod != null)
+                        {
+                            group = groupMethod.Invoke(def, null);
+                        }
+                    }
                 }
 
-                Type? specTypeIdString = typeof(ElementId).Assembly.GetType("Autodesk.Revit.DB.SpecTypeId+String");
-                if (specTypeIdString != null)
+                if (specType == null)
                 {
-                    var textProp = specTypeIdString.GetProperty("Text");
-                    if (textProp != null)
+                    var typeProp = def.GetType().GetProperty("ParameterType");
+                    if (typeProp != null)
                     {
-                        paramType = textProp.GetValue(null);
+                        specType = typeProp.GetValue(def);
+                    }
+                    else
+                    {
+                        var typeMethod = def.GetType().GetMethod("GetDataType");
+                        if (typeMethod != null)
+                        {
+                            specType = typeMethod.Invoke(def, null);
+                        }
                     }
                 }
             }
-            else
-            {
-                Type? bipgType = typeof(ElementId).Assembly.GetType("Autodesk.Revit.DB.BuiltInParameterGroup");
-                if (bipgType != null)
-                {
-                    paramGroup = Enum.Parse(bipgType, "PG_DATA");
-                }
 
-                Type? ptType = typeof(ElementId).Assembly.GetType("Autodesk.Revit.DB.ParameterType");
-                if (ptType != null)
-                {
-                    paramType = Enum.Parse(ptType, "Text");
-                }
+            if (group == null || specType == null)
+            {
+                var defaultSpec = GetDefaultGroupAndType();
+                group ??= defaultSpec.Group;
+                specType ??= defaultSpec.SpecType;
             }
+
+            return new ParameterDefinitionSpec(group, specType);
         }
 
-        private static bool GetParamGroupAndTypeFromSource(Parameter sourceParam, out object? paramGroup, out object? paramType)
+        private static bool InjectParameterToFamily(FamilyManager famManager, string paramName, ParameterDefinitionSpec spec)
         {
-            paramGroup = null;
-            paramType = null;
-            if (sourceParam == null) return false;
-
-            // Get group
-            var groupProp = sourceParam.Definition.GetType().GetProperty("ParameterGroup");
-            if (groupProp != null)
-            {
-                paramGroup = groupProp.GetValue(sourceParam.Definition);
-            }
-            else
-            {
-                var groupMethod = sourceParam.Definition.GetType().GetMethod("GetGroupTypeId");
-                if (groupMethod != null)
-                {
-                    paramGroup = groupMethod.Invoke(sourceParam.Definition, null);
-                }
-            }
-
-            // Get type
-            var typeProp = sourceParam.Definition.GetType().GetProperty("ParameterType");
-            if (typeProp != null)
-            {
-                paramType = typeProp.GetValue(sourceParam.Definition);
-            }
-            else
-            {
-                var typeMethod = sourceParam.Definition.GetType().GetMethod("GetDataType");
-                if (typeMethod != null)
-                {
-                    paramType = typeMethod.Invoke(sourceParam.Definition, null);
-                }
-            }
-
-            return paramGroup != null && paramType != null;
-        }
-
-        private static bool InjectParameterToFamily(FamilyManager famManager, string paramName, object? paramGroup, object? paramType)
-        {
-            if (famManager == null || paramGroup == null || paramType == null) return false;
+            if (famManager == null || spec == null || spec.Group == null || spec.SpecType == null) return false;
 
             var addParamMethod = famManager.GetType().GetMethods()
                 .FirstOrDefault(m => m.Name == "AddParameter" && m.GetParameters().Length == 4);
@@ -713,7 +662,7 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
             {
                 try
                 {
-                    addParamMethod.Invoke(famManager, new object[] { paramName, paramGroup, paramType, false });
+                    addParamMethod.Invoke(famManager, new object[] { paramName, spec.Group, spec.SpecType, false });
                     return true;
                 }
                 catch (Exception)
@@ -733,7 +682,6 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                     Formatting = Formatting.Indented
                 };
                 string json = JsonConvert.SerializeObject(summaries, settings);
-
                 string assemblyPath = System.Reflection.Assembly.GetExecutingAssembly().Location;
                 string? assemblyDir = Path.GetDirectoryName(assemblyPath);
                 if (assemblyDir != null)
@@ -747,22 +695,18 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                 // Fail silently
             }
         }
-
         private string SanitizeRevitTypeName(string input)
         {
             if (string.IsNullOrWhiteSpace(input)) return "Unnamed_Type";
-
             char[] illegalChars = new char[] { '\\', ':', '{', '}', '[', ']', '|', ';', '<', '>', '?', '\'', '~' };
             string sanitized = input;
             foreach (char c in illegalChars)
             {
                 sanitized = sanitized.Replace(c.ToString(), string.Empty);
             }
-
             sanitized = sanitized.Trim();
             return string.IsNullOrWhiteSpace(sanitized) ? "Unnamed_Type" : sanitized;
         }
-
         /// <summary>
         /// Gets the name of the external event handler.
         /// </summary>

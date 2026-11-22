@@ -1,8 +1,11 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
-using Synthetic.Modules.RevitDOM;
-using Synthetic.Modules.StandardsManagement.Utilities;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
+using Synthetic.RevitDOM.Operations.Standards;
 
 namespace SyntheticTests.Modules.StandardsManagement
 {

@@ -2,7 +2,10 @@ using System;
 using System.Collections.Generic;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests.Modules.RevitDOM
 {
@@ -211,6 +214,93 @@ namespace SyntheticTests.Modules.RevitDOM
             Assert.IsNotInstanceOf<ElementTypeModel>(result, "Result should not be an instance of ElementTypeModel.");
             Assert.AreEqual(1, SerializationResultModel.CurrentThreadWarnings.Count, "Exactly one warning should be logged.");
             Assert.IsTrue(SerializationResultModel.CurrentThreadWarnings[0].Contains("unsupported, falling back to generic ElementModel"), "Warning message should contain 'unsupported, falling back to generic ElementModel'.");
+        }
+
+        [Test]
+        public void CompositeRouting_DisambiguatesSharedElementTypeModelWithoutOverwrite()
+        {
+            // Arrange
+            var dispatcher = new ModelDispatcher(new FakeIdentityService());
+            var textTranslator = new TextElementTypeTranslator();
+            var spotTranslator = new SpotDimensionTypeTranslator();
+            var gridTranslator = new GridTypeTranslator();
+            var levelTranslator = new LevelTypeTranslator();
+
+            dispatcher.Register<ElementTypeModel, TextElementTypeTranslator>(textTranslator, typeof(TextNoteType), typeof(TextElementType), typeof(ModelTextType));
+            dispatcher.Register<ElementTypeModel, SpotDimensionTypeTranslator>(spotTranslator, typeof(SpotDimensionType));
+            dispatcher.Register<ElementTypeModel, GridTypeTranslator>(gridTranslator, typeof(GridType));
+            dispatcher.Register<ElementTypeModel, LevelTypeTranslator>(levelTranslator, typeof(LevelType));
+
+            // Act & Assert - Each composite (ModelType, Class) routes to its exact translator
+            var resolvedText = dispatcher.GetTranslator(new ElementTypeModel { Class = "Autodesk.Revit.DB.TextNoteType" });
+            var resolvedSpot = dispatcher.GetTranslator(new ElementTypeModel { Class = "Autodesk.Revit.DB.SpotDimensionType" });
+            var resolvedGrid = dispatcher.GetTranslator(new ElementTypeModel { Class = "Autodesk.Revit.DB.GridType" });
+            var resolvedLevel = dispatcher.GetTranslator(new ElementTypeModel { Class = "Autodesk.Revit.DB.LevelType" });
+
+            Assert.AreSame(textTranslator, resolvedText, "TextNoteType must resolve to TextElementTypeTranslator without overwrite.");
+            Assert.AreSame(spotTranslator, resolvedSpot, "SpotDimensionType must resolve to SpotDimensionTypeTranslator without overwrite.");
+            Assert.AreSame(gridTranslator, resolvedGrid, "GridType must resolve to GridTypeTranslator without overwrite.");
+            Assert.AreSame(levelTranslator, resolvedLevel, "LevelType must resolve to LevelTypeTranslator without overwrite.");
+
+            // Ambiguous ModelType alone without class returns null
+            Assert.IsNull(dispatcher.GetTranslatorByModelType(typeof(ElementTypeModel)), "Ambiguous ElementTypeModel should not resolve without Class.");
+        }
+
+        [Test]
+        public void CompositeRouting_ResolvesConsolidatedModelsWithExplicitClass()
+        {
+            // Arrange
+            var engine = new StandardSerializationEngine();
+            var dispatcher = engine.Dispatcher;
+
+            // Act - Resolve consolidated ElementTypeModel and HostObjTypeModel with explicit Class
+            var gridTranslator = dispatcher.GetTranslator(new ElementTypeModel { Class = "Autodesk.Revit.DB.GridType" });
+            var levelTranslator = dispatcher.GetTranslator(new ElementTypeModel { Class = "Autodesk.Revit.DB.LevelType" });
+            var curtainTranslator = dispatcher.GetTranslator(new HostObjTypeModel { Class = "Autodesk.Revit.DB.CurtainSystemType" });
+            var mullionTranslator = dispatcher.GetTranslator(new HostObjTypeModel { Class = "Autodesk.Revit.DB.MullionType" });
+            var fasciaTranslator = dispatcher.GetTranslator(new HostObjTypeModel { Class = "Autodesk.Revit.DB.Architecture.FasciaType" });
+            var gutterTranslator = dispatcher.GetTranslator(new HostObjTypeModel { Class = "Autodesk.Revit.DB.Architecture.GutterType" });
+
+            // Assert
+            Assert.IsNotNull(gridTranslator, "GridType should resolve GridTypeTranslator.");
+            Assert.IsInstanceOf<GridTypeTranslator>(gridTranslator);
+
+            Assert.IsNotNull(levelTranslator, "LevelType should resolve LevelTypeTranslator.");
+            Assert.IsInstanceOf<LevelTypeTranslator>(levelTranslator);
+
+            Assert.IsNotNull(curtainTranslator, "CurtainSystemType should resolve HostObjTypeTranslator.");
+            Assert.IsInstanceOf<HostObjTypeTranslator>(curtainTranslator);
+
+            Assert.IsNotNull(mullionTranslator, "MullionType should resolve HostObjTypeTranslator.");
+            Assert.IsInstanceOf<HostObjTypeTranslator>(mullionTranslator);
+
+            Assert.IsNotNull(fasciaTranslator, "FasciaType should resolve HostObjTypeTranslator.");
+            Assert.IsInstanceOf<HostObjTypeTranslator>(fasciaTranslator);
+
+            Assert.IsNotNull(gutterTranslator, "GutterType should resolve HostObjTypeTranslator.");
+            Assert.IsInstanceOf<HostObjTypeTranslator>(gutterTranslator);
+        }
+
+        [Test]
+        public void CompositeRouting_HandlesNamespaceAliasesForFasciaAndGutter()
+        {
+            // Arrange
+            var engine = new StandardSerializationEngine();
+            var dispatcher = engine.Dispatcher;
+
+            // Act & Assert
+            var fasciaArch = dispatcher.GetTranslator(new HostObjTypeModel { Class = "Autodesk.Revit.DB.Architecture.FasciaType" });
+            var fasciaDb = dispatcher.GetTranslator(new HostObjTypeModel { Class = "Autodesk.Revit.DB.FasciaType" });
+            var gutterArch = dispatcher.GetTranslator(new HostObjTypeModel { Class = "Autodesk.Revit.DB.Architecture.GutterType" });
+            var gutterDb = dispatcher.GetTranslator(new HostObjTypeModel { Class = "Autodesk.Revit.DB.GutterType" });
+
+            Assert.IsNotNull(fasciaArch, "Autodesk.Revit.DB.Architecture.FasciaType should resolve.");
+            Assert.IsNotNull(fasciaDb, "Autodesk.Revit.DB.FasciaType alias should resolve.");
+            Assert.AreSame(fasciaArch, fasciaDb, "Both fascia class names must resolve to the same translator.");
+
+            Assert.IsNotNull(gutterArch, "Autodesk.Revit.DB.Architecture.GutterType should resolve.");
+            Assert.IsNotNull(gutterDb, "Autodesk.Revit.DB.GutterType alias should resolve.");
+            Assert.AreSame(gutterArch, gutterDb, "Both gutter class names must resolve to the same translator.");
         }
     }
 }

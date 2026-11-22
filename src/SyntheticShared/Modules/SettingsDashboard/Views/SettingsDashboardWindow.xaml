@@ -6,6 +6,8 @@
         xmlns:views="clr-namespace:Synthetic.Modules.SettingsDashboard.Views"
         xmlns:difvm="clr-namespace:Synthetic.Modules.DetailItemFactory.ViewModels"
         xmlns:difviews="clr-namespace:Synthetic.Modules.DetailItemFactory.Views"
+        xmlns:ssvm="clr-namespace:Synthetic.Modules.ShadowStudy.ViewModels"
+        xmlns:ssviews="clr-namespace:Synthetic.Modules.ShadowStudy.Views"
         Title="Synthetic - Settings Configuration Panel"
         Height="450" Width="700"
         MinHeight="400" MinWidth="600"
@@ -173,6 +175,11 @@
                     <!-- Implicit DataTemplate for DetailItemFactorySettingsViewModel -->
                     <DataTemplate DataType="{x:Type difvm:DetailItemFactorySettingsViewModel}">
                         <difviews:DetailItemFactorySettingsView />
+                    </DataTemplate>
+
+                    <!-- Implicit DataTemplate for ShadowStudySettingsViewModel -->
+                    <DataTemplate DataType="{x:Type ssvm:ShadowStudySettingsViewModel}">
+                        <ssviews:ShadowStudySettingsView />
                     </DataTemplate>
                 </ContentControl.Resources>
             </ContentControl>

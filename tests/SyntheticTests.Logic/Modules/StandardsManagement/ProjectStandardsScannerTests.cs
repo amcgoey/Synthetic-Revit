@@ -3,9 +3,12 @@ using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.StandardsManagement.Utilities;
+using Synthetic.RevitDOM.Operations.Standards;
 using Synthetic.Shared.UI;
 using Synthetic.Settings;
 
@@ -28,16 +31,16 @@ namespace SyntheticTests.Modules.StandardsManagement
             var fakeGuardrail = new FakeGuardrailPromptService(GuardrailResult.Overwrite);
             var settings = new StandardsSettings();
 
-            _vm = new ProjectStandardsDashboardViewModel(_doc, fakeFileDialog, fakeGuardrail, settings);
+            _vm = DashboardTestFactory.Create(_doc, fakeFileDialog, new StandardsExportService(fakeGuardrail, fakeFileDialog), settings);
 
-            _extractMethod = typeof(ProjectStandardsDashboardViewModel)
+            _extractMethod = typeof(StandardsSourceTreeViewModel)
                 .GetMethod("ExtractRevitElements", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
             Assert.IsNotNull(_extractMethod, "ExtractRevitElements method not found.");
         }
 
         private List<ElementModel> InvokeExtract(List<string>? selectedGroupings)
         {
-            return (List<ElementModel>)_extractMethod.Invoke(_vm, new object?[] { _doc, false, false, selectedGroupings })!;
+            return (List<ElementModel>)_extractMethod.Invoke(_vm.SourceTreeViewModel, new object?[] { _doc, false, false, selectedGroupings })!;
         }
 
         [Test]
@@ -184,6 +187,25 @@ namespace SyntheticTests.Modules.StandardsManagement
             var names = result.Select(r => r.Name).ToList();
             Assert.Contains("Mock Title Block", names);
             Assert.False(names.Contains("Mock Detail Component"), "Detail Components should be excluded.");
+        }
+
+        [Test]
+        public void ExtractRevitElements_WhenToposolidTypesSelected_ExtractsCorrectly()
+        {
+            // Arrange
+            var toposolidType = (ToposolidType)Activator.CreateInstance(typeof(ToposolidType), true)!;
+            toposolidType.Name = "Mock Toposolid Type";
+            toposolidType.GetType().GetProperty("Id")?.SetValue(toposolidType, new ElementId(601));
+            ((dynamic)_doc).AddElement(toposolidType, toposolidType.Id);
+
+            // Act: Select only "Toposolid Types"
+            var selectedGroupings = new List<string> { "Toposolid Types" };
+            var result = InvokeExtract(selectedGroupings);
+
+            // Assert
+            Assert.IsNotNull(result);
+            var names = result.Select(r => r.Name).ToList();
+            Assert.Contains("Mock Toposolid Type", names);
         }
     }
 }

@@ -26,6 +26,7 @@ namespace Autodesk.Revit.UI
     public class UIDocument
     {
         public Document Document { get; }
+        public Autodesk.Revit.UI.Selection.Selection Selection { get; } = new Autodesk.Revit.UI.Selection.Selection();
 
         public UIDocument(Document doc)
         {
@@ -89,7 +90,8 @@ namespace Autodesk.Revit.UI
     {
         Accepted,
         Pending,
-        Denied
+        Denied,
+        TimedOut
     }
 
     /// <summary>
@@ -97,15 +99,43 @@ namespace Autodesk.Revit.UI
     /// </summary>
     public class ExternalEvent
     {
+        public IExternalEventHandler? Handler { get; private set; }
+        public int RaiseCount { get; private set; }
+
         public static ExternalEvent Create(IExternalEventHandler handler)
         {
-            return new ExternalEvent();
+            return new ExternalEvent
+            {
+                Handler = handler
+            };
         }
 
         public ExternalEventRequest Raise()
         {
+            RaiseCount++;
             return ExternalEventRequest.Accepted;
         }
     }
 }
 
+namespace Autodesk.Revit.UI.Selection
+{
+    /// <summary>
+    /// Mock implementation of Revit's Selection for headless unit testing.
+    /// </summary>
+    public class Selection
+    {
+        private readonly System.Collections.Generic.List<ElementId> _selectedIds = new System.Collections.Generic.List<ElementId>();
+
+        public System.Collections.Generic.ICollection<ElementId> GetElementIds() => _selectedIds;
+
+        public void SetElementIds(System.Collections.Generic.ICollection<ElementId> ids)
+        {
+            _selectedIds.Clear();
+            if (ids != null)
+            {
+                _selectedIds.AddRange(ids);
+            }
+        }
+    }
+}

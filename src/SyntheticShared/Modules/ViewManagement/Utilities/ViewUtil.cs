@@ -25,7 +25,10 @@ using revitElementFilter = Autodesk.Revit.DB.ElementFilter;
 using revitFamilySymbol = Autodesk.Revit.DB.FamilySymbol;
 using revitOutline = Autodesk.Revit.DB.Outline;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace Synthetic.Modules.ViewManagement.Utilities
 {

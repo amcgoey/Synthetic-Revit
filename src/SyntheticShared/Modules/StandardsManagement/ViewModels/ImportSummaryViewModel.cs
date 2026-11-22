@@ -1,11 +1,16 @@
 using System.Collections.ObjectModel;
 using System.Linq;
 
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Infrastructure.Serialization;
 
 using Synthetic.Shared.UI;
-using Synthetic.Modules.StandardsManagement.Models;
+using Synthetic.RevitDOM.Operations.Standards;
+using Synthetic.RevitDOM.Operations.Standards;
+
 namespace Synthetic.Modules.StandardsManagement.ViewModels
 {
     /// <summary>
@@ -32,6 +37,11 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         /// Gets the count of items that were renamed during import.
         /// </summary>
         public int RenamedCount => LogItems.Count(item => item.Action == "Renamed");
+
+        /// <summary>
+        /// Gets the count of items that were unchanged during import.
+        /// </summary>
+        public int UnchangedCount => LogItems.Count(item => item.Action == "Unchanged");
 
         private readonly IFileDialogService? _dialogService;
 
@@ -62,33 +72,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         /// </summary>
         public string GenerateMarkdown()
         {
-            var sb = new System.Text.StringBuilder();
-            sb.AppendLine("# Project Standards Consolidation Execution Report");
-            sb.AppendLine();
-            sb.AppendLine($"- **Date:** {System.DateTime.Now:yyyy-MM-dd HH:mm:ss}");
-            sb.AppendLine();
-            sb.AppendLine("## Summary Statistics");
-            sb.AppendLine();
-            sb.AppendLine("| Metric | Count |");
-            sb.AppendLine("| :--- | :--- |");
-            sb.AppendLine($"| **Elements Created** | {CreatedCount} |");
-            sb.AppendLine($"| **Elements Updated** | {UpdatedCount} |");
-            sb.AppendLine($"| **Aliases Renamed** | {RenamedCount} |");
-            sb.AppendLine($"| **Errors / Failed** | {ErrorsCount} |");
-            sb.AppendLine();
-            sb.AppendLine("## Detailed Execution Log");
-            sb.AppendLine();
-            sb.AppendLine("| Action | Class | Element Name | Details / Message |");
-            sb.AppendLine("| :--- | :--- | :--- | :--- |");
-            foreach (var item in LogItems)
-            {
-                string action = item.Action ?? string.Empty;
-                string cls = item.Class ?? string.Empty;
-                string name = (item.ElementName ?? string.Empty).Replace("|", "\\|");
-                string msg = (item.Message ?? string.Empty).Replace("|", "\\|");
-                sb.AppendLine($"| {action} | {cls} | {name} | {msg} |");
-            }
-            return sb.ToString();
+            return StandardsReportGenerator.GenerateMarkdown(LogItems);
         }
 
         private void ExecuteExportLog(object parameter)

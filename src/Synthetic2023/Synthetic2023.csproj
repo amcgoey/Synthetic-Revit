@@ -9,6 +9,7 @@
     <ProjectTypeGuids>{60dc8134-eba5-43b8-bcc9-bb4bc16c2548};{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}</ProjectTypeGuids>
     <RootNamespace>Synthetic</RootNamespace>
     <AssemblyName>Synthetic2023</AssemblyName>
+    <RevitVersion>2023</RevitVersion>
     <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
     <LangVersion>9.0</LangVersion>
     <Nullable>enable</Nullable>
@@ -26,7 +27,7 @@
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
     <StartAction>Program</StartAction>
-    <StartProgram>$(ProgramW6432)\Autodesk\Revit 2023\Revit.exe</StartProgram>
+    <StartProgram>$(ProgramW6432)\Autodesk\Revit $(RevitVersion)\Revit.exe</StartProgram>
     <DocumentationFile>..\..\output\Synthetic\Synthetic2023.xml</DocumentationFile>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
@@ -38,7 +39,7 @@
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
     <StartAction>Program</StartAction>
-    <StartProgram>$(ProgramW6432)\Autodesk\Revit 2023\Revit.exe</StartProgram>
+    <StartProgram>$(ProgramW6432)\Autodesk\Revit $(RevitVersion)\Revit.exe</StartProgram>
   </PropertyGroup>
   <PropertyGroup>
     <StartupObject />
@@ -57,11 +58,11 @@
       <Private>False</Private>
     </Reference>
     <Reference Include="eTransmitForRevit">
-      <HintPath>..\..\..\..\..\..\..\Program Files\Autodesk\eTransmit for Revit 2023\eTransmitForRevit.dll</HintPath>
+      <HintPath>C:\Program Files\Autodesk\eTransmit for Revit 2023\eTransmitForRevit.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="eTransmitForRevitDB">
-      <HintPath>..\..\..\..\..\..\..\Program Files\Autodesk\eTransmit for Revit 2023\eTransmitForRevitDB.dll</HintPath>
+      <HintPath>C:\Program Files\Autodesk\eTransmit for Revit 2023\eTransmitForRevitDB.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="Microsoft.CSharp" />
@@ -83,6 +84,8 @@
       <Private>False</Private>
     </Reference>
     <Reference Include="System" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
     <Reference Include="System.Windows.Forms" />
     <Reference Include="UIFramework, Version=23.0.0.0, Culture=neutral, processorArchitecture=AMD64">
       <HintPath>..\packages\Revit_All_Main_Versions_API_x64.2023.0.0\lib\net48\UIFramework.dll</HintPath>
@@ -117,7 +120,14 @@
             string pattern = "(?i)<Assembly>.*?</Assembly>";
             string replacement = "<Assembly>" + NewPath.Replace("$", "$$") + "</Assembly>";
             string newContent = Regex.Replace(content, pattern, replacement);
-            File.WriteAllText(OutputFile, newContent);
+            for (int i = 0; i < 5; i++) {
+                try {
+                    File.WriteAllText(OutputFile, newContent);
+                    break;
+                } catch (IOException) {
+                    System.Threading.Thread.Sleep(100);
+                }
+            }
         } catch (Exception ex) {
             Log.LogError("Error replacing addin path: " + ex.Message);
             return false;
@@ -140,11 +150,13 @@
     
     <!-- Execute the C# Inline Task -->
     <ReplaceAddinPath InputFile="$(SourceAddinFile)" OutputFile="$(LocalOutputAddin)" NewPath="$(NewAssemblyPath)" />
+
+    <!-- Copy the Debug manifest directly to AppData Revit Addins folder -->
+    <Copy SourceFiles="$(LocalOutputAddin)" DestinationFolder="$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)\" Condition="'$(Configuration)' == 'Debug'" />
   </Target>
 
   <Target Name="AfterClean">
-    <Delete Files="$(AppData)\Autodesk\REVIT\Addins\2023\Synthetic2023.addin" />
-    <Delete Files="$(AppData)\Autodesk\REVIT\Addins\2023\Synthetic2023.dll" />
+    <Delete Files="$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)\$(AssemblyName).addin" />
   </Target>
 
   <Target Name="SignDebugBuild" AfterTargets="Build" Condition="'$(Configuration)' == 'Debug'">

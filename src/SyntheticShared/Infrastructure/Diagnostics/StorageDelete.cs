@@ -14,7 +14,10 @@ using Synthetic.Infrastructure.IO;
 
 using Synthetic.Infrastructure.Diagnostics;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 namespace Synthetic.Infrastructure.Diagnostics{
     /// <summary>
     /// Deletes all extensible storage created by any application all active documents.

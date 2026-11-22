@@ -1,3 +1,4 @@
+using Synthetic.Infrastructure.FailureProcessing;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB.ExtensibleStorage;
@@ -12,7 +13,10 @@ using Synthetic;
 
 using Synthetic.Shared.RevitAPI;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.FamilyManagement.Handlers;
 using Synthetic.Modules.FamilyManagement.Utilities;
 namespace Synthetic.Modules.FamilyManagement.Handlers
@@ -158,13 +162,9 @@ namespace Synthetic.Modules.FamilyManagement.Handlers
                             }
                         }
 
-                        // Reload family using SafeFamilyLoadOptions inside a Transaction utilizing PurgeFailuresPreprocessor
-                        using (Transaction trans = new Transaction(doc, $"Reload Family: {familyName}"))
+                        // Reload family using SafeFamilyLoadOptions inside a Transaction utilizing FailurePipelines.Purge() preprocessor
+                        using (Transaction trans = doc.CreateTransaction($"Reload Family: {familyName}", FailurePipelines.Purge()))
                         {
-                            FailureHandlingOptions options = trans.GetFailureHandlingOptions();
-                            options.SetFailuresPreprocessor(new PurgeFailuresPreprocessor());
-                            trans.SetFailureHandlingOptions(options);
-
                             trans.Start();
                             familyDoc.LoadFamily(doc, new SafeFamilyLoadOptions());
                             trans.Commit();

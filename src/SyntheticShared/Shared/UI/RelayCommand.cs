@@ -2,7 +2,10 @@ using System;
 using System.Windows.Input;
 using Synthetic.Shared.UI;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 namespace Synthetic.Shared.UI{
     /// <summary>
     /// A command implementation that relays its functionality by invoking delegates.

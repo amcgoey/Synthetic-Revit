@@ -1,10 +1,14 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
+using Synthetic.RevitDOM.Operations.Standards;
 
 namespace SyntheticTests.Modules.StandardsManagement
 {
@@ -25,7 +29,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void MergeQueueItems_ShouldAppendNonSurvivorNameToSurvivorAliasesAndPurgeConsumed()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
 
             var oak = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "Material - Oak" };
             var pine = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "Material - Pine" };
@@ -33,8 +37,8 @@ namespace SyntheticTests.Modules.StandardsManagement
             var qOak = new QueueItemModel(oak, true, false);
             var qPine = new QueueItemModel(pine, true, false);
 
-            vm.ActionQueue.Add(qOak);
-            vm.ActionQueue.Add(qPine);
+            vm.StagingQueue.Add(qOak);
+            vm.StagingQueue.Add(qPine);
 
             var selectedList = new List<QueueItemModel> { qOak, qPine };
 
@@ -43,8 +47,8 @@ namespace SyntheticTests.Modules.StandardsManagement
 
             // Assert
             // Oak (first item) should be SelectedPrimary by ShowMergeDialog mock.
-            Assert.AreEqual(1, vm.ActionQueue.Count, "Non-survivor pine should be purged.");
-            Assert.AreSame(qOak, vm.ActionQueue.First(), "Oak should remain.");
+            Assert.AreEqual(1, vm.StagingQueue.Count, "Non-survivor pine should be purged.");
+            Assert.AreSame(qOak, vm.StagingQueue.First(), "Oak should remain.");
 
             var oakModel = qOak.Model as ElementModel;
             Assert.IsNotNull(oakModel);
@@ -56,7 +60,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void MergeQueueItems_ShouldCascadingRedirectReferences()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
 
             var oak = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "Material - Oak" };
             var pine = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "Material - Pine" };
@@ -80,9 +84,9 @@ namespace SyntheticTests.Modules.StandardsManagement
             var qPine = new QueueItemModel(pine, true, false);
             var qWall = new QueueItemModel(wall, true, false);
 
-            vm.ActionQueue.Add(qOak);
-            vm.ActionQueue.Add(qPine);
-            vm.ActionQueue.Add(qWall);
+            vm.StagingQueue.Add(qOak);
+            vm.StagingQueue.Add(qPine);
+            vm.StagingQueue.Add(qWall);
 
             var selectedList = new List<QueueItemModel> { qOak, qPine };
 
@@ -90,7 +94,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             vm.MergeQueueCommand.Execute(selectedList);
 
             // Assert
-            Assert.AreEqual(2, vm.ActionQueue.Count, "Pine should be purged, Oak and Wall should remain.");
+            Assert.AreEqual(2, vm.StagingQueue.Count, "Pine should be purged, Oak and Wall should remain.");
             
             var wallModel = qWall.Model as HostObjTypeModel;
             Assert.IsNotNull(wallModel);
@@ -103,7 +107,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void ExtractRevitElements_ShouldScanAndExtractAllSupportedTypesAndFamilySymbols()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
 
             void AddToDoc(Element el, string name, int idVal)
             {
@@ -135,13 +139,12 @@ namespace SyntheticTests.Modules.StandardsManagement
 
             _doc.GetType().GetMethod("AddElement")?.Invoke(_doc, new object[] { fs, fs.Id });
 
-            // Act: Private method invoke via reflection
-            var extractMethod = typeof(ProjectStandardsDashboardViewModel)
+            var extractMethod = typeof(StandardsSourceTreeViewModel)
                 .GetMethod("ExtractRevitElements", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
             Assert.IsNotNull(extractMethod);
 
             var selectedGroupings = new List<string> { "Title Blocks", "Wall Types", "Line Patterns", "Materials" };
-            var result = (List<ElementModel>)extractMethod.Invoke(vm, new object[] { _doc, false, false, selectedGroupings })!;
+            var result = (List<ElementModel>)extractMethod.Invoke(vm.SourceTreeViewModel, new object[] { _doc, false, false, selectedGroupings })!;
 
             // Assert
             Assert.IsNotNull(result);
@@ -168,7 +171,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             };
 
             // Act
-            var result = ProjectStandardsDashboardViewModel.MergeStandardsLists(existing, newElements, overwriteDuplicates: true);
+            var result = StandardsMergeUtility.Merge(existing, newElements, overwriteDuplicates: true);
 
             // Assert
             Assert.AreEqual(2, result.Count);
@@ -192,7 +195,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             };
 
             // Act
-            var result = ProjectStandardsDashboardViewModel.MergeStandardsLists(existing, newElements, overwriteDuplicates: false);
+            var result = StandardsMergeUtility.Merge(existing, newElements, overwriteDuplicates: false);
 
             // Assert
             Assert.AreEqual(2, result.Count);
@@ -205,18 +208,18 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void IsSavePathActive_ShouldReflectQueueIntent()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
             Assert.IsFalse(vm.IsSavePathActive);
 
             // Act
             var item = new QueueItemModel(new MaterialModel { Class = "Material", Name = "Test" }, false, true);
-            vm.ActionQueue.Add(item);
+            vm.StagingQueue.Add(item);
 
             // Assert
             Assert.IsTrue(vm.IsSavePathActive);
 
             // Act
-            vm.ActionQueue.Remove(item);
+            vm.StagingQueue.Remove(item);
 
             // Assert
             Assert.IsFalse(vm.IsSavePathActive);
@@ -226,7 +229,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void MergeQueueItems_ShouldTransitionWorkspaceToIdle_WhenMergeIsSuccessfulInEditMode()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
 
             var oak = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "Material - Oak" };
             var pine = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "Material - Pine" };
@@ -234,8 +237,8 @@ namespace SyntheticTests.Modules.StandardsManagement
             var qOak = new QueueItemModel(oak, true, false);
             var qPine = new QueueItemModel(pine, true, false);
 
-            vm.ActionQueue.Add(qOak);
-            vm.ActionQueue.Add(qPine);
+            vm.StagingQueue.Add(qOak);
+            vm.StagingQueue.Add(qPine);
 
             var selectedList = new List<QueueItemModel> { qOak, qPine };
 
@@ -248,7 +251,7 @@ namespace SyntheticTests.Modules.StandardsManagement
 
             // Assert
             // Oak (first item) should be SelectedPrimary by ShowMergeDialog mock.
-            Assert.AreEqual(1, vm.ActionQueue.Count, "Non-survivor pine should be purged.");
+            Assert.AreEqual(1, vm.StagingQueue.Count, "Non-survivor pine should be purged.");
             Assert.AreEqual(WorkspaceMode.Idle, vm.ActiveWorkspace, "Active workspace should transition to Idle post-merge.");
         }
 
@@ -256,7 +259,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         public void MergeQueueItems_ShouldCombineExecutionFlagsAndMergeAliasesOntoSurvivor()
         {
             // Arrange
-            var vm = new ProjectStandardsDashboardViewModel(_doc, _fakeDialogService, new FakeGuardrailPromptService(), null);
+            var vm = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
 
             var oak = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "Material - Oak", Aliases = new List<string> { "OakAlias1" } };
             var pine = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "Material - Pine", Aliases = new List<string> { "PineAlias1" } };
@@ -265,8 +268,8 @@ namespace SyntheticTests.Modules.StandardsManagement
             var qOak = new QueueItemModel(oak, true, false);
             var qPine = new QueueItemModel(pine, false, true);
 
-            vm.ActionQueue.Add(qOak);
-            vm.ActionQueue.Add(qPine);
+            vm.StagingQueue.Add(qOak);
+            vm.StagingQueue.Add(qPine);
 
             var selectedList = new List<QueueItemModel> { qOak, qPine };
 
@@ -274,8 +277,8 @@ namespace SyntheticTests.Modules.StandardsManagement
             vm.MergeQueueCommand.Execute(selectedList);
 
             // Assert
-            Assert.AreEqual(1, vm.ActionQueue.Count, "Pine should be purged.");
-            var survivor = vm.ActionQueue[0];
+            Assert.AreEqual(1, vm.StagingQueue.Count, "Pine should be purged.");
+            var survivor = vm.StagingQueue[0];
             Assert.AreSame(qOak, survivor, "Oak should be the survivor.");
             
             // Flags should be combined

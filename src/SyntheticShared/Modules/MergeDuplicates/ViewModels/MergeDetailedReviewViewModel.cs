@@ -4,18 +4,15 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Windows.Input;
 using Newtonsoft.Json;
-using Autodesk.Revit.DB;
 
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM;
 using Synthetic.Infrastructure.Serialization;
 
-using Synthetic.Shared.RevitAPI;
-using Synthetic.Infrastructure.IO;
 
 using Synthetic.Shared.UI;
-using Synthetic.Modules.MergeDuplicates.Engine;
-using Synthetic.Modules.MergeDuplicates.Models;
-using Synthetic.Modules.StandardsManagement.ViewModels;
+
+using Synthetic.RevitDOM.Operations.Merge;
 namespace Synthetic.Modules.MergeDuplicates.ViewModels
 {
     /// <summary>
@@ -49,6 +46,10 @@ namespace Synthetic.Modules.MergeDuplicates.ViewModels
 
             if (cluster != null)
             {
+                if (cluster.TypeMappings == null || cluster.TypeMappings.Count == 0)
+                {
+                    MergeAnalysisEngine.GenerateRecommendations(cluster);
+                }
                 // Set up default view grouping by Family
                 var view = System.Windows.Data.CollectionViewSource.GetDefaultView(cluster.TypeMappings);
                 if (view != null)
@@ -247,7 +248,7 @@ namespace Synthetic.Modules.MergeDuplicates.ViewModels
             if (Cluster != null)
             {
                 Cluster.IsBlocked = false;
-                Cluster.ParameterResolutions = new Dictionary<string, ElementId>();
+                Cluster.ParameterResolutions = new Dictionary<string, ElementIdModel>();
                 foreach (var mapping in Cluster.TypeMappings)
                 {
                     if (mapping.ParameterResolutions != null)

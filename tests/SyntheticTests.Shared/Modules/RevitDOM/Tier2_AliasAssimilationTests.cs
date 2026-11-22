@@ -4,7 +4,10 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 
 namespace SyntheticTests
 {
@@ -112,8 +115,11 @@ namespace SyntheticTests
                     Assert.AreEqual(primaryMaterial.Id, wallType.GetCompoundStructure().GetLayers()[0].MaterialId);
 
                     // Assert serialization results
-                    Assert.IsTrue(results.Any(r => r.Success && r.Model == primaryModel && r.Action == null), "Should contain a primary creation result");
-                    Assert.IsTrue(results.Any(r => r.Success && r.Model == primaryModel && r.Action == "Merged Alias"), "Should contain a merge alias success result");
+                    Assert.IsTrue(results.Any(r => r.Success && r.Model == primaryModel && r.Action == "Created"), "Should contain a primary creation result");
+                    var mergeResult = results.FirstOrDefault(r => r.Success && r.Model == primaryModel && r.Action == "Merged Alias");
+                    Assert.IsNotNull(mergeResult, "Should contain a merge alias success result");
+                    Assert.IsNotNull(mergeResult!.RedirectionResult, "RedirectionResult on SerializationResultModel should not be null.");
+                    Assert.IsTrue(mergeResult.RedirectionResult!.CompoundStructureLayersCount > 0 || mergeResult.RedirectionResult.TotalSwappedCount > 0, "RedirectionResult should capture swapped count metrics.");
 
                     tg.RollBack();
                 }
@@ -181,7 +187,7 @@ namespace SyntheticTests
                     Assert.IsNotNull(primaryMaterial, "Primary Material should exist even if alias swap fails.");
 
                     // 4. Assert serialization results contain success and failure/warning entries
-                    Assert.IsTrue(results.Any(r => r.Success && r.Model == primaryModel && r.Action == null), "Should contain a primary creation success result");
+                    Assert.IsTrue(results.Any(r => r.Success && r.Model == primaryModel && r.Action == "Created"), "Should contain a primary creation success result");
                     Assert.IsTrue(results.Any(r => !r.Success && r.Model == primaryModel && r.Action == "Alias Swap Failed"), "Should contain an alias swap failure result");
 
                     tg.RollBack();

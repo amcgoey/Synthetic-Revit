@@ -1,5 +1,119 @@
 # Change Log
 
+## 2026-07-24 - MergeAnalysisEngine Decoupling & Project Standards ViewModel Decomposition (ADR 021 - Issues #62, #64, #66, #67, #69, #84, #85, #86, #87)
+**Reason for Change:** Decoupled duplicate analysis from `Autodesk.Revit.DB` into pure POCO execution, extracted document querying into `RevitMergeDataCollector`, refactored data clumps into `ParameterDefinitionSpec`, eliminated single-letter variables across duplicate matching algorithms, and decomposed `ProjectStandardsDashboardViewModel` into modular child ViewModels.
+**Key Enhancements:**
+* **Pure POCO MergeAnalysisEngine (ADR 021, Issue #64)**: Refactored `MergeAnalysisEngine` into a pure, static POCO analysis engine in `Synthetic.RevitDOM.Operations.Merge` with zero dependencies on Revit API assemblies. Public methods include `GetBaseName`, `IsIdentityParameter`, `BuildClustersFromModels`, `RunDeepScan`, and `GenerateRecommendations`.
+* **RevitMergeDataCollector Extraction (Issue #62)**: Isolated all live Revit document queries (`RunFastScan`, `RunTargetedScan`, `CollectStragglers`, `ConvertToPoco`) into `RevitMergeDataCollector` in `Synthetic.Modules.MergeDuplicates.Services`.
+* **ParameterDefinitionSpec Value Object (Issue #84)**: Introduced `ParameterDefinitionSpec` in `Synthetic.RevitDOM.Models` to encapsulate parameter group, type, spec, display name, and unit metadata, resolving data clump smells.
+* **POCO Bounding Box & Spatial Displacement (Issue #85)**: Added `GetSize()`, `GetCenter()`, and `IsValid()` to `BoundingBoxXYZModel`, and updated `XYZModel.IsOffsetEqual` to evaluate component-wise spatial displacement.
+* **100% Descriptive Variable Renaming (Issue #86)**: Replaced single-letter variables and cryptic abbreviations across `MergeAnalysisEngine` with self-documenting domain identifiers.
+* **Project Standards ViewModel Decomposition (Issues #47-#50, #53, #56)**: Decomposed `ProjectStandardsDashboardViewModel` into modular child ViewModels (`StandardsSourceTreeViewModel`, `StagingQueueViewModel`, `StandardsExecutionPipelineViewModel`) bound by the `IProjectStandardsDashboard` interface contract.
+* **Tier 2 Headless NUnit Suite (Issue #87)**: Created `Tier2_MergeDuplicatesHeadlessTests.cs` testing cluster detection, deep scanning, base name extraction, and recommendation generation headlessly from JSON snapshots.
+**Files Added:**
+* [RevitMergeDataCollector.cs](../src/SyntheticShared/Modules/MergeDuplicates/Services/RevitMergeDataCollector.cs)
+* [ParameterDefinitionSpec.cs](../src/SyntheticShared/RevitDOM/Models/ParameterDefinitionSpec.cs)
+* [ParameterDefinitionSpecTests.cs](../tests/SyntheticTests.Logic/Modules/RevitDOM/ParameterDefinitionSpecTests.cs)
+* [IProjectStandardsDashboard.cs](../src/SyntheticShared/Modules/StandardsManagement/ViewModels/IProjectStandardsDashboard.cs)
+* [StandardsSourceTreeViewModel.cs](../src/SyntheticShared/Modules/StandardsManagement/ViewModels/StandardsSourceTreeViewModel.cs)
+* [StagingQueueViewModel.cs](../src/SyntheticShared/Modules/StandardsManagement/ViewModels/StagingQueueViewModel.cs)
+* [StandardsExecutionPipelineViewModel.cs](../src/SyntheticShared/Modules/StandardsManagement/ViewModels/StandardsExecutionPipelineViewModel.cs)
+* [Tier2_MergeDuplicatesHeadlessTests.cs](../tests/SyntheticTests.Shared/Modules/MergeDuplicates/Tier2_MergeDuplicatesHeadlessTests.cs)
+* [ADR 021](adrs/Synthetic_ADRs - 21 - Decouple MergeAnalysisEngine into Pure POCO Engine and Revit Data Collector.md)
+**Files Modified:**
+* [MergeAnalysisEngine.cs](../src/SyntheticShared/RevitDOM/Operations/Merge/MergeAnalysisEngine.cs)
+* [MergeDuplicatesViewModel.cs](../src/SyntheticShared/Modules/MergeDuplicates/ViewModels/MergeDuplicatesViewModel.cs)
+* [ProjectStandardsDashboardViewModel.cs](../src/SyntheticShared/Modules/StandardsManagement/ViewModels/ProjectStandardsDashboardViewModel.cs)
+* [BoundingBoxXYZModel.cs](../src/SyntheticShared/RevitDOM/Models/BoundingBoxXYZModel.cs)
+* [XYZModel.cs](../src/SyntheticShared/RevitDOM/Models/XYZModel.cs)
+* [SyntheticShared.projitems](../src/SyntheticShared/SyntheticShared.projitems)
+* [CONTEXT.md](../CONTEXT.md)
+
+## 2026-07-22 - 5-Step Identity Value Equality & Standards Execution Pipeline (ADR 020 - Issues #78, #79, #80, #82, #83)
+**Reason for Change:** Enforced universal 5-step fallback value equality on `ElementIdModel` to resolve WPF binding selection states and dictionary lookup failures, and extracted the project standards enforcement execution into a dedicated backend operation pipeline within RevitDOM.
+**Key Enhancements:**
+* **5-Step ElementIdModel Identity Equality (ADR 020, Issue #79)**: Implemented `IEquatable<ElementIdModel>` on `ElementIdModel`. Overrode `Equals`, `operator==`, `operator!=`, and `GetHashCode()` using the 5-step fallback identity strategy:
+  1. UniqueId match (+ Class type guard)
+  2. Id integer match (+ Class type guard, preserving built-in negative IDs)
+  3. Type/Class guard verification
+  4. Name + Class/Category match (case-insensitive)
+  5. Aliases match / Name vs Aliases cross-match
+* **POCO Identity Resolution Service (Issue #80)**: Introduced `IPocoIdentityService` and `PocoIdentityService` in `Synthetic.RevitDOM.Translation` for offline POCO identity comparison across `ElementIdModel`, `ElementModel`, and mixed pairs without Revit API context.
+* **Bulk Element Identity Resolution (Issue #82)**: Extended `IIdentityService` and `RevitIdentityService` with `GetElementsByElementIdModels` for efficient single-pass native element collection.
+* **ParameterDiffRowModel Encapsulation (Issue #83)**: Encapsulated `WinningValue` selection logic and fixed radio button unselection behavior and dictionary lookups in `ParameterDiffRowModel`.
+* **IStandardsExecutionPipeline Extraction**: Relocated `IStandardsExecutionPipeline` and `StandardsExecutionPipeline` into `Synthetic.RevitDOM.Operations.Standards`. Introduced DTOs (`StandardsExecutionItem`, `StandardsExecutionOptions`, `StandardsExecutionResult`, `ImportLogItem`) and `StandardsReportGenerator`.
+* **IFamilyEnforcer & Failure Suppression**: Abstracted family enforcement under `IFamilyEnforcer` and implemented `RevitFamilyEnforcer` utilizing `PurgeFailuresPreprocessor` to suppress native Revit warning dialogs during batch operations.
+**Files Added:**
+* [IPocoIdentityService.cs](../src/SyntheticShared/RevitDOM/Translation/IPocoIdentityService.cs)
+* [PocoIdentityService.cs](../src/SyntheticShared/RevitDOM/Translation/PocoIdentityService.cs)
+* [PocoIdentityServiceTests.cs](../tests/SyntheticTests.Logic/Modules/RevitDOM/PocoIdentityServiceTests.cs)
+* [ElementIdModelTests.cs](../tests/SyntheticTests.Logic/Modules/RevitDOM/ElementIdModelTests.cs)
+* [IStandardsExecutionPipeline.cs](../src/SyntheticShared/RevitDOM/Operations/Standards/IStandardsExecutionPipeline.cs)
+* [StandardsExecutionPipeline.cs](../src/SyntheticShared/RevitDOM/Operations/Standards/StandardsExecutionPipeline.cs)
+* [IFamilyEnforcer.cs](../src/SyntheticShared/RevitDOM/Operations/Standards/IFamilyEnforcer.cs)
+* [RevitFamilyEnforcer.cs](../src/SyntheticShared/RevitDOM/Operations/Standards/RevitFamilyEnforcer.cs)
+* [StandardsExecutionItem.cs](../src/SyntheticShared/RevitDOM/Operations/Standards/StandardsExecutionItem.cs)
+* [StandardsExecutionOptions.cs](../src/SyntheticShared/RevitDOM/Operations/Standards/StandardsExecutionOptions.cs)
+* [StandardsExecutionResult.cs](../src/SyntheticShared/RevitDOM/Operations/Standards/StandardsExecutionResult.cs)
+* [ImportLogItem.cs](../src/SyntheticShared/RevitDOM/Operations/Standards/ImportLogItem.cs)
+* [StandardsReportGenerator.cs](../src/SyntheticShared/RevitDOM/Operations/Standards/StandardsReportGenerator.cs)
+* [RevitFamilyEnforcerTests.cs](../tests/SyntheticTests.Logic/Modules/StandardsManagement/RevitFamilyEnforcerTests.cs)
+* [ADR 020](adrs/Synthetic_ADRs - 20 - ADR 020 - 5-Step Identity Fallback for ElementIdModel Value Equality.md)
+**Files Modified:**
+* [ElementIdModel.cs](../src/SyntheticShared/RevitDOM/Models/ElementIdModel.cs)
+* [ElementModel.cs](../src/SyntheticShared/RevitDOM/Models/ElementModel.cs)
+* [IIdentityService.cs](../src/SyntheticShared/RevitDOM/Translation/IIdentityService.cs)
+* [RevitIdentityService.cs](../src/SyntheticShared/RevitDOM/Translation/RevitIdentityService.cs)
+* [ParameterDiffRowModel.cs](../src/SyntheticShared/Modules/MergeDuplicates/Models/ParameterDiffRowModel.cs)
+* [SyntheticShared.projitems](../src/SyntheticShared/SyntheticShared.projitems)
+
+## 2026-07-18 - RevitDOM Architecture Elevation & Infrastructure Seam Decoupling (ADR 018, ADR 019)
+**Reason for Change:** Promoted `RevitDOM` to a top-level architectural foundation (`src/SyntheticShared/RevitDOM/`), relocated duplicate domain models out of UI modules, and reconfigured debug build manifest deployment to user AppData folders.
+**Key Enhancements:**
+* **RevitDOM Elevation (ADR 019, Issue #61)**: Reorganized folder layout to establish `Synthetic.RevitDOM` as the core domain root housing `Models/`, `Operations/`, and `Translation/`. Updated all namespace references globally.
+* **Domain Model Relocations (Issues #62, #64)**: Relocated `DiffEngine` to `Synthetic.RevitDOM.Operations.Diffing`, and decoupled `DuplicateItemModel`, `DuplicateTypeModel`, and `DuplicateClusterModel` from Revit API types by replacing raw `ElementId` references with `ElementIdModel` POCO containers.
+* **AppData Debug Deployment (ADR 018)**: Refactored debug manifest deployment to write `.addin` manifests to `%APPDATA%\Autodesk\Revit\Addins\<Year>\` during developer compilation, avoiding administrative permission escalations while reserving `%PROGRAMDATA%` for Release installers.
+* **Glossary & Domain Terminology Alignment**: Updated `CONTEXT.md` to formally record definitions for `Debug Manifest`, `Local Deployment`, `RevitDOM`, `Identity Comparison`, `Deep Diff Comparison`, `Revit Merge Data Collector`, and `Parameter Definition Spec`.
+**Files Added:**
+* [ADR 018](adrs/Synthetic_ADRs - 18 - ADR 018 - AppData Local Deployment for Debug Builds.md)
+* [ADR 019](adrs/Synthetic_ADRs - 19 - ADR 019 - Elevate RevitDOM Foundation and Decouple Backend Operations.md)
+**Files Modified:**
+* [CONTEXT.md](../CONTEXT.md)
+* [SyntheticShared.projitems](../src/SyntheticShared/SyntheticShared.projitems)
+* [Synthetic.sln](../src/Synthetic.sln)
+
+## 2026-07-16 - Dynamic Ribbon Framework, Telemetry Engine & Developer Skills (ADR 0003 - Issues #22, #23, #25, #30, #32, #33)
+**Reason for Change:** Replaced hardcoded static C# ribbon initialization with a dynamic, JSON-configured ribbon framework supporting declarative UI layout, version-gated commands, debug-only filtering, automated command class validation, and integrated developer telemetry & Visual Studio launch automation.
+**Key Enhancements:**
+* **Dynamic Ribbon Manager (Issues #22, #23)**: Created `RibbonManager` and `IRibbonItemBuilder` polymorphic builders (`PushButtonBuilder`, `StackedGroupBuilder`, `SplitButtonBuilder`) reading ribbon specifications from `ribbon_config.json`.
+* **Version & Environment Filtering (Issues #25, #30)**: Added `minVersion`, `maxVersion`, and `debugOnly` properties to ribbon schema items. `CmdDetailItemFactory` is conditionally loaded starting in Revit 2024 via `IsVersionMatch`.
+* **Command Validation & Fallbacks (Issue #32)**: Implemented `ValidateCommandClass` to verify command class existence at startup, disabling non-existent buttons and applying warning tooltips without crashing app initialization. Added icon fallback to `placeholder_16.png` and `placeholder_32.png`.
+* **Slideout Optimization (Issue #33)**: Optimized panel rendering so `AddSlideOut()` executes strictly when valid slideout buttons remain after version filtering.
+* **Revit Journal Telemetry Engine (ADR 0003)**: Built `revit_journal_tool.py` script supporting version folder isolation, process-gated OS checks to detect force-killed sessions, transaction boundary monitoring, and rolling UI command sequence tracing.
+* **Visual Studio Debug Launcher**: Created `start_debugging.ps1` PowerShell automation script to select Visual Studio project by target year and launch interactive F5 debug sessions.
+* **Command Demolition**: Permanently removed obsolete test command `CmdTestAuditPurgeJournal.cs` and `CmdTestAuditPurgeJournalAvailability`.
+* **Developer Skills Integration**: Added developer skills under `.agents/skills/` (`revit-ui-ribbon`, `revit-journal-telemetry`, `revit-debug-by-user`, `revit-build-deploy`, `docs-aggregate`, `docs-push-google`, `docs-pull-google`, `ask-matt`, `codebase-design`, `domain-modeling`, `tdd`, `diagnosing-bugs`, `prototype`, `grilling`).
+**Files Added:**
+* [RibbonManager.cs](../src/SyntheticShared/Core/RibbonManager.cs)
+* [ribbon_config.json](../src/SyntheticShared/Assets/ribbon_config.json)
+* [RibbonManagerTests.cs](../tests/SyntheticTests.Logic/Infrastructure/UI/RibbonManagerTests.cs)
+* [RibbonTests.cs](../tests/SyntheticTests.Logic/Infrastructure/UI/RibbonTests.cs)
+* [start_debugging.ps1](../.agents/skills/revit-debug-by-user/scripts/start_debugging.ps1)
+* [revit_journal_tool.py](../.agents/skills/revit-journal-telemetry/scripts/revit_journal_tool.py)
+* [0003-revit-journal-telemetry-strategy.md](adrs/local/0003-revit-journal-telemetry-strategy.md)
+* [revit-ui-ribbon SKILL.md](../.agents/skills/revit-ui-ribbon/SKILL.md)
+* [revit-journal-telemetry SKILL.md](../.agents/skills/revit-journal-telemetry/SKILL.md)
+* [revit-debug-by-user SKILL.md](../.agents/skills/revit-debug-by-user/SKILL.md)
+* [revit-build-deploy SKILL.md](../.agents/skills/revit-build-deploy/SKILL.md)
+**Files Modified:**
+* [App.cs](../src/SyntheticShared/Core/App.cs)
+* [SyntheticShared.projitems](../src/SyntheticShared/SyntheticShared.projitems)
+* [.agents/AGENTS.md](../.agents/AGENTS.md)
+**Files Deleted:**
+* [CmdTestAuditPurgeJournal.cs](../src/SyntheticShared/Modules/FamilyManagement/Commands/CmdTestAuditPurgeJournal.cs)
+
+
+
 ## 2026-07-12 - Legacy Code Demolition, ViewModel Decoupling & Find/Replace Refactoring (PRD 003, PRD 014, etc.)
 **Reason for Change:** Cleaned up legacy/obsolete codebase artifacts (commands, views, viewmodels, tests) to improve build speed and maintainability, decoupled presentation logic from native OS dialogs/prompts, and extracted batch Find & Replace execution logic into a dedicated service.
 **Key Enhancements:**

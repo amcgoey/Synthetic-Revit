@@ -3,7 +3,10 @@ using System.Threading;
 using System.Windows.Input;
 
 using Synthetic.Shared.UI;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 namespace Synthetic.Shared.UI
 {

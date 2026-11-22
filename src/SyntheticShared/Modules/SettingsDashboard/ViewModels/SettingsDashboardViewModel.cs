@@ -10,7 +10,12 @@ using Synthetic.Infrastructure.Persistence;
 using Synthetic.Shared.UI;
 
 using Synthetic.Modules.DetailItemFactory.ViewModels;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.Modules.ShadowStudy.Adapters;
+using Synthetic.Modules.ShadowStudy.ViewModels;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 namespace Synthetic.Modules.SettingsDashboard.ViewModels
 {
@@ -66,6 +71,7 @@ namespace Synthetic.Modules.SettingsDashboard.ViewModels
                 new FileUtilitySettingsViewModel(_doc, _mainWindowHandle),
                 new StandardsSettingsViewModel(_doc, _mainWindowHandle),
                 new DetailItemFactorySettingsViewModel(_doc, _mainWindowHandle),
+                RevitShadowStudyAdapter.CreateSettingsViewModel(_doc, _mainWindowHandle),
                 new SyncSettingsViewModel(_doc, _mainWindowHandle)
             };
 

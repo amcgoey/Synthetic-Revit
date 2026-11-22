@@ -1,4 +1,4 @@
-using Synthetic.Modules.ViewManagement.Commands;
+﻿using Synthetic.Modules.ViewManagement.Commands;
 using Synthetic.Modules.ViewManagement.Models;
 using Synthetic.Modules.ViewManagement.Utilities;
 
@@ -11,9 +11,13 @@ using View = Autodesk.Revit.DB.View;
 
 using Synthetic.Shared.UI;
 using Synthetic.Core;
-using Synthetic.Modules.RevitDOM;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Shared.RevitAPI;
+using Synthetic.Infrastructure.FailureProcessing;
 
 namespace Synthetic.Modules.ViewManagement.Utilities
 {
@@ -47,7 +51,7 @@ namespace Synthetic.Modules.ViewManagement.Utilities
                 t1.Start();
 
                 FailureHandlingOptions options = t1.GetFailureHandlingOptions();
-                SuppressConstraintsPreprocessor preprocessor = new SuppressConstraintsPreprocessor();
+                CompositeFailuresPreprocessor preprocessor = FailurePipelines.SuppressConstraints(out FailureProcessingReport report);
                 options.SetFailuresPreprocessor(preprocessor);
                 t1.SetFailureHandlingOptions(options);
 
@@ -70,7 +74,7 @@ namespace Synthetic.Modules.ViewManagement.Utilities
                 }
 
                 t1.Commit();
-                if (preprocessor.WarningTripped)
+                if (report.WarningTripped)
                 {
                     warningTripped = true;
                 }
@@ -382,36 +386,6 @@ namespace Synthetic.Modules.ViewManagement.Utilities
         DuplicateTypeAction IDuplicateTypeNamesHandler.OnDuplicateTypeNamesFound(DuplicateTypeNamesHandlerArgs args)
         {
             return DuplicateTypeAction.UseDestinationTypes;
-        }
-    }
-
-    /// <summary>
-    /// Suppresses constraint deletion warnings when grouping reference planes.
-    /// </summary>
-    public class SuppressConstraintsPreprocessor : IFailuresPreprocessor
-    {
-        /// <summary>
-        /// Gets a value indicating whether a warning was tripped and suppressed.
-        /// </summary>
-        public bool WarningTripped { get; private set; } = false;
-
-        /// <summary>
-        /// Preprocesses failures to delete warnings.
-        /// </summary>
-        public FailureProcessingResult PreprocessFailures(FailuresAccessor failuresAccessor)
-        {
-            IList<FailureMessageAccessor> failureMessages = failuresAccessor.GetFailureMessages();
-
-            foreach (FailureMessageAccessor failure in failureMessages)
-            {
-                FailureSeverity severity = failure.GetSeverity();
-                if (severity == FailureSeverity.Warning)
-                {
-                    failuresAccessor.DeleteWarning(failure);
-                    WarningTripped = true;
-                }
-            }
-            return FailureProcessingResult.Continue;
         }
     }
 }

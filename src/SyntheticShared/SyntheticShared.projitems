@@ -12,7 +12,6 @@
     <Compile Include="$(MSBuildThisFileDirectory)AssemblyInfo.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Core\App.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\FamilyManagement\Commands\AuditPurgeAllFamilies.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\FamilyManagement\Commands\CmdTestAuditPurgeJournal.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\SettingsDashboard\Commands\SettingsDashboardCommand.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ViewManagement\Commands\ConvertLegendToDrafting.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ViewManagement\Commands\ConvertDraftingToLegend.cs" />
@@ -24,96 +23,124 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\BatchPrint\Commands\PrintBatchMultiDoc.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\Worksets\Commands\ElementsOnWorksetRecord.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\Worksets\Commands\ScopeBoxesMoveToWorkset.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Commands\CmdExportSheetIndex.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Models\SheetIndexSheetModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Models\SheetIndexScheduleModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Models\SheetIndexPrintSetModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Models\SheetSelectionSourceType.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Models\SheetIndexRevisionModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Models\SheetIndexMatrix.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Models\SheetSelectionSourceMode.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Services\SheetIndexMatrixBuilder.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Services\SheetIndexExporterService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Services\SheetIndexSessionState.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\ViewModels\SheetItemViewModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\ViewModels\RevisionItemViewModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\ViewModels\ExportSheetIndexViewModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Views\ExportSheetIndexWindow.xaml.cs">
+      <DependentUpon>ExportSheetIndexWindow.xaml</DependentUpon>
+    </Compile>
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\Diagnostics\StorageDelete.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ViewManagement\Commands\ViewAutoNumberConfig.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\Worksets\Commands\WorksetStartView.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\BooleanModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\GraphicOverrideUtility.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\CategoryModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\CategoryGraphicOverrideModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\CategoryIdModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\StandardSerializationEngine.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\RevitDomDependencyScanner.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\IPocoIdentityService.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\PocoIdentityService.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\IModelTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\IIdentityService.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\RevitIdentityService.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\LinePatternTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\FillPatternTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\MaterialTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\CategoryTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\TemplateDuplicatingTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\GridTypeTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\LevelTypeTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\TextElementTypeTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\SpotDimensionTypeTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\DimensionTypeTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ModelDispatcher.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ParameterEngine.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\AppearanceAssetModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\BooleanModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\BoundingBoxXYZModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\CategoryGraphicOverrideModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\CategoryIdModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\CategoryModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ColorModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\CompoundStructureModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\DimensionTypeModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ElementIdModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ElementModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ElementTypeModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\EnumModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\FilledRegionTypeModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\FillGridModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\FillPatternModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\FilterRuleModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\HostObjTypeModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ListModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\MaterialModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\MissingModels.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ObjectModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\OverrideGraphicSettingsModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ParameterFilterElementModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ParameterModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ParameterDefinitionSpec.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\PlanViewRangeModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\RedirectionResultModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\SerializationResultModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\StructuralAssetModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ThermalAssetModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\TransformModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\UVModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ViewFilterOverrideModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ViewModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ViewPlanModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ViewScheduleModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\ViewSheetModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Models\XYZModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\AliasSwapEngine.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\GraphicOverrideUtility.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\ImportExecutionRunner.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\IStandardSerializationEngine.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\MaterialAssetEngine.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\ParameterEngine.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\RevitDomDependencyScanner.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\StandardSerializationEngine.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\StandardTypeRegistry.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Utilities\NamingUtils.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\BoundingBoxTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\BrowserOrganizationTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\CategoryGraphicOverrideTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\CategoryTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\ColorTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\DimensionTypeTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\FamilySymbolTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\FilledRegionTypeTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\FillPatternTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\GridTypeTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\HostObjTypeTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\IIdentityService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\IModelTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\IPocoIdentityService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\LevelTypeTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\LinePatternTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\MaterialTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\ModelDispatcher.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\ParameterElementTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\ParameterFilterElementTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\PocoIdentityService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\RevitDomExtensions.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\RevitIdentityService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\SpotDimensionTypeTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\TemplateDuplicatingTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\TextElementTypeTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\TransformTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\ViewFamilyTypeTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\ViewPlanTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\ViewScheduleTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\ViewSheetTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\ViewTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Translation\XYZTranslator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Diffing\IDiffEngine.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Diffing\PocoToRevitDiffEngine.cs" />
 
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\SerializationResultModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ImportExecutionRunner.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\AliasSwapEngine.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\Worksets\Models\ElementsOnWorkset.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\UVModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\FillGridModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\FillPatternModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ColorModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ColorTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\CompoundStructureModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\DimensionTypeModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ElementModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ElementIdModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\RevitDomExtensions.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\FilledRegionTypeModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\FilledRegionTypeTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ElementTypeModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\EnumModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\HostObjTypeModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\HostObjTypeTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ModelsToSerialize.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ListModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\MaterialModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\AppearanceAssetModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\StructuralAssetModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ThermalAssetModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\MaterialAssetEngine.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\OverrideGraphicSettingsModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ParameterModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ViewModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ViewPlanModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ViewPlanTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ViewSheetModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ViewSheetTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ViewScheduleModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ViewScheduleTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ViewFilterOverrideModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ParameterFilterElementModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\FilterRuleModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ParameterFilterElementTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\PlanViewRangeModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\MissingModels.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\XYZModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\TransformModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\BoundingBoxXYZModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\XYZTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\TransformTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\BoundingBoxTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ViewTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ParameterElementTranslator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\BrowserOrganizationTranslator.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Settings\ConfigCollection.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Settings\ISettingModule.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\Persistence\SyntheticSettingsJsonSchema.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\Persistence\LegacySettingsMigration.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\Persistence\SettingsModuleRegistry.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\Persistence\SettingsManager.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Settings\MaterialLibrarySettings.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Settings\ProjectMaterialSettings.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Settings\SyncSettings.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Settings\FileUtilitySettings.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Settings\StandardsSettings.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Core\SyntheticRibbon.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Core\RibbonManager.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Shared\UI\EnumToBooleanConverter.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\BatchPrint\Utilities\BBPrinterSettingsUtils.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Shared\RevitAPI\CommandUtil.cs" />
@@ -122,6 +149,16 @@
     <Compile Include="$(MSBuildThisFileDirectory)Shared\EnumUtil.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Shared\RevitAPI\FamilyUtil.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Shared\RevitAPI\FamilySymbolUtil.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\FailureProcessing\IFailureRule.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\FailureProcessing\FailureHandlingAction.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\FailureProcessing\FailureRecord.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\FailureProcessing\TargetIdFailureRule.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\FailureProcessing\SeverityFailureRule.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\FailureProcessing\FailurePipelineBuilder.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\FailureProcessing\CompositeFailuresPreprocessor.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\FailureProcessing\FailurePipelines.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\FailureProcessing\DocumentTransactionExtensions.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\FailureProcessing\FailureProcessingReport.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\IO\FileUtil.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ViewManagement\Utilities\LegendsUtil.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\MaterialManagement\Utilities\MaterialPathUtils.cs" />
@@ -129,12 +166,15 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\Worksets\Utilities\ScopeBoxUtil.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\IO\SearchPaths.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Shared\RevitAPI\Select.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Engine\StandardsDiffEngine.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Engine\IStandardsExtractionOrchestrator.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Engine\StandardsExtractionOrchestrator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\StandardsDiffEngine.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\IStandardsExtractionOrchestrator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\StandardsExtractionOrchestrator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\IFamilyEnforcer.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\IStandardsExecutionPipeline.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\RevitFamilyEnforcer.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\StandardsExecutionPipeline.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Shared\RevitAPI\StorageUtil.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\FamilyManagement\Utilities\SafeFamilyLoadOptions.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\FamilyManagement\Utilities\PurgeFailuresPreprocessor.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ViewManagement\Models\ViewAutoNumModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\ViewManagement\Utilities\ViewUtil.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\Diagnostics\StorageQuery.cs" />
@@ -148,15 +188,17 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\Worksets\Commands\WorksetSetFile.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\Worksets\Commands\WorksetsImport.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Infrastructure\IO\Excel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\RevitDOM\ObjectModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\Worksets\Models\WorksetModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Models\ImportLogItem.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Models\DuplicateItemModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Models\DuplicateClusterModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Models\DuplicateTypeModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Models\RecommendedAction.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Models\TypeMappingModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Models\ParameterDiffRowModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\ImportLogItem.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\StandardsExecutionItem.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\StandardsExecutionOptions.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\StandardsExecutionResult.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Merge\DuplicateItemModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Merge\DuplicateClusterModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Merge\DuplicateTypeModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Merge\RecommendedAction.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Merge\TypeMappingModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Merge\ParameterDiffRowModel.cs" />
   </ItemGroup>
   <ItemGroup>
     <Folder Include="$(MSBuildThisFileDirectory)Views\" />
@@ -170,10 +212,11 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\ElementTypeWrapperVM.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\ViewModels\MergeQueueViewModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\ViewModels\MergeDuplicatesViewModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Services\RevitMergeDataCollector.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Shared\UI\RevitWindowHelper.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\AutoTagger\Models\TagTemplate.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Shared\RevitAPI\CoordinateUtility.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Engine\MergeAnalysisEngine.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Merge\MergeAnalysisEngine.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\AutoTagger\Repositories\TemplateStorageRepository.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\AutoTagger\ViewModels\SetTemplateViewModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\AutoTagger\Views\SetTemplateView.xaml.cs" />
@@ -212,6 +255,7 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Views\ImportSummaryWindow.xaml.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Shared\UI\SharedProgressWindow.xaml.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Shared\UI\ProgressCoordinator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Shared\UI\ProgressState.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\ViewModels\MergeDetailedReviewViewModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Views\MergeDetailedReviewWindow.xaml.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Handlers\ProcessMergeEventHandler.cs" />
@@ -241,8 +285,6 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\SettingsDashboard\Views\StandardsSettingsView.xaml.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\CategorySelectionViewModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Views\CategorySelectionControl.xaml.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\StandardsClassSelectionViewModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Views\StandardsClassSelectionControl.xaml.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\StandardsReviewViewModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Views\StandardsReviewWindow.xaml.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Commands\CmdProjectStandards.cs" />
@@ -251,13 +293,19 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\StandardClassModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\StandardElementModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\ProjectStandardsSourceViewModel.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Utilities\StandardsHierarchyUtility.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Utilities\PathResolutionUtility.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Utilities\StandardsExportService.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Utilities\IStandardsExportService.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Utilities\FindReplaceService.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Utilities\IFindReplaceService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\StandardsHierarchyUtility.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\PathResolutionUtility.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\StandardsExportService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\StandardsMergeUtility.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\IStandardsExportService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\FindReplaceService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\IFindReplaceService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Operations\Standards\StandardsReportGenerator.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\ProjectStandardsDashboardViewModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\StandardsSourceTreeViewModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\StagingQueueViewModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\IProjectStandardsDashboard.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\StandardsExecutionPipelineViewModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Views\ProjectStandardsDashboardWindow.xaml.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\QueueItemModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\ViewModels\SelectRevitDocumentViewModel.cs" />
@@ -274,7 +322,82 @@
     <Compile Include="$(MSBuildThisFileDirectory)Modules\DetailItemFactory\Settings\DetailItemFactorySettings.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\DetailItemFactory\ViewModels\DetailItemFactorySettingsViewModel.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Modules\DetailItemFactory\Views\DetailItemFactorySettingsView.xaml.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Models\LinkedModelItem.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Models\LevelItem.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Models\SharedSiteSyncTarget.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Models\SyncSharedSitesRequest.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Models\SyncSharedSitesSummary.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Models\LinkRepositionGroupItem.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Models\LinkRepositionInstanceItem.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Models\CoordinateTransformResult.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Models\SharedCoordinatesMath.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Models\RepositionLinksRequest.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Models\RepositionLinksSummary.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Adapters\ISharedCoordinatesAdapter.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Adapters\RevitSharedCoordinatesAdapter.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\ViewModels\SyncSharedSitesViewModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\ViewModels\MoveLinksToSharedSitesViewModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Commands\CmdSyncSharedSites.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Commands\CmdMoveLinksToSharedSites.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Views\SyncSharedSitesWindow.xaml.cs">
+      <DependentUpon>SyncSharedSitesWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Views\MoveLinksToSharedSitesWindow.xaml.cs">
+      <DependentUpon>MoveLinksToSharedSitesWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Views\SharedCoordinatesSummaryWindow.xaml.cs">
+      <DependentUpon>SharedCoordinatesSummaryWindow.xaml</DependentUpon>
+    </Compile>
     <Compile Include="$(MSBuildThisFileDirectory)Shared\UI\GuardrailPromptWindow.xaml.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Shared\UI\ExportCompletionViewModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Shared\UI\ExportCompletionWindow.xaml.cs">
+      <DependentUpon>ExportCompletionWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="$(MSBuildThisFileDirectory)Shared\UI\IFolderDialogService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Shared\UI\WindowsFolderDialogService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Shared\UI\ITextInputPromptService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Shared\UI\WindowsTextInputPromptService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Shared\UI\TextInputPromptWindow.xaml.cs">
+      <DependentUpon>TextInputPromptWindow.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudySiteInfo.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudyExportRangeMode.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudyPrintSetItem.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudyViewWarningBadge.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudyViewItem.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudyDateEntry.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\AstronomicalEventKind.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudyPresetDateSpec.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudyPresetDefinition.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\SolarFrameSlot.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\DateSolarSchedule.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\RawFrameExportRequest.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\RawExportedFrame.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\RawExportedDateFrames.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\RawFrameExportResult.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudyRunRequest.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudyRunSummary.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Models\ShadowStudyUserPrefs.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Settings\ShadowStudySettings.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Adapters\IShadowStudyAdapter.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Adapters\RevitShadowStudyAdapter.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Commands\CmdShadowStudy.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Services\BuiltInShadowStudyPresets.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Services\SolarScheduleCalculator.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Services\ShadowImageCompositor.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Services\ShadowStudyPathHelper.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Services\ShadowStudyPipeline.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Services\ShadowStudyUserPrefsStore.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\ViewModels\ShadowStudyDateScheduleItemViewModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\ViewModels\ShadowStudySelectableViewItemViewModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\ViewModels\ShadowStudySettingsViewModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\ViewModels\ShadowStudyViewModel.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Views\ShadowStudySettingsView.xaml.cs">
+      <DependentUpon>ShadowStudySettingsView.xaml</DependentUpon>
+    </Compile>
+    <Compile Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Views\ShadowStudyWindow.xaml.cs">
+      <DependentUpon>ShadowStudyWindow.xaml</DependentUpon>
+    </Compile>
   </ItemGroup>
     <ItemGroup>
     <Page Include="$(MSBuildThisFileDirectory)Modules\MergeDuplicates\Views\MergeDuplicatesWindow.xaml">
@@ -366,10 +489,6 @@
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>
-    <Page Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Views\StandardsClassSelectionControl.xaml">
-      <Generator>MSBuild:Compile</Generator>
-      <SubType>Designer</SubType>
-    </Page>
     <Page Include="$(MSBuildThisFileDirectory)Modules\StandardsManagement\Views\StandardsReviewWindow.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
@@ -399,6 +518,38 @@
       <SubType>Designer</SubType>
     </Page>
     <Page Include="$(MSBuildThisFileDirectory)Shared\UI\GuardrailPromptWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="$(MSBuildThisFileDirectory)Shared\UI\ExportCompletionWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="$(MSBuildThisFileDirectory)Shared\UI\TextInputPromptWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="$(MSBuildThisFileDirectory)Modules\SheetIndex\Views\ExportSheetIndexWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Views\MoveLinksToSharedSitesWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Views\SyncSharedSitesWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="$(MSBuildThisFileDirectory)Modules\SharedCoordinates\Views\SharedCoordinatesSummaryWindow.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Views\ShadowStudySettingsView.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="$(MSBuildThisFileDirectory)Modules\ShadowStudy\Views\ShadowStudyWindow.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </Page>
@@ -473,7 +624,7 @@
     <Content Include="$(MSBuildThisFileDirectory)Assets\schema_32.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="$(MSBuildThisFileDirectory)SyntheticSettings.json">
+    <Content Include="$(MSBuildThisFileDirectory)SyntheticSettings.json" Condition="Exists('$(MSBuildThisFileDirectory)SyntheticSettings.json')">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="$(MSBuildThisFileDirectory)SyntheticSettings.template.json">
@@ -483,6 +634,15 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="$(MSBuildThisFileDirectory)Assets\Templates\README.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="$(MSBuildThisFileDirectory)Assets\ribbon_config.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="$(MSBuildThisFileDirectory)Assets\placeholder_16.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="$(MSBuildThisFileDirectory)Assets\placeholder_32.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
