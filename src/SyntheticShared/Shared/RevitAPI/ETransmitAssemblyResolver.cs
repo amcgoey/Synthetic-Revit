@@ -84,8 +84,6 @@ namespace Synthetic.Shared.RevitAPI
             return "2024";
 #elif REVIT2025
             return "2025";
-#elif REVIT2026
-            return "2026";
 #else
             return "2026";
 #endif

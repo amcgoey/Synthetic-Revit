@@ -30,6 +30,7 @@ namespace SyntheticTests.Modules.ShadowStudy
         public void OneTimeSetUp(UIApplication uiapp)
         {
             _uiapp = uiapp;
+            TestWorkerJournalMarker.EnsureWritten(uiapp);
         }
 
         [SetUp]

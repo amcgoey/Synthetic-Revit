@@ -673,9 +673,13 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
             return false;
         }
 
-        internal static string GetStep6ResultsLogPath()
+        internal static string GetStep6ResultsLogPath() => GetStep6ResultsLogPath(null);
+
+        internal static string GetStep6ResultsLogPath(string? localAppDataOverride)
         {
-            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            string localAppData = !string.IsNullOrWhiteSpace(localAppDataOverride)
+                ? localAppDataOverride!
+                : Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             string logsDir = Path.Combine(localAppData, "Synthetic", "Logs");
             return Path.Combine(logsDir, "MergeDuplicates_Step6_ExecutionResult.json");
         }

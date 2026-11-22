@@ -14,6 +14,7 @@ using Synthetic.RevitDOM;
 using Synthetic.Settings;
 using Synthetic.RevitDOM.Operations.Standards;
 using SyntheticTests.Modules.StandardsManagement;
+using SyntheticTests.Helpers;
 
 namespace SyntheticTests
 {
@@ -26,6 +27,7 @@ namespace SyntheticTests
         public void Setup(UIApplication uiapp)
         {
             _uiapp = uiapp;
+            TestWorkerJournalMarker.EnsureWritten(uiapp);
         }
 
         [Test]

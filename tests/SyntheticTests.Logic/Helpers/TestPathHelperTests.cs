@@ -6,6 +6,7 @@ using SyntheticTests.Helpers;
 namespace SyntheticTests.Helpers
 {
     [TestFixture]
+    [NonParallelizable]
     public class TestPathHelperTests
     {
         private string _tempRoot = string.Empty;
@@ -47,7 +48,6 @@ namespace SyntheticTests.Helpers
         }
 
         [Test]
-        [NonParallelizable]
         public void GetProjectRoot_WhenMarkerAdjacentToAssemblyExists_TakesPrecedenceOverEnvVarAndWalk()
         {
             string assemblyDir = Path.Combine(_tempRoot, "assembly");
@@ -72,7 +72,6 @@ namespace SyntheticTests.Helpers
         }
 
         [Test]
-        [NonParallelizable]
         public void GetProjectRoot_WhenMarkerAdjacentToTestDirectoryExists_ResolvesBeforeEnvVar()
         {
             string assemblyDir = Path.Combine(_tempRoot, "assembly");
@@ -94,7 +93,6 @@ namespace SyntheticTests.Helpers
         }
 
         [Test]
-        [NonParallelizable]
         public void GetProjectRoot_WhenMarkerMissingOrInvalidAndEnvVarSet_ReturnsEnvVarOverUpwardWalk()
         {
             string assemblyDir = Path.Combine(_tempRoot, "assembly");
@@ -118,7 +116,6 @@ namespace SyntheticTests.Helpers
         }
 
         [Test]
-        [NonParallelizable]
         public void GetProjectRoot_WhenNoMarkerAndNoEnvVar_WalksUpwardForSolution()
         {
             string assemblyDir = Path.Combine(_tempRoot, "assembly");
@@ -138,7 +135,6 @@ namespace SyntheticTests.Helpers
         }
 
         [Test]
-        [NonParallelizable]
         public void GetProjectRoot_WhenNoStrategyResolves_ThrowsInvalidOperationException()
         {
             string assemblyDir = Path.Combine(_tempRoot, "isolated-assembly");

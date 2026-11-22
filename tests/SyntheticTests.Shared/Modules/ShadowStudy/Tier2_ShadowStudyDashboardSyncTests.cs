@@ -15,6 +15,7 @@ using Synthetic.Modules.ShadowStudy.Settings;
 using Synthetic.Modules.ShadowStudy.ViewModels;
 using Synthetic.Settings;
 using Synthetic.Shared.UI;
+using SyntheticTests.Helpers;
 
 namespace SyntheticTests.Modules.ShadowStudy
 {
@@ -35,6 +36,7 @@ namespace SyntheticTests.Modules.ShadowStudy
         public void OneTimeSetup(UIApplication uiapp)
         {
             _uiapp = uiapp;
+            TestWorkerJournalMarker.EnsureWritten(uiapp);
         }
 
         [SetUp]

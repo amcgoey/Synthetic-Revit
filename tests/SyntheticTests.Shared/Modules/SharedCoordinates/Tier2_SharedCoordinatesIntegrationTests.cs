@@ -25,6 +25,7 @@ namespace SyntheticTests
         public void Setup(UIApplication uiapp)
         {
             _uiapp = uiapp;
+            TestWorkerJournalMarker.EnsureWritten(uiapp);
         }
 
         #region Helper Methods

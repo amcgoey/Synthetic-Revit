@@ -333,13 +333,12 @@ namespace Synthetic.Bootstrap
         {
             try
             {
-                string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-                if (string.IsNullOrWhiteSpace(localAppData))
+                string logsDir = ShadowCacheManager.ResolveDiagnosticLogsDir();
+                if (string.IsNullOrWhiteSpace(logsDir))
                 {
                     return;
                 }
 
-                string logsDir = Path.Combine(localAppData, "Synthetic", "Logs");
                 Directory.CreateDirectory(logsDir);
 
                 int pid;

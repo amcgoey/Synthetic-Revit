@@ -27,6 +27,7 @@ namespace SyntheticTests
         public void Setup(UIApplication uiapp)
         {
             _uiapp = uiapp;
+            TestWorkerJournalMarker.EnsureWritten(uiapp);
             string errPath = Path.Combine(Path.GetTempPath(), "synthetic_test_error.txt");
             if (File.Exists(errPath))
             {
