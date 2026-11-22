@@ -86,7 +86,7 @@ namespace Synthetic.RevitDOM.Operations.Diffing
                     if (liveElement == null) continue; // No match found, skip
 
                     // Generate unique fake target ID for this standard element
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                     ElementId fakeTargetId = new ElementId((int)(fakeIdCounter--));
 #else
                     ElementId fakeTargetId = new ElementId(fakeIdCounter--);
@@ -259,7 +259,7 @@ namespace Synthetic.RevitDOM.Operations.Diffing
                     ElementId id = p.AsElementId();
                     if (id != null)
                     {
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                         return id.IntegerValue.ToString();
 #else
                         return id.Value.ToString();
@@ -292,7 +292,7 @@ namespace Synthetic.RevitDOM.Operations.Diffing
                 }
                 if (targetId != ElementId.InvalidElementId)
                 {
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                     return targetId.IntegerValue.ToString();
 #else
                     return targetId.Value.ToString();

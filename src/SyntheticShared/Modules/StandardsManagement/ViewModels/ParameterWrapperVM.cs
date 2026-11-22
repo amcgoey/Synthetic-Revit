@@ -271,7 +271,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                                               Name.IndexOf("Line Pattern", StringComparison.OrdinalIgnoreCase) >= 0);
                         if (isLinePattern && value == "Solid")
                         {
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                             _model.ValueElemId.Id = LinePatternElement.GetSolidPatternId().IntegerValue;
 #else
                             _model.ValueElemId.Id = LinePatternElement.GetSolidPatternId().Value;

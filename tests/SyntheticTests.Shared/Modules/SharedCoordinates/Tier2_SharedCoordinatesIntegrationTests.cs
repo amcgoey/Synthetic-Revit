@@ -253,7 +253,7 @@ namespace SyntheticTests
                     tx.Start();
                     var activeLoc = unitDoc.ActiveProjectLocation;
                     var newLoc = activeLoc.Duplicate("Floor_3_Test");
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                     var newPos = app.Create.NewProjectPosition(10.0, 20.0, 35.0, 0.0);
 #else
                     var newPos = new ProjectPosition(10.0, 20.0, 35.0, 0.0);

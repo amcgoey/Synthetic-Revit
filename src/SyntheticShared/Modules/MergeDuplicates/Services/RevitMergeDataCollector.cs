@@ -73,7 +73,7 @@ namespace Synthetic.Modules.MergeDuplicates.Services
                             }
                             else
                             {
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                                 valueString = elementId.IntegerValue.ToString();
 #else
                                 valueString = elementId.Value.ToString();
@@ -82,7 +82,7 @@ namespace Synthetic.Modules.MergeDuplicates.Services
                         }
                         else
                         {
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                             valueString = elementId.IntegerValue.ToString();
 #else
                             valueString = elementId.Value.ToString();

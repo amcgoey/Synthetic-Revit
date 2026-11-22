@@ -671,7 +671,7 @@ namespace Synthetic.RevitDOM.Operations
                 rootCollector: (doc, groupings, ct) => CollectOfClass(doc, typeof(SpotDimensionType), "Spot Dimension Types", groupings, ct)));
 
             // 26. ToposolidTypes
-#if REVIT2022 || REVIT2023
+#if REVIT2023
             Type? toposolidType = null;
             TranslatorBinding[] toposolidBindings = Array.Empty<TranslatorBinding>();
 #else
@@ -892,7 +892,7 @@ namespace Synthetic.RevitDOM.Operations
                 if (category == null) continue;
 
                 long catIdVal;
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                 catIdVal = category.Id.IntegerValue;
 #else
                 catIdVal = category.Id.Value;

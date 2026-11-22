@@ -73,7 +73,6 @@ namespace Synthetic.Shared.RevitAPI
         public static List<string>? PurgeSchema(List<Schema> schemas, Document document)
         {
             List<string> results = new List<string>();
-            int appVersion = int.Parse(document.Application.VersionNumber);
             string transactionName = "Erase Extensible Storage";
             using (Autodesk.Revit.DB.Transaction trans = new Autodesk.Revit.DB.Transaction(document))
             {
@@ -82,14 +81,6 @@ namespace Synthetic.Shared.RevitAPI
                 {
                     foreach (Schema schema in schemas)
                     {
-#if REVIT2022
-                        // Schema.ErasSchemaAndAllEntities deprecated from Revit API in Revit 2023 and later
-                        if (appVersion < 2023)
-                        {
-                            Schema.EraseSchemaAndAllEntities(schema, true);
-                            results.Add(schema.SchemaName);
-                        }
-#endif
                         //Note-this will delete storage of this schema in *all* open documents.
                         if (schema.WriteAccessGranted())
                         {

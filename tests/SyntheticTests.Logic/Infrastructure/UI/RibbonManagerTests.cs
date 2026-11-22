@@ -15,7 +15,7 @@ namespace SyntheticTests.Infrastructure.UI
             var item = new RibbonItemConfig();
 
             // Act & Assert
-            Assert.IsTrue(RibbonManager.IsVersionMatch(item, 2022));
+            Assert.IsTrue(RibbonManager.IsVersionMatch(item, 2023));
             Assert.IsTrue(RibbonManager.IsVersionMatch(item, 2024));
             Assert.IsTrue(RibbonManager.IsVersionMatch(item, 2026));
         }
@@ -27,7 +27,6 @@ namespace SyntheticTests.Infrastructure.UI
             var item = new RibbonItemConfig { MinVersion = 2024 };
 
             // Act & Assert
-            Assert.IsFalse(RibbonManager.IsVersionMatch(item, 2022));
             Assert.IsFalse(RibbonManager.IsVersionMatch(item, 2023));
             Assert.IsTrue(RibbonManager.IsVersionMatch(item, 2024));
             Assert.IsTrue(RibbonManager.IsVersionMatch(item, 2026));
@@ -40,7 +39,7 @@ namespace SyntheticTests.Infrastructure.UI
             var item = new RibbonItemConfig { MaxVersion = 2025 };
 
             // Act & Assert
-            Assert.IsTrue(RibbonManager.IsVersionMatch(item, 2022));
+            Assert.IsTrue(RibbonManager.IsVersionMatch(item, 2023));
             Assert.IsTrue(RibbonManager.IsVersionMatch(item, 2025));
             Assert.IsFalse(RibbonManager.IsVersionMatch(item, 2026));
         }
@@ -49,11 +48,10 @@ namespace SyntheticTests.Infrastructure.UI
         public void IsVersionMatch_BothBounds_FiltersCorrectly()
         {
             // Arrange
-            var item = new RibbonItemConfig { MinVersion = 2023, MaxVersion = 2025 };
+            var item = new RibbonItemConfig { MinVersion = 2024, MaxVersion = 2025 };
 
             // Act & Assert
-            Assert.IsFalse(RibbonManager.IsVersionMatch(item, 2022));
-            Assert.IsTrue(RibbonManager.IsVersionMatch(item, 2023));
+            Assert.IsFalse(RibbonManager.IsVersionMatch(item, 2023));
             Assert.IsTrue(RibbonManager.IsVersionMatch(item, 2024));
             Assert.IsTrue(RibbonManager.IsVersionMatch(item, 2025));
             Assert.IsFalse(RibbonManager.IsVersionMatch(item, 2026));

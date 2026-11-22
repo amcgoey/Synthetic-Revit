@@ -166,7 +166,7 @@ namespace Synthetic.RevitDOM.Models
             if (projectionLinePatternId == ElementId.InvalidElementId || projectionLinePatternId == LinePatternElement.GetSolidPatternId())
             {
                 long solidIdVal;
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                 solidIdVal = LinePatternElement.GetSolidPatternId().IntegerValue;
 #else
                 solidIdVal = LinePatternElement.GetSolidPatternId().Value;
@@ -200,7 +200,7 @@ namespace Synthetic.RevitDOM.Models
             if (cutLinePatternId == ElementId.InvalidElementId || cutLinePatternId == LinePatternElement.GetSolidPatternId())
             {
                 long solidIdVal;
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                 solidIdVal = LinePatternElement.GetSolidPatternId().IntegerValue;
 #else
                 solidIdVal = LinePatternElement.GetSolidPatternId().Value;
@@ -232,7 +232,7 @@ namespace Synthetic.RevitDOM.Models
             if (projectionLinePatternId == ElementId.InvalidElementId || projectionLinePatternId == LinePatternElement.GetSolidPatternId())
             {
                 long solidIdVal;
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                 solidIdVal = LinePatternElement.GetSolidPatternId().IntegerValue;
 #else
                 solidIdVal = LinePatternElement.GetSolidPatternId().Value;
@@ -266,7 +266,7 @@ namespace Synthetic.RevitDOM.Models
             if (cutLinePatternId == ElementId.InvalidElementId || cutLinePatternId == LinePatternElement.GetSolidPatternId())
             {
                 long solidIdVal;
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                 solidIdVal = LinePatternElement.GetSolidPatternId().IntegerValue;
 #else
                 solidIdVal = LinePatternElement.GetSolidPatternId().Value;

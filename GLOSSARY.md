@@ -1,11 +1,11 @@
 # Synthetic
 
-The multi-version Revit add-in designed to automate BIM tasks, manage model standards, and streamline coordination across Revit 2022 to 2026.
+The multi-version Revit add-in designed to automate BIM tasks, manage model standards, and streamline coordination across Revit 2023 to 2026.
 
 ## Language
 
 **Revit Version**:
-The specific annual release of Autodesk Revit targeted by a project (e.g. 2024). Specified via the `<RevitVersion>` MSBuild property in project files.
+The specific annual release of Autodesk Revit targeted by the add-in (2023 to 2026).
 
 **Debug Manifest**:
 A Revit manifest file (`.addin`) updated with the assembly path pointing to the active build directory (e.g. `output/Synthetic/Synthetic202X.dll`), deployed to `%APPDATA%\Autodesk\Revit\Addins\<Year>\` for local execution and debugging.

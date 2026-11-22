@@ -10,9 +10,7 @@ using Autodesk.Revit.UI;
 using Synthetic.Infrastructure.Diagnostics;
 using Autodesk.Revit.DB.ExtensibleStorage;
 
-#if !REVIT2022
 using eTransmitForRevitDB;
-#endif
 
 using Synthetic.Shared.RevitAPI;
 using Synthetic.RevitDOM.Models;
@@ -101,7 +99,6 @@ namespace Synthetic.Shared.RevitAPI{
                 return folderPath;
         }
 
-#if !REVIT2022
         /// <summary>
         /// Using etransmit, purges the model.
         /// </summary>
@@ -118,7 +115,6 @@ namespace Synthetic.Shared.RevitAPI{
 
             return (result == UpgradeFailureType.UpgradeSucceeded);
         }
-#endif
         
     }
 }

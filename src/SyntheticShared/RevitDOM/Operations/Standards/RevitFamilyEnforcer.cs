@@ -48,10 +48,8 @@ namespace Synthetic.RevitDOM.Operations.Standards
                 {
                     if (options.CategoryFilter == "Annotations Only" && (family.FamilyCategory == null || family.FamilyCategory.CategoryType != CategoryType.Annotation))
                         continue;
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                     if (options.CategoryFilter == "Title Blocks Only" && (family.FamilyCategory == null || family.FamilyCategory.Id.IntegerValue != (int)BuiltInCategory.OST_TitleBlocks))
-#elif REVIT2024 || REVIT2025
-                    if (options.CategoryFilter == "Title Blocks Only" && (family.FamilyCategory == null || family.FamilyCategory.Id.Value != (long)BuiltInCategory.OST_TitleBlocks))
 #else
                     if (options.CategoryFilter == "Title Blocks Only" && (family.FamilyCategory == null || family.FamilyCategory.Id.Value != (long)BuiltInCategory.OST_TitleBlocks))
 #endif
@@ -200,13 +198,7 @@ namespace Synthetic.RevitDOM.Operations.Standards
                         }
                         try
                         {
-#if REVIT2022
-                            // Do nothing
-#elif REVIT2023 || REVIT2024 || REVIT2025
                             DocumentUtil.Purge(parentDoc.Application, familyDoc);
-#else
-                            DocumentUtil.Purge(parentDoc.Application, familyDoc);
-#endif
                         }
                         catch (Exception)
                         {

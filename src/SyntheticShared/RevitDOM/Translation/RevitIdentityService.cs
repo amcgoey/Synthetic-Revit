@@ -20,7 +20,7 @@ namespace Synthetic.RevitDOM.Translation
             if (id == null) return null;
 
             long idVal;
-#if REVIT2022 || REVIT2023
+#if REVIT2023
             idVal = id.IntegerValue;
 #else
             idVal = id.Value;
@@ -107,7 +107,7 @@ namespace Synthetic.RevitDOM.Translation
             // Step 2: Id (integer) search
             if (elem == null && (model.Id < 0 || (!model.IsTemplate && model.Id > 0)))
             {
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                 var id = new ElementId((int)model.Id);
 #else
                 var id = new ElementId(model.Id);
@@ -230,7 +230,7 @@ namespace Synthetic.RevitDOM.Translation
 
         private ElementId CreateElementId(long value)
         {
-#if REVIT2022 || REVIT2023
+#if REVIT2023
             return new ElementId((int)value);
 #else
             return new ElementId(value);

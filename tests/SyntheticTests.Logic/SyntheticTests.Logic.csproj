@@ -9,6 +9,7 @@
     <AssemblyName>SyntheticTests.Logic</AssemblyName>
     <RootNamespace>SyntheticTests</RootNamespace>
     <IsTestProject>true</IsTestProject>
+    <DefineConstants>$(DefineConstants);SYNTHETIC_LOGIC_TESTS</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>

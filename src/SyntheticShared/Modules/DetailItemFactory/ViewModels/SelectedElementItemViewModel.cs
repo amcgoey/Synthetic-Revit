@@ -100,10 +100,10 @@ namespace Synthetic.Modules.DetailItemFactory.ViewModels
             // Smart default logic
             bool isLegendView = activeView.ViewType == ViewType.Legend;
             bool isLegendComponent = false;
-#if REVIT2024 || REVIT2025 || REVIT2026
-            isLegendComponent = element.Category != null && element.Category.Id.Value == (long)BuiltInCategory.OST_LegendComponents;
-#else
+#if REVIT2023
             isLegendComponent = element.Category != null && element.Category.Id.IntegerValue == (int)BuiltInCategory.OST_LegendComponents;
+#else
+            isLegendComponent = element.Category != null && element.Category.Id.Value == (long)BuiltInCategory.OST_LegendComponents;
 #endif
 
             if (isLegendView && isLegendComponent)

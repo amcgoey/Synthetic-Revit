@@ -157,7 +157,7 @@ namespace Synthetic.RevitDOM.Translation
             else if (rule is FilterElementIdRule idRule)
             {
                 long idVal;
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                 idVal = idRule.RuleValue.IntegerValue;
 #else
                 idVal = idRule.RuleValue.Value;
@@ -176,7 +176,7 @@ namespace Synthetic.RevitDOM.Translation
             if (paramId == null) return new ElementIdModel(isTemplate);
 
             long idVal;
-#if REVIT2022 || REVIT2023
+#if REVIT2023
             idVal = paramId.IntegerValue;
 #else
             idVal = paramId.Value;
@@ -298,7 +298,7 @@ namespace Synthetic.RevitDOM.Translation
                     // Resolve the parameter ElementId using the injected IIdentityService
                     ElementId parameterId = identityService.ResolveElementId(model.ParameterId, doc);
 
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                     FilterRule? rule = null;
 
                     if (ruleClass == "FilterStringRule")
