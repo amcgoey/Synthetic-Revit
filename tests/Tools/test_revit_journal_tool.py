@@ -324,6 +324,12 @@ class TestTransactionSeamAndExceptions(unittest.TestCase):
         # Must NOT classify mid-session Destroy Display Manager as clean
         self.assertFalse(res["is_clean"])
 
+    def test_script_has_no_malformed_ansi_escapes(self):
+        with open(SCRIPT_PATH, "r", encoding="utf-8") as f:
+            source = f.read()
+        self.assertNotIn(r"\03[", source)
+        self.assertIn(r"\033[91m", source)
+
 
 class TestCliInvocation(unittest.TestCase):
     def setUp(self):

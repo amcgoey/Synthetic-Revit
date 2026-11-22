@@ -81,6 +81,24 @@ namespace Synthetic.Bootstrap
         private const string DisableShadowCopyEnvVar = "SYNTHETIC_DISABLE_SHADOW_COPY";
 
         /// <summary>
+        /// Resolves the user-local diagnostic logs directory (<c>%LOCALAPPDATA%\Synthetic\Logs</c>)
+        /// independent of <c>SYNTHETIC_ADDIN_ROOT</c>.
+        /// </summary>
+        public static string ResolveDiagnosticLogsDir(string? localAppDataOverride = null)
+        {
+            string localAppData = !string.IsNullOrWhiteSpace(localAppDataOverride)
+                ? localAppDataOverride!
+                : Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+
+            if (string.IsNullOrWhiteSpace(localAppData))
+            {
+                return string.Empty;
+            }
+
+            return Path.Combine(localAppData, "Synthetic", "Logs");
+        }
+
+        /// <summary>
         /// Evaluates launch mode, scavenges stale sibling shadow directories, and stages the payload if needed.
         /// </summary>
         /// <param name="bootstrapAssemblyPath">Full path to the loaded Synthetic.Bootstrap assembly (or its directory).</param>

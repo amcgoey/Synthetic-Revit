@@ -7,6 +7,7 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
+using SyntheticTests.Helpers;
 
 namespace SyntheticTests
 {
@@ -19,6 +20,7 @@ namespace SyntheticTests
         public void Setup(UIApplication uiapp)
         {
             _uiapp = uiapp;
+            TestWorkerJournalMarker.EnsureWritten(uiapp);
         }
 
         [Test]

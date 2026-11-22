@@ -685,7 +685,7 @@ def watch_journal(filepath, limit_actions=10):
                     if _is_exception_header(line, line_clean) or STACK_FRAME_RE.match(
                         line_clean
                     ):
-                        print(f"\03[91m[EXCEPTION] Line {line_idx + 1}: {line_clean}\033[0m")
+                        print(f"\033[91m[EXCEPTION] Line {line_idx + 1}: {line_clean}\033[0m")
                     elif "DBG_WARN" in line or "error" in line_clean.lower():
                         print(f"\033[93m[WARNING] Line {line_idx + 1}: {line_clean}\033[0m")
 

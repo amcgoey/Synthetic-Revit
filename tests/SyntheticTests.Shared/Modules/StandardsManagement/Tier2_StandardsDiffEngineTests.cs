@@ -10,6 +10,7 @@ using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
 using Synthetic.RevitDOM.Operations.Standards;
 using Synthetic.RevitDOM.Operations.Merge;
+using SyntheticTests.Helpers;
 
 namespace SyntheticTests
 {
@@ -22,6 +23,7 @@ namespace SyntheticTests
         public void Setup(UIApplication uiapp)
         {
             _uiapp = uiapp;
+            TestWorkerJournalMarker.EnsureWritten(uiapp);
         }
 
         private struct MutatedTestContext

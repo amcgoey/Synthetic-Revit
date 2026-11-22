@@ -28,6 +28,7 @@ namespace SyntheticTests.Infrastructure.Persistence
         public void OneTimeSetup(UIApplication uiapp)
         {
             _uiapp = uiapp;
+            TestWorkerJournalMarker.EnsureWritten(uiapp);
         }
 
         [SetUp]
