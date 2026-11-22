@@ -137,7 +137,7 @@ Enables automated type merging, instance swapping, redundant type deletion, and 
 
 ### Developer Telemetry & Debugging Subsystem
 Tools and scripts enabling automated journal session telemetry and interactive Visual Studio debugging:
-* **[revit_journal_tool.py](../.agents/skills/revit-journal-telemetry/scripts/revit_journal_tool.py)**: Python telemetry engine ([ADR 0003](adrs/local/0003-revit-journal-telemetry-strategy.md)) parsing active Revit session journal logs. Features version folder isolation, process-gated OS check for force-killed sessions, transaction boundary monitoring, and rolling UI command sequence tracing.
+* **[revit_journal_tool.py](../.agents/skills/revit-journal-telemetry/scripts/revit_journal_tool.py)**: Python telemetry engine ([ADR 0026](adrs/0026-revit-journal-telemetry-strategy.md)) parsing **Revit Journals**. Features version folder isolation, deterministic `--run-id`/`--file` worker attribution, verified 2023–2026 transaction-seam and scoped `Synthetic.*` exception auditing, `--assert-clean` post-run gating, and rolling UI command sequence tracing.
 * **[start_debugging.ps1](../.agents/skills/revit-debug-by-user/scripts/start_debugging.ps1)**: PowerShell automation script launching Visual Studio with the appropriate version-specific target project for interactive F5 debugging.
 
 ---
