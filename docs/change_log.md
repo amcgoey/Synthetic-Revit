@@ -100,7 +100,7 @@
 * [RibbonTests.cs](../tests/SyntheticTests.Logic/Infrastructure/UI/RibbonTests.cs)
 * [start_debugging.ps1](../.agents/skills/revit-debug-by-user/scripts/start_debugging.ps1)
 * [revit_journal_tool.py](../.agents/skills/revit-journal-telemetry/scripts/revit_journal_tool.py)
-* [0003-revit-journal-telemetry-strategy.md](adrs/local/0003-revit-journal-telemetry-strategy.md)
+* [0026-revit-journal-telemetry-strategy.md](adrs/0026-revit-journal-telemetry-strategy.md)
 * [revit-ui-ribbon SKILL.md](../.agents/skills/revit-ui-ribbon/SKILL.md)
 * [revit-journal-telemetry SKILL.md](../.agents/skills/revit-journal-telemetry/SKILL.md)
 * [revit-debug-by-user SKILL.md](../.agents/skills/revit-debug-by-user/SKILL.md)
