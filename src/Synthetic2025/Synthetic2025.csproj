@@ -24,11 +24,5 @@
     </PackageReference>
   </ItemGroup>
 
-  <ItemGroup>
-    <None Update="Synthetic2025.addin">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
-  </ItemGroup>
-
 </Project>
 

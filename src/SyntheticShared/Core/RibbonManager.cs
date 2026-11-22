@@ -239,24 +239,39 @@ namespace Synthetic.Core
             }
 
             // Fallback for large image
-            string largeImageName = string.IsNullOrEmpty(item.LargeImage) ? "placeholder_32.png" : item.LargeImage;
-            string largeImagePath = Path.Combine(assetsDir, largeImageName);
-            if (!File.Exists(largeImagePath))
-            {
-                largeImagePath = Path.Combine(assetsDir, "placeholder_32.png");
-            }
-            data.LargeImage = new BitmapImage(new Uri(largeImagePath));
+            string largeImagePath = ResolveImagePath(assetsDir, item.LargeImage, "placeholder_32.png");
+            data.LargeImage = LoadBitmapImage(largeImagePath);
 
             // Fallback for small image
-            string imageName = string.IsNullOrEmpty(item.Image) ? "placeholder_16.png" : item.Image;
+            string imagePath = ResolveImagePath(assetsDir, item.Image, "placeholder_16.png");
+            data.Image = LoadBitmapImage(imagePath);
+
+            return data;
+        }
+
+        private static string ResolveImagePath(string assetsDir, string? requestedName, string fallbackName)
+        {
+            string imageName = string.IsNullOrEmpty(requestedName) ? fallbackName : requestedName!;
             string imagePath = Path.Combine(assetsDir, imageName);
             if (!File.Exists(imagePath))
             {
-                imagePath = Path.Combine(assetsDir, "placeholder_16.png");
+                imagePath = Path.Combine(assetsDir, fallbackName);
             }
-            data.Image = new BitmapImage(new Uri(imagePath));
+            return imagePath;
+        }
 
-            return data;
+        internal static BitmapImage LoadBitmapImage(string path)
+        {
+            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            {
+                var bitmap = new BitmapImage();
+                bitmap.BeginInit();
+                bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                bitmap.StreamSource = stream;
+                bitmap.EndInit();
+                bitmap.Freeze();
+                return bitmap;
+            }
         }
 
         private static void ValidateCommandClass(PushButton? button, string classPath)

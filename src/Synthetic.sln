@@ -25,6 +25,14 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RevitAPIUIMock", "..\tests\
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RevitAPIMock", "..\tests\RevitAPIMock\RevitAPIMock.csproj", "{DBEFC36F-CD91-4574-B287-A45035F40B13}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Synthetic.Bootstrap2023", "Synthetic.Bootstrap2023\Synthetic.Bootstrap2023.csproj", "{7A3E1C01-2023-4A88-B101-100000002023}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Synthetic.Bootstrap2024", "Synthetic.Bootstrap2024\Synthetic.Bootstrap2024.csproj", "{7A3E1C02-2024-4A88-B102-100000002024}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Synthetic.Bootstrap2025", "Synthetic.Bootstrap2025\Synthetic.Bootstrap2025.csproj", "{7A3E1C03-2025-4A88-B103-100000002025}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Synthetic.Bootstrap2026", "Synthetic.Bootstrap2026\Synthetic.Bootstrap2026.csproj", "{7A3E1C04-2026-4A88-B104-100000002026}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -75,6 +83,22 @@ Global
 		{DBEFC36F-CD91-4574-B287-A45035F40B13}.Debug|x64.Build.0 = Debug|x64
 		{DBEFC36F-CD91-4574-B287-A45035F40B13}.Release|x64.ActiveCfg = Release|x64
 		{DBEFC36F-CD91-4574-B287-A45035F40B13}.Release|x64.Build.0 = Release|x64
+		{7A3E1C01-2023-4A88-B101-100000002023}.Debug|x64.ActiveCfg = Debug|x64
+		{7A3E1C01-2023-4A88-B101-100000002023}.Debug|x64.Build.0 = Debug|x64
+		{7A3E1C01-2023-4A88-B101-100000002023}.Release|x64.ActiveCfg = Release|x64
+		{7A3E1C01-2023-4A88-B101-100000002023}.Release|x64.Build.0 = Release|x64
+		{7A3E1C02-2024-4A88-B102-100000002024}.Debug|x64.ActiveCfg = Debug|x64
+		{7A3E1C02-2024-4A88-B102-100000002024}.Debug|x64.Build.0 = Debug|x64
+		{7A3E1C02-2024-4A88-B102-100000002024}.Release|x64.ActiveCfg = Release|x64
+		{7A3E1C02-2024-4A88-B102-100000002024}.Release|x64.Build.0 = Release|x64
+		{7A3E1C03-2025-4A88-B103-100000002025}.Debug|x64.ActiveCfg = Debug|x64
+		{7A3E1C03-2025-4A88-B103-100000002025}.Debug|x64.Build.0 = Debug|x64
+		{7A3E1C03-2025-4A88-B103-100000002025}.Release|x64.ActiveCfg = Release|x64
+		{7A3E1C03-2025-4A88-B103-100000002025}.Release|x64.Build.0 = Release|x64
+		{7A3E1C04-2026-4A88-B104-100000002026}.Debug|x64.ActiveCfg = Debug|x64
+		{7A3E1C04-2026-4A88-B104-100000002026}.Debug|x64.Build.0 = Debug|x64
+		{7A3E1C04-2026-4A88-B104-100000002026}.Release|x64.ActiveCfg = Release|x64
+		{7A3E1C04-2026-4A88-B104-100000002026}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
