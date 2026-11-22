@@ -23,10 +23,36 @@ namespace Synthetic.Settings
     public class Config
     {
         /// <summary>
-        /// Gets the folder path where the executing add-in assembly is located. Ignored in JSON.
+        /// Gets the resolved add-in root folder path (mutable settings/templates root). Ignored in JSON.
+        /// Resolution order: SYNTHETIC_ADDIN_ROOT env var -> AppContext data -> executing assembly directory.
         /// </summary>
         [JsonIgnore]
-        public static string addinPath { get { return Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) ?? string.Empty; } }
+        public static string addinPath { get { return ResolveAddinRoot(); } }
+
+        internal static string ResolveAddinRoot()
+        {
+            string? envRoot = Environment.GetEnvironmentVariable("SYNTHETIC_ADDIN_ROOT");
+            if (!string.IsNullOrWhiteSpace(envRoot))
+            {
+                return envRoot.Trim();
+            }
+
+#if NETFRAMEWORK
+            if (AppDomain.CurrentDomain.GetData("SYNTHETIC_ADDIN_ROOT") is string appContextRoot &&
+                !string.IsNullOrWhiteSpace(appContextRoot))
+            {
+                return appContextRoot.Trim();
+            }
+#else
+            if (AppContext.GetData("SYNTHETIC_ADDIN_ROOT") is string appContextRoot &&
+                !string.IsNullOrWhiteSpace(appContextRoot))
+            {
+                return appContextRoot.Trim();
+            }
+#endif
+
+            return Path.GetDirectoryName(typeof(Config).Assembly.Location) ?? string.Empty;
+        }
 
         /// <summary>
         /// Gets the default filename for settings. Ignored in JSON.

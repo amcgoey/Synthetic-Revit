@@ -45,66 +45,92 @@
     </Reference>
   </ItemGroup>
 
-  <!-- Define the Inline C# Task to handle Regex replacement -->
-  <UsingTask TaskName="ReplaceAddinPath"
-             TaskFactory="RoslynCodeTaskFactory"
-             AssemblyFile="$(MSBuildToolsPath)\Microsoft.Build.Tasks.Core.dll">
-    <ParameterGroup>
-      <InputFile ParameterType="System.String" Required="true" />
-      <OutputFile ParameterType="System.String" Required="true" />
-      <NewPath ParameterType="System.String" Required="true" />
-    </ParameterGroup>
-    <Task>
-      <Using Namespace="System" />
-      <Using Namespace="System.IO" />
-      <Using Namespace="System.Text.RegularExpressions" />
-      <Code Type="Fragment"><![CDATA[
-        try {
-            string content = File.ReadAllText(InputFile);
-            string pattern = "(?i)<Assembly>.*?</Assembly>";
-            string replacement = "<Assembly>" + NewPath.Replace("$", "$$") + "</Assembly>";
-            string newContent = Regex.Replace(content, pattern, replacement);
-            for (int i = 0; i < 5; i++) {
-                try {
-                    File.WriteAllText(OutputFile, newContent);
-                    break;
-                } catch (IOException) {
-                    System.Threading.Thread.Sleep(100);
-                }
-            }
-        } catch (Exception ex) {
-            Log.LogError("Error replacing addin path: " + ex.Message);
-            return false;
-        }
-      ]]></Code>
-    </Task>
-  </UsingTask>
+  <ItemGroup Condition="'$(IsBootstrapProject)' != 'true' And '$(RevitVersion)' != '' And Exists('$(MSBuildThisFileDirectory)Synthetic.Bootstrap$(RevitVersion)\Synthetic.Bootstrap$(RevitVersion).csproj')">
+    <ProjectReference Include="$(MSBuildThisFileDirectory)Synthetic.Bootstrap$(RevitVersion)\Synthetic.Bootstrap$(RevitVersion).csproj"
+                      ReferenceOutputAssembly="false"
+                      SkipGetTargetFrameworkProperties="true" />
+  </ItemGroup>
 
-  <!-- Deploy and update the .addin file for both Debug and Release configurations -->
-  <Target Name="DeployAddin"
-          AfterTargets="Build"
-          Condition="'$(SkipDeployAddin)' != 'true' And '$(IsBootstrapProject)' != 'true' And Exists('$(ProjectDir)$(AssemblyName).addin')">
+  <Target Name="CleanLegacyFlatOutputs"
+          BeforeTargets="Build;Clean"
+          Condition="'$(SyntheticIsolatedBuildRoot)' == '' And '$(IsBootstrapProject)' != 'true'">
     <PropertyGroup>
-      <SourceAddinFile>$(ProjectDir)$(AssemblyName).addin</SourceAddinFile>
-      <LocalOutputAddin>$(TargetDir)$(AssemblyName).addin</LocalOutputAddin>
-      <!-- Determine correct Assembly Path based on Configuration -->
-      <NewAssemblyPath Condition="'$(Configuration)' == 'Debug'">$(TargetPath)</NewAssemblyPath>
-      <NewAssemblyPath Condition="'$(Configuration)' != 'Debug'">C:\ProgramData\Autodesk\Revit\Addins\Synthetic\$(AssemblyName).dll</NewAssemblyPath>
+      <_LegacySyntheticFlatDir>$(RepoOutputRoot)\Synthetic</_LegacySyntheticFlatDir>
     </PropertyGroup>
-
-    <Message Text="Replacing assembly path in $(Configuration) .addin: $(LocalOutputAddin) -> $(NewAssemblyPath)" Importance="high" />
-
-    <!-- Execute the C# Inline Task -->
-    <ReplaceAddinPath InputFile="$(SourceAddinFile)" OutputFile="$(LocalOutputAddin)" NewPath="$(NewAssemblyPath)" />
-
-    <!-- Copy the Debug manifest directly to AppData Revit Addins folder -->
-    <Copy SourceFiles="$(LocalOutputAddin)"
-          DestinationFolder="$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)\"
-          Condition="'$(Configuration)' == 'Debug'" />
+    <ItemGroup>
+      <_LegacyFlatFiles Include="$(_LegacySyntheticFlatDir)\Synthetic202*.*" />
+      <_LegacyFlatFiles Include="$(_LegacySyntheticFlatDir)\Newtonsoft.Json.*" />
+      <_LegacyFlatFiles Include="$(_LegacySyntheticFlatDir)\SyntheticSettings*.json" />
+      <_LegacyFlatFiles Include="$(_LegacySyntheticFlatDir)\SyntheticWorksets.xlsx" />
+      <_LegacyFlatFiles Include="$(_LegacySyntheticFlatDir)\MergeDuplicates_Step6_ExecutionResult.json" />
+      <_LegacyFlatFiles Include="$(RepoOutputRoot)\Manifest for Deploy\Synthetic2022.addin" />
+      <_LegacyFlatFiles Include="$(RepoOutputRoot)\Deploy-LocalAddins.bat" />
+      <_LegacyFlatFiles Include="$(RepoOutputRoot)\Deploy-To-INC-Server.bat" />
+    </ItemGroup>
+    <Delete Files="@(_LegacyFlatFiles)" ContinueOnError="true" />
+    <RemoveDir Directories="$(_LegacySyntheticFlatDir)\Assets"
+               Condition="Exists('$(_LegacySyntheticFlatDir)\Assets')"
+               ContinueOnError="true" />
   </Target>
 
-  <Target Name="AfterClean" Condition="'$(SkipDeployAddin)' != 'true' And '$(IsBootstrapProject)' != 'true'">
-    <Delete Files="$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)\$(AssemblyName).addin" />
+  <!-- Single-source .addin manifest generation and deployment for Debug and Release -->
+  <Target Name="GenerateRevitAddinManifest"
+          AfterTargets="Build"
+          Condition="'$(IsBootstrapProject)' != 'true' And '$(RevitVersion)' != ''">
+    <PropertyGroup>
+      <_BootstrapAssemblyName>Synthetic.Bootstrap$(RevitVersion).dll</_BootstrapAssemblyName>
+      <_AddinAssemblyPath Condition="'$(Configuration)' == 'Debug'">$(RepoOutputRoot)\Synthetic\Bootstrap\v1\$(_BootstrapAssemblyName)</_AddinAssemblyPath>
+      <_AddinAssemblyPath Condition="'$(Configuration)' != 'Debug' And $([MSBuild]::VersionLessThan($(RevitVersion), '2027'))">C:\ProgramData\Autodesk\Revit\Addins\Synthetic\Bootstrap\v1\$(_BootstrapAssemblyName)</_AddinAssemblyPath>
+      <_AddinAssemblyPath Condition="'$(Configuration)' != 'Debug' And $([MSBuild]::VersionGreaterThanOrEquals($(RevitVersion), '2027'))">C:\Program Files\Autodesk\Revit\Addins\Synthetic\Bootstrap\v1\$(_BootstrapAssemblyName)</_AddinAssemblyPath>
+      <_EmitUseRevitContext>$([MSBuild]::VersionGreaterThanOrEquals($(RevitVersion), '2026'))</_EmitUseRevitContext>
+      <_AddinManifestOutputPath Condition="'$(AddinManifestOutputPath)' != ''">$(AddinManifestOutputPath)</_AddinManifestOutputPath>
+      <_AddinManifestOutputPath Condition="'$(AddinManifestOutputPath)' == ''">$(TargetDir)Synthetic$(RevitVersion).addin</_AddinManifestOutputPath>
+      <_AddinManifestOutputDir>$([System.IO.Path]::GetDirectoryName('$(_AddinManifestOutputPath)'))</_AddinManifestOutputDir>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <_AddinManifestLine Remove="@(_AddinManifestLine)" />
+      <_AddinManifestLine Include="&lt;?xml version=&quot;1.0&quot; encoding=&quot;utf-8&quot;?&gt;" />
+      <_AddinManifestLine Include="&lt;RevitAddIns&gt;" />
+      <_AddinManifestLine Include="  &lt;ManifestSettings&gt;" Condition="'$(_EmitUseRevitContext)' == 'true'" />
+      <_AddinManifestLine Include="    &lt;UseRevitContext&gt;True&lt;/UseRevitContext&gt;" Condition="'$(_EmitUseRevitContext)' == 'true'" />
+      <_AddinManifestLine Include="  &lt;/ManifestSettings&gt;" Condition="'$(_EmitUseRevitContext)' == 'true'" />
+      <_AddinManifestLine Include="  &lt;AddIn Type=&quot;Application&quot;&gt;" />
+      <_AddinManifestLine Include="    &lt;Name&gt;Synthetic&lt;/Name&gt;" />
+      <_AddinManifestLine Include="    &lt;Assembly&gt;$(_AddinAssemblyPath)&lt;/Assembly&gt;" />
+      <_AddinManifestLine Include="    &lt;FullClassName&gt;Synthetic.Bootstrap.BootstrapApp&lt;/FullClassName&gt;" />
+      <_AddinManifestLine Include="    &lt;ClientId&gt;4fd5b26e-1325-460f-97b1-878804070868&lt;/ClientId&gt;" />
+      <_AddinManifestLine Include="    &lt;VendorId&gt;net.amcgoey&lt;/VendorId&gt;" />
+      <_AddinManifestLine Include="    &lt;VendorDescription&gt;Synthetic by Arthur McGoey&lt;/VendorDescription&gt;" />
+      <_AddinManifestLine Include="  &lt;/AddIn&gt;" />
+      <_AddinManifestLine Include="&lt;/RevitAddIns&gt;" />
+    </ItemGroup>
+
+    <Message Text="Generating $(Configuration) .addin manifest for Revit $(RevitVersion): $(_AddinManifestOutputPath) -> $(_AddinAssemblyPath)" Importance="high" />
+
+    <MakeDir Directories="$(_AddinManifestOutputDir)" Condition="'$(_AddinManifestOutputDir)' != ''" />
+    <WriteLinesToFile File="$(_AddinManifestOutputPath)"
+                      Lines="@(_AddinManifestLine)"
+                      Overwrite="true"
+                      Encoding="utf-8" />
+
+    <MakeDir Directories="$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)"
+             Condition="'$(SkipDeployAddin)' != 'true' And '$(Configuration)' == 'Debug'" />
+    <Copy SourceFiles="$(_AddinManifestOutputPath)"
+          DestinationFiles="$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)\Synthetic$(RevitVersion).addin"
+          OverwriteReadOnlyFiles="true"
+          Condition="'$(SkipDeployAddin)' != 'true' And '$(Configuration)' == 'Debug'" />
+
+    <MakeDir Directories="$(RepoOutputRoot)\Manifest for Deploy"
+             Condition="'$(SkipDeployAddin)' != 'true' And '$(Configuration)' != 'Debug'" />
+    <Copy SourceFiles="$(_AddinManifestOutputPath)"
+          DestinationFiles="$(RepoOutputRoot)\Manifest for Deploy\Synthetic$(RevitVersion).addin"
+          OverwriteReadOnlyFiles="true"
+          Condition="'$(SkipDeployAddin)' != 'true' And '$(Configuration)' != 'Debug'" />
+  </Target>
+
+  <Target Name="AfterClean" Condition="'$(SkipDeployAddin)' != 'true' And '$(IsBootstrapProject)' != 'true' And '$(RevitVersion)' != ''">
+    <Delete Files="$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)\Synthetic$(RevitVersion).addin" />
   </Target>
 
   <Target Name="SignDebugBuild" AfterTargets="Build" Condition="'$(Configuration)' == 'Debug'">

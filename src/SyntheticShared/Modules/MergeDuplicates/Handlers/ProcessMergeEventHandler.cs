@@ -540,7 +540,7 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                 }
             }
             // Export execution summary to JSON file
-            ExportStep6ResultsSummary(reports);
+            string? logPath = ExportStep6ResultsSummary(reports);
             // Re-enable UI window
             if (currentWindow != null)
             {
@@ -554,7 +554,10 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                     else
                     {
                         int successCount = reports.Count(r => r.ExecutionSuccessStatus);
-                        Autodesk.Revit.UI.TaskDialog.Show("Merge Duplicates Completed", $"{successCount} cluster(s) merged successfully.\nResults written to:\nMergeDuplicates_Step6_ExecutionResult.json");
+                        string resultLocation = !string.IsNullOrEmpty(logPath)
+                            ? $"Results written to:\n{logPath}"
+                            : "Results summary could not be written to the logs directory.";
+                        Autodesk.Revit.UI.TaskDialog.Show("Merge Duplicates Completed", $"{successCount} cluster(s) merged successfully.\n{resultLocation}");
                     }
                 });
             }
@@ -670,7 +673,14 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
             return false;
         }
 
-        private void ExportStep6ResultsSummary(List<MergeExecutionReport> summaries)
+        internal static string GetStep6ResultsLogPath()
+        {
+            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            string logsDir = Path.Combine(localAppData, "Synthetic", "Logs");
+            return Path.Combine(logsDir, "MergeDuplicates_Step6_ExecutionResult.json");
+        }
+
+        private string? ExportStep6ResultsSummary(List<MergeExecutionReport> summaries)
         {
             try
             {
@@ -679,17 +689,19 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
                     Formatting = Formatting.Indented
                 };
                 string json = JsonConvert.SerializeObject(summaries, settings);
-                string assemblyPath = System.Reflection.Assembly.GetExecutingAssembly().Location;
-                string? assemblyDir = Path.GetDirectoryName(assemblyPath);
-                if (assemblyDir != null)
+                string logPath = GetStep6ResultsLogPath();
+                string? logDir = Path.GetDirectoryName(logPath);
+                if (!string.IsNullOrEmpty(logDir))
                 {
-                    string logPath = Path.Combine(assemblyDir, "MergeDuplicates_Step6_ExecutionResult.json");
-                    File.WriteAllText(logPath, json);
+                    Directory.CreateDirectory(logDir);
                 }
+                File.WriteAllText(logPath, json);
+                return logPath;
             }
             catch (Exception)
             {
                 // Fail silently
+                return null;
             }
         }
         private string SanitizeRevitTypeName(string input)

@@ -24,7 +24,12 @@
     <OutDir>$(OutputPath)</OutDir>
   </PropertyGroup>
 
-  <PropertyGroup Condition="'$(SyntheticIsolatedBuildRoot)' == '' And '$(IsBootstrapProject)' != 'true' And !$(MSBuildProjectName.EndsWith('_wpftmp'))">
-    <OutputPath>$(MSBuildThisFileDirectory)..\output\Synthetic\</OutputPath>
+  <PropertyGroup>
+    <RepoOutputRoot Condition="'$(RepoOutputRoot)' == ''">$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\output'))</RepoOutputRoot>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(SyntheticIsolatedBuildRoot)' == '' And !$(MSBuildProjectName.EndsWith('_wpftmp'))">
+    <OutputPath Condition="$(MSBuildProjectName.StartsWith('Synthetic.Bootstrap'))">$(RepoOutputRoot)\Synthetic\Bootstrap\v1\</OutputPath>
+    <OutputPath Condition="$(MSBuildProjectName.StartsWith('Synthetic20'))">$(RepoOutputRoot)\Synthetic\Payload\$(MSBuildProjectName.Substring(9))\</OutputPath>
   </PropertyGroup>
 </Project>

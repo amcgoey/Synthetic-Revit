@@ -8,12 +8,16 @@ The multi-version Revit add-in designed to automate BIM tasks, manage model stan
 The specific annual release of Autodesk Revit targeted by the add-in (2023 to 2026).
 
 **Debug Manifest**:
-A Revit manifest file (`.addin`) updated with the assembly path pointing to the active build directory (e.g. `output/Synthetic/Synthetic202X.dll`), deployed to `%APPDATA%\Autodesk\Revit\Addins\<Year>\` for local execution and debugging.
+A developer registration manifest that points Revit at the local **Add-In Bootstrap** and active build payload for local execution and debugging, taking precedence over machine-wide installations.
 _Avoid_: Local manifest, developer addin
 
 **Local Deployment**:
-The automated process of copying the **Debug Manifest** to the user-specific Revit Addins folder on local compilation to allow Revit to load the add-in.
+The automated build step that registers the **Debug Manifest** for the current user on compilation so local Revit sessions load the developer's build without administrative elevation.
 _Avoid_: Debug installation, manual manifest copy
+
+**Add-In Bootstrap**:
+The lightweight startup loader module registered with Revit that isolates the add-in payload in a per-process shadow cache so live builds and deployments never lock active session files, and bypasses add-in startup inside automated test workers.
+_Avoid_: Loader shim, shadow loader
 
 **Revit Journal**:
 The native session log file (`journal.XXXX.txt`) generated automatically by Autodesk Revit during execution, capturing system events, API commands, exceptions, and memory logs.
