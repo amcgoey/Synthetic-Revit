@@ -6,5 +6,25 @@
     <Nullable>enable</Nullable>
     <RootNamespace>Synthetic</RootNamespace>
     <Deterministic>true</Deterministic>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+    <DefaultItemExcludes>$(DefaultItemExcludes);obj/**;bin/**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(SyntheticIsolatedBuildRoot)' != ''">
+    <SyntheticRunId Condition="'$(SyntheticRunId)' == ''">default</SyntheticRunId>
+    <SkipDeployAddin>true</SkipDeployAddin>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(SyntheticIsolatedBuildRoot)' != '' And !$(MSBuildProjectName.EndsWith('_wpftmp'))">
+    <_SyntheticIsolatedBuildRootTrimmed>$(SyntheticIsolatedBuildRoot.TrimEnd('\').TrimEnd('/'))</_SyntheticIsolatedBuildRootTrimmed>
+    <BaseIntermediateOutputPath>$(_SyntheticIsolatedBuildRootTrimmed)\obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
+    <MSBuildProjectExtensionsPath>$(BaseIntermediateOutputPath)</MSBuildProjectExtensionsPath>
+    <OutputPath>$(_SyntheticIsolatedBuildRootTrimmed)\bin\$(MSBuildProjectName)_$(SyntheticRunId)\</OutputPath>
+    <OutDir>$(OutputPath)</OutDir>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(SyntheticIsolatedBuildRoot)' == '' And '$(IsBootstrapProject)' != 'true' And !$(MSBuildProjectName.EndsWith('_wpftmp'))">
+    <OutputPath>$(MSBuildThisFileDirectory)..\output\Synthetic\</OutputPath>
   </PropertyGroup>
 </Project>

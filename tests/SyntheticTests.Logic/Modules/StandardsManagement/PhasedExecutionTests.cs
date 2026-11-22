@@ -138,6 +138,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             // Arrange
             var parent = DashboardTestFactory.Create(_doc, _fakeDialogService, null, null);
             var vm = parent.StandardsExecutionPipelineViewModel;
+            vm.SaveFilePath = _tempSavePath;
 
             var validParam = new ParameterModel("Comments", "ValidVal", null, "String", 1, null, false, false);
             var validEl = new MaterialModel { Class = "Autodesk.Revit.DB.Material", Name = "ValidMaterial", Parameters = new List<ParameterModel> { validParam } };

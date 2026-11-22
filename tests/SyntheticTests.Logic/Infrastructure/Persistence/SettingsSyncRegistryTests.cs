@@ -10,6 +10,7 @@ using Synthetic.Modules.DetailItemFactory.Settings;
 using Synthetic.Modules.ShadowStudy.Models;
 using Synthetic.Modules.ShadowStudy.Settings;
 using Synthetic.Settings;
+using SyntheticTests.Helpers;
 
 namespace SyntheticTests.Infrastructure.Persistence
 {
@@ -30,28 +31,14 @@ namespace SyntheticTests.Infrastructure.Persistence
 
         private static string FindTemplateJsonPath()
         {
-            string? dir = TestContext.CurrentContext.TestDirectory;
-            while (!string.IsNullOrEmpty(dir))
+            string projectRoot = TestPathHelper.GetProjectRoot();
+            string candidate = Path.Combine(projectRoot, "src", "SyntheticShared", "SyntheticSettings.template.json");
+            if (File.Exists(candidate))
             {
-                string candidate = Path.Combine(dir, "src", "SyntheticShared", "SyntheticSettings.template.json");
-                if (File.Exists(candidate))
-                {
-                    return candidate;
-                }
-                dir = Path.GetDirectoryName(dir);
+                return candidate;
             }
 
-            string? envRoot = Environment.GetEnvironmentVariable("SYNTHETIC_PROJECT_ROOT");
-            if (!string.IsNullOrEmpty(envRoot))
-            {
-                string candidate = Path.Combine(envRoot, "src", "SyntheticShared", "SyntheticSettings.template.json");
-                if (File.Exists(candidate))
-                {
-                    return candidate;
-                }
-            }
-
-            throw new FileNotFoundException("Could not locate src/SyntheticShared/SyntheticSettings.template.json.");
+            throw new FileNotFoundException("Could not locate src/SyntheticShared/SyntheticSettings.template.json.", candidate);
         }
 
         private static Dictionary<string, object> CreateDefaultDocumentSettings()

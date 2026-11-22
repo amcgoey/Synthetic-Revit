@@ -34,4 +34,13 @@
           Condition="Exists('$(SignToolExe)')"
           IgnoreExitCode="true" />
   </Target>
+
+  <Target Name="WriteSyntheticProjectRoot"
+          AfterTargets="Build"
+          Condition="'$(IsTestProject)' == 'true'">
+    <WriteLinesToFile File="$(TargetDir)synthetic_project_root.txt"
+                      Lines="$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..'))"
+                      Overwrite="true"
+                      Encoding="utf-8" />
+  </Target>
 </Project>

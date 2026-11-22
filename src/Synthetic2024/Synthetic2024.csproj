@@ -7,11 +7,7 @@
     <Nullable>enable</Nullable>
     <Platforms>x64</Platforms>
     <PlatformTarget>x64</PlatformTarget>
-    <OutputPath>..\..\output\Synthetic\</OutputPath>
-    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
-    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <DocumentationFile>..\..\output\Synthetic\Synthetic2024.xml</DocumentationFile>
     <AssemblyName>Synthetic2024</AssemblyName>
     <RevitVersion>2024</RevitVersion>
     <RootNamespace>Synthetic</RootNamespace>
