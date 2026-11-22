@@ -8,7 +8,12 @@
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
-  <Target Name="SignDebugBuild" AfterTargets="Build" Condition="'$(IsRevitTestProject)' == 'true' And '$(Configuration)' == 'Debug'">
+  <Target Name="SignDebugBuild"
+          AfterTargets="CoreCompile"
+          BeforeTargets="CopyFilesToOutputDirectory"
+          Condition="'$(IsRevitTestProject)' == 'true' And '$(Configuration)' == 'Debug' And '$(DesignTimeBuild)' != 'true'"
+          Inputs="@(IntermediateAssembly)"
+          Outputs="$(IntermediateOutputPath)$(AssemblyName).signed.stamp">
     <PropertyGroup>
       <WindowsKitsRoot>$(registry:HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows Kits\Installed Roots@KitsRoot10)</WindowsKitsRoot>
       <WindowsKitsRoot Condition="'$(WindowsKitsRoot)' == ''">$([MSBuild]::GetRegistryValueFromView('HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft\Windows Kits\Installed Roots', 'KitsRoot10', '', 'Registry64', 'Registry32'))</WindowsKitsRoot>
@@ -25,14 +30,19 @@
 
     <PropertyGroup>
       <SignToolExe>%(SignToolPaths.Identity)</SignToolExe>
+      <_SignStampFile>$(IntermediateOutputPath)$(AssemblyName).signed.stamp</_SignStampFile>
     </PropertyGroup>
 
     <Message Importance="High" Text="Dynamically discovered signtool at: $(SignToolExe)" />
     <Message Importance="High" Text="Signing local Debug build with self-signed certificate..." />
 
-    <Exec Command="&quot;$(SignToolExe)&quot; sign /n &quot;Synthetic&quot; /fd SHA256 /a &quot;$(TargetPath)&quot;"
-          Condition="Exists('$(SignToolExe)')"
+    <Exec Command="&quot;$(SignToolExe)&quot; sign /n &quot;Synthetic&quot; /fd SHA256 /a &quot;@(IntermediateAssembly)&quot;"
+          Condition="Exists('$(SignToolExe)') And Exists('@(IntermediateAssembly)')"
           IgnoreExitCode="true" />
+    <Touch Files="$(_SignStampFile)" AlwaysCreate="true" Condition="Exists('@(IntermediateAssembly)')" />
+    <ItemGroup>
+      <FileWrites Include="$(_SignStampFile)" />
+    </ItemGroup>
   </Target>
 
   <Target Name="WriteSyntheticProjectRoot"
