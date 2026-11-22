@@ -1,0 +1,10 @@
+<Project>
+  <PropertyGroup>
+    <GenerateMSBuildEditorConfigFile>false</GenerateMSBuildEditorConfigFile>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Synthetic</RootNamespace>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+</Project>
