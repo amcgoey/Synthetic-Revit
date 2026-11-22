@@ -71,7 +71,7 @@ namespace Synthetic.RevitDOM.Models
         /// Gets or sets a value indicating whether the layer is the structural material.
         /// </summary>
         public bool StructuralMaterial { get; set; }
-#if REVIT2022 || REVIT2023 || REVIT2024 || REVIT2025
+#if REVIT2023 || REVIT2024 || REVIT2025
         // Legacy: Priority is not used
 #else
         /// <summary>

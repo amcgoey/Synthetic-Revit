@@ -103,10 +103,8 @@ namespace Synthetic.Shared.RevitAPI{
                                 }
                                 if (purge)
                                 {
-#if !REVIT2022
                                     bool purgeResult = DocumentUtil.Purge(app, familyDoc);
                                     familyResult.Add("Unused Purged");
-#endif
                                 }
                                 if (purgeSchema && StorageUtil.DoesAnyStorageExist(familyDoc))
                                 {

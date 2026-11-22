@@ -46,7 +46,7 @@ namespace SyntheticTests
 
                         // Build native filter rule using preprocessor guards
                         ElementId parameterId = new ElementId((int)BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS);
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                         FilterRule rule1 = ParameterFilterRuleFactory.CreateContainsRule(parameterId, "abc", true);
                         FilterRule rule2 = ParameterFilterRuleFactory.CreateContainsRule(parameterId, "def", true);
                         var rulesList = new List<FilterRule> { rule1, rule2 };
@@ -117,7 +117,7 @@ namespace SyntheticTests
 
                     var category = doc.Settings.Categories.get_Item(BuiltInCategory.OST_Walls);
                     long catIdVal;
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                     catIdVal = category.Id.IntegerValue;
 #else
                     catIdVal = category.Id.Value;

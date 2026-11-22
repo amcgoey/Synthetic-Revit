@@ -122,7 +122,7 @@ namespace SyntheticTests
             ElementId resolvedId = service.ResolveElementId(model, null!);
 
             // Assert
-#if REVIT2022 || REVIT2023
+#if REVIT2023
             Assert.AreEqual((int)BuiltInParameter.WALL_USER_HEIGHT_PARAM, resolvedId.IntegerValue);
 #else
             Assert.AreEqual((long)BuiltInParameter.WALL_USER_HEIGHT_PARAM, resolvedId.Value);

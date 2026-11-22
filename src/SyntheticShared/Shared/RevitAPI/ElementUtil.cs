@@ -144,7 +144,7 @@ namespace Synthetic.Shared.RevitAPI{
 
             foreach (int id in elementIds)
             {
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                 revitElemIds.Add(new RevitElemId(id));
 #else
                 revitElemIds.Add(new RevitElemId((long)id));
@@ -214,7 +214,7 @@ namespace Synthetic.Shared.RevitAPI{
             Action<RevitElem, RevitDB.Category> _SetCategory = (elem, cat) =>
             {
                 // If Element is in a group, put the element in the failed list
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                 long groupId = elem.GroupId.IntegerValue;
 #else
                 long groupId = elem.GroupId.Value;
@@ -257,21 +257,17 @@ namespace Synthetic.Shared.RevitAPI{
                 trans.Start(transactionName);
                 foreach (RevitElem element in elements)
                 {
-#if !REVIT2022
                     if (element.IsModifiable)
                     {
-#endif
-                    Parameter worksetParam = element.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM);
-                        if (worksetParam != null 
-                        && worksetParam.AsInteger() != workset.Id.IntegerValue 
-                        && !worksetParam.IsReadOnly 
-                        /*&& worksetParam.UserModifiable*/)
+                        Parameter worksetParam = element.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM);
+                        if (worksetParam != null
+                            && worksetParam.AsInteger() != workset.Id.IntegerValue
+                            && !worksetParam.IsReadOnly
+                            /*&& worksetParam.UserModifiable*/)
                         {
                             worksetParam.Set(workset.Id.IntegerValue);
                         }
-#if !REVIT2022
                     }
-#endif
                 }
                 trans.Commit();
             }
@@ -306,7 +302,7 @@ namespace Synthetic.Shared.RevitAPI{
                 foreach (RevitDB.Element elem in elements)
                 {
                     // If Element is in a group, put the element in the failed list
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                     long groupId = elem.GroupId.IntegerValue;
 #else
                     long groupId = elem.GroupId.Value;
@@ -369,7 +365,7 @@ namespace Synthetic.Shared.RevitAPI{
                 foreach (RevitDB.Element elem in elements)
                 {
                     // If Element is in a group, put the element in the failed list
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                     long groupId = elem.GroupId.IntegerValue;
 #else
                     long groupId = elem.GroupId.Value;

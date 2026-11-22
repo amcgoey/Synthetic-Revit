@@ -125,7 +125,7 @@ namespace Synthetic.RevitDOM.Models
             if (parameter == null) return null;
             
             long idVal;
-#if REVIT2022 || REVIT2023
+#if REVIT2023
             idVal = parameter.Id.IntegerValue;
 #else
             idVal = parameter.Id.Value;

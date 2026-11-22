@@ -145,7 +145,7 @@ namespace Synthetic.RevitDOM.Operations
             // 3. User parameter lookup by definition ID
             if (paramModel.Id > 0)
             {
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                 ParameterElement paramElem = (ParameterElement)doc.GetElement(new ElementId((int)paramModel.Id));
 #else
                 ParameterElement paramElem = (ParameterElement)doc.GetElement(new ElementId(paramModel.Id));
@@ -165,7 +165,7 @@ namespace Synthetic.RevitDOM.Operations
             if (parameter == null) return null;
             
             long idVal;
-#if REVIT2022 || REVIT2023
+#if REVIT2023
             idVal = parameter.Id.IntegerValue;
 #else
             idVal = parameter.Id.Value;

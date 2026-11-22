@@ -235,7 +235,7 @@ namespace Synthetic.RevitDOM.Operations
         {
             if (patternModel == null) return ElementId.InvalidElementId;
             long solidIdVal;
-#if REVIT2022 || REVIT2023
+#if REVIT2023
             solidIdVal = LinePatternElement.GetSolidPatternId().IntegerValue;
 #else
             solidIdVal = LinePatternElement.GetSolidPatternId().Value;

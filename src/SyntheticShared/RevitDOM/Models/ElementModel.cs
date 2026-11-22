@@ -248,7 +248,7 @@ namespace Synthetic.RevitDOM.Models
             model.Name = elem.Name;
 
             long idVal;
-#if REVIT2022 || REVIT2023
+#if REVIT2023
             idVal = elem.Id.IntegerValue;
 #else
             idVal = elem.Id.Value;

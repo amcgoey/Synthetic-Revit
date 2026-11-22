@@ -32,7 +32,7 @@ namespace Synthetic.Modules.StandardsManagement.Views
                 RevitWindowHelper.SetOwner(this, ownerHandle);
             }
 
-#if !REVIT2026
+#if REVIT2023 || REVIT2024 || REVIT2025
             try
             {
                 PriorityColumn.Visibility = Visibility.Collapsed;

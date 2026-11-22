@@ -281,7 +281,7 @@ namespace SyntheticTests
                 Assert.IsInstanceOf<HostObjTypeTranslator>(tFascia, "FasciaType must resolve to HostObjTypeTranslator.");
                 Assert.IsInstanceOf<HostObjTypeTranslator>(tGutter, "GutterType must resolve to HostObjTypeTranslator.");
 
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                 // ToposolidType does not exist in Revit 2022/2023
 #else
                 var toposolid = new HostObjTypeModel
@@ -354,7 +354,7 @@ namespace SyntheticTests
                 Assert.Greater(modelA.Id, 0);
 
                 // Artificially match modelA.Id to matB.Id to simulate colliding sequential IDs across documents!
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                 modelA.Id = matB.Id.IntegerValue;
 #else
                 modelA.Id = matB.Id.Value;

@@ -140,7 +140,7 @@ namespace Synthetic.RevitDOM.Translation
             }
 
             // Inverted Conditioning for Revit 2026+ Layer Priority
-#if REVIT2022 || REVIT2023 || REVIT2024 || REVIT2025
+#if REVIT2023 || REVIT2024 || REVIT2025
             // Priority is not supported in legacy versions
 #else
             for (int i = 0; i < structureModel.Layers.Count; i++)
@@ -177,7 +177,7 @@ namespace Synthetic.RevitDOM.Translation
                 CompoundStructureLayer csLayer = csLayers[i];
                 var layerModel = ToModel(csLayer, doc);
                 layerModel.StructuralMaterial = (i == structuralIndex);
-#if REVIT2022 || REVIT2023 || REVIT2024 || REVIT2025
+#if REVIT2023 || REVIT2024 || REVIT2025
                 // Priority is not supported in legacy versions
 #else
                 layerModel.Priority = cs.GetLayerPriority(i);
