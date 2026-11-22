@@ -11,6 +11,11 @@
     <DefaultItemExcludes>$(DefaultItemExcludes);obj/**;bin/**</DefaultItemExcludes>
   </PropertyGroup>
 
+  <PropertyGroup Condition="$(MSBuildProjectName.StartsWith('Synthetic.Bootstrap'))">
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <EnableSourceControlManagerQueries>false</EnableSourceControlManagerQueries>
+  </PropertyGroup>
+
   <PropertyGroup Condition="'$(SyntheticIsolatedBuildRoot)' != ''">
     <SyntheticRunId Condition="'$(SyntheticRunId)' == ''">default</SyntheticRunId>
     <SkipDeployAddin>true</SkipDeployAddin>
