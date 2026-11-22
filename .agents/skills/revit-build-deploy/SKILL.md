@@ -1,45 +1,55 @@
 ---
 name: revit-build-deploy
-description: Configuration and procedures for Release and Debug builds. Use when configuring build profiles or deploying add-in builds.
+description: Build, sign, isolate, and deploy Synthetic across Revit versions. Use when compiling Debug or Release x64 builds, isolating headless test builds, attaching in-place debuggers, staging UNC studio releases, or configuring PDQ workstation installs.
 ---
 
-# Revit Build & Deploy Playbook (`revit-build-deploy`)
+# Revit Build & Deploy (`revit-build-deploy`)
 
-Use this playbook to configure and execute Debug and Release builds across multiple target Revit versions.
+Architectural contract and rationale live in [ADR 018](../../../docs/adrs/Synthetic_ADRs%20-%2018%20-%20ADR%20018%20-%20AppData%20Local%20Deployment%20for%20Debug%20Builds.md). Authoritative MSBuild and deployment definitions live in [Directory.Build.props](../../../src/Directory.Build.props), [Directory.Build.targets](../../../src/Directory.Build.targets), [Deploy-To-INC-Server.template.bat](../../../build/Deploy-To-INC-Server.template.bat), and [Install-Synthetic-Workstation.template.bat](../../../build/Install-Synthetic-Workstation.template.bat).
 
-## 1. Compilation Targets & Output Directory
+## 1. Platform & Output Layout
 
-All project `.csproj` compilations output to the common directory:
-`output/Synthetic/`
+Target `x64` (`src/Synthetic.sln` or `/p:Platform=x64`) across **Revit Versions**. Standard builds write to:
 
-## 2. Debug Build Profile
+- `output/Synthetic/Bootstrap/v1/`: `Synthetic.Bootstrap<Year>.dll` (**Add-In Bootstrap**)
+- `output/Synthetic/Payload/<Year>/`: `Synthetic<Year>.dll`, dependencies, assets, and settings templates
+- `output/Manifest for Deploy/`: `Release` `.addin` manifests (`Synthetic<Year>.addin`)
 
-The Debug profile is optimized for local developer debugging and testing.
+`GenerateRevitAddinManifest` in [Directory.Build.targets](../../../src/Directory.Build.targets) generates `Synthetic<Year>.addin` with `FullClassName` = `Synthetic.Bootstrap.BootstrapApp`, `ClientId` = `4fd5b26e-1325-460f-97b1-878804070868`, and `<ManifestSettings><UseRevitContext>True</UseRevitContext></ManifestSettings>` for `2026+`.
 
-### Manifest Assembly Pathing
-The build automatically executes the custom MSBuild task `ReplaceAddinPath` to update the `<Assembly>` tag in the local `.addin` manifest file to point to the active build output DLL (e.g., `output/Synthetic/Synthetic202X.dll`), enabling Revit to load the DLL directly from the workspace.
+## 2. Build Isolation & Test Workers
 
-### Local Code Signing
-To bypass Revit's publisher warnings, MSBuild automatically executes `signtool.exe` to sign the Debug DLL with a local self-signed certificate named `"Synthetic"`.
+Pass `/p:SyntheticIsolatedBuildRoot=<dir>` and `/p:SyntheticRunId=<id>` when running headless or parallel builds. [Directory.Build.props](../../../src/Directory.Build.props) automatically sets `SkipDeployAddin=true` and isolates `obj/` (`<root>\obj\<Project>\`) and `bin/` (`<root>\bin\<Project>_<RunId>\`), leaving `%APPDATA%` **Local Deployment** and `output/` untouched.
 
-### Debug Manifest Deployment
-On successful compilation, the Debug build automatically deploys the modified `.addin` manifest to `%APPDATA%\Autodesk\Revit\Addins\<Year>\` (**Local Deployment**). Revit loads the add-in automatically on startup without requiring elevated permissions or manual file copying.
+Automated test workers set `SYNTHETIC_TEST_WORKER=1` (and `SYNTHETIC_TEST_RUN_ID=<RunId>`) so `BootstrapApp` skips payload staging and logs `SYNTHETIC_TEST_RUN:<RunId>` to the **Revit Journal**.
 
-## 3. Release Build Profile
+## 3. Debug Profile & Local Deployment
 
-The Release profile compiles optimized assemblies for production distribution.
+- **Manifest & Local Deployment:** `Debug` manifests target `output\Synthetic\Bootstrap\v1\Synthetic.Bootstrap<Year>.dll` and copy `Synthetic<Year>.addin` to `%APPDATA%\Autodesk\Revit\Addins\<Year>\` (**Local Deployment**).
+- **Signing:** `SignDebugBuild` signs intermediate assemblies via Windows SDK `signtool.exe` (`SHA256`) using the local self-signed `"Synthetic"` certificate.
+- **Shadow Cache vs. In-Place Attach:** By default, **Add-In Bootstrap** stages `Payload/<Year>/` into `%LOCALAPPDATA%\Synthetic\ShadowCache\<Year>\<PID>_<UtcStartTicks>\` and sets `SYNTHETIC_ADDIN_ROOT` to the source `Payload/<Year>/` directory. Set `SYNTHETIC_DISABLE_SHADOW_COPY=1` in the debug session environment to load `Payload/<Year>/Synthetic<Year>.dll` directly in place for interactive debugger attach.
 
-### Manifest Assembly Pathing
-The build updates the `<Assembly>` tag in the `.addin` manifest to point to the production installation path:
-`C:\ProgramData\Autodesk\Revit\Addins\Synthetic\Synthetic202X.dll`
+## 4. Release Profile & UNC Staging
 
-### Code Signing
-Release builds are signed during the external production release pipeline; local MSBuild does not sign Release assemblies.
+`Release` assemblies are intentionally unsigned locally. `Release` manifests in `output/Manifest for Deploy/` route `<Assembly>` to `C:\ProgramData\Autodesk\Revit\Addins\Synthetic\Bootstrap\v1\Synthetic.Bootstrap<Year>.dll` for `2023–2026` and `C:\Program Files\Autodesk\Revit\Addins\Synthetic\Bootstrap\v1\Synthetic.Bootstrap<Year>.dll` for `2027+`.
 
-### Production Deployment
-To deploy release builds to the production UNC server:
-1. Compile the solution in `Release` configuration:
+1. Compile `Release|x64`:
    ```powershell
-   & "C:\Program-Files-Path-to-MSBuild\MSBuild.exe" src/Synthetic.sln /t:Build /p:Configuration=Release /p:Platform="Any CPU"
+   & "<Path-To-MSBuild>\MSBuild.exe" src/Synthetic.sln /t:Build /p:Configuration=Release /p:Platform=x64
    ```
-2. Run the deployment batch file `Deploy to INC Server.bat` (based on `build/Deploy-To-INC-Server.template.bat`) to mirror the build output, manifests, and settings configurations to the server folder using `robocopy`.
+2. Stage to the studio UNC share using [Deploy-To-INC-Server.template.bat](../../../build/Deploy-To-INC-Server.template.bat) (set `LOCAL_OUTPUT_PATH`, `UNC_SERVER_PATH`, and `NO_PAUSE=1` for unattended runs). The script mirrors `Bootstrap/v1/` and `Payload/<Year>/` (`/MIR /XF *.addin`), copies `Release` `.addin` manifests to `Manifest for Deploy\`, and overlays `%LOCAL_OUTPUT_PATH%\INC Settings` into every 4-digit `Payload/<Year>/` folder (`/E`, preserving per-year binaries).
+
+## 5. Elevated Workstation Installation (PDQ)
+
+Deploy [Install-Synthetic-Workstation.template.bat](../../../build/Install-Synthetic-Workstation.template.bat) in an elevated workstation context (set `UNC_SERVER_PATH`, optional overrides `PROGRAMDATA_ROOT`, `PROGRAMFILES_ROOT`, `REVIT_INSTALL_ROOT`, and `NO_PAUSE=1` for unattended runs):
+
+- Purges retired `2022` manifests (`Synthetic2022.addin`) and legacy flat `ProgramData\...\Synthetic\` root artifacts while preserving `Bootstrap\` and `Payload\`.
+- Routes each installed **Revit Version** (`< 2027` to `PROGRAMDATA_ROOT`, `>= 2027` to `PROGRAMFILES_ROOT`), copies `Synthetic<Year>.addin`, seeds `Bootstrap/v1/` with `/XC /XN /XO` (skip-existing so locked live session binaries stay intact), and mirrors `Payload/<Year>/` (`/MIR`) for `Stage-While-Open, Activate-on-Next-Restart` daytime updates.
+- Enforces bounded `robocopy /R:3 /W:2 /NP` (`0..7` = success; `>= 8` exits immediately with a non-zero code).
+
+## 6. Verification
+
+Confirm completion against the active branch:
+- **Debug:** `output/Synthetic/Bootstrap/v1/Synthetic.Bootstrap<Year>.dll`, `output/Synthetic/Payload/<Year>/Synthetic<Year>.dll`, and `%APPDATA%\Autodesk\Revit\Addins\<Year>\Synthetic<Year>.addin` exist, with `<Assembly>` pointing to `output\Synthetic\Bootstrap\v1\`.
+- **Isolated:** Outputs exist under `$(SyntheticIsolatedBuildRoot)\bin\` and `%APPDATA%\Autodesk\Revit\Addins\<Year>\` is unmodified.
+- **Release & Studio Deploy:** `output/Manifest for Deploy/Synthetic<Year>.addin` points to `ProgramData` (`2023–2026`) or `Program Files` (`2027+`), UNC staging overlays `INC Settings` per `Payload/<Year>/`, and workstation install exits `0`.
