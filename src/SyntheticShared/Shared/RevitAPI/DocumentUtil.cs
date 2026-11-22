@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using System.IO;
+using System.Runtime.CompilerServices;
 using Autodesk.Revit.DB;
 using Application = Autodesk.Revit.ApplicationServices.Application;
 using RevitDoc = Autodesk.Revit.DB.Document;
@@ -106,6 +107,13 @@ namespace Synthetic.Shared.RevitAPI{
         /// <param name="doc">Revit Document object</param>
         /// <returns>True if purge was successful.</returns>
         public static bool Purge(Application app, Document doc)
+        {
+            ETransmitAssemblyResolver.EnsureRegistered();
+            return PurgeCore(app, doc);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static bool PurgeCore(Application app, Document doc)
         {
             eTransmitUpgradeOMatic eTransmitUpgradeOMatic
               = new eTransmitUpgradeOMatic(app);

@@ -1,6 +1,7 @@
 using System;
 using Autodesk.Revit.UI;
 using NUnit.Framework;
+using SyntheticTests.Helpers;
 
 namespace SyntheticTests
 {
@@ -13,6 +14,7 @@ namespace SyntheticTests
         public void Setup(UIApplication uiapp)
         {
             _uiapp = uiapp;
+            TestWorkerJournalMarker.EnsureWritten(uiapp);
         }
 
         [Test]

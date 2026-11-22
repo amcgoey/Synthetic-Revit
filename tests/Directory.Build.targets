@@ -6,6 +6,10 @@
     <None Include="$(MSBuildThisFileDirectory)SyntheticTests.Shared\Assets\**\*.json"
           Link="Assets\%(RecursiveDir)%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest" />
+    <AssemblyMetadata Include="NUnit.Open" Value="true" />
+    <AssemblyMetadata Include="NUnit.Close" Value="true" />
+    <AssemblyMetadata Include="NUnit.Timeout" Value="10" />
+    <AssemblyMetadata Include="ricaun.RevitTest.Application.Tasks.Timeout" Value="5" />
   </ItemGroup>
 
   <Target Name="SignDebugBuild"
