@@ -489,7 +489,9 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             Width = layer.Width;
             LayerCapFlag = layer.LayerCapFlag;
             StructuralMaterial = layer.StructuralMaterial;
-#if REVIT2026
+#if REVIT2023 || REVIT2024 || REVIT2025
+            // CompoundStructureLayer.Priority was added in Revit 2026.
+#else
             Priority = layer.Priority;
 #endif
 
@@ -508,7 +510,9 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             _layer.Width = Width;
             _layer.LayerCapFlag = LayerCapFlag;
             _layer.StructuralMaterial = StructuralMaterial;
-#if REVIT2026
+#if REVIT2023 || REVIT2024 || REVIT2025
+            // CompoundStructureLayer.Priority was added in Revit 2026.
+#else
             _layer.Priority = Priority;
 #endif
 

@@ -187,7 +187,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                                             success = p.Set(winningValue);
                                             break;
                                         case StorageType.ElementId:
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                                             if (int.TryParse(winningValue, out int idInt))
                                             {
                                                 success = p.Set(new ElementId(idInt));

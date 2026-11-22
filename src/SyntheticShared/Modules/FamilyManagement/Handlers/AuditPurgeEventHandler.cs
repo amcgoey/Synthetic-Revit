@@ -115,10 +115,8 @@ namespace Synthetic.Modules.FamilyManagement.Handlers
                         // Purge unused
                         if (Purge)
                         {
-#if !REVIT2022
                             DocumentUtil.Purge(doc.Application, familyDoc);
                             familyResult.Add("Unused Purged");
-#endif
                         }
 
                         // Purge Extensible Storage schemas

@@ -11,7 +11,7 @@ namespace SyntheticTests.Helpers
     {
         private static void IgnoreIfRevitApiLoaded()
         {
-#if REVIT2023 || REVIT2024 || REVIT2025 || REVIT2026
+#if !SYNTHETIC_LOGIC_TESTS
             Assert.Ignore("Mock failure preprocessor tests run in headless Logic test suite.");
 #endif
         }

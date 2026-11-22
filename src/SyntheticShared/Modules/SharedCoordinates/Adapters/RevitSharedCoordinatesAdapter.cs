@@ -94,7 +94,7 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
         /// <inheritdoc />
         public IReadOnlyList<LevelItem> GetLinkedModelLevels(string linkedModelId)
         {
-#if REVIT2022 || REVIT2023
+#if REVIT2023
             if (!int.TryParse(linkedModelId, out int idVal)) return new List<LevelItem>();
             var linkInstance = _doc.GetElement(new ElementId(idVal)) as RevitLinkInstance;
 #else
@@ -598,7 +598,7 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
 
         private ProjectPosition CreateProjectPosition(double eastWest, double northSouth, double elevation, double angle)
         {
-#if REVIT2022 || REVIT2023
+#if REVIT2023
             return _doc.Application.Create.NewProjectPosition(eastWest, northSouth, elevation, angle);
 #else
             return new ProjectPosition(eastWest, northSouth, elevation, angle);

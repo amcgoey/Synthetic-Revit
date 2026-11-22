@@ -26,7 +26,7 @@ namespace Synthetic.RevitDOM.Translation
             model.Name = revitElement.Name;
 
             long catIdVal;
-#if REVIT2022 || REVIT2023
+#if REVIT2023
             catIdVal = revitElement.Id.IntegerValue;
 #else
             catIdVal = revitElement.Id.Value;
@@ -250,7 +250,7 @@ namespace Synthetic.RevitDOM.Translation
             };
 
             long idVal;
-#if REVIT2022 || REVIT2023
+#if REVIT2023
             idVal = category.Id.IntegerValue;
 #else
             idVal = category.Id.Value;
@@ -268,7 +268,7 @@ namespace Synthetic.RevitDOM.Translation
             {
                 if (model.Id != 0)
                 {
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                     cachedCat = RevitCategory.GetCategory(document, new ElementId((int)model.Id));
 #else
                     cachedCat = RevitCategory.GetCategory(document, new ElementId(model.Id));
@@ -312,7 +312,7 @@ namespace Synthetic.RevitDOM.Translation
             model.CategoryId = category.ToCategoryIdModel(doc, isTemplate);
 
             long catIdVal;
-#if REVIT2022 || REVIT2023
+#if REVIT2023
             catIdVal = category.Id.IntegerValue;
 #else
             catIdVal = category.Id.Value;
@@ -338,7 +338,7 @@ namespace Synthetic.RevitDOM.Translation
                     if (linePatternCutId == ElementId.InvalidElementId || linePatternCutId == LinePatternElement.GetSolidPatternId())
                     {
                         long solidIdVal;
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                         solidIdVal = LinePatternElement.GetSolidPatternId().IntegerValue;
 #else
                         solidIdVal = LinePatternElement.GetSolidPatternId().Value;
@@ -368,7 +368,7 @@ namespace Synthetic.RevitDOM.Translation
             if (linePatternProjId == ElementId.InvalidElementId || linePatternProjId == LinePatternElement.GetSolidPatternId())
             {
                 long solidIdVal;
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                 solidIdVal = LinePatternElement.GetSolidPatternId().IntegerValue;
 #else
                 solidIdVal = LinePatternElement.GetSolidPatternId().Value;

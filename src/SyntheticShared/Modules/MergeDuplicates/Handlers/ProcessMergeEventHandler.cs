@@ -593,10 +593,7 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
             Definition def = sourceParam.Definition;
             if (def != null)
             {
-#if REVIT2022
-                group = def.ParameterGroup;
-                specType = def.ParameterType;
-#elif REVIT2023
+#if REVIT2023
                 group = def.ParameterGroup;
                 specType = def.GetDataType();
 #else

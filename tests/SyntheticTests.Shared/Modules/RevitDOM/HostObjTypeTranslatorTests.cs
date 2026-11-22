@@ -72,7 +72,7 @@ namespace SyntheticTests
                                     Width = 0.5, // 6 inches core
                                     MaterialId = material.Id.ToModel(doc, false),
                                     StructuralMaterial = true,
-#if REVIT2022 || REVIT2023 || REVIT2024 || REVIT2025
+#if REVIT2023 || REVIT2024 || REVIT2025
                                     // Priority does not exist
 #else
                                     Priority = 2
@@ -84,7 +84,7 @@ namespace SyntheticTests
                                     Width = 0.1, // 1.2 inches finish
                                     MaterialId = material.Id.ToModel(doc, false),
                                     StructuralMaterial = false,
-#if REVIT2022 || REVIT2023 || REVIT2024 || REVIT2025
+#if REVIT2023 || REVIT2024 || REVIT2025
                                     // Priority does not exist
 #else
                                     Priority = 5
@@ -113,7 +113,7 @@ namespace SyntheticTests
                     Assert.AreEqual(0.1, cs.GetLayers()[1].Width);
                     Assert.AreEqual(material.Id, cs.GetLayers()[0].MaterialId);
 
-#if REVIT2022 || REVIT2023 || REVIT2024 || REVIT2025
+#if REVIT2023 || REVIT2024 || REVIT2025
                     // Priority not supported
 #else
                     Assert.AreEqual(2, cs.GetLayerPriority(0));

@@ -186,13 +186,8 @@ namespace SyntheticTests
         {
             if (famManager == null) return false;
 
-#if REVIT2022
-            famManager.AddParameter(paramName, BuiltInParameterGroup.PG_DATA, ParameterType.Text, false);
-            return true;
-#else
             famManager.AddParameter(paramName, GroupTypeId.Data, SpecTypeId.String.Text, false);
             return true;
-#endif
         }
 
         #endregion

@@ -16,7 +16,7 @@ namespace SyntheticTests.Modules.RevitDOM
         {
             // Arrange
             var service = new FakeIdentityService();
-#if REVIT2022 || REVIT2023
+#if REVIT2023
             var id = new ElementId(555);
 #else
             var id = new ElementId(555L);
@@ -46,7 +46,7 @@ namespace SyntheticTests.Modules.RevitDOM
         {
             // Arrange
             var service = new FakeIdentityService();
-#if REVIT2022 || REVIT2023
+#if REVIT2023
             var id = new ElementId(999);
 #else
             var id = new ElementId(999L);
@@ -68,7 +68,7 @@ namespace SyntheticTests.Modules.RevitDOM
         {
             // Arrange
             var service = new FakeIdentityService();
-#if REVIT2022 || REVIT2023
+#if REVIT2023
             var id = new ElementId(777);
 #else
             var id = new ElementId(777L);
@@ -84,7 +84,7 @@ namespace SyntheticTests.Modules.RevitDOM
             var result = service.ResolveElementId(model, null!);
 
             // Assert
-#if REVIT2022 || REVIT2023
+#if REVIT2023
             Assert.AreEqual(777, result.IntegerValue);
 #else
             Assert.AreEqual(777, result.Value);
@@ -106,7 +106,7 @@ namespace SyntheticTests.Modules.RevitDOM
             var result = service.ResolveElementId(model, null!);
 
             // Assert
-#if REVIT2022 || REVIT2023
+#if REVIT2023
             Assert.AreEqual(1234, result.IntegerValue);
 #else
             Assert.AreEqual(1234, result.Value);

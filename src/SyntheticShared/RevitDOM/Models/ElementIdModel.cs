@@ -360,7 +360,7 @@ namespace Synthetic.RevitDOM.Models
             if (id == null) return null;
 
             long idVal;
-#if REVIT2022 || REVIT2023
+#if REVIT2023
             idVal = id.IntegerValue;
 #else
             idVal = id.Value;
@@ -407,7 +407,7 @@ namespace Synthetic.RevitDOM.Models
 
         public static ElementId ToElementId(this ElementIdModel model)
         {
-#if REVIT2022 || REVIT2023
+#if REVIT2023
             return new ElementId((int)model.Id);
 #else
             return new ElementId(model.Id);

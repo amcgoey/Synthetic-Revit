@@ -127,7 +127,7 @@ namespace Synthetic.RevitDOM.Translation
                 ICollection<ElementId> nonControlledIds = view.GetNonControlledTemplateParameterIds();
                 foreach (ElementId id in nonControlledIds)
                 {
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                     model.NonControlledParameterIds.Add(id.IntegerValue);
 #else
                     model.NonControlledParameterIds.Add((int)id.Value);
@@ -564,7 +564,7 @@ namespace Synthetic.RevitDOM.Translation
                 {
                     foreach (int intId in model.NonControlledParameterIds)
                     {
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                         nonControlledIds.Add(new ElementId(intId));
 #else
                         nonControlledIds.Add(new ElementId((long)intId));

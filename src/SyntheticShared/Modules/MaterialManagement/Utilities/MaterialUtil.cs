@@ -84,7 +84,7 @@ namespace Synthetic.Modules.MaterialManagement.Utilities
 
             revitDB.ElementId appearanceAssetID = Material.AppearanceAssetId;
 
-#if REVIT2022 || REVIT2023
+#if REVIT2023
             if (appearanceAssetID.IntegerValue != -1)
 #else
             if (appearanceAssetID.Value != -1)
@@ -135,7 +135,7 @@ namespace Synthetic.Modules.MaterialManagement.Utilities
                     revitDB.ElementId appearanceAssetID = Material.AppearanceAssetId;
 
 
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                     if (appearanceAssetID.IntegerValue != -1)
 #else
                     if (appearanceAssetID.Value != -1)

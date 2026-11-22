@@ -527,7 +527,7 @@ namespace Synthetic.RevitDOM.Operations
                 if (elementModel is CategoryModel categoryModel)
                 {
                     categoryModel.RevitCategory = revitCategory;
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                     categoryModel.CategoryId.Id = revitCategory.Id.IntegerValue;
 #else
                     categoryModel.CategoryId.Id = revitCategory.Id.Value;

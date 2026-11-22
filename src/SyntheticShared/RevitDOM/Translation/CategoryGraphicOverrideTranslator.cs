@@ -73,7 +73,7 @@ namespace Synthetic.RevitDOM.Translation
             if (projectionLinePatternId == ElementId.InvalidElementId || projectionLinePatternId == LinePatternElement.GetSolidPatternId())
             {
                 long solidIdVal;
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                 solidIdVal = LinePatternElement.GetSolidPatternId().IntegerValue;
 #else
                 solidIdVal = LinePatternElement.GetSolidPatternId().Value;
@@ -99,7 +99,7 @@ namespace Synthetic.RevitDOM.Translation
             if (cutLinePatternId == ElementId.InvalidElementId || cutLinePatternId == LinePatternElement.GetSolidPatternId())
             {
                 long solidIdVal;
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                 solidIdVal = LinePatternElement.GetSolidPatternId().IntegerValue;
 #else
                 solidIdVal = LinePatternElement.GetSolidPatternId().Value;
@@ -177,7 +177,7 @@ namespace Synthetic.RevitDOM.Translation
             if (projectionLinePatternId == ElementId.InvalidElementId || projectionLinePatternId == LinePatternElement.GetSolidPatternId())
             {
                 long solidIdVal;
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                 solidIdVal = LinePatternElement.GetSolidPatternId().IntegerValue;
 #else
                 solidIdVal = LinePatternElement.GetSolidPatternId().Value;
@@ -203,7 +203,7 @@ namespace Synthetic.RevitDOM.Translation
             if (cutLinePatternId == ElementId.InvalidElementId || cutLinePatternId == LinePatternElement.GetSolidPatternId())
             {
                 long solidIdVal;
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                 solidIdVal = LinePatternElement.GetSolidPatternId().IntegerValue;
 #else
                 solidIdVal = LinePatternElement.GetSolidPatternId().Value;
@@ -226,7 +226,7 @@ namespace Synthetic.RevitDOM.Translation
             bool isMod = false;
             if (!ogs.IsSurfaceBackgroundPatternVisible) isMod = true;
             if (ogs.SurfaceBackgroundPatternColor.IsValid) isMod = true;
-#if REVIT2022 || REVIT2023
+#if REVIT2023
             if (ogs.SurfaceBackgroundPatternId.IntegerValue != -1) isMod = true;
 #else
             if (ogs.SurfaceBackgroundPatternId.Value != -1) isMod = true;
@@ -234,14 +234,14 @@ namespace Synthetic.RevitDOM.Translation
 
             if (!ogs.IsSurfaceForegroundPatternVisible) isMod = true;
             if (ogs.SurfaceForegroundPatternColor.IsValid) isMod = true;
-#if REVIT2022 || REVIT2023
+#if REVIT2023
             if (ogs.SurfaceForegroundPatternId.IntegerValue != -1) isMod = true;
 #else
             if (ogs.SurfaceForegroundPatternId.Value != -1) isMod = true;
 #endif
 
             if (ogs.ProjectionLineColor.IsValid) isMod = true;
-#if REVIT2022 || REVIT2023
+#if REVIT2023
             if (ogs.ProjectionLinePatternId.IntegerValue != -1) isMod = true;
 #else
             if (ogs.ProjectionLinePatternId.Value != -1) isMod = true;
@@ -250,7 +250,7 @@ namespace Synthetic.RevitDOM.Translation
 
             if (!ogs.IsCutBackgroundPatternVisible) isMod = true;
             if (ogs.CutBackgroundPatternColor.IsValid) isMod = true;
-#if REVIT2022 || REVIT2023
+#if REVIT2023
             if (ogs.CutBackgroundPatternId.IntegerValue != -1) isMod = true;
 #else
             if (ogs.CutBackgroundPatternId.Value != -1) isMod = true;
@@ -258,14 +258,14 @@ namespace Synthetic.RevitDOM.Translation
 
             if (!ogs.IsCutForegroundPatternVisible) isMod = true;
             if (ogs.CutForegroundPatternColor.IsValid) isMod = true;
-#if REVIT2022 || REVIT2023
+#if REVIT2023
             if (ogs.CutForegroundPatternId.IntegerValue != -1) isMod = true;
 #else
             if (ogs.CutForegroundPatternId.Value != -1) isMod = true;
 #endif
 
             if (ogs.CutLineColor.IsValid) isMod = true;
-#if REVIT2022 || REVIT2023
+#if REVIT2023
             if (ogs.CutLinePatternId.IntegerValue != -1) isMod = true;
 #else
             if (ogs.CutLinePatternId.Value != -1) isMod = true;

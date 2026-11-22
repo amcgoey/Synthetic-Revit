@@ -24,7 +24,7 @@ namespace SyntheticTests.Modules.RevitDOM
         public void SetupMapping(ElementId id, ElementIdModel model)
         {
             long idVal;
-#if REVIT2022 || REVIT2023
+#if REVIT2023
             idVal = id.IntegerValue;
 #else
             idVal = id.Value;
@@ -53,7 +53,7 @@ namespace SyntheticTests.Modules.RevitDOM
             if (id == null) return null;
 
             long idVal;
-#if REVIT2022 || REVIT2023
+#if REVIT2023
             idVal = id.IntegerValue;
 #else
             idVal = id.Value;
@@ -81,14 +81,14 @@ namespace SyntheticTests.Modules.RevitDOM
 
             if (_uniqueIdToModel.TryGetValue(model.UniqueId, out var mappedModel))
             {
-#if REVIT2022 || REVIT2023
+#if REVIT2023
                 return new ElementId((int)mappedModel.Id);
 #else
                 return new ElementId(mappedModel.Id);
 #endif
             }
 
-#if REVIT2022 || REVIT2023
+#if REVIT2023
             return new ElementId((int)model.Id);
 #else
             return new ElementId(model.Id);
