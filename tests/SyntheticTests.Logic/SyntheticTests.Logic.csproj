@@ -53,12 +53,21 @@
   </Target>
 
   <!-- Compile mock RevitAPI and RevitAPIUI projects and copy them to output directory post-build -->
-    <Target Name="CopyMockRevitAPI" AfterTargets="Build">
-    <MSBuild Projects="..\RevitAPIMock\RevitAPIMock.csproj" Targets="Build" Properties="Configuration=$(Configuration);Platform=$(Platform)" />
-    <Copy SourceFiles="..\RevitAPIMock\bin\$(Platform)\$(Configuration)\net8.0-windows8.0\RevitAPI.dll" DestinationFolder="$(TargetDir)" OverwriteReadOnlyFiles="true" SkipUnchangedFiles="false" />
-
-    <MSBuild Projects="..\RevitAPIUIMock\RevitAPIUIMock.csproj" Targets="Build" Properties="Configuration=$(Configuration);Platform=$(Platform)" />
-    <Copy SourceFiles="..\RevitAPIUIMock\bin\$(Platform)\$(Configuration)\net8.0-windows8.0\RevitAPIUI.dll" DestinationFolder="$(TargetDir)" OverwriteReadOnlyFiles="true" SkipUnchangedFiles="false" />
+  <Target Name="CopyMockRevitAPI" AfterTargets="Build">
+    <MSBuild Projects="..\RevitAPIMock\RevitAPIMock.csproj"
+             Targets="Build"
+             Properties="Configuration=$(Configuration);Platform=$(Platform);SyntheticIsolatedBuildRoot=$(SyntheticIsolatedBuildRoot);SyntheticRunId=$(SyntheticRunId)">
+      <Output TaskParameter="TargetOutputs" ItemName="MockRevitApiOutputs" />
+    </MSBuild>
+    <MSBuild Projects="..\RevitAPIUIMock\RevitAPIUIMock.csproj"
+             Targets="Build"
+             Properties="Configuration=$(Configuration);Platform=$(Platform);SyntheticIsolatedBuildRoot=$(SyntheticIsolatedBuildRoot);SyntheticRunId=$(SyntheticRunId)">
+      <Output TaskParameter="TargetOutputs" ItemName="MockRevitApiUiOutputs" />
+    </MSBuild>
+    <Copy SourceFiles="@(MockRevitApiOutputs);@(MockRevitApiUiOutputs)"
+          DestinationFolder="$(TargetDir)"
+          OverwriteReadOnlyFiles="true"
+          SkipUnchangedFiles="false" />
   </Target>
 
 </Project>

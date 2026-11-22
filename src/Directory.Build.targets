@@ -1,4 +1,15 @@
 <Project>
+  <PropertyGroup Condition="'$(GenerateDocumentationFile)' == 'true' And '$(IsBootstrapProject)' != 'true'">
+    <DocumentationFile>$(OutputPath)$(AssemblyName).xml</DocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(GenerateDocumentationFile)' == 'true' And '$(IsBootstrapProject)' != 'true'">
+    <DocFileItem Remove="@(DocFileItem)" />
+    <DocFileItem Include="$(DocumentationFile)" />
+    <FinalDocFile Remove="@(FinalDocFile)" />
+    <FinalDocFile Include="@(DocFileItem->'$(OutDir)%(Filename)%(Extension)')" />
+  </ItemGroup>
+
   <ItemGroup Condition="'$(IsBootstrapProject)' != 'true'">
     <Compile Include="$(MSBuildThisFileDirectory)SyntheticShared\**\*.cs"
              Link="%(RecursiveDir)%(Filename)%(Extension)" />
@@ -72,7 +83,7 @@
   <!-- Deploy and update the .addin file for both Debug and Release configurations -->
   <Target Name="DeployAddin"
           AfterTargets="Build"
-          Condition="'$(IsBootstrapProject)' != 'true' And Exists('$(ProjectDir)$(AssemblyName).addin')">
+          Condition="'$(SkipDeployAddin)' != 'true' And '$(IsBootstrapProject)' != 'true' And Exists('$(ProjectDir)$(AssemblyName).addin')">
     <PropertyGroup>
       <SourceAddinFile>$(ProjectDir)$(AssemblyName).addin</SourceAddinFile>
       <LocalOutputAddin>$(TargetDir)$(AssemblyName).addin</LocalOutputAddin>
@@ -92,7 +103,7 @@
           Condition="'$(Configuration)' == 'Debug'" />
   </Target>
 
-  <Target Name="AfterClean" Condition="'$(IsBootstrapProject)' != 'true'">
+  <Target Name="AfterClean" Condition="'$(SkipDeployAddin)' != 'true' And '$(IsBootstrapProject)' != 'true'">
     <Delete Files="$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)\$(AssemblyName).addin" />
   </Target>
 

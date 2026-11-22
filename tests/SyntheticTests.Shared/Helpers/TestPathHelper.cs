@@ -6,46 +6,91 @@ namespace SyntheticTests.Helpers
 {
     public static class TestPathHelper
     {
+        public const string ProjectRootMarkerFileName = "synthetic_project_root.txt";
+        public const string ProjectRootEnvVar = "SYNTHETIC_PROJECT_ROOT";
+
         public static string GetProjectRoot()
         {
-            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            string revitAddinsDir = Path.Combine(appData, "Autodesk", "Revit", "Addins");
-            if (Directory.Exists(revitAddinsDir))
+            string? assemblyDir = Path.GetDirectoryName(typeof(TestPathHelper).Assembly.Location);
+            string? testDir = TestContext.CurrentContext?.TestDirectory;
+            return GetProjectRoot(assemblyDir, testDir);
+        }
+
+        public static string GetProjectRoot(string? assemblyDir, string? testDirectory)
+        {
+            string? markerRoot = TryReadMarkerFile(assemblyDir);
+            if (markerRoot != null)
             {
-                foreach (var versionDir in Directory.GetDirectories(revitAddinsDir))
+                return markerRoot;
+            }
+
+            if (!string.IsNullOrEmpty(testDirectory) && !PathsEqual(assemblyDir, testDirectory))
+            {
+                markerRoot = TryReadMarkerFile(testDirectory);
+                if (markerRoot != null)
                 {
-                    string[] addinFiles = Directory.GetFiles(versionDir, "Synthetic*.addin");
-                    foreach (var addinPath in addinFiles)
-                    {
-                        if (File.Exists(addinPath))
-                        {
-                            string content = File.ReadAllText(addinPath);
-                            var match = System.Text.RegularExpressions.Regex.Match(content, @"<Assembly>(.*?)\\output\\Synthetic\\Synthetic\d*\.dll", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-                            if (match.Success)
-                            {
-                                string root = match.Groups[1].Value;
-                                if (Directory.Exists(root))
-                                {
-                                    return root;
-                                }
-                            }
-                        }
-                    }
+                    return markerRoot;
                 }
             }
 
-            string envPath = Environment.GetEnvironmentVariable("SYNTHETIC_PROJECT_ROOT");
-            if (!string.IsNullOrEmpty(envPath) && Directory.Exists(envPath))
+            string? envPath = Environment.GetEnvironmentVariable(ProjectRootEnvVar);
+            if (!string.IsNullOrWhiteSpace(envPath))
             {
-                return envPath;
+                string trimmedEnvPath = envPath.Trim();
+                if (Directory.Exists(trimmedEnvPath))
+                {
+                    return trimmedEnvPath;
+                }
             }
 
-            string dir = TestContext.CurrentContext.TestDirectory;
-            while (dir != null && !Directory.Exists(Path.Combine(dir, "tests")))
+            string? dir = testDirectory;
+            while (!string.IsNullOrEmpty(dir))
             {
+                string slnCandidate = Path.Combine(dir, "src", "Synthetic.sln");
+                if (File.Exists(slnCandidate))
+                {
+                    return dir;
+                }
+
                 dir = Path.GetDirectoryName(dir);
             }
-            return dir ?? TestContext.CurrentContext.TestDirectory;
+
+            throw new InvalidOperationException(
+                "Could not locate Synthetic project root via synthetic_project_root.txt, SYNTHETIC_PROJECT_ROOT, or upward search for src/Synthetic.sln.");
+        }
+
+        private static string? TryReadMarkerFile(string? directory)
+        {
+            if (string.IsNullOrWhiteSpace(directory))
+            {
+                return null;
+            }
+
+            string markerPath = Path.Combine(directory, ProjectRootMarkerFileName);
+            if (!File.Exists(markerPath))
+            {
+                return null;
+            }
+
+            string candidate = File.ReadAllText(markerPath).Trim();
+            if (!string.IsNullOrEmpty(candidate) && Directory.Exists(candidate))
+            {
+                return candidate;
+            }
+
+            return null;
+        }
+
+        private static bool PathsEqual(string? left, string? right)
+        {
+            if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+            {
+                return false;
+            }
+
+            string normalizedLeft = Path.GetFullPath(left).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            string normalizedRight = Path.GetFullPath(right).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return string.Equals(normalizedLeft, normalizedRight, StringComparison.OrdinalIgnoreCase);
         }
     }
 }

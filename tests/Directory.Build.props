@@ -1,8 +1,25 @@
 <Project>
   <PropertyGroup>
     <GenerateMSBuildEditorConfigFile>false</GenerateMSBuildEditorConfigFile>
+    <DefaultItemExcludes>$(DefaultItemExcludes);obj/**;bin/**</DefaultItemExcludes>
   </PropertyGroup>
-  <PropertyGroup Condition="'$(MSBuildProjectName)' != 'RevitAPIMock' And '$(MSBuildProjectName)' != 'RevitAPIUIMock'">
+
+  <PropertyGroup Condition="'$(SyntheticIsolatedBuildRoot)' != ''">
+    <SyntheticRunId Condition="'$(SyntheticRunId)' == ''">default</SyntheticRunId>
+    <SkipDeployAddin>true</SkipDeployAddin>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(SyntheticIsolatedBuildRoot)' != '' And !$(MSBuildProjectName.EndsWith('_wpftmp'))">
+    <_SyntheticIsolatedBuildRootTrimmed>$(SyntheticIsolatedBuildRoot.TrimEnd('\').TrimEnd('/'))</_SyntheticIsolatedBuildRootTrimmed>
+    <BaseIntermediateOutputPath>$(_SyntheticIsolatedBuildRootTrimmed)\obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
+    <MSBuildProjectExtensionsPath>$(BaseIntermediateOutputPath)</MSBuildProjectExtensionsPath>
+    <OutputPath>$(_SyntheticIsolatedBuildRootTrimmed)\bin\$(MSBuildProjectName)_$(SyntheticRunId)\</OutputPath>
+    <OutDir>$(OutputPath)</OutDir>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(SyntheticIsolatedBuildRoot)' == '' And '$(MSBuildProjectName)' != 'RevitAPIMock' And '$(MSBuildProjectName)' != 'RevitAPIUIMock' And !$(MSBuildProjectName.EndsWith('_wpftmp'))">
     <BaseIntermediateOutputPath>$(LocalAppData)\Temp\obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
     <OutputPath>$(LocalAppData)\Temp\bin\$(MSBuildProjectName)\</OutputPath>
   </PropertyGroup>

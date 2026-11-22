@@ -849,6 +849,7 @@ namespace SyntheticTests.Modules.StandardsManagement
 
             var fakeSummaryService = new FakeSummaryDisplayService();
             var vm = DashboardTestFactory.Create(_doc, fakeFileDialog, null, null);
+            vm.SaveFilePath = tempFile;
             vm.SummaryDisplayService = fakeSummaryService;
 
             var elem = new ElementModel { Name = "Steel", Class = "Autodesk.Revit.DB.Material" };
