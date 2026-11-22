@@ -25,11 +25,10 @@ For each ticket to be reviewed:
 - Determine the git branch (e.g. `ticket-<number>`), pull request, or commit range associated with the work.
 - Locate the originating spec or ticket description to serve as the spec source.
 
-### 3. Resource & Build/Test Lock Protocol
+### 3. Resource & Concurrency Protocol
 
-Because checking out branches, compilation (`MSBuild.exe` writing to `output/Synthetic/`), and running tests (`test_executor.py` / `guid_whitelister.py`) share disk and registry resources:
 - **Concurrency Cap**: Run at most **2–4 subagents** in parallel.
-- **Build & Test Lock**: Serialize compilation and testing. Ensure only one subagent is performing these operations on the local environment at any time.
+- **Isolated Concurrent Builds & Tests**: Reviewers may build and run [`test_executor.py`](../revit-tests/scripts/test_executor.py) concurrently across separate worktrees without colliding on `output/Synthetic/`, `AddInsSettings.json`, `HKCU\...\CodeSigning`, or open developer Revit sessions (see [`revit-tests`](../revit-tests/SKILL.md)). Give each subagent its own worktree when checking out branches.
 
 ### 4. Spawning Review Subagents
 

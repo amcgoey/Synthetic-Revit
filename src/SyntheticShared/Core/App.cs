@@ -11,6 +11,7 @@ using System.Windows.Media.Imaging;
 using Autodesk.Revit.DB.Events;
 
 using Synthetic.Shared.UI;
+using Synthetic.Shared.RevitAPI;
 using Synthetic.Core;
 using Synthetic.Settings;
 using Synthetic.Infrastructure.Persistence;
@@ -61,7 +62,7 @@ namespace Synthetic.Core{
             appControlled.ControlledApplication.DocumentClosing +=
                 new EventHandler<DocumentClosingEventArgs>(OnDocumentClose);
 
-            AppDomain.CurrentDomain.AssemblyResolve += OnAssemblyResolve;
+            ETransmitAssemblyResolver.EnsureRegistered();
 
             return Result.Succeeded;
         }
@@ -75,35 +76,7 @@ namespace Synthetic.Core{
         {
             appControlled.ControlledApplication.DocumentOpened -= OnDocumentOpen;
             appControlled.ControlledApplication.DocumentClosing -= OnDocumentClose;
-            AppDomain.CurrentDomain.AssemblyResolve -= OnAssemblyResolve;
             return Result.Succeeded;
-        }
-
-        [ThreadStatic]
-        private static bool _resolvingAssembly;
-
-        private static System.Reflection.Assembly? OnAssemblyResolve(object? sender, ResolveEventArgs args)
-        {
-            if (_resolvingAssembly) return null;
-
-            try
-            {
-                _resolvingAssembly = true;
-                if (args.Name.Contains("eTransmitForRevitDB"))
-                {
-                    string version = AppControlled?.ControlledApplication.VersionNumber ?? "2026";
-                    string eTransmitPath = $@"C:\Program Files\Autodesk\eTransmit for Revit {version}\eTransmitForRevitDB.dll";
-                    if (File.Exists(eTransmitPath))
-                    {
-                        return System.Reflection.Assembly.LoadFrom(eTransmitPath);
-                    }
-                }
-                return null;
-            }
-            finally
-            {
-                _resolvingAssembly = false;
-            }
         }
 
         /// <summary>

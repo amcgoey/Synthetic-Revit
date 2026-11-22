@@ -1,26 +1,39 @@
-import os
-import sys
-import subprocess
+import ctypes
+from ctypes import wintypes
 import glob
-import xml.etree.ElementTree as ET
-import re
-import winreg
+import io
 import json
+import os
+import re
 import shutil
+import struct
+import subprocess
+import sys
 import tempfile
 import time
 import uuid
+import winreg
+import xml.etree.ElementTree as ET
+import zipfile
 
 _SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 if _SCRIPT_DIR not in sys.path:
     sys.path.insert(0, _SCRIPT_DIR)
 import guid_whitelister
 
+BUNDLE_LEASE_MUTEX_NAME = r"Local\Synthetic_RicaunBundleLease"
+RICAUN_BUNDLE_FOLDER_NAME = "ricaun.RevitTest.Application.bundle"
+
+
 class TempDisableThirdPartyAddins:
-    def __init__(self, version):
+    """Startup self-healing helper to restore any orphaned AddInsSettings.json.bak."""
+
+    def __init__(self, version, appdata=None):
         self.version = version
-        appdata = os.environ.get("AppData", os.path.expanduser("~\\AppData\\Roaming"))
-        self.json_path = os.path.join(appdata, "Autodesk", "Revit", f"Autodesk Revit {version}", "AddinsData", "AddInsSettings.json")
+        resolved_appdata = appdata or os.environ.get("AppData", os.path.expanduser("~\\AppData\\Roaming"))
+        self.json_path = os.path.join(
+            resolved_appdata, "Autodesk", "Revit", f"Autodesk Revit {version}", "AddinsData", "AddInsSettings.json"
+        )
         self.backup_path = self.json_path + ".bak"
 
     def restore_addins(self):
@@ -33,66 +46,233 @@ class TempDisableThirdPartyAddins:
             except Exception as e:
                 print(f"[WARN] Failed to restore AddInsSettings.json backup for Revit {self.version}: {e}")
 
-    def disable_addins(self):
-        if not os.path.exists(self.json_path):
-            return
-        
-        try:
-            shutil.copy2(self.json_path, self.backup_path)
-            
-            with open(self.json_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                
-            modified = False
-            if "AddInItemSettings" in data:
-                for item in data["AddInItemSettings"]:
-                    name = item.get("Name", "")
-                    vendor = item.get("Vendor", "")
-                    disabled = item.get("Disabled", False)
-                    
-                    if not disabled:
-                        if vendor == "ADSK" or vendor == "ricaun" or vendor == "net.amcgoey" or name == "Synthetic" or name == "ricaun.RevitTest.Application":
-                            continue
-                        
-                        item["Disabled"] = True
-                        modified = True
-                        print(f"[TESTS] Temporarily disabled third-party add-in: {name} (Vendor: {vendor})")
-                        
-            if modified:
-                with open(self.json_path, "w", encoding="utf-8") as f:
-                    json.dump(data, f)
-        except Exception as e:
-            print(f"[WARN] Failed to modify AddInsSettings.json for Revit {self.version}: {e}")
-            if os.path.exists(self.backup_path):
+
+def _extract_embedded_zip(data):
+    """Locate and open the trailing/embedded ZIP archive inside a .NET assembly buffer."""
+    eocd = data.rfind(b"PK\x05\x06")
+    while eocd != -1:
+        if eocd + 22 <= len(data):
+            cdir_size, cdir_rel_offset, comment_len = struct.unpack_from("<IIH", data, eocd + 12)
+            end = eocd + 22 + comment_len
+            start = (eocd - cdir_size) - cdir_rel_offset
+            if 0 <= start < eocd and end <= len(data) and data[start:start + 4] == b"PK\x03\x04":
                 try:
-                    os.remove(self.backup_path)
-                except Exception:
+                    return zipfile.ZipFile(io.BytesIO(data[start:end]))
+                except zipfile.BadZipFile:
+                    pass
+        eocd = data.rfind(b"PK\x05\x06", 0, eocd)
+    return None
+
+
+def find_ricaun_testadapter_dll(search_dirs=None, env=None):
+    """Locate ricaun.RevitTest.TestAdapter.dll in isolated build outputs or the NuGet cache."""
+    for directory in search_dirs or ():
+        if not directory:
+            continue
+        candidate = os.path.join(directory, "ricaun.RevitTest.TestAdapter.dll")
+        if os.path.isfile(candidate):
+            return candidate
+
+    env_map = os.environ if env is None else env
+    nuget_root = env_map.get("NUGET_PACKAGES") or os.path.join(os.path.expanduser("~"), ".nuget", "packages")
+    pkg_dir = os.path.join(nuget_root, "ricaun.revittest.testadapter")
+    if not os.path.isdir(pkg_dir):
+        return None
+
+    tfm_priority = {"net8.0": 3, "net6.0": 2, "net45": 1}
+    candidates = []
+    for root, _, files in os.walk(pkg_dir):
+        if "ricaun.RevitTest.TestAdapter.dll" in files:
+            tfm = os.path.basename(root).lower()
+            candidates.append((tfm_priority.get(tfm, 0), root, os.path.join(root, "ricaun.RevitTest.TestAdapter.dll")))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return candidates[0][2]
+
+
+def seed_ricaun_bundle_from_testadapter(testadapter_dll_path, bundle_dir):
+    """Extract ricaun.RevitTest.Application.bundle into %APPDATA% ApplicationPlugins from TestAdapter.dll."""
+    if not testadapter_dll_path or not os.path.isfile(testadapter_dll_path):
+        raise FileNotFoundError(f"Could not locate ricaun.RevitTest.TestAdapter.dll: {testadapter_dll_path}")
+
+    with open(testadapter_dll_path, "rb") as f:
+        adapter_bytes = f.read()
+
+    outer_zip = _extract_embedded_zip(adapter_bytes)
+    if outer_zip is None:
+        raise RuntimeError(f"Embedded ricaun.RevitTest.Console archive not found in {testadapter_dll_path}")
+
+    bundle_zip = None
+    outer_names = set(outer_zip.namelist())
+    for console_entry in ("ricaun.RevitTest.Console.dll", "ricaun.RevitTest.Console.exe"):
+        if console_entry in outer_names:
+            candidate_zip = _extract_embedded_zip(outer_zip.read(console_entry))
+            if candidate_zip is not None:
+                bundle_zip = candidate_zip
+                break
+
+    if bundle_zip is None:
+        raise RuntimeError(
+            f"Embedded bundle archive not found in ricaun.RevitTest.Console(.dll/.exe) from {testadapter_dll_path}"
+        )
+
+    prefix = f"{RICAUN_BUNDLE_FOLDER_NAME}/"
+    bundle_root_abs = os.path.abspath(bundle_dir)
+    os.makedirs(bundle_root_abs, exist_ok=True)
+    extracted = 0
+    for member in bundle_zip.infolist():
+        if member.is_dir():
+            continue
+        member_name = member.filename.replace("\\", "/")
+        if not member_name.startswith(prefix):
+            continue
+        rel_path = member_name[len(prefix):].lstrip("/")
+        if not rel_path:
+            continue
+        dest_path = os.path.abspath(os.path.join(bundle_root_abs, rel_path))
+        if not dest_path.startswith(bundle_root_abs + os.sep):
+            continue
+        os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+        with open(dest_path, "wb") as out_f:
+            out_f.write(bundle_zip.read(member.filename))
+        extracted += 1
+
+    pkg_xml = os.path.join(bundle_root_abs, "PackageContents.xml")
+    if extracted == 0 or not os.path.isfile(pkg_xml):
+        raise RuntimeError(f"Failed to seed {pkg_xml} from {testadapter_dll_path}")
+    return pkg_xml
+
+
+class _Win32KernelLease:
+    """Win32 mutex and shared-read (no FILE_SHARE_DELETE) handle primitives."""
+
+    GENERIC_READ = 0x80000000
+    FILE_SHARE_READ = 0x00000001
+    FILE_SHARE_WRITE = 0x00000002
+    OPEN_EXISTING = 3
+    FILE_ATTRIBUTE_NORMAL = 0x00000080
+    INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+    WAIT_OBJECT_0 = 0x00000000
+    WAIT_ABANDONED = 0x00000080
+
+    def __init__(self):
+        self._k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        self._k32.CreateMutexW.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR]
+        self._k32.CreateMutexW.restype = wintypes.HANDLE
+        self._k32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        self._k32.WaitForSingleObject.restype = wintypes.DWORD
+        self._k32.ReleaseMutex.argtypes = [wintypes.HANDLE]
+        self._k32.ReleaseMutex.restype = wintypes.BOOL
+        self._k32.CreateFileW.argtypes = [
+            wintypes.LPCWSTR,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.LPVOID,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.HANDLE,
+        ]
+        self._k32.CreateFileW.restype = wintypes.HANDLE
+        self._k32.CloseHandle.argtypes = [wintypes.HANDLE]
+        self._k32.CloseHandle.restype = wintypes.BOOL
+
+    def acquire_mutex(self, name, timeout_ms=30000):
+        h_mutex = self._k32.CreateMutexW(None, False, name)
+        if not h_mutex:
+            raise ctypes.WinError(ctypes.get_last_error())
+        wait_res = self._k32.WaitForSingleObject(h_mutex, timeout_ms)
+        if wait_res not in (self.WAIT_OBJECT_0, self.WAIT_ABANDONED):
+            err = ctypes.get_last_error()
+            self._k32.CloseHandle(h_mutex)
+            raise TimeoutError(f"Timed out waiting for mutex '{name}' (wait={wait_res}, err={err}).")
+        return h_mutex
+
+    def release_mutex(self, h_mutex):
+        try:
+            self._k32.ReleaseMutex(h_mutex)
+        finally:
+            self._k32.CloseHandle(h_mutex)
+
+    def open_shared_read_no_delete(self, file_path):
+        share_mode = self.FILE_SHARE_READ | self.FILE_SHARE_WRITE
+        handle = self._k32.CreateFileW(
+            file_path,
+            self.GENERIC_READ,
+            share_mode,
+            None,
+            self.OPEN_EXISTING,
+            self.FILE_ATTRIBUTE_NORMAL,
+            None,
+        )
+        if not handle or handle == self.INVALID_HANDLE_VALUE:
+            raise ctypes.WinError(ctypes.get_last_error())
+        return handle
+
+    def close_handle(self, handle):
+        self._k32.CloseHandle(handle)
+
+
+class RicaunBundleLease:
+    """
+    Coordinates concurrent worker access to %APPDATA%/Autodesk/ApplicationPlugins/ricaun.RevitTest.Application.bundle
+    via a Win32 mutex and a shared-read (no FILE_SHARE_DELETE) file handle on PackageContents.xml.
+    """
+
+    def __init__(
+        self,
+        appdata=None,
+        testadapter_search_dirs=None,
+        testadapter_dll=None,
+        mutex_name=BUNDLE_LEASE_MUTEX_NAME,
+        env=None,
+    ):
+        env_map = os.environ if env is None else env
+        resolved_appdata = appdata or env_map.get("AppData") or os.path.expanduser("~\\AppData\\Roaming")
+        self.bundle_dir = os.path.join(
+            resolved_appdata, "Autodesk", "ApplicationPlugins", RICAUN_BUNDLE_FOLDER_NAME
+        )
+        self.package_contents_path = os.path.join(self.bundle_dir, "PackageContents.xml")
+        self.testadapter_search_dirs = list(testadapter_search_dirs or ())
+        self.testadapter_dll = testadapter_dll
+        self.mutex_name = mutex_name
+        self.env = env_map
+        self._win32 = _Win32KernelLease()
+        self._handle = None
+
+    def __enter__(self):
+        h_mutex = self._win32.acquire_mutex(self.mutex_name)
+        try:
+            if not os.path.isfile(self.package_contents_path):
+                adapter_dll = self.testadapter_dll or find_ricaun_testadapter_dll(
+                    search_dirs=self.testadapter_search_dirs, env=self.env
+                )
+                seed_ricaun_bundle_from_testadapter(adapter_dll, self.bundle_dir)
+            self._handle = self._win32.open_shared_read_no_delete(self.package_contents_path)
+            return self
+        finally:
+            self._win32.release_mutex(h_mutex)
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        h_mutex = self._win32.acquire_mutex(self.mutex_name)
+        try:
+            if self._handle is not None:
+                self._win32.close_handle(self._handle)
+                self._handle = None
+
+            if os.path.exists(self.package_contents_path):
+                try:
+                    os.remove(self.package_contents_path)
+                except PermissionError:
+                    # Another active worker still holds a shared-read lease without FILE_SHARE_DELETE
+                    return
+                except FileNotFoundError:
                     pass
 
-    def __enter__(self):
-        self.restore_addins()
-        self.disable_addins()
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.restore_addins()
-
-class TempConfigureRevitAddins:
-    def __init__(self, version):
-        self.version = version
-        self.added_guids = []
-        
-    def whitelist_existing_addins(self):
-        new_guids = guid_whitelister.whitelist_existing_addins(self.version)
-        self.added_guids.extend(new_guids)
-        
-    def __enter__(self):
-        self.whitelist_existing_addins()
-        return self
-        
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if self.added_guids:
-            guid_whitelister.cleanup_whitelisted_registry_entries(self.version, self.added_guids)
+            if os.path.isdir(self.bundle_dir):
+                shutil.rmtree(self.bundle_dir, ignore_errors=True)
+        finally:
+            self._win32.release_mutex(h_mutex)
 
 
 RUN_DIR_PATTERN = re.compile(r"^\d{8}_\d{6}_\d+_[0-9a-fA-F]+$")
@@ -497,6 +677,127 @@ def rotate_test_results(results_root, keep=MAX_TEST_RESULT_RUNS):
     return removed
 
 
+def build_worker_env(workspace_path, run_id, base_env=None):
+    """Build isolated child environment variables for Revit test worker processes."""
+    env = dict(os.environ if base_env is None else base_env)
+    env["SYNTHETIC_PROJECT_ROOT"] = workspace_path
+    env["SYNTHETIC_TEST_WORKER"] = "1"
+    env["SYNTHETIC_TEST_RUN_ID"] = str(run_id)
+    env["RICAUN_REVITTEST_CONSOLE_PROCESS_ARGUMENTS"] = "/nosplash"
+    return env
+
+
+def get_default_journals_dir(version, env=None):
+    env_map = os.environ if env is None else env
+    local_appdata = env_map.get("LOCALAPPDATA") or os.path.expanduser("~\\AppData\\Local")
+    return os.path.join(local_appdata, "Autodesk", "Revit", f"Autodesk Revit {version}", "Journals")
+
+
+def snapshot_known_journals(version, snapshot_path, journals_dir=None, env=None):
+    """Snapshot pre-launch journal*.txt files into a JSON list before starting Revit."""
+    target_dir = journals_dir or get_default_journals_dir(version, env=env)
+    known = []
+    if os.path.isdir(target_dir):
+        for entry in sorted(os.listdir(target_dir)):
+            if entry.startswith("journal") and entry.endswith(".txt"):
+                full_path = os.path.join(target_dir, entry)
+                if os.path.isfile(full_path):
+                    known.append(os.path.abspath(full_path))
+
+    os.makedirs(os.path.dirname(os.path.abspath(snapshot_path)), exist_ok=True)
+    with open(snapshot_path, "w", encoding="utf-8") as f:
+        json.dump(known, f, indent=2)
+    return snapshot_path
+
+
+def kill_process_tree(pid, runner=subprocess.run):
+    """Terminate only the timed-out dotnet test / Revit child PID tree."""
+    return runner(
+        ["taskkill", "/F", "/T", "/PID", str(pid)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def get_journal_tool_path():
+    return os.path.abspath(
+        os.path.join(_SCRIPT_DIR, "..", "..", "revit-journal-telemetry", "scripts", "revit_journal_tool.py")
+    )
+
+
+def run_journal_cleanliness_gate(
+    version,
+    run_id,
+    snapshot_path,
+    python_exe=sys.executable,
+    journal_tool_path=None,
+    runner=subprocess.run,
+):
+    """Run revit_journal_tool.py --assert-clean for the completed worker run."""
+    tool_path = journal_tool_path or get_journal_tool_path()
+    cmd = [
+        python_exe,
+        tool_path,
+        "--version",
+        str(version),
+        "--run-id",
+        str(run_id),
+        "--known-journals-file",
+        snapshot_path,
+        "--assert-clean",
+    ]
+    res = runner(cmd, capture_output=True, text=True)
+    parts = [p.strip() for p in (res.stdout, res.stderr) if p and p.strip()]
+    return res.returncode == 0, "\n".join(parts)
+
+
+def cleanup_revit_test_temp(run_id, temp_dir=None):
+    """Remove %TEMP%/RevitTest/*<run_id>* archives and extracted folders for passing runs."""
+    if not run_id:
+        return []
+    revit_test_dir = os.path.join(temp_dir or tempfile.gettempdir(), "RevitTest")
+    if not os.path.isdir(revit_test_dir):
+        return []
+    removed = []
+    for entry in os.listdir(revit_test_dir):
+        if run_id not in entry:
+            continue
+        candidate = os.path.join(revit_test_dir, entry)
+        try:
+            if os.path.isdir(candidate):
+                shutil.rmtree(candidate, ignore_errors=True)
+            elif os.path.isfile(candidate):
+                os.remove(candidate)
+            removed.append(candidate)
+        except OSError:
+            pass
+    return removed
+
+
+def execute_revit_test_process(
+    cmd,
+    out_f,
+    worker_env,
+    timeout=660,
+    popen_fn=subprocess.Popen,
+    tree_killer=kill_process_tree,
+):
+    """Launch dotnet test for a Revit worker and kill only its PID tree on timeout."""
+    proc = popen_fn(cmd, stdout=out_f, stderr=out_f, env=worker_env)
+    timed_out = False
+    try:
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        print(f"[TESTS] Test execution timed out after {timeout} seconds. Killing worker PID tree {proc.pid}...")
+        tree_killer(proc.pid)
+        try:
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+    return (proc.returncode if proc.returncode is not None else 1), timed_out
+
+
 def run_test_suite(target_class="", target_version="", category="", no_pool=False):
     workspace_path = os.getcwd()
     os.environ["SYNTHETIC_PROJECT_ROOT"] = workspace_path
@@ -507,7 +808,7 @@ def run_test_suite(target_class="", target_version="", category="", no_pool=Fals
     test_dir = os.path.join(workspace_path, "tests")
     test_projects = discover_test_projects(test_dir)
 
-    # Self-heal any previously disabled add-ins across discovered Revit versions on start
+    # Self-heal any leftover AddInsSettings.json.bak from older runs without mutating AddInsSettings.json
     for v in [ver for ver in test_projects if ver.isdigit()]:
         try:
             TempDisableThirdPartyAddins(v).restore_addins()
@@ -622,33 +923,35 @@ def run_test_suite(target_class="", target_version="", category="", no_pool=Fals
 
         out_file_path = os.path.join(run_results_dir, f"output_{ver}.log")
         proc_returncode = 0
-        with open(out_file_path, "w", encoding="utf-8") as out_f:
-            if is_logic:
+        if is_logic:
+            with open(out_file_path, "w", encoding="utf-8") as out_f:
                 res = subprocess.run(cmd, stdout=out_f, stderr=out_f)
                 proc_returncode = res.returncode
-            else:
-                with TempDisableThirdPartyAddins(ver):
-                    with TempConfigureRevitAddins(ver) as configurer:
-                        proc = subprocess.Popen(cmd, stdout=out_f, stderr=out_f)
-                        start_time = time.time()
-                        timeout = 660  # 11 min: matches 600s ricaun.RevitTest.Timeout + 60s Revit boot buffer
-                        print(f"[TESTS] Waiting for Revit {ver} test execution to complete (timeout: {timeout}s)...")
+        else:
+            guid_whitelister.whitelist_existing_addins(ver)
+            snapshot_path = os.path.join(run_results_dir, f"known_journals_{ver}.json")
+            snapshot_known_journals(ver, snapshot_path)
+            worker_env = build_worker_env(workspace_path, run_id)
+            isolated_test_outdir = os.path.join(
+                run_build_root, "bin", f"{os.path.splitext(os.path.basename(csproj_path))[0]}_{run_id}"
+            )
+            timeout = 660  # 11 min: matches 10m NUnit.Timeout + 60s Revit boot buffer
 
-                        while time.time() - start_time < timeout:
-                            configurer.whitelist_existing_addins()
-                            if proc.poll() is not None:
-                                break
-                            time.sleep(0.5)
+            with open(out_file_path, "w", encoding="utf-8") as out_f:
+                with RicaunBundleLease(testadapter_search_dirs=[isolated_test_outdir]):
+                    print(f"[TESTS] Waiting for Revit {ver} test execution to complete (timeout: {timeout}s)...")
+                    proc_returncode, timed_out = execute_revit_test_process(
+                        cmd, out_f, worker_env, timeout=timeout
+                    )
+                    if timed_out:
+                        had_execution_error = True
 
-                    if proc.poll() is None:
-                        print(f"[TESTS] Test execution timed out after {timeout} seconds. Killing Revit...")
-                        subprocess.run(["taskkill", "/F", "/IM", "Revit.exe"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                        try:
-                            proc.wait(timeout=10)
-                        except subprocess.TimeoutExpired:
-                            proc.kill()
-
-                    proc_returncode = proc.returncode if proc.returncode is not None else 1
+            is_clean, gate_output = run_journal_cleanliness_gate(ver, run_id, snapshot_path)
+            if gate_output:
+                print(gate_output)
+            if not is_clean:
+                had_execution_error = True
+                print(f"[ERROR] Revit {ver} failed post-run journal cleanliness gate (--assert-clean).")
 
         if proc_returncode != 0 and not os.path.exists(os.path.join(run_results_dir, log_name)):
             had_execution_error = True
@@ -727,6 +1030,7 @@ def run_test_suite(target_class="", target_version="", category="", no_pool=Fals
         sys.exit(1)
     else:
         shutil.rmtree(run_build_root, ignore_errors=True)
+        cleanup_revit_test_temp(run_id)
         if total_run > 0:
             print(f"## All tests passed successfully! [PASS] (Total: {total_passed})")
         else:
