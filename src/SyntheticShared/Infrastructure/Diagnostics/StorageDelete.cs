@@ -10,7 +10,7 @@ using Autodesk.Revit.DB.ExtensibleStorage;
 using Synthetic.Shared.UI;
 
 using Synthetic.Shared.RevitAPI;
-using Synthetic.Infrastructure.IO;
+using Synthetic.Platform.IO;
 
 using Synthetic.Infrastructure.Diagnostics;
 using Synthetic.Modules.StandardsManagement.ViewModels;

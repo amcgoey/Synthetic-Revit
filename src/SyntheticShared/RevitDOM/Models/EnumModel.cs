@@ -5,7 +5,7 @@ using System.Linq;
 using RevitDB = Autodesk.Revit.DB;
 using RevitDoc = Autodesk.Revit.DB.Document;
 
-using SynthEnum = Synthetic.Shared.EnumUtil;
+using SynthEnum = Synthetic.Platform.IO.EnumUtil;
 
 using Newtonsoft.Json;
 

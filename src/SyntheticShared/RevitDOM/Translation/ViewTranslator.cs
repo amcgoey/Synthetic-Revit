@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.DB;
 using RevitView = Autodesk.Revit.DB.View;
-using Synthetic.Shared;
 
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;

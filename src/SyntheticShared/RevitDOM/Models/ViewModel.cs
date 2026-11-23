@@ -4,7 +4,7 @@ using System.Linq;
 using System.Reflection;
 
 using Newtonsoft.Json;
-using Synthetic.Infrastructure.Serialization;
+using Synthetic.Platform.IO;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Autodesk.Revit.DB;
 using View = Autodesk.Revit.DB.View;

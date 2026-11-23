@@ -11,7 +11,7 @@ using Autodesk.Revit.UI;
 using Autodesk.Revit.UI.Selection;
 
 using Synthetic.Shared.RevitAPI;
-using Synthetic.Infrastructure.IO;
+using Synthetic.Platform.IO;
 
 using Synthetic.Shared.UI;
 

@@ -5,7 +5,7 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
-using Synthetic.Infrastructure.Serialization;
+using Synthetic.Platform.IO;
 
 using Synthetic.Shared.RevitAPI;
 using Synthetic.Modules.StandardsManagement.ViewModels;
