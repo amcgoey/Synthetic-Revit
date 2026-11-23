@@ -5,7 +5,7 @@ using System.Linq;
 using Autodesk.Revit.DB;
 using Newtonsoft.Json;
 using Synthetic.Modules.MergeDuplicates.Services;
-using Synthetic.RevitDOM.Operations.Merge;
+using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 
 namespace SyntheticTests.Helpers

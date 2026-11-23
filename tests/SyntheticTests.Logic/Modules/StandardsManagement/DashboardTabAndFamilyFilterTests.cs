@@ -5,7 +5,6 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.Features.StandardsManagement.Settings;
 using Synthetic.Platform.Settings;
 using Synthetic.Platform.UI;
@@ -152,7 +151,7 @@ namespace SyntheticTests.Modules.StandardsManagement
             File.WriteAllText(tempJsonFile, @"{
                 ""Materials"": {
                     ""Concrete"": {
-                        ""$type"": ""Synthetic.RevitDOM.Models.MaterialModel, SyntheticShared"",
+                        ""$type"": ""Synthetic.RevitDOM.Models.MaterialModel, Synthetic.Core"",
                         ""Name"": ""Concrete"",
                         ""Class"": ""Autodesk.Revit.DB.Material"",
                         ""UniqueId"": ""abc-123""

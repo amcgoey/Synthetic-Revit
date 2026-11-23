@@ -6,7 +6,6 @@ using Autodesk.Revit.DB;
 using Synthetic.Modules.MergeDuplicates.Services;
 using Synthetic.Modules.MergeDuplicates.Handlers;
 using Synthetic.Modules.MergeDuplicates.ViewModels;
-using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.RevitDOM.Models;
 
 namespace SyntheticTests.Logic.Modules.MergeDuplicates

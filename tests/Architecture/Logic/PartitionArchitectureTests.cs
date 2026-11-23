@@ -152,7 +152,8 @@ namespace SyntheticTests.Architecture
                     }
 
                     string text = File.ReadAllText(file);
-                    if (Regex.IsMatch(text, @"\bAutodesk\.Revit\b"))
+                    string codeOnly = StripCommentsAndStringLiterals(text);
+                    if (Regex.IsMatch(codeOnly, @"\bAutodesk\.Revit\b"))
                     {
                         csViolations.Add($"src/{rel} references Autodesk.Revit");
                     }
@@ -581,6 +582,75 @@ namespace SyntheticTests.Architecture
             }
 
             Assert.IsEmpty(violations, string.Join(Environment.NewLine, violations));
+        }
+
+        [Test]
+        public void RevitDom_HasZeroFeatureUiOrRevitUiDependencies_AndCoreAndLogicTestsAreRevitFree()
+        {
+            string projectRoot = TestPathHelper.GetProjectRoot();
+            string revitDomDir = Path.Combine(projectRoot, "src", "RevitDOM");
+            string revitDomCoreDir = Path.Combine(revitDomDir, "Core");
+            string revitDomAddinDir = Path.Combine(revitDomDir, "Addin");
+            string revitDomLogicTestsDir = Path.Combine(projectRoot, "tests", "RevitDOM", "Logic");
+
+            Assert.IsTrue(Directory.Exists(revitDomCoreDir), $"Expected src/RevitDOM/Core directory at {revitDomCoreDir}");
+            Assert.IsTrue(Directory.Exists(revitDomAddinDir), $"Expected src/RevitDOM/Addin directory at {revitDomAddinDir}");
+            Assert.IsTrue(Directory.Exists(revitDomLogicTestsDir), $"Expected tests/RevitDOM/Logic directory at {revitDomLogicTestsDir}");
+
+            string[] forbiddenRevitDomPatterns =
+            {
+                @"\bSynthetic\.Features\b",
+                @"\bSynthetic\.Modules\b",
+                @"\bSynthetic\.Platform\.UI\b",
+                @"\bSynthetic\.Shared\.UI\b",
+                @"\bSystem\.Windows\b",
+                @"\bAutodesk\.Revit\.UI\b"
+            };
+
+            var violations = new List<string>();
+            foreach (string file in Directory.EnumerateFiles(revitDomDir, "*.cs", SearchOption.AllDirectories))
+            {
+                string rel = GetRelativeNormalizedPath(projectRoot, file);
+                string text = File.ReadAllText(file);
+                foreach (string pattern in forbiddenRevitDomPatterns)
+                {
+                    if (Regex.IsMatch(text, pattern))
+                    {
+                        violations.Add($"{rel} matched forbidden pattern '{pattern}'.");
+                    }
+                }
+            }
+
+            foreach (string file in Directory.EnumerateFiles(revitDomLogicTestsDir, "*.cs", SearchOption.AllDirectories))
+            {
+                string rel = GetRelativeNormalizedPath(projectRoot, file);
+                string codeOnly = StripCommentsAndStringLiterals(File.ReadAllText(file));
+                if (Regex.IsMatch(codeOnly, @"\bAutodesk\.Revit\b"))
+                {
+                    violations.Add($"{rel} references Autodesk.Revit (RevitDOM/Logic must be pure headless).");
+                }
+            }
+
+            Assembly logicTestsAssembly = typeof(PartitionArchitectureTests).Assembly;
+            var testRevitRefs = logicTestsAssembly.GetReferencedAssemblies()
+                .Where(a => !string.IsNullOrEmpty(a.Name) &&
+                            (a.Name!.StartsWith("RevitAPI", StringComparison.OrdinalIgnoreCase) ||
+                             a.Name.StartsWith("Autodesk.Revit", StringComparison.OrdinalIgnoreCase)))
+                .Select(a => a.FullName)
+                .ToList();
+            Assert.IsEmpty(testRevitRefs, "Synthetic.LogicTests.dll must not reference Revit API or RevitAPIMock assemblies.");
+
+            Assert.IsEmpty(violations, string.Join(Environment.NewLine, violations));
+        }
+
+        private static string StripCommentsAndStringLiterals(string source)
+        {
+            // Strip verbatim strings, normal strings, single-line comments, and block comments
+            // so string discriminators like "Autodesk.Revit.DB.Material" are not mistaken for API imports.
+            return Regex.Replace(
+                source,
+                @"@""(?:""""|[^""])*""|""(?:\\.|[^""\\])*""|//[^\r\n]*|/\*[\s\S]*?\*/",
+                " ");
         }
 
         private static string GetRelativeNormalizedPath(string rootDir, string fullPath)

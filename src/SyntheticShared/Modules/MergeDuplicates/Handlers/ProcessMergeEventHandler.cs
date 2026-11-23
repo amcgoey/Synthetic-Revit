@@ -14,7 +14,6 @@ using Synthetic.RevitDOM;
 using Synthetic.Platform.IO;
 using Synthetic.Platform.UI;
 using Synthetic.Modules.MergeDuplicates.ViewModels;
-using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Platform.Revit;
 using Synthetic.Modules.MergeDuplicates.Services;
