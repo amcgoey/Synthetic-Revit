@@ -1,55 +1,55 @@
 ---
 name: revit-transactions
-description: Strategy for Revit transactions and transaction groups. Use when writing code that makes changes to the Revit database or executes commands.
+description: Manage Revit transactions and TransactionGroups via DocumentTransactionExtensions. Use when writing code that modifies the Revit database or executes commands.
 ---
 
 # Revit Transaction Management Playbook (`revit-transactions`)
 
-Use these patterns to maintain memory stability, preserve performance, and provide a clean Undo stack for the user when modifying the Revit database.
+Use [`DocumentTransactionExtensions`](../../../src/Platform/Revit/Addin/DocumentTransactionExtensions.cs) (`namespace Synthetic.Platform.Revit`) to execute Revit database modifications with entry guards, clean Undo-stack lifetimes, and explicit failure handling ([`revit-failure-handling`](../revit-failure-handling/SKILL.md)).
 
-## 1. The Assimilated Transaction Group Pattern
+## 1. Managed Transaction & Group APIs (`DocumentTransactionExtensions`)
 
-Wrap multi-phase database modifications in a single overarching `TransactionGroup`, collapse them on success, and isolate individual changes using standard `Transaction` blocks.
+### Entry Guards
+`ExecuteTransaction`, `ExecuteCommittedBatchGroup`, and `ExecuteRolledBackGroup` validate `doc`, non-whitespace `name`, and non-null `action` on entry, then check `doc.IsReadOnly` and `doc.IsModifiable`—throwing `InvalidOperationException` if the document is read-only or already has an open transaction.
 
-### Scope Elevation
-Initialize the `TransactionGroup` at the highest logical tier of the call stack (e.g., the external command entry point or main view model handler) rather than inside deep sub-services or loops.
+### Single Transactions & Mandatory Failure Policy
+Every `CreateTransaction` and `ExecuteTransaction` overload requires a non-null `IFailuresPreprocessor` (`ArgumentNullException` when `null`; zero default-null overloads). Pass a preset from [`FailurePipelines`](../../../src/Platform/Revit/Addin/FailurePipelines.cs) (`ObserveOnly()`, `Purge()`, `SuppressConstraints()`, or — only when explicitly authorized — `DeleteAllWarningsRecorded()`) or a custom pipeline per [`revit-failure-handling`](../revit-failure-handling/SKILL.md):
 
-### Individual Transactions
-Within the group, perform logical batches of work in separate `Transaction` blocks. This isolates errors and keeps each block focused:
+* **`doc.ExecuteTransaction(name, preprocessor, action, clearAfterRollback = false)`** (`Action`, `Action<Document>`, or `Action<Transaction>`): Starts and commits the `Transaction`, rolls back if `tx.GetStatus() == TransactionStatus.Started` on exception before rethrowing, and returns [`FailureProcessingReport`](../../../src/Platform/Revit/Core/FailureProcessingReport.cs) (populated from `CompositeFailuresPreprocessor.Report`).
+* **`doc.CreateTransaction(name, preprocessor, clearAfterRollback = false)`**: Returns an unstarted `Transaction` with `FailureHandlingOptions` (`SetFailuresPreprocessor` and optional `SetClearAfterRollback(true)`) configured for callers managing `Start()`/`Commit()`/`RollBack()` manually.
+
+### Transaction Group Wrappers
+* **`doc.ExecuteCommittedBatchGroup(name, action)`** (`Action` or `Action<Document>`): Wraps persistent multi-transaction batches inside a `TransactionGroup`. Calls `group.Assimilate()` on clean completion to collapse inner commits into a single Undo-stack entry. On exception, calls `group.RollBack()` via `TryRollBackGroupWithoutMasking`—if an inner `Transaction` remained open and Revit throws during group rollback, the rollback failure logs to `Debug.WriteLine` so the original inner exception propagates unmasked.
+* **`doc.ExecuteRolledBackGroup(name, action)`** (`Action` or `Action<Document>`): Wraps ephemeral probes, non-mutating exports, or integration tests inside a `TransactionGroup` that calls `group.RollBack()` unconditionally in `finally`, leaving zero persistent model or Undo-stack changes. Calls `group.RollBack()` directly after clean completion and `TryRollBackGroupWithoutMasking` during exception unwinding so inner exceptions stay unmasked.
+
+## 2. Batch Execution Pattern
 
 ```csharp
-using (TransactionGroup tg = new TransactionGroup(doc, "Import Project Standards"))
+doc.ExecuteCommittedBatchGroup("Import Project Standards", () =>
 {
-    tg.Start();
-
-    // Process elements in logical batches
     foreach (var batch in elementBatches)
     {
-        using (Transaction t = new Transaction(doc, $"Import Batch {batch.Name}"))
+        try
         {
-            t.Start();
-            try
-            {
-                // Perform Revit database modifications here
-                ProcessBatch(batch);
-                t.Commit();
-            }
-            catch (Exception ex)
-            {
-                t.Rollback();
-                // Capture element failures and proceed with other batches
-                LogFailure(batch, ex);
-            }
+            FailureProcessingReport report = doc.ExecuteTransaction(
+                $"Import Batch {batch.Name}",
+                FailurePipelines.ObserveOnly(),
+                () => ProcessBatch(doc, batch));
+
+            RecordBatchTelemetry(batch, report);
+        }
+        catch (Exception ex)
+        {
+            // ExecuteTransaction rolled back the failing batch transaction; record and proceed.
+            // Allow fatal batch-wide exceptions to escape so ExecuteCommittedBatchGroup rolls back the group.
+            LogFailure(batch, ex);
         }
     }
-
-    // Collapse all successful transactions into a single entry in Revit's Undo stack
-    tg.Assimilate();
-}
+});
 ```
 
-## 2. Key Transaction Rules
+## 3. Architectural Transaction Rules
 
-1. **The Partial-Commit Rule:** If an intermediate transaction fails inside an execution loop, commit the valid transactions and record the specific element failures. Avoid nuclear rollbacks of the entire operation unless it is a fatal requirement of the feature.
-2. **The Assimilation Rule:** Always call `group.Assimilate()` at the end of a successful transaction group to keep the user's Undo menu tidy. Use `group.RollBack()` only if the entire operation fails.
-3. **Deep Seams Rule:** Keep sub-services and deep modules transactional-agnostic. Deep modules should accept a reference to an active document or context and perform operations without initiating their own internal transactions.
+1. **Scope Elevation:** Start `ExecuteCommittedBatchGroup` or `ExecuteRolledBackGroup` at the highest orchestration tier (external command, external event handler, or export entry point).
+2. **Transaction-Agnostic Deep Seams:** Keep sub-services and domain helpers free of internal `Transaction` or `TransactionGroup` creation; accept `Document` (or a context wrapper) and execute within caller-managed scopes.
+3. **Partial-Commit Isolation:** Inside batch loops, isolate each independent unit in its own `ExecuteTransaction` within `ExecuteCommittedBatchGroup`; catch non-fatal per-item failures inside the loop so valid commits assimilate together, and let fatal batch-wide failures escape to roll back the group.

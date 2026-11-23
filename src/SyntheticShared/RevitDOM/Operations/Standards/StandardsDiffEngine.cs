@@ -12,7 +12,7 @@ using Synthetic.Platform.IO;
 using Synthetic.Modules.MergeDuplicates.Handlers;
 using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Shared.RevitAPI;
+using Synthetic.Platform.Revit;
 
 namespace Synthetic.RevitDOM.Operations.Standards
 {

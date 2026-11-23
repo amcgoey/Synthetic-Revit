@@ -102,7 +102,7 @@ namespace Synthetic.RevitDOM.Translation
             if (!string.IsNullOrEmpty(fullName))
             {
                 _compositeToTranslator[(modelType, fullName)] = translator;
-                foreach (var alias in Synthetic.Shared.RevitAPI.Select.GetNamespaceAliasCandidates(fullName))
+                foreach (var alias in Synthetic.Platform.Revit.Select.GetNamespaceAliasCandidates(fullName))
                 {
                     _compositeToTranslator[(modelType, alias)] = translator;
                 }
@@ -306,7 +306,7 @@ namespace Synthetic.RevitDOM.Translation
                 }
 
                 // Try namespace alias candidates
-                foreach (var alias in Synthetic.Shared.RevitAPI.Select.GetNamespaceAliasCandidates(revitClass))
+                foreach (var alias in Synthetic.Platform.Revit.Select.GetNamespaceAliasCandidates(revitClass))
                 {
                     if (TryResolveCompositeByClass(modelType, alias, out var aliasMatch))
                     {

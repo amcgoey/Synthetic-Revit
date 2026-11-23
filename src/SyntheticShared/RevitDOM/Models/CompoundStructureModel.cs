@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using Synthetic.Platform.IO;
 using Synthetic.Modules.MergeDuplicates.Handlers;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Shared.RevitAPI;
+using Synthetic.Platform.Revit;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;

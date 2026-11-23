@@ -6,8 +6,8 @@ using System.Threading;
 using Newtonsoft.Json;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Architecture;
+using Synthetic.Platform.Revit;
 using Synthetic.RevitDOM.Operations.Merge;
-using Synthetic.Shared.RevitAPI;
 
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
@@ -135,269 +135,224 @@ namespace Synthetic.RevitDOM.Operations
 
             // Establish the deferred post-commit queue
             var modelsWithAliases = new List<(ElementId PrimaryId, ElementModel Model)>();
+            IFailuresPreprocessor effectivePreprocessor = failuresPreprocessor ?? FailurePipelines.ObserveOnly();
 
-            using (var txGroup = new TransactionGroup(doc, "Import Models"))
+            doc.ExecuteCommittedBatchGroup("Import Models", () =>
             {
-                txGroup.Start();
-                try
+                foreach (var model in sortedModels)
                 {
-                    foreach (var model in sortedModels)
+                    if (cancellationToken.IsCancellationRequested)
                     {
-                        if (cancellationToken.IsCancellationRequested)
-                        {
-                            txGroup.RollBack();
-                            cancellationToken.ThrowIfCancellationRequested();
-                        }
+                        cancellationToken.ThrowIfCancellationRequested();
+                    }
 
-                        string modelName = (model is ElementModel em) ? em.Name : model.GetType().Name;
-                        progress?.Report($"Importing {modelName}...");
+                    string modelName = (model is ElementModel em) ? em.Name : model.GetType().Name;
+                    progress?.Report($"Importing {modelName}...");
 
-                        bool isSameLiveDocument = false;
-                        if (model is ElementModel incomingElementModel)
+                    bool isSameLiveDocument = false;
+                    if (model is ElementModel incomingElementModel)
+                    {
+                        isSameLiveDocument = !incomingElementModel.IsTemplate && incomingElementModel.Document != null && ReferenceEquals(incomingElementModel.Document, doc);
+                        if (!isSameLiveDocument)
                         {
-                            isSameLiveDocument = !incomingElementModel.IsTemplate && incomingElementModel.Document != null && ReferenceEquals(incomingElementModel.Document, doc);
-                            if (!isSameLiveDocument)
+                            incomingElementModel.Element = null;
+                            incomingElementModel.Document = null;
+                            if (incomingElementModel is ElementTypeModel elemTypeModel)
                             {
-                                incomingElementModel.Element = null;
-                                incomingElementModel.Document = null;
-                                if (incomingElementModel is ElementTypeModel elemTypeModel)
-                                {
-                                    elemTypeModel.ElementType = null;
-                                }
-                                if (incomingElementModel is DimensionTypeModel dimTypeModel)
-                                {
-                                    dimTypeModel.DimensionType = null;
-                                }
-                                if (incomingElementModel is HostObjTypeModel hostTypeModel)
-                                {
-                                    hostTypeModel.WallType = null;
-                                }
-                                if (incomingElementModel is ViewModel viewModel)
-                                {
-                                    viewModel.View = null;
-                                }
-                                if (incomingElementModel is CategoryModel categoryModel)
-                                {
-                                    categoryModel.RevitCategory = null;
-                                }
+                                elemTypeModel.ElementType = null;
+                            }
+                            if (incomingElementModel is DimensionTypeModel dimTypeModel)
+                            {
+                                dimTypeModel.DimensionType = null;
+                            }
+                            if (incomingElementModel is HostObjTypeModel hostTypeModel)
+                            {
+                                hostTypeModel.WallType = null;
+                            }
+                            if (incomingElementModel is ViewModel viewModel)
+                            {
+                                viewModel.View = null;
+                            }
+                            if (incomingElementModel is CategoryModel categoryModel)
+                            {
+                                categoryModel.RevitCategory = null;
                             }
                         }
+                    }
 
-                        if (!StandardTypeRegistry.IsInDocumentScope(model, doc.IsFamilyDocument))
+                    if (!StandardTypeRegistry.IsInDocumentScope(model, doc.IsFamilyDocument))
+                    {
+                        string className = (model as ElementModel)?.Class ?? model.GetType().Name;
+                        results.Add(new SerializationResultModel(model, (model as ElementModel)?.ElementId)
                         {
-                            string className = (model as ElementModel)?.Class ?? model.GetType().Name;
-                            results.Add(new SerializationResultModel(model, (model as ElementModel)?.ElementId)
+                            Action = "Skipped",
+                            Message = $"Skipped '{modelName}' ({className}): out of scope for {(doc.IsFamilyDocument ? "family" : "project")} document."
+                        });
+                        continue;
+                    }
+
+                    var translator = _dispatcher.GetTranslator(model);
+                    if (translator == null)
+                    {
+                        results.Add(new SerializationResultModel(model, $"No translator registered for model: {modelName}")
+                        {
+                            Action = "Failed",
+                            Message = $"No translator registered for model: {modelName}"
+                        });
+                        continue;
+                    }
+
+                    if (model is ElementModel elementModel)
+                    {
+                        SerializationResultModel.ClearWarnings();
+
+                        var identityModel = elementModel.ElementId;
+
+                        // Preserve aliases list before it gets cleared by identity model updates
+                        var aliases = elementModel.Aliases != null ? new List<string>(elementModel.Aliases) : null;
+
+                        // Resolve the primary element using disambiguated target resolution without aliases
+                        // to prevent resolving the primary element to its own alias elements.
+                        var element = StandardTypeRegistry.ResolveTargetElement(
+                            elementModel,
+                            doc,
+                            _identityService,
+                            allowPositiveId: isSameLiveDocument);
+
+                        bool isUnchanged = false;
+                        if (element != null)
+                        {
+                            isUnchanged = IsElementSameAsModel(elementModel, element, doc);
+                        }
+
+                        if (isUnchanged)
+                        {
+                            BindResultingElementToModel(element, elementModel, doc, aliases, modelsWithAliases);
+
+                            results.Add(new SerializationResultModel(model, identityModel)
                             {
-                                Action = "Skipped",
-                                Message = $"Skipped '{modelName}' ({className}): out of scope for {(doc.IsFamilyDocument ? "family" : "project")} document."
+                                Action = "Unchanged",
+                                Message = "Object is identical to the target model. Edit skipped."
                             });
-                            continue;
-                        }
-
-                        var translator = _dispatcher.GetTranslator(model);
-                        if (translator == null)
-                        {
-                            results.Add(new SerializationResultModel(model, $"No translator registered for model: {modelName}")
-                            {
-                                Action = "Failed",
-                                Message = $"No translator registered for model: {modelName}"
-                            });
-                            continue;
-                        }
-
-                        if (model is ElementModel elementModel)
-                        {
-                            SerializationResultModel.ClearWarnings();
-
-                            var identityModel = elementModel.ElementId;
-
-                            // Preserve aliases list before it gets cleared by identity model updates
-                            var aliases = elementModel.Aliases != null ? new List<string>(elementModel.Aliases) : null;
-
-                            // Resolve the primary element using disambiguated target resolution without aliases
-                            // to prevent resolving the primary element to its own alias elements.
-                            var element = StandardTypeRegistry.ResolveTargetElement(
-                                elementModel,
-                                doc,
-                                _identityService,
-                                allowPositiveId: isSameLiveDocument);
-
-                            bool isUnchanged = false;
-                            if (element != null)
-                            {
-                                isUnchanged = IsElementSameAsModel(elementModel, element, doc);
-                            }
-
-                            if (isUnchanged)
-                            {
-                                BindResultingElementToModel(element, elementModel, doc, aliases, modelsWithAliases);
-
-                                results.Add(new SerializationResultModel(model, identityModel)
-                                {
-                                    Action = "Unchanged",
-                                    Message = "Object is identical to the target model. Edit skipped."
-                                });
-                            }
-                            else
-                            {
-                                using (var tx = new Transaction(doc, $"Import {modelName}"))
-                                {
-                                    if (failuresPreprocessor != null)
-                                    {
-                                        FailureHandlingOptions options = tx.GetFailureHandlingOptions();
-                                        options.SetFailuresPreprocessor(failuresPreprocessor);
-                                        tx.SetFailureHandlingOptions(options);
-                                    }
-                                    tx.Start();
-                                    try
-                                    {
-                                        // Inject specific properties and handle creation
-                                        var resultingElement = translator.InjectSpecifics(elementModel, element, doc);
-                                        if (resultingElement == null)
-                                        {
-                                            throw new InvalidOperationException($"Element '{modelName}' could not be resolved or created.");
-                                        }
-
-                                        if (resultingElement is Element revitElement)
-                                        {
-                                            // Inject standard base parameters
-                                            ParameterEngine.InjectParameters(elementModel, revitElement, _identityService);
-                                        }
-
-                                        BindResultingElementToModel(resultingElement, elementModel, doc, aliases, modelsWithAliases);
-
-                                        tx.Commit();
-                                        
-                                        string actionStr = (element == null) ? "Created" : "Updated";
-                                        results.Add(new SerializationResultModel(model, identityModel) { Action = actionStr });
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        tx.RollBack();
-                                        results.Add(new SerializationResultModel(model, ex.Message, ex)
-                                        {
-                                            Action = "Failed",
-                                            Message = ex.Message
-                                        });
-                                    }
-                                }
-                            }
                         }
                         else
                         {
-                            results.Add(new SerializationResultModel(model, "Model must inherit from ElementModel to be imported.")
-                            {
-                                Action = "Failed",
-                                Message = "Model must inherit from ElementModel to be imported."
-                            });
-                        }
-                    }
-
-                    // Alias processing inside TransactionGroup prior to Assimilate()
-                    foreach (var queuedItem in modelsWithAliases)
-                    {
-                        var primaryId = queuedItem.PrimaryId;
-                        var model = queuedItem.Model;
-
-                        if (model.Aliases == null) continue;
-
-                        foreach (var aliasString in model.Aliases)
-                        {
-                            if (string.IsNullOrEmpty(aliasString)) continue;
-
-                            if (cancellationToken.IsCancellationRequested)
-                            {
-                                cancellationToken.ThrowIfCancellationRequested();
-                            }
-
                             try
                             {
-                                // Resolve the redundant alias element
-                                var aliasIdModel = new ElementIdModel
+                                doc.ExecuteTransaction($"Import {modelName}", effectivePreprocessor, () =>
                                 {
-                                    Name = aliasString,
-                                    Class = model.Class
-                                };
-                                ElementId aliasId = _identityService.ResolveElementId(aliasIdModel, doc);
-
-                                if (aliasId == null || aliasId == ElementId.InvalidElementId)
-                                {
-                                    // Skip silently if the alias does not exist in the document
-                                    continue;
-                                }
-
-                                if (aliasId != primaryId)
-                                {
-                                    // Deep-swap references using AliasSwapEngine (retains internal transaction boundaries)
-                                    RedirectionResultModel swapResult = AliasSwapEngine.SwapElementReferences(doc, aliasId, primaryId);
-
-                                    // Delete the redundant alias element wrapped in a transaction
-                                    using (var txDelete = new Transaction(doc, "Purge Alias Element"))
+                                    // Inject specific properties and handle creation
+                                    var resultingElement = translator.InjectSpecifics(elementModel, element, doc);
+                                    if (resultingElement == null)
                                     {
-                                        txDelete.Start();
-                                        try
-                                        {
-                                            doc.Delete(aliasId);
-                                            txDelete.Commit();
-                                        }
-                                        catch
-                                        {
-                                            if (txDelete.GetStatus() == TransactionStatus.Started)
-                                            {
-                                                txDelete.RollBack();
-                                            }
-                                            throw;
-                                        }
+                                        throw new InvalidOperationException($"Element '{modelName}' could not be resolved or created.");
                                     }
 
-                                    // Log success result
-                                    var successResult = new SerializationResultModel(model, _identityService.ToModel(primaryId, doc))
+                                    if (resultingElement is Element revitElement)
                                     {
-                                        Action = "Merged Alias",
-                                        Message = $"Successfully swapped and purged alias '{aliasString}'",
-                                        RedirectionResult = swapResult
-                                    };
-
-                                    if (swapResult != null && swapResult.Warnings != null && swapResult.Warnings.Count > 0)
-                                    {
-                                        successResult.Warnings.AddRange(swapResult.Warnings);
+                                        // Inject standard base parameters
+                                        ParameterEngine.InjectParameters(elementModel, revitElement, _identityService);
                                     }
 
-                                    results.Add(successResult);
-                                }
+                                    BindResultingElementToModel(resultingElement, elementModel, doc, aliases, modelsWithAliases);
+                                });
+
+                                string actionStr = (element == null) ? "Created" : "Updated";
+                                results.Add(new SerializationResultModel(model, identityModel) { Action = actionStr });
                             }
                             catch (Exception ex)
                             {
-                                // Graceful degradation: catch local exception and log failure, leaving primary element intact
-                                var failureResult = new SerializationResultModel(model, ex.Message, ex)
+                                results.Add(new SerializationResultModel(model, ex.Message, ex)
                                 {
-                                    Action = "Alias Swap Failed",
-                                    Message = $"Failed to swap and purge alias '{aliasString}': {ex.Message}"
-                                };
-                                results.Add(failureResult);
+                                    Action = "Failed",
+                                    Message = ex.Message
+                                });
                             }
                         }
                     }
+                    else
+                    {
+                        results.Add(new SerializationResultModel(model, "Model must inherit from ElementModel to be imported.")
+                        {
+                            Action = "Failed",
+                            Message = "Model must inherit from ElementModel to be imported."
+                        });
+                    }
+                }
 
-                    txGroup.Assimilate();
-                }
-                catch (OperationCanceledException)
+                // Alias processing inside TransactionGroup prior to Assimilate()
+                foreach (var queuedItem in modelsWithAliases)
                 {
-                    if (txGroup.GetStatus() == TransactionStatus.Started)
+                    var primaryId = queuedItem.PrimaryId;
+                    var model = queuedItem.Model;
+
+                    if (model.Aliases == null) continue;
+
+                    foreach (var aliasString in model.Aliases)
                     {
-                        txGroup.RollBack();
+                        if (string.IsNullOrEmpty(aliasString)) continue;
+
+                        if (cancellationToken.IsCancellationRequested)
+                        {
+                            cancellationToken.ThrowIfCancellationRequested();
+                        }
+
+                        try
+                        {
+                            // Resolve the redundant alias element
+                            var aliasIdModel = new ElementIdModel
+                            {
+                                Name = aliasString,
+                                Class = model.Class
+                            };
+                            ElementId aliasId = _identityService.ResolveElementId(aliasIdModel, doc);
+
+                            if (aliasId == null || aliasId == ElementId.InvalidElementId)
+                            {
+                                // Skip silently if the alias does not exist in the document
+                                continue;
+                            }
+
+                            if (aliasId != primaryId)
+                            {
+                                // Deep-swap references using AliasSwapEngine (retains internal transaction boundaries)
+                                RedirectionResultModel swapResult = AliasSwapEngine.SwapElementReferences(doc, aliasId, primaryId);
+
+                                // Delete the redundant alias element wrapped in a transaction
+                                doc.ExecuteTransaction("Purge Alias Element", effectivePreprocessor, () =>
+                                {
+                                    doc.Delete(aliasId);
+                                });
+
+                                // Log success result
+                                var successResult = new SerializationResultModel(model, _identityService.ToModel(primaryId, doc))
+                                {
+                                    Action = "Merged Alias",
+                                    Message = $"Successfully swapped and purged alias '{aliasString}'",
+                                    RedirectionResult = swapResult
+                                };
+
+                                if (swapResult != null && swapResult.Warnings != null && swapResult.Warnings.Count > 0)
+                                {
+                                    successResult.Warnings.AddRange(swapResult.Warnings);
+                                }
+
+                                results.Add(successResult);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            // Graceful degradation: catch local exception and log failure, leaving primary element intact
+                            var failureResult = new SerializationResultModel(model, ex.Message, ex)
+                            {
+                                Action = "Alias Swap Failed",
+                                Message = $"Failed to swap and purge alias '{aliasString}': {ex.Message}"
+                            };
+                            results.Add(failureResult);
+                        }
                     }
-                    throw;
                 }
-                catch (Exception)
-                {
-                    if (txGroup.GetStatus() == TransactionStatus.Started)
-                    {
-                        txGroup.RollBack();
-                    }
-                    throw;
-                }
-            }
+            });
 
             return results;
         }

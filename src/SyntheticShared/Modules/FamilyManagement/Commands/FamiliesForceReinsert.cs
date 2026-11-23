@@ -18,8 +18,7 @@ using System.Linq;
 using System.Runtime;
 using Autodesk.Revit.DB.Events;
 
-using Synthetic.Shared.RevitAPI;
-using SFamilyUtil = Synthetic.Shared.RevitAPI.FamilyUtil;
+using Synthetic.Features.FamilyManagement.Utilities;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
@@ -53,7 +52,7 @@ namespace Synthetic.Modules.FamilyManagement.Commands
             Application app = uiapp.Application;
             Document doc = uidoc.Document;
 
-            SFamilyUtil.ForceReinsertAnnotation(doc);
+            AnnotationFamilyReinserter.ForceReinsertAnnotation(doc);
             
             return Result.Succeeded;
         }

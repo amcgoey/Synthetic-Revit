@@ -9,7 +9,7 @@ using Newtonsoft.Json;
 using Synthetic.Platform.IO;
 using Synthetic.Modules.MergeDuplicates.Handlers;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Shared.RevitAPI;
+using Synthetic.Platform.Revit;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Architecture;
 using View = Autodesk.Revit.DB.View;

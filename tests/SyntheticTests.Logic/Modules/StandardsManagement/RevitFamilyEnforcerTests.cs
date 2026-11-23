@@ -5,8 +5,7 @@ using System.Threading;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
 using Synthetic.RevitDOM.Operations.Standards;
-using Synthetic.Infrastructure.FailureProcessing;
-using SyntheticTests.Helpers;
+using Synthetic.Platform.Revit;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
@@ -85,7 +84,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         }
 
         [Test]
-        public void Enforce_PassesDeleteWarningsPreprocessorToSerializationEngine()
+        public void Enforce_PassesDeleteAllWarningsRecordedPreprocessorToSerializationEngine()
         {
             // Arrange
             var enforcer = new RevitFamilyEnforcer(_fakeEngine);
@@ -115,18 +114,17 @@ namespace SyntheticTests.Modules.StandardsManagement
             Assert.IsNotNull(_fakeEngine.LastFailuresPreprocessor, "FailuresPreprocessor must be passed to ToRevit");
             Assert.IsInstanceOf<CompositeFailuresPreprocessor>(_fakeEngine.LastFailuresPreprocessor);
             var composite = (CompositeFailuresPreprocessor)_fakeEngine.LastFailuresPreprocessor!;
-            Assert.IsTrue(composite.AllowBlanketSuppression, "AllowBlanketSuppression must be enabled on DeleteWarnings preprocessor");
+            Assert.IsTrue(composite.AllowBlanketSuppression, "AllowBlanketSuppression must be enabled on DeleteAllWarningsRecorded preprocessor");
 
-            // Verify warning deletion functionality on the preprocessor passed during family enforcement
-            FailureMessageAccessor warning = MockFailureFactory.CreateFailureMessage(
-                BuiltInFailures.RoomFailures.RoomNotEnclosed, FailureSeverity.Warning, "Family enforcement warning");
-            FailuresAccessor accessor = MockFailureFactory.CreateFailuresAccessor(new[] { warning });
-
-            FailureProcessingResult result = composite.PreprocessFailures(accessor);
-            Assert.AreEqual(FailureProcessingResult.ProceedWithCommit, result);
-            var deleted = MockFailureFactory.GetDeletedWarnings(accessor);
-            Assert.AreEqual(1, deleted.Count);
-            Assert.AreEqual(warning, deleted[0]);
+            // Verify pure policy warning deletion and telemetry recording on the attached policy
+            var warningRecord = new FailureRecord(
+                BuiltInFailures.RoomFailures.RoomNotEnclosed.Guid,
+                FailureSeverityLevel.Warning,
+                "Family enforcement warning");
+            FailureRecord evaluated = composite.Policy.Evaluate(warningRecord);
+            Assert.AreEqual(FailureHandlingAction.Deleted, evaluated.ActionTaken);
+            Assert.IsTrue(composite.Report.WarningTripped);
+            Assert.AreEqual(1, composite.Report.Records.Count);
         }
 
         [Test]

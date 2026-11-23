@@ -6,7 +6,7 @@ using Synthetic.Infrastructure.Persistence;
 
 using Synthetic.Platform.UI;
 
-using Synthetic.Shared.RevitAPI;
+using Synthetic.Platform.Revit;
 using Synthetic.Platform.IO;
 using Synthetic.Modules.ViewManagement.Commands;
 using Synthetic.Modules.ViewManagement.Models;

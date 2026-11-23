@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.DB;
-using Synthetic.Shared.RevitAPI;
+using Synthetic.Platform.Revit;
 
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
@@ -252,7 +252,7 @@ namespace Synthetic.RevitDOM.Translation
         {
             try
             {
-                return Synthetic.Shared.RevitAPI.Select.RevitClassByString(className);
+                return Synthetic.Platform.Revit.Select.RevitClassByString(className);
             }
             catch
             {

@@ -9,14 +9,13 @@ using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 
-using Synthetic.Modules.ViewManagement.Utilities;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
 using Synthetic.Platform.IO;
 
-using Synthetic.Shared.RevitAPI;
+using Synthetic.Platform.Revit;
 
 using Synthetic.Platform.UI;
 using Synthetic.Modules.StandardsManagement.ViewModels;
@@ -91,7 +90,7 @@ namespace Synthetic.Modules.Worksets.Commands
                             trans.Start("Update Scope Box View Visibility");
                             foreach (Autodesk.Revit.DB.View view in relevantViews)
                             {
-                                if (ViewUtil.SetWorksetVisibilityInView(view, destinationWorkset))
+                                if (ViewWorksetUtil.SetWorksetVisibilityInView(view, destinationWorkset))
                                 {
                                     updatedCount++;
                                 }

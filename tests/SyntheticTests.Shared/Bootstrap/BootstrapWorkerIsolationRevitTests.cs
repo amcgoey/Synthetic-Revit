@@ -5,7 +5,7 @@ using Autodesk.Revit.UI;
 using NUnit.Framework;
 using Synthetic.Platform.Host;
 using Synthetic.Modules.StandardsManagement.Views;
-using Synthetic.Shared.RevitAPI;
+using Synthetic.Platform.Revit;
 using SyntheticTests.Helpers;
 
 namespace SyntheticTests.Bootstrap

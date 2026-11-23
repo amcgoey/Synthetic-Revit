@@ -10,7 +10,7 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Visual;
 using Newtonsoft.Json;
 
-using Synthetic.Shared.RevitAPI;
+using Synthetic.Features.Worksets.Utilities;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
@@ -151,7 +151,7 @@ namespace Synthetic.Modules.Worksets.Models
 
                     if (elements.Count > 0)
                     {
-                        ElementUtil.SetWorkset(elements, workset, document);
+                        WorksetElementUtility.SetWorkset(elements, workset, document);
                     }
                     else { elements = null; }
                 }

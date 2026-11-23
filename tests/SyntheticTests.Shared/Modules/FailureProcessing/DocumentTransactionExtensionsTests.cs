@@ -1,9 +1,8 @@
 using System;
-using System.Collections.Generic;
 using System.Runtime.Serialization;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
-using Synthetic.Infrastructure.FailureProcessing;
+using Synthetic.Platform.Revit;
 using Synthetic.Modules.FamilyManagement.Handlers;
 
 namespace SyntheticTests.Modules.FailureProcessing
@@ -11,7 +10,7 @@ namespace SyntheticTests.Modules.FailureProcessing
     [TestFixture]
     public class DocumentTransactionExtensionsTests
     {
-        private Document _doc;
+        private Document _doc = null!;
 
         [SetUp]
         public void SetUp()
@@ -22,12 +21,12 @@ namespace SyntheticTests.Modules.FailureProcessing
         }
 
         [Test]
-        public void CreateTransaction_WithValidDocAndName_ShouldReturnTransactionWithName()
+        public void CreateTransaction_WithValidDocNameAndPreprocessor_ShouldReturnTransactionWithName()
         {
-            // Act
-            using (Transaction trans = _doc.CreateTransaction("Test Transaction"))
+            IFailuresPreprocessor preprocessor = FailurePipelines.ObserveOnly();
+
+            using (Transaction trans = _doc.CreateTransaction("Test Transaction", preprocessor))
             {
-                // Assert
                 Assert.IsNotNull(trans);
                 Assert.AreEqual("Test Transaction", trans.GetName());
             }
@@ -38,10 +37,8 @@ namespace SyntheticTests.Modules.FailureProcessing
         {
             IFailuresPreprocessor preprocessor = FailurePipelines.Purge();
 
-            // Act
             using (Transaction trans = _doc.CreateTransaction("Purge Transaction", preprocessor))
             {
-                // Assert
                 Assert.IsNotNull(trans);
                 FailureHandlingOptions options = trans.GetFailureHandlingOptions();
                 Assert.IsNotNull(options);
@@ -50,16 +47,16 @@ namespace SyntheticTests.Modules.FailureProcessing
         }
 
         [Test]
-        public void CreateTransaction_WithoutPreprocessor_ShouldHaveNullPreprocessor()
+        public void CreateTransaction_WithObserveOnlyPreprocessor_ShouldSetPreprocessorAndDefaultClearAfterRollbackFalse()
         {
-            // Act
-            using (Transaction trans = _doc.CreateTransaction("Default Transaction"))
+            IFailuresPreprocessor preprocessor = FailurePipelines.ObserveOnly();
+
+            using (Transaction trans = _doc.CreateTransaction("Default Transaction", preprocessor))
             {
-                // Assert
                 Assert.IsNotNull(trans);
                 FailureHandlingOptions options = trans.GetFailureHandlingOptions();
                 Assert.IsNotNull(options);
-                Assert.IsNull(options.GetFailuresPreprocessor());
+                Assert.AreSame(preprocessor, options.GetFailuresPreprocessor());
                 Assert.IsFalse(options.GetClearAfterRollback());
             }
         }
@@ -67,10 +64,10 @@ namespace SyntheticTests.Modules.FailureProcessing
         [Test]
         public void CreateTransaction_WithClearAfterRollbackTrue_ShouldSetClearAfterRollbackOnOptions()
         {
-            // Act
-            using (Transaction trans = _doc.CreateTransaction("ClearRollback Transaction", clearAfterRollback: true))
+            IFailuresPreprocessor preprocessor = FailurePipelines.ObserveOnly();
+
+            using (Transaction trans = _doc.CreateTransaction("ClearRollback Transaction", preprocessor, clearAfterRollback: true))
             {
-                // Assert
                 Assert.IsNotNull(trans);
                 FailureHandlingOptions options = trans.GetFailureHandlingOptions();
                 Assert.IsNotNull(options);
@@ -79,14 +76,12 @@ namespace SyntheticTests.Modules.FailureProcessing
         }
 
         [Test]
-        public void CreateTransaction_WithPreprocessorAndClearAfterRollback_ShouldConfigureBoth()
+        public void CreateTransaction_WithDeleteAllWarningsRecordedAndClearAfterRollback_ShouldConfigureBoth()
         {
-            IFailuresPreprocessor preprocessor = FailurePipelines.DeleteWarnings();
+            IFailuresPreprocessor preprocessor = FailurePipelines.DeleteAllWarningsRecorded();
 
-            // Act
             using (Transaction trans = _doc.CreateTransaction("Composite ClearRollback Transaction", preprocessor, clearAfterRollback: true))
             {
-                // Assert
                 Assert.IsNotNull(trans);
                 FailureHandlingOptions options = trans.GetFailureHandlingOptions();
                 Assert.IsNotNull(options);
@@ -96,24 +91,22 @@ namespace SyntheticTests.Modules.FailureProcessing
         }
 
         [Test]
-        public void CreateTransaction_NullDoc_ShouldThrowArgumentNullException()
+        public void CreateTransaction_NullDocOrNullPreprocessor_ShouldThrowArgumentNullException()
         {
-            // Arrange
             Document nullDoc = null!;
+            IFailuresPreprocessor preprocessor = FailurePipelines.ObserveOnly();
 
 #pragma warning disable CS8625
-            // Act & Assert
-            Assert.Throws<ArgumentNullException>(() => nullDoc.CreateTransaction("Null Doc Tx"));
+            Assert.Throws<ArgumentNullException>(() => nullDoc.CreateTransaction("Null Doc Tx", preprocessor));
+            Assert.Throws<ArgumentNullException>(() => _doc.CreateTransaction("Null Preprocessor Tx", null));
 #pragma warning restore CS8625
         }
 
         [Test]
         public void AuditPurgeEventHandler_CanInstantiateAndHasDefaultProperties()
         {
-            // Act
             AuditPurgeEventHandler handler = new AuditPurgeEventHandler();
 
-            // Assert
             Assert.IsNotNull(handler);
             Assert.IsFalse(handler.Purge);
             Assert.IsFalse(handler.PurgeSchema);
@@ -126,7 +119,7 @@ namespace SyntheticTests.Modules.FailureProcessing
             bool executed = false;
             TransactionStatus statusDuringAction = (TransactionStatus)(-1);
 
-            FailureProcessingReport report = _doc.ExecuteTransaction("Tx Action Test", (Transaction tx) =>
+            FailureProcessingReport report = _doc.ExecuteTransaction("Tx Action Test", FailurePipelines.ObserveOnly(), (Transaction tx) =>
             {
                 executed = true;
                 statusDuringAction = tx.GetStatus();
@@ -142,7 +135,7 @@ namespace SyntheticTests.Modules.FailureProcessing
         {
             Document? passedDoc = null;
 
-            FailureProcessingReport report = _doc.ExecuteTransaction("Doc Action Test", (Document doc) =>
+            FailureProcessingReport report = _doc.ExecuteTransaction("Doc Action Test", FailurePipelines.ObserveOnly(), (Document doc) =>
             {
                 passedDoc = doc;
             });
@@ -156,7 +149,7 @@ namespace SyntheticTests.Modules.FailureProcessing
         {
             bool executed = false;
 
-            FailureProcessingReport report = _doc.ExecuteTransaction("Parameterless Action Test", () =>
+            FailureProcessingReport report = _doc.ExecuteTransaction("Parameterless Action Test", FailurePipelines.ObserveOnly(), () =>
             {
                 executed = true;
             });
@@ -172,7 +165,6 @@ namespace SyntheticTests.Modules.FailureProcessing
 
             FailureProcessingReport report = _doc.ExecuteTransaction("Composite Preprocessor Test", preprocessor, (Transaction tx) =>
             {
-                // Action logic
             });
 
             Assert.IsNotNull(report);
@@ -187,7 +179,7 @@ namespace SyntheticTests.Modules.FailureProcessing
 
             Assert.Throws<InvalidOperationException>(() =>
             {
-                _doc.ExecuteTransaction("Failing Transaction", (Transaction tx) =>
+                _doc.ExecuteTransaction("Failing Transaction", FailurePipelines.ObserveOnly(), (Transaction tx) =>
                 {
                     capturedTx = tx;
                     statusDuringAction = tx.GetStatus();
@@ -195,27 +187,112 @@ namespace SyntheticTests.Modules.FailureProcessing
                 });
             });
 
-            TestContext.WriteLine($"statusDuringAction={statusDuringAction}, capturedTxStatus={capturedTx?.GetStatus()}");
-
             Assert.AreEqual(TransactionStatus.Started, statusDuringAction);
             Assert.IsNotNull(capturedTx);
-            Assert.AreEqual(TransactionStatus.RolledBack, capturedTx.GetStatus());
+            Assert.AreEqual(TransactionStatus.RolledBack, capturedTx!.GetStatus());
         }
 
         [Test]
-        public void ExecuteTransaction_NullDocOrAction_ThrowsArgumentNullException()
+        public void ExecuteTransaction_NullDocPreprocessorOrAction_ThrowsArgumentNullException()
         {
             Document nullDoc = null!;
+            IFailuresPreprocessor preprocessor = FailurePipelines.ObserveOnly();
 
 #pragma warning disable CS8625
-            Assert.Throws<ArgumentNullException>(() => nullDoc.ExecuteTransaction("Null Doc Tx", (Transaction tx) => { }));
-            Assert.Throws<ArgumentNullException>(() => nullDoc.ExecuteTransaction("Null Doc Doc", (Document d) => { }));
-            Assert.Throws<ArgumentNullException>(() => nullDoc.ExecuteTransaction("Null Doc Void", () => { }));
+            Assert.Throws<ArgumentNullException>(() => nullDoc.ExecuteTransaction("Null Doc Tx", preprocessor, (Transaction tx) => { }));
+            Assert.Throws<ArgumentNullException>(() => nullDoc.ExecuteTransaction("Null Doc Doc", preprocessor, (Document d) => { }));
+            Assert.Throws<ArgumentNullException>(() => nullDoc.ExecuteTransaction("Null Doc Void", preprocessor, () => { }));
 
-            Assert.Throws<ArgumentNullException>(() => _doc.ExecuteTransaction("Null Action Tx", (Action<Transaction>)null));
-            Assert.Throws<ArgumentNullException>(() => _doc.ExecuteTransaction("Null Action Doc", (Action<Document>)null));
-            Assert.Throws<ArgumentNullException>(() => _doc.ExecuteTransaction("Null Action Void", (Action)null));
+            Assert.Throws<ArgumentNullException>(() => _doc.ExecuteTransaction("Null Preprocessor Tx", null, (Transaction tx) => { }));
+            Assert.Throws<ArgumentNullException>(() => _doc.ExecuteTransaction("Null Preprocessor Doc", null, (Document d) => { }));
+            Assert.Throws<ArgumentNullException>(() => _doc.ExecuteTransaction("Null Preprocessor Void", null, () => { }));
+
+            Assert.Throws<ArgumentNullException>(() => _doc.ExecuteTransaction("Null Action Tx", preprocessor, (Action<Transaction>)null));
+            Assert.Throws<ArgumentNullException>(() => _doc.ExecuteTransaction("Null Action Doc", preprocessor, (Action<Document>)null));
+            Assert.Throws<ArgumentNullException>(() => _doc.ExecuteTransaction("Null Action Void", preprocessor, (Action)null));
 #pragma warning restore CS8625
         }
+
+#if SYNTHETIC_LOGIC_TESTS
+        [Test]
+        public void ExecuteCommittedBatchGroup_AssimilatesOnSuccess_AndRejectsReadOnlyOrModifiableEntry()
+        {
+            var doc = new Document();
+            doc.ExecuteCommittedBatchGroup("Mock Batch", () =>
+            {
+                doc.ExecuteTransaction("Inner Tx", FailurePipelines.ObserveOnly(), () => { });
+            });
+
+            Assert.IsNotNull(TransactionGroup.LastCreatedGroup);
+            Assert.IsTrue(TransactionGroup.LastCreatedGroup!.WasAssimilated);
+
+            var readOnlyDoc = new Document { IsReadOnly = true };
+            Assert.Throws<InvalidOperationException>(() =>
+                readOnlyDoc.ExecuteCommittedBatchGroup("ReadOnly Batch", () => { }));
+
+            using (var activeTx = new Transaction(doc, "Open Tx"))
+            {
+                activeTx.Start();
+                try
+                {
+                    Assert.Throws<InvalidOperationException>(() =>
+                        doc.ExecuteCommittedBatchGroup("Nested Batch", () => { }));
+                }
+                finally
+                {
+                    activeTx.RollBack();
+                }
+            }
+        }
+
+        [Test]
+        public void ExecuteCommittedBatchGroup_DoesNotMaskInnerExceptionWhenInnerTransactionRemainedOpen()
+        {
+            var doc = new Document();
+            Transaction? leakedTx = null;
+
+            var thrown = Assert.Throws<ApplicationException>(() =>
+            {
+                doc.ExecuteCommittedBatchGroup("Failing Batch", () =>
+                {
+                    leakedTx = new Transaction(doc, "Unclosed Inner Tx");
+                    leakedTx.Start();
+                    throw new ApplicationException("Inner batch failure");
+                });
+            });
+
+            Assert.AreEqual("Inner batch failure", thrown!.Message);
+            leakedTx?.RollBack();
+            leakedTx?.Dispose();
+        }
+
+        [Test]
+        public void ExecuteRolledBackGroup_RollsBackUnconditionally_AndDoesNotMaskInnerException()
+        {
+            var doc = new Document();
+            doc.ExecuteRolledBackGroup("Ephemeral Group", () =>
+            {
+                doc.ExecuteTransaction("Inner Tx", FailurePipelines.ObserveOnly(), () => { });
+            });
+
+            Assert.IsNotNull(TransactionGroup.LastCreatedGroup);
+            Assert.AreEqual(TransactionStatus.RolledBack, TransactionGroup.LastCreatedGroup!.GetStatus());
+
+            Transaction? leakedTx = null;
+            var thrown = Assert.Throws<ApplicationException>(() =>
+            {
+                doc.ExecuteRolledBackGroup("Failing Ephemeral Group", () =>
+                {
+                    leakedTx = new Transaction(doc, "Unclosed Inner Tx");
+                    leakedTx.Start();
+                    throw new ApplicationException("Inner ephemeral failure");
+                });
+            });
+
+            Assert.AreEqual("Inner ephemeral failure", thrown!.Message);
+            leakedTx?.RollBack();
+            leakedTx?.Dispose();
+        }
+#endif
     }
 }

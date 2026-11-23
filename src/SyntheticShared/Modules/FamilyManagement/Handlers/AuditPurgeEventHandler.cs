@@ -1,4 +1,4 @@
-using Synthetic.Infrastructure.FailureProcessing;
+using Synthetic.Platform.Revit;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB.ExtensibleStorage;
@@ -10,7 +10,6 @@ using System.Text;
 using Synthetic.Platform.UI;
 using Synthetic;
 
-using Synthetic.Shared.RevitAPI;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;

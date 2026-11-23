@@ -8,8 +8,7 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
-using Synthetic.Shared.RevitAPI;
-using Synthetic.Infrastructure.FailureProcessing;
+using Synthetic.Platform.Revit;
 
 namespace Synthetic.RevitDOM.Operations.Standards
 {
@@ -187,7 +186,7 @@ namespace Synthetic.RevitDOM.Operations.Standards
                 {
                     familyTg.Start();
 
-                    _serializationEngine.ToRevit(standards, familyDoc, null, cancellationToken, FailurePipelines.DeleteWarnings());
+                    _serializationEngine.ToRevit(standards, familyDoc, null, cancellationToken, FailurePipelines.DeleteAllWarningsRecorded());
 
                     if (options.PurgeUnusedStyleTypes)
                     {
@@ -211,14 +210,14 @@ namespace Synthetic.RevitDOM.Operations.Standards
                 using (Transaction parentTx = new Transaction(parentDoc, "Load Family"))
                 {
                     FailureHandlingOptions parentOptions = parentTx.GetFailureHandlingOptions();
-                    parentOptions.SetFailuresPreprocessor(FailurePipelines.DeleteWarnings());
+                    parentOptions.SetFailuresPreprocessor(FailurePipelines.DeleteAllWarningsRecorded());
                     parentTx.SetFailureHandlingOptions(parentOptions);
 
                     parentTx.Start();
 
                     try
                     {
-                        Synthetic.Shared.RevitAPI.FamilyUtil.SetIsChanged(parentDoc, familyDoc);
+                        Synthetic.Platform.Revit.FamilyUtil.SetIsChanged(parentDoc, familyDoc);
                         familyDoc.LoadFamily(parentDoc, new ImportFamilyLoadOptions());
                     }
                     catch (Exception)

@@ -16,7 +16,8 @@ using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
 using Synthetic.Platform.IO;
 
-using Synthetic.Shared.RevitAPI;
+using Synthetic.Features.AutoTagger.Utilities;
+using Synthetic.Platform.Revit;
 
 using Synthetic.Platform.UI;
 using Synthetic.Modules.MergeDuplicates.Handlers;

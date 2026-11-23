@@ -2,7 +2,7 @@ using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 
-using Synthetic.Shared.RevitAPI;
+using Synthetic.Platform.Revit;
 using Synthetic.Platform.IO;
 using SFileUtil = Synthetic.Platform.IO.FileUtil;
 

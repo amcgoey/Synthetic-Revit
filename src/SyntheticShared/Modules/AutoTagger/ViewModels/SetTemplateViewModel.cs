@@ -16,7 +16,7 @@ using Synthetic.Platform.IO;
 using Synthetic.Platform.UI;
 using Synthetic.Modules.MergeDuplicates.Handlers;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Shared.RevitAPI;
+using Synthetic.Platform.Revit;
 namespace Synthetic.Modules.AutoTagger.ViewModels
 {
     /// <summary>

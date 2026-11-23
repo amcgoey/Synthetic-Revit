@@ -11,7 +11,7 @@ using System.Windows.Media.Imaging;
 using Autodesk.Revit.DB.Events;
 
 using Synthetic.Platform.UI;
-using Synthetic.Shared.RevitAPI;
+using Synthetic.Platform.Revit;
 using Synthetic.Settings;
 using Synthetic.Infrastructure.Persistence;
 using Synthetic.Modules.StandardsManagement.ViewModels;

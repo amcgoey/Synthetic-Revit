@@ -183,7 +183,8 @@ namespace Autodesk.Revit.DB
         public Settings Settings { get; } = new Settings();
         public FamilyManager FamilyManager { get; } = new FamilyManager();
         public bool IsFamilyDocument { get; set; } = false;
-        public bool IsModifiable => Transaction.LastCreatedTransaction?.GetStatus() == TransactionStatus.Started;
+        public bool IsModifiable => ReferenceEquals(Transaction.LastCreatedTransaction?.Document, this)
+            && Transaction.LastCreatedTransaction?.GetStatus() == TransactionStatus.Started;
         public string Title { get; set; } = "Mock Document";
         public string PathName { get; set; } = "ActiveDoc";
         public bool IsWorkshared { get; set; } = false;
@@ -1681,7 +1682,15 @@ namespace Autodesk.Revit.DB
             _status = TransactionStatus.Committed;
             return _status;
         }
-        public TransactionStatus RollBack() { _status = TransactionStatus.RolledBack; return _status; }
+        public TransactionStatus RollBack()
+        {
+            if (Document != null && Document.IsModifiable)
+            {
+                throw new InvalidOperationException("Cannot roll back TransactionGroup while an inner Transaction is still active.");
+            }
+            _status = TransactionStatus.RolledBack;
+            return _status;
+        }
         public TransactionStatus GetStatus() => _status;
         public bool HasStarted() => _status != TransactionStatus.Unstarted;
         public bool HasEnded() => _status == TransactionStatus.Committed || _status == TransactionStatus.RolledBack;
@@ -1953,18 +1962,30 @@ namespace Autodesk.Revit.DB
         public ICollection<ElementId> GetFailingElementIds() => new List<ElementId>();
     }
 
-    public class FailureDefinitionId : IEquatable<FailureDefinitionId>
+    public class GuidEnum
     {
         public Guid Guid { get; }
 
-        public FailureDefinitionId()
+        public GuidEnum(Guid guid)
         {
-            Guid = Guid.NewGuid();
+            Guid = guid;
+        }
+
+        public override bool Equals(object? obj) => obj is GuidEnum other && Guid.Equals(other.Guid);
+
+        public override int GetHashCode() => Guid.GetHashCode();
+    }
+
+    public class FailureDefinitionId : GuidEnum, IEquatable<FailureDefinitionId>
+    {
+        public FailureDefinitionId()
+            : base(Guid.NewGuid())
+        {
         }
 
         public FailureDefinitionId(Guid guid)
+            : base(guid)
         {
-            Guid = guid;
         }
 
         public Guid GetGuid() => Guid;

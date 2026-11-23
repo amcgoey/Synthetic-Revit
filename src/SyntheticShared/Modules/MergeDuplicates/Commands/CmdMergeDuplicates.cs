@@ -13,7 +13,7 @@ using Synthetic.Platform.IO;
 
 using Synthetic.Platform.UI;
 
-using Synthetic.Shared.RevitAPI;
+using Synthetic.Platform.Revit;
 using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.Modules.MergeDuplicates.ViewModels;
 using Synthetic.Modules.MergeDuplicates.Views;

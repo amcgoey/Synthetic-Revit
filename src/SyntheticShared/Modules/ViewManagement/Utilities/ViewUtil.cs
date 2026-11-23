@@ -54,23 +54,6 @@ namespace Synthetic.Modules.ViewManagement.Utilities
 
         #region Utility Functions
 
-        /// <summary>
-        /// Sets a workset to visible in a specific view.
-        /// </summary>
-        /// <param name="view">The Revit View</param>
-        /// <param name="workset">The Workset to show</param>
-        /// <returns>True if successful, False if skipped due to template</returns>
-        public static bool SetWorksetVisibilityInView(revitView view, revitDB.Workset workset)
-        {
-            if (view.ViewTemplateId != revitElemId.InvalidElementId)
-            {
-                return false;
-            }
-
-            view.SetWorksetVisibility(workset.Id, revitDB.WorksetVisibility.Visible);
-            return true;
-        }
-
         internal static List<revitViewport>? _renumberViewsOnSheet(revitFamilySymbol familyType, string xGridName, string yGridName, revitSheet rSheet, RevitDoc document)
         {
             string transactionName = "Renumber views on sheet";
