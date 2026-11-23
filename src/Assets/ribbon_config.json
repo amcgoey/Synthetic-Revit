@@ -278,9 +278,9 @@
         },
         {
           "type": "PushButton",
-          "name": "Synthetic.Modules.ShadowStudy.Commands.CmdShadowStudy",
+          "name": "Synthetic.Features.ShadowStudy.Commands.CmdShadowStudy",
           "text": " Shadow\nStudy ",
-          "class": "Synthetic.Modules.ShadowStudy.Commands.CmdShadowStudy",
+          "class": "Synthetic.Features.ShadowStudy.Commands.CmdShadowStudy",
           "tooltip": "Export calibrated Multiply-blend Shadow Composite diagrams for architectural daylight studies.",
           "large_image": "print_32.png",
           "image": "print_16.png"

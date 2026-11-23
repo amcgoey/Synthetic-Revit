@@ -36,6 +36,10 @@
 
   <ItemGroup>
     <Compile Include="AssemblyAttributes.cs" />
+    <Compile Include="..\..\Fixtures\Shared\FakeFolderDialogService.cs"
+             Link="Fixtures\FakeFolderDialogService.cs" />
+    <Compile Include="..\..\Fixtures\Shared\FakeShadowStudyAdapter.cs"
+             Link="Fixtures\FakeShadowStudyAdapter.cs" />
     <Compile Include="..\..\Fixtures\Shared\FakeSharedCoordinatesAdapter.cs"
              Link="Fixtures\FakeSharedCoordinatesAdapter.cs" />
     <Compile Include="..\..\Fixtures\Shared\TestPathHelper.cs"

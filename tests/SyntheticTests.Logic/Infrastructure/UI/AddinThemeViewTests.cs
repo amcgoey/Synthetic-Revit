@@ -82,15 +82,15 @@ namespace SyntheticTests.Infrastructure.UI
         [Test]
         public void ShadowStudyWindow_ConstructsAndBindsInStaWithoutXamlErrors()
         {
-            var adapter = new SyntheticTests.Modules.ShadowStudy.FakeShadowStudyAdapter();
-            var folderDialog = new SyntheticTests.Modules.ShadowStudy.FakeFolderDialogService();
-            var vm = new Synthetic.Modules.ShadowStudy.ViewModels.ShadowStudyViewModel(adapter, folderDialog, new DateTime(2026, 6, 21));
+            var adapter = new SyntheticTests.Fixtures.FakeShadowStudyAdapter();
+            var folderDialog = new SyntheticTests.Fixtures.FakeFolderDialogService();
+            var vm = new Synthetic.Features.ShadowStudy.ViewModels.ShadowStudyViewModel(adapter, folderDialog, new DateTime(2026, 6, 21));
             vm.PreserveVisualStyle = true;
 
-            Synthetic.Modules.ShadowStudy.Views.ShadowStudyWindow? window = null;
+            Synthetic.Features.ShadowStudy.Views.ShadowStudyWindow? window = null;
             Assert.DoesNotThrow(() =>
             {
-                window = new Synthetic.Modules.ShadowStudy.Views.ShadowStudyWindow(IntPtr.Zero) { DataContext = vm };
+                window = new Synthetic.Features.ShadowStudy.Views.ShadowStudyWindow(IntPtr.Zero) { DataContext = vm };
                 window.ApplyTemplate();
             });
 
@@ -101,14 +101,14 @@ namespace SyntheticTests.Infrastructure.UI
         [Test]
         public void ShadowStudyWindow_WithDefaultSeasonalStudyPreset_ConstructsAndBindsInStaWithoutXamlErrors()
         {
-            var adapter = new SyntheticTests.Modules.ShadowStudy.FakeShadowStudyAdapter();
-            var folderDialog = new SyntheticTests.Modules.ShadowStudy.FakeFolderDialogService();
-            var vm = new Synthetic.Modules.ShadowStudy.ViewModels.ShadowStudyViewModel(adapter, folderDialog);
+            var adapter = new SyntheticTests.Fixtures.FakeShadowStudyAdapter();
+            var folderDialog = new SyntheticTests.Fixtures.FakeFolderDialogService();
+            var vm = new Synthetic.Features.ShadowStudy.ViewModels.ShadowStudyViewModel(adapter, folderDialog);
 
-            Synthetic.Modules.ShadowStudy.Views.ShadowStudyWindow? window = null;
+            Synthetic.Features.ShadowStudy.Views.ShadowStudyWindow? window = null;
             Assert.DoesNotThrow(() =>
             {
-                window = new Synthetic.Modules.ShadowStudy.Views.ShadowStudyWindow(IntPtr.Zero) { DataContext = vm };
+                window = new Synthetic.Features.ShadowStudy.Views.ShadowStudyWindow(IntPtr.Zero) { DataContext = vm };
                 window.ApplyTemplate();
                 window.Measure(new Size(620, 900));
                 window.Arrange(new Rect(0, 0, 620, 900));
@@ -122,11 +122,11 @@ namespace SyntheticTests.Infrastructure.UI
         [Test]
         public void ShadowStudyWindow_SelectedViewsChecklist_BindsAndSwitchesModesWithoutXamlErrors()
         {
-            var adapter = new SyntheticTests.Modules.ShadowStudy.FakeShadowStudyAdapter
+            var adapter = new SyntheticTests.Fixtures.FakeShadowStudyAdapter
             {
                 ActiveView = null
             };
-            adapter.EligibleViews.Add(new Synthetic.Modules.ShadowStudy.Models.ShadowStudyViewItem
+            adapter.EligibleViews.Add(new Synthetic.Features.ShadowStudy.Models.ShadowStudyViewItem
             {
                 Id = "v1",
                 Name = "Level 1",
@@ -134,13 +134,13 @@ namespace SyntheticTests.Infrastructure.UI
                 IsCropped = false,
                 Warnings =
                 {
-                    new Synthetic.Modules.ShadowStudy.Models.ShadowStudyViewWarningBadge
+                    new Synthetic.Features.ShadowStudy.Models.ShadowStudyViewWarningBadge
                     {
                         Code = "Uncropped",
                         Label = "Uncropped View",
                         Description = "Crop View is off."
                     },
-                    new Synthetic.Modules.ShadowStudy.Models.ShadowStudyViewWarningBadge
+                    new Synthetic.Features.ShadowStudy.Models.ShadowStudyViewWarningBadge
                     {
                         Code = "VisualStyle",
                         Label = "Hidden Line Export",
@@ -149,14 +149,14 @@ namespace SyntheticTests.Infrastructure.UI
                 }
             });
 
-            var folderDialog = new SyntheticTests.Modules.ShadowStudy.FakeFolderDialogService();
-            var vm = new Synthetic.Modules.ShadowStudy.ViewModels.ShadowStudyViewModel(adapter, folderDialog, new DateTime(2026, 6, 21));
+            var folderDialog = new SyntheticTests.Fixtures.FakeFolderDialogService();
+            var vm = new Synthetic.Features.ShadowStudy.ViewModels.ShadowStudyViewModel(adapter, folderDialog, new DateTime(2026, 6, 21));
             vm.PreserveVisualStyle = true;
 
-            Synthetic.Modules.ShadowStudy.Views.ShadowStudyWindow? window = null;
+            Synthetic.Features.ShadowStudy.Views.ShadowStudyWindow? window = null;
             Assert.DoesNotThrow(() =>
             {
-                window = new Synthetic.Modules.ShadowStudy.Views.ShadowStudyWindow(IntPtr.Zero) { DataContext = vm };
+                window = new Synthetic.Features.ShadowStudy.Views.ShadowStudyWindow(IntPtr.Zero) { DataContext = vm };
                 window.ApplyTemplate();
                 window.Measure(new Size(620, 900));
                 window.Arrange(new Rect(0, 0, 620, 900));
@@ -170,34 +170,34 @@ namespace SyntheticTests.Infrastructure.UI
         [Test]
         public void ShadowStudySettingsView_ConstructsAndBindsInStaWithoutXamlErrors()
         {
-            var stored = new Synthetic.Modules.ShadowStudy.Settings.ShadowStudySettings
+            var stored = new Synthetic.Features.ShadowStudy.Settings.ShadowStudySettings
             {
-                UserPresets = new System.Collections.Generic.List<Synthetic.Modules.ShadowStudy.Settings.ShadowStudyPresetModel>
+                UserPresets = new System.Collections.Generic.List<Synthetic.Features.ShadowStudy.Settings.ShadowStudyPresetModel>
                 {
-                    new Synthetic.Modules.ShadowStudy.Settings.ShadowStudyPresetModel
+                    new Synthetic.Features.ShadowStudy.Settings.ShadowStudyPresetModel
                     {
                         Name = "STA Smoke Preset",
-                        Dates = new System.Collections.Generic.List<Synthetic.Modules.ShadowStudy.Models.ShadowStudyPresetDateSpec>
+                        Dates = new System.Collections.Generic.List<Synthetic.Features.ShadowStudy.Models.ShadowStudyPresetDateSpec>
                         {
-                            new Synthetic.Modules.ShadowStudy.Models.ShadowStudyPresetDateSpec
+                            new Synthetic.Features.ShadowStudy.Models.ShadowStudyPresetDateSpec
                             {
-                                AstronomicalEvent = Synthetic.Modules.ShadowStudy.Models.AstronomicalEventKind.SummerSolstice
+                                AstronomicalEvent = Synthetic.Features.ShadowStudy.Models.AstronomicalEventKind.SummerSolstice
                             }
                         }
                     }
                 }
             };
 
-            var vm = new Synthetic.Modules.ShadowStudy.ViewModels.ShadowStudySettingsViewModel(
+            var vm = new Synthetic.Features.ShadowStudy.ViewModels.ShadowStudySettingsViewModel(
                 () => stored,
                 s => stored = s.DeepClone(),
                 () => { },
                 () => true);
 
-            Synthetic.Modules.ShadowStudy.Views.ShadowStudySettingsView? view = null;
+            Synthetic.Features.ShadowStudy.Views.ShadowStudySettingsView? view = null;
             Assert.DoesNotThrow(() =>
             {
-                view = new Synthetic.Modules.ShadowStudy.Views.ShadowStudySettingsView { DataContext = vm };
+                view = new Synthetic.Features.ShadowStudy.Views.ShadowStudySettingsView { DataContext = vm };
                 view.ApplyTemplate();
                 view.Measure(new Size(500, 600));
                 view.Arrange(new Rect(0, 0, 500, 600));
@@ -210,11 +210,11 @@ namespace SyntheticTests.Infrastructure.UI
         [Test]
         public void ShadowStudyWindow_CompactHeight_KeepsExportAndCancelFooterWithinWindowBounds()
         {
-            var adapter = new SyntheticTests.Modules.ShadowStudy.FakeShadowStudyAdapter
+            var adapter = new SyntheticTests.Fixtures.FakeShadowStudyAdapter
             {
                 ActiveView = null
             };
-            adapter.EligibleViews.Add(new Synthetic.Modules.ShadowStudy.Models.ShadowStudyViewItem
+            adapter.EligibleViews.Add(new Synthetic.Features.ShadowStudy.Models.ShadowStudyViewItem
             {
                 Id = "v1",
                 Name = "Level 1",
@@ -222,12 +222,12 @@ namespace SyntheticTests.Infrastructure.UI
                 IsCropped = true
             });
 
-            var folderDialog = new SyntheticTests.Modules.ShadowStudy.FakeFolderDialogService();
-            var vm = new Synthetic.Modules.ShadowStudy.ViewModels.ShadowStudyViewModel(adapter, folderDialog);
+            var folderDialog = new SyntheticTests.Fixtures.FakeFolderDialogService();
+            var vm = new Synthetic.Features.ShadowStudy.ViewModels.ShadowStudyViewModel(adapter, folderDialog);
             vm.OutputFolder = @"C:\Temp\ShadowOut";
             vm.FilteredViews[0].IsSelected = true;
 
-            var window = new Synthetic.Modules.ShadowStudy.Views.ShadowStudyWindow(IntPtr.Zero) { DataContext = vm };
+            var window = new Synthetic.Features.ShadowStudy.Views.ShadowStudyWindow(IntPtr.Zero) { DataContext = vm };
             try
             {
                 Assert.AreEqual(ResizeMode.CanResizeWithGrip, window.ResizeMode);

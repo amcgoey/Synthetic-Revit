@@ -9,9 +9,9 @@ using Autodesk.Revit.UI;
 using NUnit.Framework;
 using Color = Autodesk.Revit.DB.Color;
 using View = Autodesk.Revit.DB.View;
-using Synthetic.Modules.ShadowStudy.Adapters;
-using Synthetic.Modules.ShadowStudy.Models;
-using Synthetic.Modules.ShadowStudy.Services;
+using Synthetic.Features.ShadowStudy.Adapters;
+using Synthetic.Features.ShadowStudy.Models;
+using Synthetic.Features.ShadowStudy.Services;
 using SyntheticTests.Helpers;
 
 namespace SyntheticTests.Modules.ShadowStudy
