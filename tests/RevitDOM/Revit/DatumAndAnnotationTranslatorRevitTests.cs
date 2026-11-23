@@ -7,31 +7,18 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
-using SyntheticTests.Helpers;
+using SyntheticTests.Fixtures;
 
 namespace SyntheticTests.RevitDOM
 {
     [TestFixture]
     [RevitAdapterTest]
-    public class DatumAndAnnotationTranslatorRevitTests
+    public class DatumAndAnnotationTranslatorRevitTests : RevitTemplateRollbackFixture
     {
-        private UIApplication? _uiapp;
-
-        [OneTimeSetUp]
-        public void Setup(UIApplication uiapp)
-        {
-            _uiapp = uiapp;
-            TestWorkerJournalMarker.EnsureWritten(uiapp);
-        }
-
         [Test]
         public void GridTypeTranslator_InjectSpecifics_DuplicatesTemplateAndReturnsGridType()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 var translator = new GridTypeTranslator();
                 var model = new ElementTypeModel
@@ -59,21 +46,13 @@ namespace SyntheticTests.RevitDOM
                     // Roll back to keep the document clean
                     tg.RollBack();
                 }
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void LevelTypeTranslator_InjectSpecifics_DuplicatesTemplateAndReturnsLevelType()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 var translator = new LevelTypeTranslator();
                 var model = new ElementTypeModel
@@ -100,21 +79,13 @@ namespace SyntheticTests.RevitDOM
 
                     tg.RollBack();
                 }
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void TextElementTypeTranslator_InjectSpecifics_DuplicatesTemplateAndReturnsTextNoteType()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 var translator = new TextElementTypeTranslator();
                 var model = new ElementTypeModel
@@ -141,21 +112,13 @@ namespace SyntheticTests.RevitDOM
 
                     tg.RollBack();
                 }
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void GridTypeTranslator_InjectSpecifics_UsingElementTypeModel_DuplicatesTemplateAndReturnsGridType()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 var translator = new GridTypeTranslator();
                 var model = new ElementTypeModel
@@ -182,21 +145,13 @@ namespace SyntheticTests.RevitDOM
 
                     tg.RollBack();
                 }
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void LevelTypeTranslator_InjectSpecifics_UsingElementTypeModel_DuplicatesTemplateAndReturnsLevelType()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 var translator = new LevelTypeTranslator();
                 var model = new ElementTypeModel
@@ -223,21 +178,13 @@ namespace SyntheticTests.RevitDOM
 
                     tg.RollBack();
                 }
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void SpotDimensionTypeTranslator_InjectSpecifics_DuplicatesTemplateAndReturnsSpotDimensionType()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 var template = new FilteredElementCollector(doc)
                     .OfClass(typeof(SpotDimensionType))
@@ -271,11 +218,7 @@ namespace SyntheticTests.RevitDOM
                         tg.RollBack();
                     }
                 }
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
     }
 }

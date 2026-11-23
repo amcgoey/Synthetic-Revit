@@ -5,29 +5,18 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using NUnit.Framework;
 using Synthetic.Platform.Revit;
-using SyntheticTests.Helpers;
+using SyntheticTests.Fixtures;
 
 namespace SyntheticTests.Platform.Revit
 {
     [TestFixture]
     [RevitAdapterTest]
-    public class DocumentTransactionExtensionsRevitTests
+    public class DocumentTransactionExtensionsRevitTests : RevitTemplateRollbackFixture
     {
-        private UIApplication? _uiapp;
-
-        [OneTimeSetUp]
-        public void OneTimeSetup(UIApplication uiapp)
-        {
-            _uiapp = uiapp;
-            TestWorkerJournalMarker.EnsureWritten(uiapp);
-        }
-
         [Test]
         public void ExecuteCommittedBatchGroup_AssimilatesTransactionsAndPersistsChanges()
         {
-            Assert.IsNotNull(_uiapp);
-            Document doc = _uiapp!.Application.NewProjectDocument(UnitSystem.Metric);
-            try
+            WithRolledBackDocument(doc =>
             {
                 Level level = FindFirstLevel(doc);
 
@@ -47,19 +36,13 @@ namespace SyntheticTests.Platform.Revit
                 int wallCount = new FilteredElementCollector(doc).OfClass(typeof(Wall)).GetElementCount();
                 Assert.AreEqual(2, wallCount, "Assimilated batch group must persist both walls.");
                 Assert.IsFalse(doc.IsModifiable, "Document must not remain modifiable after group assimilation.");
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void ExecuteCommittedBatchGroup_RollsBackGroupOnException_AndDoesNotMaskInnerExceptionWhenInnerTransactionOpen()
         {
-            Assert.IsNotNull(_uiapp);
-            Document doc = _uiapp!.Application.NewProjectDocument(UnitSystem.Metric);
-            try
+            WithRolledBackDocument(doc =>
             {
                 Level level = FindFirstLevel(doc);
 
@@ -98,19 +81,13 @@ namespace SyntheticTests.Platform.Revit
                 Assert.AreEqual("Original inner exception", thrown!.Message);
                 Assert.AreEqual(0, new FilteredElementCollector(doc).OfClass(typeof(Wall)).GetElementCount());
                 Assert.IsFalse(doc.IsModifiable);
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void ExecuteRolledBackGroup_RollsBackCommittedInnerTransactionsUnconditionally()
         {
-            Assert.IsNotNull(_uiapp);
-            Document doc = _uiapp!.Application.NewProjectDocument(UnitSystem.Metric);
-            try
+            WithRolledBackDocument(doc =>
             {
                 Level level = FindFirstLevel(doc);
                 int countInsideGroup = 0;
@@ -129,19 +106,13 @@ namespace SyntheticTests.Platform.Revit
                 Assert.AreEqual(1, countInsideGroup, "Wall should exist while inside the TransactionGroup.");
                 Assert.AreEqual(0, countAfterGroup, "ExecuteRolledBackGroup must roll back all changes unconditionally.");
                 Assert.IsFalse(doc.IsModifiable, "Document must not remain modifiable after group rollback.");
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void TransactionGroups_RejectModifiableDocumentOnEntry()
         {
-            Assert.IsNotNull(_uiapp);
-            Document doc = _uiapp!.Application.NewProjectDocument(UnitSystem.Metric);
-            try
+            WithRolledBackDocument(doc =>
             {
                 using (var activeTx = new Transaction(doc, "Outer Open Transaction"))
                 {
@@ -164,11 +135,7 @@ namespace SyntheticTests.Platform.Revit
                         }
                     }
                 }
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         private static Level FindFirstLevel(Document doc)

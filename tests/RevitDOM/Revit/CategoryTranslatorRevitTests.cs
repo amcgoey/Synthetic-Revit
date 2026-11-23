@@ -7,31 +7,18 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
-using SyntheticTests.Helpers;
+using SyntheticTests.Fixtures;
 
 namespace SyntheticTests.RevitDOM
 {
     [TestFixture]
     [RevitAdapterTest]
-    public class CategoryTranslatorRevitTests
+    public class CategoryTranslatorRevitTests : RevitTemplateRollbackFixture
     {
-        private UIApplication? _uiapp;
-
-        [OneTimeSetUp]
-        public void Setup(UIApplication uiapp)
-        {
-            _uiapp = uiapp;
-            TestWorkerJournalMarker.EnsureWritten(uiapp);
-        }
-
         [Test]
         public void CategoryTranslator_ExtractSpecifics_OST_Walls_PresentsCorrectValues()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 var wallsCat = doc.Settings.Categories.get_Item(BuiltInCategory.OST_Walls);
                 Assert.IsNotNull(wallsCat, "OST_Walls category should exist.");
@@ -45,21 +32,13 @@ namespace SyntheticTests.RevitDOM
                 Assert.IsTrue(model.IsCuttable);
                 Assert.IsNotNull(model.LineWeightProjection);
                 Assert.IsNotNull(model.LineColor);
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void CategoryTranslator_InjectSpecifics_ModifiesOST_WallsStyles()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 var wallsCat = doc.Settings.Categories.get_Item(BuiltInCategory.OST_Walls);
                 Assert.IsNotNull(wallsCat);
@@ -89,21 +68,13 @@ namespace SyntheticTests.RevitDOM
 
                     tg.RollBack();
                 }
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void CategoryTranslator_InjectSpecifics_CreatesSubcategory()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 var translator = new CategoryTranslator(new RevitIdentityService());
                 var model = new CategoryModel
@@ -131,21 +102,13 @@ namespace SyntheticTests.RevitDOM
 
                     tg.RollBack();
                 }
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void CategoryTranslator_InjectSpecifics_UncuttableCategory_ThrowsNoException()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 var dimsCat = doc.Settings.Categories.get_Item(BuiltInCategory.OST_Dimensions);
                 Assert.IsNotNull(dimsCat, "OST_Dimensions category should exist.");
@@ -172,21 +135,13 @@ namespace SyntheticTests.RevitDOM
 
                     tg.RollBack();
                 }
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void CategoryTranslator_InjectSpecifics_MissingParent_LogsWarningToResultModel()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 var translator = new CategoryTranslator(new RevitIdentityService());
                 var model = new CategoryModel
@@ -213,21 +168,13 @@ namespace SyntheticTests.RevitDOM
 
                     tg.RollBack();
                 }
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void CategoryMapping_SymmetricConversions_ResolvesCategory()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 Category liveCategory = Category.GetCategory(doc, BuiltInCategory.OST_Walls);
                 Assert.IsNotNull(liveCategory, "OST_Walls category should exist.");
@@ -244,11 +191,7 @@ namespace SyntheticTests.RevitDOM
                 Assert.AreEqual(liveCategory.Id, resolvedFromIdModel.Id, "Resolved category ID should match.");
                 Assert.IsNotNull(resolvedFromCatModel, "Should resolve from CategoryModel.");
                 Assert.AreEqual(liveCategory.Id, resolvedFromCatModel.Id, "Resolved category ID should match.");
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
     }
 }

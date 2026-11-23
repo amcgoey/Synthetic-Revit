@@ -1,11 +1,11 @@
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
-using System.Windows;
 using Autodesk.Revit.UI;
 using NUnit.Framework;
+using Synthetic.Platform.Host;
 using Synthetic.Platform.UI;
+using SyntheticTests.Fixtures;
 using SyntheticTests.Helpers;
 
 namespace SyntheticTests.Platform.UI
@@ -22,31 +22,11 @@ namespace SyntheticTests.Platform.UI
     {
         private UIApplication? _uiapp;
 
-        private sealed class CapturingTraceListener : TraceListener
-        {
-            public List<string> Messages { get; } = new List<string>();
-
-            public override void Write(string? message)
-            {
-                if (!string.IsNullOrEmpty(message))
-                {
-                    Messages.Add(message!);
-                }
-            }
-
-            public override void WriteLine(string? message)
-            {
-                if (!string.IsNullOrEmpty(message))
-                {
-                    Messages.Add(message!);
-                }
-            }
-        }
-
         [OneTimeSetUp]
         public void Setup(UIApplication uiapp)
         {
             _uiapp = uiapp;
+            HostSettingsRegistrar.EnsureRegistered();
             TestWorkerJournalMarker.EnsureWritten(uiapp);
         }
 
@@ -56,16 +36,8 @@ namespace SyntheticTests.Platform.UI
             Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
             IntPtr ownerHandle = _uiapp!.MainWindowHandle;
 
-            var listener = new CapturingTraceListener();
-            TraceSource dataBindingSource = PresentationTraceSources.DataBindingSource;
-            SourceLevels previousLevel = dataBindingSource.Switch.Level;
-            dataBindingSource.Switch.Level = SourceLevels.Error;
-            dataBindingSource.Listeners.Add(listener);
-
-            try
+            using (var harness = new WpfBindingSmokeHarness())
             {
-                PresentationTraceSources.Refresh();
-
                 // 1. DropdownSelectionView
                 var dropdownVm = new DropdownSelectionViewModel
                 {
@@ -74,7 +46,7 @@ namespace SyntheticTests.Platform.UI
                     ItemLabel = "Option",
                     Items = new[] { "Option A", "Option B" }
                 };
-                ExerciseWindow(new DropdownSelectionView(ownerHandle) { DataContext = dropdownVm });
+                WpfBindingSmokeHarness.ExerciseWindow(new DropdownSelectionView(ownerHandle) { DataContext = dropdownVm });
 
                 // 2. ExportCompletionWindow
                 var exportVm = ExportCompletionViewModel.ForBatch(
@@ -82,10 +54,10 @@ namespace SyntheticTests.Platform.UI
                     generatedCount: 2,
                     primaryFilePath: @"C:\Temp\SyntheticSmoke\Output.png",
                     warningNotices: new[] { "Sample smoke notice." });
-                ExerciseWindow(new ExportCompletionWindow(exportVm, ownerHandle));
+                WpfBindingSmokeHarness.ExerciseWindow(new ExportCompletionWindow(exportVm, ownerHandle));
 
                 // 3. GuardrailPromptWindow
-                ExerciseWindow(new GuardrailPromptWindow(@"C:\Temp\SyntheticSmoke\Master.json", ownerHandle));
+                WpfBindingSmokeHarness.ExerciseWindow(new GuardrailPromptWindow(@"C:\Temp\SyntheticSmoke\Master.json", ownerHandle));
 
                 // 4. ListByCheckboxView
                 var listVm = new ListByCheckboxViewModel
@@ -94,7 +66,7 @@ namespace SyntheticTests.Platform.UI
                     Instruction = "Check items:"
                 };
                 listVm.SetItems(new[] { "First", "Second" }, checkAll: true);
-                ExerciseWindow(new ListByCheckboxView(ownerHandle) { DataContext = listVm });
+                WpfBindingSmokeHarness.ExerciseWindow(new ListByCheckboxView(ownerHandle) { DataContext = listVm });
 
                 // 5. SelectSearchPathsView
                 var searchPathsVm = new SelectSearchPathsViewModel
@@ -103,7 +75,7 @@ namespace SyntheticTests.Platform.UI
                 };
                 searchPathsVm.UserPaths.Add(new CheckableItem(@"C:\Temp\UserPath", true));
                 searchPathsVm.DefaultPaths.Add(new CheckableItem(@"C:\Temp\DefaultPath", false));
-                ExerciseWindow(new SelectSearchPathsView(ownerHandle) { DataContext = searchPathsVm });
+                WpfBindingSmokeHarness.ExerciseWindow(new SelectSearchPathsView(ownerHandle) { DataContext = searchPathsVm });
 
                 // 6. SharedProgressWindow
                 using (var cts = new CancellationTokenSource())
@@ -120,7 +92,7 @@ namespace SyntheticTests.Platform.UI
                     {
                         AllowProgrammaticClose = true
                     };
-                    ExerciseWindow(progressWindow);
+                    WpfBindingSmokeHarness.ExerciseWindow(progressWindow);
                 }
 
                 // 7. SingleItemSelectionWindow
@@ -131,24 +103,16 @@ namespace SyntheticTests.Platform.UI
                 {
                     Title = "Smoke Single Selection"
                 };
-                ExerciseWindow(new SingleItemSelectionWindow(ownerHandle) { DataContext = singleVm });
+                WpfBindingSmokeHarness.ExerciseWindow(new SingleItemSelectionWindow(ownerHandle) { DataContext = singleVm });
 
                 // 8. TextInputPromptWindow
-                ExerciseWindow(new TextInputPromptWindow(
+                WpfBindingSmokeHarness.ExerciseWindow(new TextInputPromptWindow(
                     title: "Smoke Input",
                     promptMessage: "Enter value:",
                     initialValue: "Initial",
                     parentHandle: ownerHandle));
 
-                Assert.IsEmpty(
-                    listener.Messages,
-                    "Expected zero WPF DataBinding errors across shared Platform/UI views:" + Environment.NewLine
-                    + string.Join(Environment.NewLine, listener.Messages));
-            }
-            finally
-            {
-                dataBindingSource.Listeners.Remove(listener);
-                dataBindingSource.Switch.Level = previousLevel;
+                harness.AssertNoBindingErrors("shared Platform/UI views");
             }
         }
 
@@ -171,20 +135,6 @@ namespace SyntheticTests.Platform.UI
             finally
             {
                 RevitWindowHelper.MainWindowHandle = original;
-            }
-        }
-
-        private static void ExerciseWindow(Window window)
-        {
-            try
-            {
-                window.Show();
-                window.UpdateLayout();
-                Assert.IsTrue(window.IsVisible, $"{window.GetType().Name} should show cleanly without resource exceptions.");
-            }
-            finally
-            {
-                window.Close();
             }
         }
     }

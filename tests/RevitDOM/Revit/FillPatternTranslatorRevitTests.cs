@@ -8,31 +8,18 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
-using SyntheticTests.Helpers;
+using SyntheticTests.Fixtures;
 
 namespace SyntheticTests.RevitDOM
 {
     [TestFixture]
     [RevitAdapterTest]
-    public class FillPatternTranslatorRevitTests
+    public class FillPatternTranslatorRevitTests : RevitTemplateRollbackFixture
     {
-        private UIApplication? _uiapp;
-
-        [OneTimeSetUp]
-        public void Setup(UIApplication uiapp)
-        {
-            _uiapp = uiapp;
-            TestWorkerJournalMarker.EnsureWritten(uiapp);
-        }
-
         [Test]
         public void ExtractSpecifics_CorrectlyPopulatesGridsList()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 // Find a default fill pattern element
                 FillPatternElement? fpElem = new FilteredElementCollector(doc)
@@ -67,21 +54,13 @@ namespace SyntheticTests.RevitDOM
                     Assert.AreEqual(expectedGrids[i].Offset, model.Pattern.FillGrids[i].Offset, 1e-6);
                     Assert.AreEqual(expectedGrids[i].Shift, model.Pattern.FillGrids[i].Shift, 1e-6);
                 }
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void InjectSpecifics_CreatesNewPatternElement()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 var translator = new FillPatternTranslator();
                 var model = new FillPatternElementModel
@@ -127,21 +106,13 @@ namespace SyntheticTests.RevitDOM
                 Assert.AreEqual(1, grids.Count);
                 Assert.AreEqual(0.0, grids[0].Angle, 1e-6);
                 Assert.AreEqual(0.1, grids[0].Offset, 1e-6);
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void InjectSpecifics_ModifiesExistingPatternElement()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 var translator = new FillPatternTranslator();
                 FillPatternElement? testElem = null;
@@ -197,11 +168,7 @@ namespace SyntheticTests.RevitDOM
                 Assert.AreEqual(1, resultGrids.Count);
                 Assert.AreEqual(1.57079632679, resultGrids[0].Angle, 1e-5);
                 Assert.AreEqual(0.2, resultGrids[0].Offset, 1e-6);
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
     }
 }

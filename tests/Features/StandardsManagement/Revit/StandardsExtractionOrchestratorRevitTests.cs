@@ -9,23 +9,14 @@ using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
 using Synthetic.Features.StandardsManagement;
-using SyntheticTests.Helpers;
+using SyntheticTests.Fixtures;
 
 namespace SyntheticTests.Features.StandardsManagement
 {
     [TestFixture]
     [RevitAdapterTest]
-    public class StandardsExtractionOrchestratorRevitTests
+    public class StandardsExtractionOrchestratorRevitTests : RevitTemplateRollbackFixture
     {
-        private UIApplication? _uiapp;
-
-        [OneTimeSetUp]
-        public void Setup(UIApplication uiapp)
-        {
-            _uiapp = uiapp;
-            TestWorkerJournalMarker.EnsureWritten(uiapp);
-        }
-
         private Material CreateMaterial(Document doc, string name)
         {
             ElementId matId = Material.Create(doc, name);
@@ -35,11 +26,7 @@ namespace SyntheticTests.Features.StandardsManagement
         [Test]
         public void Extract_DeepDependencyRetrieval_WallTypeAndMaterial()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 Material testMaterial;
                 WallType wallType;
@@ -89,11 +76,7 @@ namespace SyntheticTests.Features.StandardsManagement
                 // Assert DependencyOrigin is set correctly
                 Assert.AreEqual(wallType.Name, materialPoco!.DependencyOrigin,
                     "Material's DependencyOrigin should match the WallType's Name that pulled it in.");
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
     }
 }

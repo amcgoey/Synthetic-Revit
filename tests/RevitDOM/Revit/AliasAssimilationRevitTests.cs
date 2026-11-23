@@ -8,23 +8,14 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
-using SyntheticTests.Helpers;
+using SyntheticTests.Fixtures;
 
 namespace SyntheticTests.RevitDOM
 {
     [TestFixture]
     [RevitAdapterTest]
-    public class AliasAssimilationRevitTests
+    public class AliasAssimilationRevitTests : RevitTemplateRollbackFixture
     {
-        private UIApplication? _uiapp;
-
-        [OneTimeSetUp]
-        public void Setup(UIApplication uiapp)
-        {
-            _uiapp = uiapp;
-            TestWorkerJournalMarker.EnsureWritten(uiapp);
-        }
-
         private Material CreateMaterial(Document doc, string name)
         {
             ElementId matId = Material.Create(doc, name);
@@ -34,11 +25,7 @@ namespace SyntheticTests.RevitDOM
         [Test]
         public void ToRevit_SuccessfulAssimilation()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 using (var tg = new TransactionGroup(doc, "Alias Assimilation Test"))
                 {
@@ -126,21 +113,13 @@ namespace SyntheticTests.RevitDOM
 
                     tg.RollBack();
                 }
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void ToRevit_GracefulDegradation_OnAliasFailure()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 using (var tg = new TransactionGroup(doc, "Alias Failure Test"))
                 {
@@ -195,11 +174,7 @@ namespace SyntheticTests.RevitDOM
 
                     tg.RollBack();
                 }
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
     }
 

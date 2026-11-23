@@ -9,101 +9,69 @@ using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
 using Synthetic.Features.StandardsManagement;
-using SyntheticTests.Helpers;
+using SyntheticTests.Fixtures;
 
 namespace SyntheticTests.Features.StandardsManagement
 {
     [TestFixture]
     [RevitAdapterTest]
-    public class StandardsDiffEngineRevitTests
+    public class StandardsDiffEngineRevitTests : RevitTemplateRollbackFixture
     {
-        private UIApplication? _uiapp;
-
-        [OneTimeSetUp]
-        public void Setup(UIApplication uiapp)
-        {
-            _uiapp = uiapp;
-            TestWorkerJournalMarker.EnsureWritten(uiapp);
-        }
-
         private struct MutatedTestContext
         {
-            public Document Doc { get; set; }
             public TextNoteType TextNoteType { get; set; }
             public ElementTypeModel Model { get; set; }
             public ParameterModel TargetParam { get; set; }
-            public TransactionGroup TxGroup { get; set; }
         }
 
-        private MutatedTestContext CreateMutatedTextNoteTypeContext(string transactionGroupName)
+        private static MutatedTestContext CreateMutatedTextNoteTypeContext(Document doc)
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
+            TextNoteType? textNoteType = new FilteredElementCollector(doc)
+                .OfClass(typeof(TextNoteType))
+                .Cast<TextNoteType>()
+                .FirstOrDefault();
 
-            TransactionGroup txGroup = new TransactionGroup(doc, transactionGroupName);
-            txGroup.Start();
-
-            try
+            if (textNoteType == null)
             {
-                TextNoteType? textNoteType = new FilteredElementCollector(doc)
-                    .OfClass(typeof(TextNoteType))
-                    .Cast<TextNoteType>()
-                    .FirstOrDefault();
-
-                if (textNoteType == null)
-                {
-                    txGroup.RollBack();
-                    doc.Close(false);
-                    Assert.Ignore("No TextNoteType found in the active document to test deep scan.");
-                }
-
-                var model = (ElementTypeModel)textNoteType!.ToModel(true);
-                Assert.IsNotNull(model, "Extracted ElementTypeModel should not be null.");
-                Assert.IsNotNull(model.Parameters, "Extracted model parameters should not be null.");
-
-                var targetParam = model.Parameters.FirstOrDefault(p => !p.IsReadOnly);
-                if (targetParam == null)
-                {
-                    txGroup.RollBack();
-                    doc.Close(false);
-                    Assert.Ignore("No writable parameters found on TextNoteType to test mutation.");
-                }
-
-                string originalValue = targetParam!.Value ?? "";
-                string mutatedValue = originalValue + "_MutatedForTest";
-                if (targetParam.StorageType == "Double" || targetParam.StorageType == "Integer")
-                {
-                    mutatedValue = "999";
-                }
-                targetParam.Value = mutatedValue;
-
-                return new MutatedTestContext
-                {
-                    Doc = doc,
-                    TextNoteType = textNoteType,
-                    Model = model,
-                    TargetParam = targetParam,
-                    TxGroup = txGroup
-                };
+                Assert.Ignore("No TextNoteType found in the active document to test deep scan.");
             }
-            catch (Exception)
+
+            var model = (ElementTypeModel)textNoteType!.ToModel(true);
+            Assert.IsNotNull(model, "Extracted ElementTypeModel should not be null.");
+            Assert.IsNotNull(model.Parameters, "Extracted model parameters should not be null.");
+
+            var targetParam = model.Parameters.FirstOrDefault(p => !p.IsReadOnly);
+            if (targetParam == null)
             {
-                txGroup.RollBack();
-                doc.Close(false);
-                throw;
+                Assert.Ignore("No writable parameters found on TextNoteType to test mutation.");
             }
+
+            string originalValue = targetParam!.Value ?? "";
+            string mutatedValue = originalValue + "_MutatedForTest";
+            if (targetParam.StorageType == "Double" || targetParam.StorageType == "Integer")
+            {
+                mutatedValue = "999";
+            }
+            targetParam.Value = mutatedValue;
+
+            return new MutatedTestContext
+            {
+                TextNoteType = textNoteType,
+                Model = model,
+                TargetParam = targetParam
+            };
         }
 
         [Test]
         public void RunDeepScan_ShouldFlagConflict_WhenParameterMutated()
         {
-            var context = CreateMutatedTextNoteTypeContext("RunDeepScan_ShouldFlagConflict_WhenParameterMutated");
-            try
+            WithRolledBackDocument(doc =>
             {
+                var context = CreateMutatedTextNoteTypeContext(doc);
+
                 // 5. Run the comparison directly on the engine
                 var engine = new Synthetic.RevitDOM.Operations.Diffing.PocoToRevitDiffEngine();
-                var clusters = engine.Compare(new List<ObjectModel> { context.Model }, context.Doc).ToList();
+                var clusters = engine.Compare(new List<ObjectModel> { context.Model }, doc).ToList();
 
                 // 6. Assert that conflicts were successfully identified
                 Assert.IsNotNull(clusters, "RunDeepScan should return a non-null collection.");
@@ -119,25 +87,21 @@ namespace SyntheticTests.Features.StandardsManagement
                 var conflictRow = mapping!.ParameterResolutions.FirstOrDefault(r => r.ParameterName == context.TargetParam.Name);
                 Assert.IsNotNull(conflictRow, $"A parameter resolution row should exist for the mutated parameter '{context.TargetParam.Name}'.");
                 Assert.IsTrue(conflictRow!.HasConflict, "The parameter resolution row should indicate a conflict.");
-            }
-            finally
-            {
-                context.TxGroup.RollBack();
-                context.Doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void RunDeepScan_ShouldDelegateToAnalyze_Correctly()
         {
-            var context = CreateMutatedTextNoteTypeContext("RunDeepScan_ShouldDelegateToAnalyze_Correctly");
-            try
+            WithRolledBackDocument(doc =>
             {
+                var context = CreateMutatedTextNoteTypeContext(doc);
+
                 var serializationEngine = new StandardSerializationEngine();
                 var listModels = new List<ElementModel> { context.Model };
 
-                var analyzeClusters = serializationEngine.Analyze(listModels, context.Doc).ToList();
-                var deepScanClusters = StandardsDiffEngine.RunDeepScan(context.Doc, listModels, serializationEngine).ToList();
+                var analyzeClusters = serializationEngine.Analyze(listModels, doc).ToList();
+                var deepScanClusters = StandardsDiffEngine.RunDeepScan(doc, listModels, serializationEngine).ToList();
 
                 Assert.IsNotNull(analyzeClusters);
                 Assert.IsNotNull(deepScanClusters);
@@ -149,12 +113,7 @@ namespace SyntheticTests.Features.StandardsManagement
                     var clusterDeepScan = deepScanClusters[0];
                     Assert.AreEqual(clusterAnalyze.TypeMappings.Count, clusterDeepScan.TypeMappings.Count, "Mappings count should match.");
                 }
-            }
-            finally
-            {
-                context.TxGroup.RollBack();
-                context.Doc.Close(false);
-            }
+            });
         }
     }
 }

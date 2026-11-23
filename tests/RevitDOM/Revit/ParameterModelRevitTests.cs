@@ -8,35 +8,18 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
-using SyntheticTests.Helpers;
+using SyntheticTests.Fixtures;
 
 namespace SyntheticTests.RevitDOM
 {
     [TestFixture]
     [RevitAdapterTest]
-    public class ParameterModelRevitTests
+    public class ParameterModelRevitTests : RevitTemplateRollbackFixture
     {
-        private UIApplication? _uiapp;
-
-        [OneTimeSetUp]
-        public void Setup(UIApplication uiapp)
-        {
-            _uiapp = uiapp;
-            TestWorkerJournalMarker.EnsureWritten(uiapp);
-        }
-
         [Test]
         public void ParameterModelHydration_StringStorageType_HydratesCorrectly()
         {
-            // Arrange
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Assert.IsNotNull(app, "Revit Application should not be null.");
-
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-            Assert.IsNotNull(doc, "New project document should be created.");
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 Parameter? stringParam = FindParameterOfStorageType(doc, StorageType.String);
                 Assert.IsNotNull(stringParam, "A parameter with String storage type should exist in the default document.");
@@ -50,25 +33,13 @@ namespace SyntheticTests.RevitDOM
                 Assert.AreEqual("String", model.StorageType, "StorageType should be 'String'.");
                 Assert.AreEqual(stringParam.AsString(), model.Value, "Value should match string parameter AsString().");
                 Assert.AreEqual(stringParam.IsReadOnly, model.IsReadOnly, "IsReadOnly flag should match.");
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void ParameterModelHydration_IntegerStorageType_HydratesCorrectly()
         {
-            // Arrange
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Assert.IsNotNull(app, "Revit Application should not be null.");
-
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-            Assert.IsNotNull(doc, "New project document should be created.");
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 Parameter? intParam = FindParameterOfStorageType(doc, StorageType.Integer);
                 Assert.IsNotNull(intParam, "A parameter with Integer storage type should exist in the default document.");
@@ -82,25 +53,13 @@ namespace SyntheticTests.RevitDOM
                 Assert.AreEqual("Integer", model.StorageType, "StorageType should be 'Integer'.");
                 Assert.AreEqual(intParam.AsInteger().ToString(), model.Value, "Value should match stringified Integer value.");
                 Assert.AreEqual(intParam.IsReadOnly, model.IsReadOnly, "IsReadOnly flag should match.");
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void ParameterModelHydration_DoubleStorageType_HydratesCorrectly()
         {
-            // Arrange
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Assert.IsNotNull(app, "Revit Application should not be null.");
-
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-            Assert.IsNotNull(doc, "New project document should be created.");
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 Parameter? doubleParam = FindParameterOfStorageType(doc, StorageType.Double);
                 Assert.IsNotNull(doubleParam, "A parameter with Double storage type should exist in the default document.");
@@ -114,25 +73,13 @@ namespace SyntheticTests.RevitDOM
                 Assert.AreEqual("Double", model.StorageType, "StorageType should be 'Double'.");
                 Assert.AreEqual(doubleParam.AsDouble().ToString(), model.Value, "Value should match stringified Double value.");
                 Assert.AreEqual(doubleParam.IsReadOnly, model.IsReadOnly, "IsReadOnly flag should match.");
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void ParameterModelHydration_ElementIdStorageType_HydratesCorrectly()
         {
-            // Arrange
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Assert.IsNotNull(app, "Revit Application should not be null.");
-
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-            Assert.IsNotNull(doc, "New project document should be created.");
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 Parameter? elemIdParam = FindParameterOfStorageType(doc, StorageType.ElementId);
                 Assert.IsNotNull(elemIdParam, "A parameter with ElementId storage type should exist in the default document.");
@@ -160,11 +107,7 @@ namespace SyntheticTests.RevitDOM
                 }
                 Assert.AreEqual(expectedId, model.ValueElemId!.Id, "Deserialized ValueElemId.Id should match the native parameter's ElementId value.");
                 Assert.AreEqual(elemIdParam.IsReadOnly, model.IsReadOnly, "IsReadOnly flag should match.");
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         #region Helper Methods

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Windows;
@@ -33,29 +32,9 @@ namespace SyntheticTests.Features.ShadowStudy
     public class ShadowStudySmokeRevitTests
     {
         private UIApplication? _uiapp;
+        private int _initialDocCount;
         private bool _previousSuppressUi;
         private bool _previousSuppressDiskFallback;
-
-        private sealed class CapturingTraceListener : TraceListener
-        {
-            public List<string> Messages { get; } = new List<string>();
-
-            public override void Write(string? message)
-            {
-                if (!string.IsNullOrEmpty(message))
-                {
-                    Messages.Add(message!);
-                }
-            }
-
-            public override void WriteLine(string? message)
-            {
-                if (!string.IsNullOrEmpty(message))
-                {
-                    Messages.Add(message!);
-                }
-            }
-        }
 
         [OneTimeSetUp]
         public void OneTimeSetUp(UIApplication uiapp)
@@ -63,6 +42,19 @@ namespace SyntheticTests.Features.ShadowStudy
             _uiapp = uiapp;
             HostSettingsRegistrar.EnsureRegistered();
             TestWorkerJournalMarker.EnsureWritten(uiapp);
+            _initialDocCount = uiapp.Application.Documents.Size;
+        }
+
+        [OneTimeTearDown]
+        public void OneTimeTearDown()
+        {
+            if (_uiapp?.Application != null)
+            {
+                Assert.AreEqual(
+                    _initialDocCount,
+                    _uiapp.Application.Documents.Size,
+                    "ShadowStudySmokeRevitTests leaked open Revit document(s).");
+            }
         }
 
         [SetUp]
@@ -110,54 +102,45 @@ namespace SyntheticTests.Features.ShadowStudy
 
             Document? doc = null;
             SettingsDashboardWindow? window = null;
-            var listener = new CapturingTraceListener();
-            TraceSource dataBindingSource = PresentationTraceSources.DataBindingSource;
-            SourceLevels previousLevel = dataBindingSource.Switch.Level;
-            dataBindingSource.Switch.Level = SourceLevels.Error;
-            dataBindingSource.Listeners.Add(listener);
 
-            try
+            using (var harness = new WpfBindingSmokeHarness())
             {
-                PresentationTraceSources.Refresh();
-                doc = _uiapp!.Application.NewProjectDocument(UnitSystem.Imperial);
-                IntPtr ownerHandle = _uiapp.MainWindowHandle;
-
-                var dashboardVm = new SettingsDashboardViewModel(doc, ownerHandle);
-                ISettingModuleViewModel? shadowTab = dashboardVm.SettingModules
-                    .FirstOrDefault(m => string.Equals(m.ModuleName, "Shadow Study", StringComparison.Ordinal));
-                Assert.IsNotNull(shadowTab, "Expected 'Shadow Study' tab in SettingsDashboardViewModel.");
-                Assert.IsInstanceOf<ShadowStudySettingsViewModel>(shadowTab);
-
-                window = new SettingsDashboardWindow(ownerHandle)
+                try
                 {
-                    DataContext = dashboardVm
-                };
-                window.Show();
+                    doc = _uiapp!.Application.NewProjectDocument(UnitSystem.Imperial);
+                    IntPtr ownerHandle = _uiapp.MainWindowHandle;
 
-                dashboardVm.SelectedModule = shadowTab;
-                window.UpdateLayout();
-                Dispatcher.CurrentDispatcher.Invoke(DispatcherPriority.Loaded, new Action(() => { }));
-                Assert.IsTrue(window.IsVisible, "SettingsDashboardWindow should remain visible on the Shadow Study tab.");
+                    var dashboardVm = new SettingsDashboardViewModel(doc, ownerHandle);
+                    ISettingModuleViewModel? shadowTab = dashboardVm.SettingModules
+                        .FirstOrDefault(m => string.Equals(m.ModuleName, "Shadow Study", StringComparison.Ordinal));
+                    Assert.IsNotNull(shadowTab, "Expected 'Shadow Study' tab in SettingsDashboardViewModel.");
+                    Assert.IsInstanceOf<ShadowStudySettingsViewModel>(shadowTab);
 
-                Assert.IsEmpty(
-                    listener.Messages,
-                    "Expected zero WPF DataBinding errors on SettingsDashboardWindow Shadow Study tab:" + Environment.NewLine
-                    + string.Join(Environment.NewLine, listener.Messages));
-            }
-            finally
-            {
-                dataBindingSource.Listeners.Remove(listener);
-                dataBindingSource.Switch.Level = previousLevel;
+                    window = new SettingsDashboardWindow(ownerHandle)
+                    {
+                        DataContext = dashboardVm
+                    };
+                    window.Show();
 
-                if (window != null)
-                {
-                    window.DataContext = null;
-                    window.Close();
+                    dashboardVm.SelectedModule = shadowTab;
+                    window.UpdateLayout();
+                    Dispatcher.CurrentDispatcher.Invoke(DispatcherPriority.Loaded, new Action(() => { }));
+                    Assert.IsTrue(window.IsVisible, "SettingsDashboardWindow should remain visible on the Shadow Study tab.");
+
+                    harness.AssertNoBindingErrors("SettingsDashboardWindow Shadow Study tab");
                 }
-
-                if (doc != null && doc.IsValidObject)
+                finally
                 {
-                    doc.Close(false);
+                    if (window != null)
+                    {
+                        window.DataContext = null;
+                        window.Close();
+                    }
+
+                    if (doc != null && doc.IsValidObject)
+                    {
+                        doc.Close(false);
+                    }
                 }
             }
         }
@@ -168,16 +151,8 @@ namespace SyntheticTests.Features.ShadowStudy
             Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
             IntPtr ownerHandle = _uiapp!.MainWindowHandle;
 
-            var listener = new CapturingTraceListener();
-            TraceSource dataBindingSource = PresentationTraceSources.DataBindingSource;
-            SourceLevels previousLevel = dataBindingSource.Switch.Level;
-            dataBindingSource.Switch.Level = SourceLevels.Error;
-            dataBindingSource.Listeners.Add(listener);
-
-            try
+            using (var harness = new WpfBindingSmokeHarness())
             {
-                PresentationTraceSources.Refresh();
-
                 // 1. ShadowStudyWindow
                 var adapter = new FakeShadowStudyAdapter();
                 adapter.EligibleViews.Add(new ShadowStudyViewItem
@@ -199,7 +174,7 @@ namespace SyntheticTests.Features.ShadowStudy
                 var folderDialog = new FakeFolderDialogService();
                 var studyVm = new ShadowStudyViewModel(adapter, folderDialog, new DateTime(2026, 6, 21));
                 studyVm.ExportRangeMode = ShadowStudyExportRangeMode.SelectedViews;
-                ExerciseWindow(new ShadowStudyWindow(ownerHandle) { DataContext = studyVm });
+                WpfBindingSmokeHarness.ExerciseWindow(new ShadowStudyWindow(ownerHandle) { DataContext = studyVm }, clearDataContextOnClose: true);
 
                 // 2. ShadowStudySettingsView hosted inside an STA Window
                 var stored = new ShadowStudySettings
@@ -234,33 +209,9 @@ namespace SyntheticTests.Features.ShadowStudy
                     ShowInTaskbar = false
                 };
                 RevitWindowHelper.SetOwner(hostWindow, ownerHandle);
-                ExerciseWindow(hostWindow);
+                WpfBindingSmokeHarness.ExerciseWindow(hostWindow, clearDataContextOnClose: true);
 
-                Assert.IsEmpty(
-                    listener.Messages,
-                    "Expected zero WPF DataBinding errors across ShadowStudy views:" + Environment.NewLine
-                    + string.Join(Environment.NewLine, listener.Messages));
-            }
-            finally
-            {
-                dataBindingSource.Listeners.Remove(listener);
-                dataBindingSource.Switch.Level = previousLevel;
-            }
-        }
-
-        private static void ExerciseWindow(Window window)
-        {
-            try
-            {
-                window.Show();
-                window.UpdateLayout();
-                Dispatcher.CurrentDispatcher.Invoke(DispatcherPriority.Loaded, new Action(() => { }));
-                Assert.IsTrue(window.IsVisible, $"{window.GetType().Name} should show cleanly without resource exceptions.");
-            }
-            finally
-            {
-                window.DataContext = null;
-                window.Close();
+                harness.AssertNoBindingErrors("ShadowStudy views");
             }
         }
     }

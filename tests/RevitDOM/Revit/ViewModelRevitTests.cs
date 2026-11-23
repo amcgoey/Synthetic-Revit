@@ -7,35 +7,18 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
-using SyntheticTests.Helpers;
+using SyntheticTests.Fixtures;
 
 namespace SyntheticTests.RevitDOM
 {
     [TestFixture]
     [RevitAdapterTest]
-    public class ViewModelRevitTests
+    public class ViewModelRevitTests : RevitTemplateRollbackFixture
     {
-        private UIApplication? _uiapp;
-
-        [OneTimeSetUp]
-        public void Setup(UIApplication uiapp)
-        {
-            _uiapp = uiapp;
-            TestWorkerJournalMarker.EnsureWritten(uiapp);
-        }
-
         [Test]
         public void ViewModelHydration_ActiveView_HydratesCorrectly()
         {
-            // Arrange
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Assert.IsNotNull(app, "Revit Application should not be null.");
-
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-            Assert.IsNotNull(doc, "New project document should be created.");
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 // Find a graphical view (like FloorPlan) that is not a template
                 View? view = new FilteredElementCollector(doc)
@@ -80,11 +63,7 @@ namespace SyntheticTests.RevitDOM
                     Assert.IsNotNull(paramModel.Name, "Parameter name should not be null.");
                     Assert.IsNotNull(paramModel.StorageType, "Parameter StorageType should not be null.");
                 }
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
     }
 }

@@ -3,9 +3,10 @@ using System.IO;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using NUnit.Framework;
-using Synthetic.Platform.Host;
 using Synthetic.Features.StandardsManagement.Views;
+using Synthetic.Platform.Host;
 using Synthetic.Platform.Revit;
+using SyntheticTests.Fixtures;
 using SyntheticTests.Helpers;
 
 namespace SyntheticTests.Platform.Host
@@ -14,12 +15,27 @@ namespace SyntheticTests.Platform.Host
     public class BootstrapWorkerIsolationRevitTests
     {
         private UIApplication? _uiapp;
+        private int _initialDocCount;
 
         [OneTimeSetUp]
         public void Setup(UIApplication uiapp)
         {
             _uiapp = uiapp;
+            HostSettingsRegistrar.EnsureRegistered();
             TestWorkerJournalMarker.EnsureWritten(uiapp);
+            _initialDocCount = uiapp.Application.Documents.Size;
+        }
+
+        [OneTimeTearDown]
+        public void OneTimeTearDown()
+        {
+            if (_uiapp?.Application != null)
+            {
+                Assert.AreEqual(
+                    _initialDocCount,
+                    _uiapp.Application.Documents.Size,
+                    "BootstrapWorkerIsolationRevitTests leaked open Revit document(s).");
+            }
         }
 
         [Test]
@@ -35,19 +51,25 @@ namespace SyntheticTests.Platform.Host
                 App.AppControlled,
                 "App.AppControlled must remain null when BootstrapApp bypasses host startup in test workers.");
 
-            string assemblyLocation = typeof(App).Assembly.Location;
-            Assert.IsFalse(
-                string.IsNullOrWhiteSpace(assemblyLocation),
-                "Loaded Synthetic assembly must have a non-empty disk path.");
-
-            string normalizedLocation = Path.GetFullPath(assemblyLocation);
             string expectedTempRoot = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "RevitTest"))
                 .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
                 + Path.DirectorySeparatorChar;
 
+            string addinLocation = typeof(App).Assembly.Location;
+            Assert.IsFalse(
+                string.IsNullOrWhiteSpace(addinLocation),
+                "Loaded Synthetic add-in payload assembly must have a non-empty disk path.");
             Assert.IsTrue(
-                normalizedLocation.StartsWith(expectedTempRoot, StringComparison.OrdinalIgnoreCase),
-                $"Expected unshadowed payload under '{expectedTempRoot}', but loaded '{normalizedLocation}'.");
+                Path.GetFullPath(addinLocation).StartsWith(expectedTempRoot, StringComparison.OrdinalIgnoreCase),
+                $"Expected unshadowed payload under '{expectedTempRoot}', but loaded '{addinLocation}'.");
+
+            string coreLocation = typeof(RibbonItemFilter).Assembly.Location;
+            Assert.IsFalse(
+                string.IsNullOrWhiteSpace(coreLocation),
+                "Loaded Synthetic.Core assembly must have a non-empty disk path.");
+            Assert.IsTrue(
+                Path.GetFullPath(coreLocation).StartsWith(expectedTempRoot, StringComparison.OrdinalIgnoreCase),
+                $"Expected unshadowed Synthetic.Core under '{expectedTempRoot}', but loaded '{coreLocation}'.");
         }
 
         [Test]
@@ -56,17 +78,11 @@ namespace SyntheticTests.Platform.Host
         {
             Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
 
-            var window = new ProjectStandardsDashboardWindow(_uiapp!.MainWindowHandle);
-            try
+            using (var harness = new WpfBindingSmokeHarness())
             {
-                window.Show();
-                Assert.IsTrue(
-                    window.IsVisible,
-                    "Modeless ProjectStandardsDashboardWindow should initialize XAML/theme and become visible without App.OnStartup.");
-            }
-            finally
-            {
-                window.Close();
+                var window = new ProjectStandardsDashboardWindow(_uiapp!.MainWindowHandle);
+                WpfBindingSmokeHarness.ExerciseWindow(window);
+                harness.AssertNoBindingErrors("ProjectStandardsDashboardWindow");
             }
         }
 
@@ -76,9 +92,17 @@ namespace SyntheticTests.Platform.Host
         {
             Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
 
-            Document doc = OpenDetachedTestTemplate(_uiapp!.Application);
+            string tempDir = RevitIsolatedDocumentFixture.CreateIsolatedRunDirectory();
+            Document? doc = null;
             try
             {
+                string templatePath = RevitIsolatedDocumentFixture.GetTestTemplatePath(_uiapp!.Application);
+                doc = RevitIsolatedDocumentFixture.OpenIsolatedModelCopy(
+                    _uiapp.Application,
+                    templatePath,
+                    tempDir,
+                    detachFromCentral: true);
+
                 bool purged = DocumentUtil.Purge(_uiapp.Application, doc);
                 Assert.IsTrue(
                     purged,
@@ -86,26 +110,23 @@ namespace SyntheticTests.Platform.Host
             }
             finally
             {
-                doc.Close(false);
-            }
-        }
+                if (doc != null && doc.IsValidObject)
+                {
+                    doc.Close(false);
+                }
 
-        private static Document OpenDetachedTestTemplate(Autodesk.Revit.ApplicationServices.Application app)
-        {
-            string projectRoot = TestPathHelper.GetProjectRoot();
-            string testModelName = "TestTemplate" + app.VersionNumber + ".rvt";
-            string modelPathStr = Path.Combine(projectRoot, "tests", "Assets", "test_models", testModelName);
-            if (!File.Exists(modelPathStr))
-            {
-                throw new FileNotFoundException("Test template model not found: " + modelPathStr);
+                try
+                {
+                    if (Directory.Exists(tempDir))
+                    {
+                        Directory.Delete(tempDir, recursive: true);
+                    }
+                }
+                catch
+                {
+                    // Best-effort temp cleanup
+                }
             }
-
-            ModelPath modelPath = ModelPathUtils.ConvertUserVisiblePathToModelPath(modelPathStr);
-            var openOptions = new OpenOptions
-            {
-                DetachFromCentralOption = DetachFromCentralOption.DetachAndDiscardWorksets
-            };
-            return app.OpenDocumentFile(modelPath, openOptions);
         }
     }
 }

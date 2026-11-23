@@ -12,7 +12,7 @@ using View = Autodesk.Revit.DB.View;
 using Synthetic.Features.ShadowStudy.Adapters;
 using Synthetic.Features.ShadowStudy.Models;
 using Synthetic.Features.ShadowStudy.Services;
-using SyntheticTests.Helpers;
+using SyntheticTests.Fixtures;
 
 namespace SyntheticTests.Features.ShadowStudy
 {
@@ -23,252 +23,175 @@ namespace SyntheticTests.Features.ShadowStudy
     /// </summary>
     [TestFixture]
     [RevitIsolatedDocTest]
-    public class ShadowStudyVisualStyleRevitTests
+    public class ShadowStudyVisualStyleRevitTests : RevitIsolatedDocumentFixture
     {
-        private UIApplication? _uiapp;
-        private string _tempDir = string.Empty;
-
-        [OneTimeSetUp]
-        public void OneTimeSetUp(UIApplication uiapp)
-        {
-            _uiapp = uiapp;
-            TestWorkerJournalMarker.EnsureWritten(uiapp);
-        }
-
-        [SetUp]
-        public void SetUp()
-        {
-            _tempDir = Path.Combine(
-                Path.GetTempPath(),
-                "Tier2ShadowVisualStyle_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(_tempDir);
-        }
-
-        [TearDown]
-        public void TearDown()
-        {
-            if (Directory.Exists(_tempDir))
-            {
-                try
-                {
-                    Directory.Delete(_tempDir, true);
-                }
-                catch
-                {
-                    // Best-effort cleanup
-                }
-            }
-        }
-
         [Test]
         public void MapViewItem_WireframeAndUncroppedView_SurfacesCoexistingWarningBadgesInBothModes()
         {
-            Assert.IsNotNull(_uiapp);
-            Document doc = OpenDetachedTestTemplate(_uiapp!.Application);
+            Document doc = OpenIsolatedTestTemplateCopy();
 
-            try
-            {
-                View3D wireframe3D = SetupVisualStyleTestViews(doc).Wireframe3D;
+            View3D wireframe3D = SetupVisualStyleTestViews(doc).Wireframe3D;
 
-                var adapter = new RevitShadowStudyAdapter(doc, null, _uiapp, wireframe3D);
+            var adapter = new RevitShadowStudyAdapter(doc, null, UiApp, wireframe3D);
 
-                // CurrentView mode
-                ShadowStudyViewItem? activeItem = adapter.GetActiveViewInfo();
-                Assert.IsNotNull(activeItem);
-                Assert.IsFalse(activeItem!.IsCropped);
-                Assert.AreEqual("Wireframe", activeItem.DisplayStyleName);
-                Assert.IsTrue(activeItem.HasWarnings);
-                Assert.IsTrue(activeItem.Warnings.Any(w => w.Code == "Uncropped"));
-                Assert.IsTrue(activeItem.Warnings.Any(w => w.Code == "VisualStyle"));
+            // CurrentView mode
+            ShadowStudyViewItem? activeItem = adapter.GetActiveViewInfo();
+            Assert.IsNotNull(activeItem);
+            Assert.IsFalse(activeItem!.IsCropped);
+            Assert.AreEqual("Wireframe", activeItem.DisplayStyleName);
+            Assert.IsTrue(activeItem.HasWarnings);
+            Assert.IsTrue(activeItem.Warnings.Any(w => w.Code == "Uncropped"));
+            Assert.IsTrue(activeItem.Warnings.Any(w => w.Code == "VisualStyle"));
 
-                // SelectedViews mode
-                IReadOnlyList<ShadowStudyViewItem> eligible = adapter.GetEligibleViews();
-                ShadowStudyViewItem listedItem = eligible.First(v => v.Id == wireframe3D.UniqueId);
-                Assert.IsTrue(listedItem.Warnings.Any(w => w.Code == "Uncropped"));
-                Assert.IsTrue(listedItem.Warnings.Any(w => w.Code == "VisualStyle"));
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            // SelectedViews mode
+            IReadOnlyList<ShadowStudyViewItem> eligible = adapter.GetEligibleViews();
+            ShadowStudyViewItem listedItem = eligible.First(v => v.Id == wireframe3D.UniqueId);
+            Assert.IsTrue(listedItem.Warnings.Any(w => w.Code == "Uncropped"));
+            Assert.IsTrue(listedItem.Warnings.Any(w => w.Code == "VisualStyle"));
         }
 
         [Test]
         public void Export_MixedBatchWithPreserveVisualStyle_PreservesShadedAndHlrBackgroundsFallsBackWireframeAndRollsBack()
         {
-            Assert.IsNotNull(_uiapp);
-            Document doc = OpenDetachedTestTemplate(_uiapp!.Application);
+            Document doc = OpenIsolatedTestTemplateCopy();
 
-            try
+            VisualStyleSuite suite = SetupVisualStyleTestViews(doc);
+
+            string cleanRvtPath = GetTempFilePath("CleanVisualStyleBaseline.rvt");
+            doc.SaveAs(cleanRvtPath, new SaveAsOptions { OverwriteExistingFile = true });
+            Assert.IsFalse(doc.IsModified);
+
+            var adapter = new RevitShadowStudyAdapter(doc, null, UiApp);
+            ShadowStudySiteInfo site = adapter.GetSiteInfo();
+            DateSolarSchedule schedule = SolarScheduleCalculator.BuildSchedule(
+                new ShadowStudyDateEntry { Date = new DateTime(2026, 6, 21) },
+                site,
+                stepMinutes: 240,
+                minAltitudeDegrees: 15.0,
+                maxCompositeDarknessPercent: 80);
+
+            Assert.GreaterOrEqual(schedule.Frames.Count, 2, "Expected at least 2 daylight frames.");
+
+            IReadOnlyList<ShadowStudyViewItem> eligible = adapter.GetEligibleViews();
+            var targetViews = new View[] { suite.Shaded3D, suite.Wireframe3D, suite.HlrCustomBg3D };
+            var selectedItems = targetViews
+                .Select(v => eligible.First(item => item.Id == v.UniqueId))
+                .ToList();
+
+            int elementCountBefore = new FilteredElementCollector(doc).GetElementCount();
+            List<VisualSnapshot> snapshotsBefore = targetViews.Select(CaptureSnapshot).ToList();
+
+            var pipeline = new ShadowStudyPipeline(adapter);
+            ShadowStudyRunSummary summary = pipeline.Execute(new ShadowStudyRunRequest
             {
-                VisualStyleSuite suite = SetupVisualStyleTestViews(doc);
+                Views = selectedItems,
+                DateSchedules = new[] { schedule },
+                OutputFolder = CurrentTestTempDirectory,
+                PixelWidth = 320,
+                ForceHiddenLine = false,
+                ForceWhiteBackground = true,
+                KeepIndividualFrames = true
+            });
 
-                string cleanRvtPath = Path.Combine(_tempDir, "CleanVisualStyleBaseline.rvt");
-                doc.SaveAs(cleanRvtPath, new SaveAsOptions { OverwriteExistingFile = true });
-                Assert.IsFalse(doc.IsModified);
+            Assert.IsFalse(summary.WasCancelled);
+            Assert.AreEqual(3, summary.GeneratedCount);
 
-                var adapter = new RevitShadowStudyAdapter(doc, null, _uiapp);
-                ShadowStudySiteInfo site = adapter.GetSiteInfo();
-                DateSolarSchedule schedule = SolarScheduleCalculator.BuildSchedule(
-                    new ShadowStudyDateEntry { Date = new DateTime(2026, 6, 21) },
-                    site,
-                    stepMinutes: 240,
-                    minAltitudeDegrees: 15.0,
-                    maxCompositeDarknessPercent: 80);
+            string dateLabel = schedule.DateEntry.DateLabel;
+            string shadedComposite = GetTempFilePath($"Visual Shaded 3D - {dateLabel} - Composite.png");
+            string wireframeComposite = GetTempFilePath($"Visual Wireframe 3D - {dateLabel} - Composite.png");
+            string hlrComposite = GetTempFilePath($"Visual HLR CustomBg 3D - {dateLabel} - Composite.png");
 
-                Assert.GreaterOrEqual(schedule.Frames.Count, 2, "Expected at least 2 daylight frames.");
+            Assert.IsTrue(File.Exists(shadedComposite), "Missing shaded 3D composite.");
+            Assert.IsTrue(File.Exists(wireframeComposite), "Missing Wireframe fallback composite.");
+            Assert.IsTrue(File.Exists(hlrComposite), "Missing preserved HLR composite.");
 
-                IReadOnlyList<ShadowStudyViewItem> eligible = adapter.GetEligibleViews();
-                var targetViews = new View[] { suite.Shaded3D, suite.Wireframe3D, suite.HlrCustomBg3D };
-                var selectedItems = targetViews
-                    .Select(v => eligible.First(item => item.Id == v.UniqueId))
-                    .ToList();
+            // 1. Shaded 3D composite retains colored pixels & non-white sky background
+            byte[] shadedPixels = ReadBgra32Pixels(shadedComposite, out int shadedW, out int shadedH);
+            Assert.AreEqual(320, shadedW);
+            Assert.Greater(shadedH, 0);
+            Assert.IsTrue(HasNonGrayscaleColorPixel(shadedPixels), "Preserved shaded 3D composite must retain non-grayscale color pixels.");
+            AssertTopLeftIsNotPureWhite(shadedPixels, "Preserved shaded 3D composite must preserve its non-white gradient background.");
 
-                int elementCountBefore = new FilteredElementCollector(doc).GetElementCount();
-                List<VisualSnapshot> snapshotsBefore = targetViews.Select(CaptureSnapshot).ToList();
+            // 2. Wireframe 3D composite fell back to Hidden Line on pure white background
+            byte[] wireframePixels = ReadBgra32Pixels(wireframeComposite, out int wfW, out _);
+            Assert.AreEqual(320, wfW);
+            AssertTopLeftIsPureWhite(wireframePixels, "Wireframe fallback composite must render on a pure white background.");
 
-                var pipeline = new ShadowStudyPipeline(adapter);
-                ShadowStudyRunSummary summary = pipeline.Execute(new ShadowStudyRunRequest
+            // 3. Preserved HLR 3D composite kept its custom sky gradient background (did not overwrite with white)
+            byte[] hlrPixels = ReadBgra32Pixels(hlrComposite, out int hlrW, out _);
+            Assert.AreEqual(320, hlrW);
+            AssertTopLeftIsNotPureWhite(hlrPixels, "Preserved HLR view must retain its existing background when PreserveVisualStyle is enabled.");
+
+            // 4. Individual frames retention: only <HHmm>.png frames exist, zero reference passes
+            foreach (string viewLabel in new[] { "Visual Shaded 3D", "Visual Wireframe 3D", "Visual HLR CustomBg 3D" })
+            {
+                string frameFolder = GetTempFilePath($"{viewLabel} - {dateLabel}");
+                Assert.IsTrue(Directory.Exists(frameFolder));
+                string[] frameFiles = Directory.GetFiles(frameFolder, "*.png");
+                Assert.AreEqual(schedule.Frames.Count, frameFiles.Length);
+                foreach (var slot in schedule.Frames)
                 {
-                    Views = selectedItems,
-                    DateSchedules = new[] { schedule },
-                    OutputFolder = _tempDir,
-                    PixelWidth = 320,
-                    ForceHiddenLine = false,
-                    ForceWhiteBackground = true,
-                    KeepIndividualFrames = true
-                });
-
-                Assert.IsFalse(summary.WasCancelled);
-                Assert.AreEqual(3, summary.GeneratedCount);
-
-                string dateLabel = schedule.DateEntry.DateLabel;
-                string shadedComposite = Path.Combine(_tempDir, $"Visual Shaded 3D - {dateLabel} - Composite.png");
-                string wireframeComposite = Path.Combine(_tempDir, $"Visual Wireframe 3D - {dateLabel} - Composite.png");
-                string hlrComposite = Path.Combine(_tempDir, $"Visual HLR CustomBg 3D - {dateLabel} - Composite.png");
-
-                Assert.IsTrue(File.Exists(shadedComposite), "Missing shaded 3D composite.");
-                Assert.IsTrue(File.Exists(wireframeComposite), "Missing Wireframe fallback composite.");
-                Assert.IsTrue(File.Exists(hlrComposite), "Missing preserved HLR composite.");
-
-                // 1. Shaded 3D composite retains colored pixels & non-white sky background
-                byte[] shadedPixels = ReadBgra32Pixels(shadedComposite, out int shadedW, out int shadedH);
-                Assert.AreEqual(320, shadedW);
-                Assert.Greater(shadedH, 0);
-                Assert.IsTrue(HasNonGrayscaleColorPixel(shadedPixels), "Preserved shaded 3D composite must retain non-grayscale color pixels.");
-                AssertTopLeftIsNotPureWhite(shadedPixels, "Preserved shaded 3D composite must preserve its non-white gradient background.");
-
-                // 2. Wireframe 3D composite fell back to Hidden Line on pure white background
-                byte[] wireframePixels = ReadBgra32Pixels(wireframeComposite, out int wfW, out _);
-                Assert.AreEqual(320, wfW);
-                AssertTopLeftIsPureWhite(wireframePixels, "Wireframe fallback composite must render on a pure white background.");
-
-                // 3. Preserved HLR 3D composite kept its custom sky gradient background (did not overwrite with white)
-                byte[] hlrPixels = ReadBgra32Pixels(hlrComposite, out int hlrW, out _);
-                Assert.AreEqual(320, hlrW);
-                AssertTopLeftIsNotPureWhite(hlrPixels, "Preserved HLR view must retain its existing background when PreserveVisualStyle is enabled.");
-
-                // 4. Individual frames retention: only <HHmm>.png frames exist, zero reference passes
-                foreach (string viewLabel in new[] { "Visual Shaded 3D", "Visual Wireframe 3D", "Visual HLR CustomBg 3D" })
-                {
-                    string frameFolder = Path.Combine(_tempDir, $"{viewLabel} - {dateLabel}");
-                    Assert.IsTrue(Directory.Exists(frameFolder));
-                    string[] frameFiles = Directory.GetFiles(frameFolder, "*.png");
-                    Assert.AreEqual(schedule.Frames.Count, frameFiles.Length);
-                    foreach (var slot in schedule.Frames)
-                    {
-                        string expectedFramePath = Path.Combine(frameFolder, $"{viewLabel} - {dateLabel} - {slot.FrameFileStem}.png");
-                        Assert.IsTrue(File.Exists(expectedFramePath), $"Missing expected Shadow Frame '{expectedFramePath}'.");
-                    }
-                }
-                Assert.IsFalse(Directory.EnumerateFiles(_tempDir, "r_*", SearchOption.AllDirectories).Any());
-                Assert.IsFalse(Directory.EnumerateFiles(_tempDir, "ref*", SearchOption.AllDirectories).Any());
-
-                // 5. Rolled-back TransactionGroup guarantees zero permanent model / view / Undo mutations
-                Assert.IsFalse(doc.IsModified, "Export must roll back cleanly without dirtying document or Undo stack.");
-                Assert.AreEqual(elementCountBefore, new FilteredElementCollector(doc).GetElementCount());
-                for (int i = 0; i < targetViews.Length; i++)
-                {
-                    AssertSnapshotUnchanged(snapshotsBefore[i], targetViews[i]);
+                    string expectedFramePath = Path.Combine(frameFolder, $"{viewLabel} - {dateLabel} - {slot.FrameFileStem}.png");
+                    Assert.IsTrue(File.Exists(expectedFramePath), $"Missing expected Shadow Frame '{expectedFramePath}'.");
                 }
             }
-            finally
+            Assert.IsFalse(Directory.EnumerateFiles(CurrentTestTempDirectory, "r_*", SearchOption.AllDirectories).Any());
+            Assert.IsFalse(Directory.EnumerateFiles(CurrentTestTempDirectory, "ref*", SearchOption.AllDirectories).Any());
+
+            // 5. Rolled-back TransactionGroup guarantees zero permanent model / view / Undo mutations
+            Assert.IsFalse(doc.IsModified, "Export must roll back cleanly without dirtying document or Undo stack.");
+            Assert.AreEqual(elementCountBefore, new FilteredElementCollector(doc).GetElementCount());
+            for (int i = 0; i < targetViews.Length; i++)
             {
-                doc.Close(false);
+                AssertSnapshotUnchanged(snapshotsBefore[i], targetViews[i]);
             }
         }
 
         [Test]
         public void Export_PreserveVisualStyleFalse_ForcesShaded3DToHiddenLineOnPureWhiteAndRollsBack()
         {
-            Assert.IsNotNull(_uiapp);
-            Document doc = OpenDetachedTestTemplate(_uiapp!.Application);
+            Document doc = OpenIsolatedTestTemplateCopy();
 
-            try
+            VisualStyleSuite suite = SetupVisualStyleTestViews(doc);
+
+            string cleanRvtPath = GetTempFilePath("CleanHlrBaseline.rvt");
+            doc.SaveAs(cleanRvtPath, new SaveAsOptions { OverwriteExistingFile = true });
+            Assert.IsFalse(doc.IsModified);
+
+            var adapter = new RevitShadowStudyAdapter(doc, null, UiApp);
+            ShadowStudySiteInfo site = adapter.GetSiteInfo();
+            DateSolarSchedule schedule = SolarScheduleCalculator.BuildSchedule(
+                new ShadowStudyDateEntry { Date = new DateTime(2026, 6, 21) },
+                site,
+                stepMinutes: 240,
+                minAltitudeDegrees: 15.0,
+                maxCompositeDarknessPercent: 80);
+
+            IReadOnlyList<ShadowStudyViewItem> eligible = adapter.GetEligibleViews();
+            ShadowStudyViewItem shadedItem = eligible.First(v => v.Id == suite.Shaded3D.UniqueId);
+            VisualSnapshot before = CaptureSnapshot(suite.Shaded3D);
+
+            var pipeline = new ShadowStudyPipeline(adapter);
+            ShadowStudyRunSummary summary = pipeline.Execute(new ShadowStudyRunRequest
             {
-                VisualStyleSuite suite = SetupVisualStyleTestViews(doc);
+                Views = new[] { shadedItem },
+                DateSchedules = new[] { schedule },
+                OutputFolder = CurrentTestTempDirectory,
+                PixelWidth = 320,
+                ForceHiddenLine = true,
+                ForceWhiteBackground = true,
+                KeepIndividualFrames = false
+            });
 
-                string cleanRvtPath = Path.Combine(_tempDir, "CleanHlrBaseline.rvt");
-                doc.SaveAs(cleanRvtPath, new SaveAsOptions { OverwriteExistingFile = true });
-                Assert.IsFalse(doc.IsModified);
+            Assert.IsFalse(summary.WasCancelled);
+            Assert.AreEqual(1, summary.GeneratedCount);
 
-                var adapter = new RevitShadowStudyAdapter(doc, null, _uiapp);
-                ShadowStudySiteInfo site = adapter.GetSiteInfo();
-                DateSolarSchedule schedule = SolarScheduleCalculator.BuildSchedule(
-                    new ShadowStudyDateEntry { Date = new DateTime(2026, 6, 21) },
-                    site,
-                    stepMinutes: 240,
-                    minAltitudeDegrees: 15.0,
-                    maxCompositeDarknessPercent: 80);
+            byte[] hlrForcedPixels = ReadBgra32Pixels(summary.PrimaryCompositePath, out int w, out _);
+            Assert.AreEqual(320, w);
+            AssertTopLeftIsPureWhite(hlrForcedPixels, "When PreserveVisualStyle is unchecked, shaded 3D view must export on pure white background.");
 
-                IReadOnlyList<ShadowStudyViewItem> eligible = adapter.GetEligibleViews();
-                ShadowStudyViewItem shadedItem = eligible.First(v => v.Id == suite.Shaded3D.UniqueId);
-                VisualSnapshot before = CaptureSnapshot(suite.Shaded3D);
-
-                var pipeline = new ShadowStudyPipeline(adapter);
-                ShadowStudyRunSummary summary = pipeline.Execute(new ShadowStudyRunRequest
-                {
-                    Views = new[] { shadedItem },
-                    DateSchedules = new[] { schedule },
-                    OutputFolder = _tempDir,
-                    PixelWidth = 320,
-                    ForceHiddenLine = true,
-                    ForceWhiteBackground = true,
-                    KeepIndividualFrames = false
-                });
-
-                Assert.IsFalse(summary.WasCancelled);
-                Assert.AreEqual(1, summary.GeneratedCount);
-
-                byte[] hlrForcedPixels = ReadBgra32Pixels(summary.PrimaryCompositePath, out int w, out _);
-                Assert.AreEqual(320, w);
-                AssertTopLeftIsPureWhite(hlrForcedPixels, "When PreserveVisualStyle is unchecked, shaded 3D view must export on pure white background.");
-
-                Assert.IsFalse(doc.IsModified);
-                AssertSnapshotUnchanged(before, suite.Shaded3D);
-            }
-            finally
-            {
-                doc.Close(false);
-            }
-        }
-
-        private static Document OpenDetachedTestTemplate(Autodesk.Revit.ApplicationServices.Application app)
-        {
-            string projectRoot = TestPathHelper.GetProjectRoot();
-            string testModelName = "TestTemplate" + app.VersionNumber + ".rvt";
-            string modelPathStr = Path.Combine(projectRoot, "tests", "Assets", "test_models", testModelName);
-            if (!File.Exists(modelPathStr))
-            {
-                throw new FileNotFoundException("Test template model not found: " + modelPathStr);
-            }
-
-            ModelPath modelPath = ModelPathUtils.ConvertUserVisiblePathToModelPath(modelPathStr);
-            var openOptions = new OpenOptions
-            {
-                DetachFromCentralOption = DetachFromCentralOption.DetachAndDiscardWorksets
-            };
-            return app.OpenDocumentFile(modelPath, openOptions);
+            Assert.IsFalse(doc.IsModified);
+            AssertSnapshotUnchanged(before, suite.Shaded3D);
         }
 
         private static VisualStyleSuite SetupVisualStyleTestViews(Document doc)

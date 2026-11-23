@@ -5,13 +5,16 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
+using SyntheticTests.Fixtures;
 
 namespace SyntheticTests.RevitDOM
 {
     [TestFixture]
     [RevitAdapterTest]
-    public class ColorTranslatorRevitTests
+    public class ColorTranslatorRevitTests : RevitTemplateRollbackFixture
     {
+        protected override RevitBaselineDocumentKind BaselineKind => RevitBaselineDocumentKind.None;
+
         [Test]
         public void ColorConversions_Symmetric()
         {

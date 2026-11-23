@@ -7,31 +7,18 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
-using SyntheticTests.Helpers;
+using SyntheticTests.Fixtures;
 
 namespace SyntheticTests.RevitDOM
 {
     [TestFixture]
     [RevitAdapterTest]
-    public class DimensionTypeTranslatorRevitTests
+    public class DimensionTypeTranslatorRevitTests : RevitTemplateRollbackFixture
     {
-        private UIApplication? _uiapp;
-
-        [OneTimeSetUp]
-        public void Setup(UIApplication uiapp)
-        {
-            _uiapp = uiapp;
-            TestWorkerJournalMarker.EnsureWritten(uiapp);
-        }
-
         [Test]
         public void DimensionTypeTranslator_InjectSpecifics_DuplicatesTemplateAndReturnsDimensionType()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 var translator = new DimensionTypeTranslator();
                 var model = new DimensionTypeModel
@@ -60,21 +47,13 @@ namespace SyntheticTests.RevitDOM
 
                     tg.RollBack();
                 }
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void DimensionTypeTranslator_InjectSpecifics_ThrowsIfNoTemplateFound()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 var translator = new DimensionTypeTranslator();
                 var model = new DimensionTypeModel
@@ -101,11 +80,7 @@ namespace SyntheticTests.RevitDOM
 
                     tg.RollBack();
                 }
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
     }
 }

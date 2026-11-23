@@ -8,31 +8,18 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
-using SyntheticTests.Helpers;
+using SyntheticTests.Fixtures;
 
 namespace SyntheticTests.RevitDOM
 {
     [TestFixture]
     [RevitAdapterTest]
-    public class LinePatternTranslatorRevitTests
+    public class LinePatternTranslatorRevitTests : RevitTemplateRollbackFixture
     {
-        private UIApplication? _uiapp;
-
-        [OneTimeSetUp]
-        public void Setup(UIApplication uiapp)
-        {
-            _uiapp = uiapp;
-            TestWorkerJournalMarker.EnsureWritten(uiapp);
-        }
-
         [Test]
         public void ExtractSpecifics_CorrectlyPopulatesSegmentList()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 // Find a default line pattern element
                 LinePatternElement? lpElem = new FilteredElementCollector(doc)
@@ -62,21 +49,13 @@ namespace SyntheticTests.RevitDOM
                     Assert.AreEqual(expectedSegments[i].Type.ToString(), model.Segments[i].Type);
                     Assert.AreEqual(expectedSegments[i].Length, model.Segments[i].Length, 1e-6);
                 }
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void InjectSpecifics_CreatesNewPatternElement()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 var translator = new LinePatternTranslator();
                 var model = new LinePatternElementModel
@@ -111,21 +90,13 @@ namespace SyntheticTests.RevitDOM
                 Assert.AreEqual(0.02, segments[0].Length, 1e-6);
                 Assert.AreEqual(LinePatternSegmentType.Space, segments[1].Type);
                 Assert.AreEqual(0.01, segments[1].Length, 1e-6);
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void InjectSpecifics_ModifiesExistingPatternElement()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 var translator = new LinePatternTranslator();
                 
@@ -176,11 +147,7 @@ namespace SyntheticTests.RevitDOM
                 Assert.AreEqual(0.05, segments[0].Length, 1e-6);
                 Assert.AreEqual(LinePatternSegmentType.Space, segments[1].Type);
                 Assert.AreEqual(0.02, segments[1].Length, 1e-6);
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
     }
 }

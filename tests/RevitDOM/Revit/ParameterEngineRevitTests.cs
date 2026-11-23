@@ -8,31 +8,18 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
-using SyntheticTests.Helpers;
+using SyntheticTests.Fixtures;
 
 namespace SyntheticTests.RevitDOM
 {
     [TestFixture]
     [RevitAdapterTest]
-    public class ParameterEngineRevitTests
+    public class ParameterEngineRevitTests : RevitTemplateRollbackFixture
     {
-        private UIApplication? _uiapp;
-
-        [OneTimeSetUp]
-        public void Setup(UIApplication uiapp)
-        {
-            _uiapp = uiapp;
-            TestWorkerJournalMarker.EnsureWritten(uiapp);
-        }
-
         [Test]
         public void ParameterEngine_Extract_NonTemplateMode_CapturesReadOnlyAndWritableParameters()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 WallType? wallType = new FilteredElementCollector(doc)
                     .OfClass(typeof(WallType))
@@ -57,21 +44,13 @@ namespace SyntheticTests.RevitDOM
                 {
                     Assert.IsFalse(paramModel.IsReadOnly, "Extracted parameters should be writable in non-template mode.");
                 }
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void ParameterEngine_Extract_TemplateMode_DropsReadOnlyAndEmptyParameters()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 WallType? wallType = new FilteredElementCollector(doc)
                     .OfClass(typeof(WallType))
@@ -101,21 +80,13 @@ namespace SyntheticTests.RevitDOM
                         Assert.AreNotEqual(-1, paramModel.ValueElemId.Id, "Template ElementId parameters must not be InvalidElementId.");
                     }
                 }
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void ParameterEngine_Inject_AppliesWritableParametersCorrectly()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 WallType? wallType = new FilteredElementCollector(doc)
                     .OfClass(typeof(WallType))
@@ -155,11 +126,7 @@ namespace SyntheticTests.RevitDOM
                 
                 Assert.IsNotNull(liveParam, "Live parameter should be accessible.");
                 Assert.AreEqual("Test Inject Value 123", liveParam.AsString(), "Parameter value should be injected correctly.");
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
     }
 }
