@@ -292,9 +292,9 @@
       "items": [
         {
           "type": "PushButton",
-          "name": "Synthetic.Modules.SettingsDashboard.Commands.SettingsDashboardCommand",
+          "name": "Synthetic.Features.SettingsDashboard.Commands.SettingsDashboardCommand",
           "text": "Settings Dashboard",
-          "class": "Synthetic.Modules.SettingsDashboard.Commands.SettingsDashboardCommand",
+          "class": "Synthetic.Features.SettingsDashboard.Commands.SettingsDashboardCommand",
           "tooltip": "Opens the Settings Dashboard to view and edit project configuration overrides.",
           "large_image": "settings_32.png",
           "image": "settings_16.png"

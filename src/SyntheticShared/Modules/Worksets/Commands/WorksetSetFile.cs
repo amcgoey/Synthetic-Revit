@@ -11,8 +11,8 @@ using System.IO;
 using System.Collections.Generic;
 using System.Linq;
 using Synthetic.Platform.IO;
-using Synthetic.Settings;
-using Synthetic.Infrastructure.Persistence;
+using Synthetic.Platform.Settings;
+using Synthetic.Features.Worksets.Settings;
 
 using Synthetic.Platform.UI;
 using Application = Autodesk.Revit.ApplicationServices.Application;
@@ -51,17 +51,6 @@ namespace Synthetic.Modules.Worksets.Commands
 
             WorksetSettings worksetSettings = new WorksetSettings();
 
-            Config? config = null;
-            if (App.Configurations.ContainsProjectConfig(doc))
-            {
-                config = App.Configurations.GetProjectConfig(doc);
-            }
-            else
-            {
-                config = new Config();
-                App.Configurations.AddProjectConfig(doc, config);
-            }
-
             // Ask user to select from different methods of setting the Workset File
             TaskDialogResult taskDialogResult = WorksetFileOptions();
 
@@ -73,8 +62,8 @@ namespace Synthetic.Modules.Worksets.Commands
                 // Use Default Settings
                 if (taskDialogResult == TaskDialogResult.CommandLink1)
                 {
-                    config = App.Configurations.GetAppConfig();
-                    worksetSettings = config.GetSettings<WorksetSettings>(WorksetSettings.Name);
+                    Config appConfig = Config.ReadAppConfig() ?? new Config().Defaults();
+                    worksetSettings = appConfig.GetSettings<WorksetSettings>(WorksetSettings.Name);
                 }
 
                 // Set Workset File to be named same as the Project
@@ -116,8 +105,6 @@ namespace Synthetic.Modules.Worksets.Commands
                             {
                                 worksetSettings.WorksetGroup = viewModel.CheckedItems[0];
                             }
-
-                            config.SetSettings(WorksetSettings.Name, worksetSettings);
                         }
                     }
                     else
@@ -168,8 +155,6 @@ namespace Synthetic.Modules.Worksets.Commands
                                 {
                                     worksetSettings.WorksetGroup = viewModel.CheckedItems[0];
                                 }
-
-                                config.SetSettings(WorksetSettings.Name, worksetSettings);
                             }
                         }
                         else

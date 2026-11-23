@@ -7,7 +7,7 @@ using Autodesk.Revit.DB;
 using Newtonsoft.Json;
 using Synthetic.Modules.ShadowStudy.Models;
 using Synthetic.Modules.ShadowStudy.Services;
-using Synthetic.Settings;
+using Synthetic.Platform.Settings;
 
 namespace Synthetic.Modules.ShadowStudy.Settings
 {

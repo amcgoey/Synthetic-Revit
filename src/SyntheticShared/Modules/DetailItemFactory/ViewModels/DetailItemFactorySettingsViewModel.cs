@@ -11,8 +11,7 @@ using System.Linq;
 using System.Windows.Input;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.ExtensibleStorage;
-using Synthetic.Settings;
-using Synthetic.Infrastructure.Persistence;
+using Synthetic.Platform.Settings;
 
 using Synthetic.Platform.UI;
 
@@ -21,7 +20,6 @@ using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Modules.SettingsDashboard.ViewModels;
 using Synthetic.Platform.Revit;
 namespace Synthetic.Modules.DetailItemFactory.ViewModels
 {

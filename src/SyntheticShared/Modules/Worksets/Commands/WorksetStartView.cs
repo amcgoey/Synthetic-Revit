@@ -8,8 +8,8 @@ using Synthetic.Modules.Worksets.Utilities;
 using System;
 using System.Collections.Generic;
 using System.Text;
-using Synthetic.Settings;
-using Synthetic.Infrastructure.Persistence;
+using Synthetic.Platform.Settings;
+using Synthetic.Features.Worksets.Settings;
 
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
