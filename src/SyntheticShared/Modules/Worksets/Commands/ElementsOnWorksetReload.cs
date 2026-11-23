@@ -20,7 +20,6 @@ using Synthetic.Platform.IO;
 
 using Synthetic.Platform.Revit;
 using Newtonsoft.Json;
-using Synthetic.Modules.StandardsManagement.ViewModels;
 
 namespace Synthetic.Modules.Worksets.Commands
 {

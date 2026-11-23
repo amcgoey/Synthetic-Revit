@@ -8,8 +8,8 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
-using Synthetic.RevitDOM.Operations.Standards;
-using Synthetic.Modules.StandardsManagement.ViewModels;
+using Synthetic.Features.StandardsManagement;
+using Synthetic.Features.StandardsManagement.ViewModels;
 using Synthetic.Platform.Settings;
 using Synthetic.Platform.UI;
 

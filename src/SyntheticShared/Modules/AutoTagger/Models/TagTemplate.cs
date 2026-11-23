@@ -6,7 +6,6 @@ using Synthetic.Modules.AutoTagger.Repositories;
 
 using System;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;

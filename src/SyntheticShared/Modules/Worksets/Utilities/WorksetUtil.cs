@@ -22,7 +22,6 @@ using revitWorkset = Autodesk.Revit.DB.Workset;
 using revitWorksetId = Autodesk.Revit.DB.WorksetId;
 
 using Synthetic.Features.Worksets.Settings;
-using Synthetic.Modules.StandardsManagement.ViewModels;
 namespace Synthetic.Modules.Worksets.Utilities
 {
     /// <summary>

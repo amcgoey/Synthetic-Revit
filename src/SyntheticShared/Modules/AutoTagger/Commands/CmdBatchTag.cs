@@ -20,8 +20,6 @@ using Synthetic.Features.AutoTagger.Utilities;
 using Synthetic.Platform.Revit;
 
 using Synthetic.Platform.UI;
-using Synthetic.Modules.MergeDuplicates.Handlers;
-using Synthetic.Modules.StandardsManagement.ViewModels;
 
 namespace Synthetic.Modules.AutoTagger.Commands
 {

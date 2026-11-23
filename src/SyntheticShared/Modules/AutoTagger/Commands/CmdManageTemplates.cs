@@ -16,7 +16,6 @@ using Synthetic.Platform.IO;
 
 using Synthetic.Platform.UI;
 
-using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;

@@ -1,5 +1,5 @@
 using System;
-using Synthetic.Modules.StandardsManagement.Views;
+using Synthetic.Features.StandardsManagement.Views;
 
 namespace Synthetic.Features.StandardsManagement
 {

@@ -10,7 +10,6 @@ using System.Collections.Generic;
 using System.Text;
 using Synthetic.Platform.Settings;
 using Synthetic.Features.ViewManagement.Settings;
-using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;

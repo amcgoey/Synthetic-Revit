@@ -4,7 +4,7 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using NUnit.Framework;
 using Synthetic.Platform.Host;
-using Synthetic.Modules.StandardsManagement.Views;
+using Synthetic.Features.StandardsManagement.Views;
 using Synthetic.Platform.Revit;
 using SyntheticTests.Helpers;
 

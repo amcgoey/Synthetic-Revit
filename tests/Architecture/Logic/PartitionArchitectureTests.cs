@@ -539,6 +539,10 @@ namespace SyntheticTests.Architecture
             Assert.IsTrue(Directory.Exists(Path.Combine(featuresRoot, "ShadowStudy", "Core")), "Expected src/Features/ShadowStudy/Core partition root.");
             Assert.IsTrue(Directory.Exists(Path.Combine(featuresRoot, "ShadowStudy", "Addin")), "Expected src/Features/ShadowStudy/Addin partition root.");
             Assert.IsTrue(Directory.Exists(Path.Combine(projectRoot, "tests", "Features", "ShadowStudy", "Logic")), "Expected tests/Features/ShadowStudy/Logic partition root.");
+            Assert.IsTrue(Directory.Exists(Path.Combine(featuresRoot, "MergeDuplicates", "Core")), "Expected src/Features/MergeDuplicates/Core partition root.");
+            Assert.IsTrue(Directory.Exists(Path.Combine(featuresRoot, "StandardsManagement", "Core")), "Expected src/Features/StandardsManagement/Core partition root.");
+            Assert.IsFalse(Directory.Exists(Path.Combine(srcRoot, "SyntheticShared", "Modules", "MergeDuplicates")), "Legacy src/SyntheticShared/Modules/MergeDuplicates must be removed.");
+            Assert.IsFalse(Directory.Exists(Path.Combine(srcRoot, "SyntheticShared", "Modules", "StandardsManagement")), "Legacy src/SyntheticShared/Modules/StandardsManagement must be removed.");
 
             var violations = new List<string>();
             foreach (string sliceDir in Directory.EnumerateDirectories(featuresRoot))
@@ -554,8 +558,9 @@ namespace SyntheticTests.Architecture
                 {
                     string rel = GetRelativeNormalizedPath(projectRoot, file);
                     string text = File.ReadAllText(file);
+                    string codeOnly = StripCommentsAndStringLiterals(text);
 
-                    if (Regex.IsMatch(text, @"\bAutodesk\.Revit\b"))
+                    if (Regex.IsMatch(codeOnly, @"\bAutodesk\.Revit\b"))
                     {
                         violations.Add($"{rel} imports Autodesk.Revit inside Core/.");
                     }
@@ -596,6 +601,13 @@ namespace SyntheticTests.Architecture
             Assert.IsTrue(Directory.Exists(revitDomCoreDir), $"Expected src/RevitDOM/Core directory at {revitDomCoreDir}");
             Assert.IsTrue(Directory.Exists(revitDomAddinDir), $"Expected src/RevitDOM/Addin directory at {revitDomAddinDir}");
             Assert.IsTrue(Directory.Exists(revitDomLogicTestsDir), $"Expected tests/RevitDOM/Logic directory at {revitDomLogicTestsDir}");
+            Assert.IsFalse(Directory.Exists(Path.Combine(revitDomDir, "Operations", "Standards")), "RevitDOM/Operations/Standards must be evicted to Features/StandardsManagement.");
+            Assert.IsFalse(Directory.Exists(Path.Combine(revitDomDir, "Operations", "Merge")), "RevitDOM/Operations/Merge must be evicted to Features/MergeDuplicates.");
+            Assert.IsFalse(Directory.Exists(Path.Combine(revitDomCoreDir, "Operations", "Standards")), "RevitDOM/Core/Operations/Standards must not exist.");
+            Assert.IsFalse(Directory.Exists(Path.Combine(revitDomCoreDir, "Operations", "Merge")), "RevitDOM/Core/Operations/Merge must not exist.");
+            Assert.IsFalse(Directory.Exists(Path.Combine(revitDomAddinDir, "Operations", "Standards")), "RevitDOM/Addin/Operations/Standards must not exist.");
+            Assert.IsFalse(Directory.Exists(Path.Combine(revitDomAddinDir, "Operations", "Merge")), "RevitDOM/Addin/Operations/Merge must not exist.");
+            Assert.IsFalse(Directory.Exists(Path.Combine(projectRoot, "src", "SyntheticShared", "RevitDOM")), "Legacy src/SyntheticShared/RevitDOM must be completely evicted.");
 
             string[] forbiddenRevitDomPatterns =
             {

@@ -22,7 +22,6 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
-using Synthetic.Modules.StandardsManagement.ViewModels;
 
 #endregion
 

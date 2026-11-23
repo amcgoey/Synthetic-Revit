@@ -5,7 +5,6 @@ using Synthetic.Modules.DetailItemFactory.ViewModels;
 using Synthetic.Modules.DetailItemFactory.Views;
 using Synthetic.Modules.DetailItemFactory.Settings;
 using System.Windows.Controls;
-using Synthetic.Modules.StandardsManagement.ViewModels;
 
 namespace Synthetic.Modules.DetailItemFactory.Views
 {

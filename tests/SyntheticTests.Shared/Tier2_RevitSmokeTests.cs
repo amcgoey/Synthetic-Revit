@@ -34,22 +34,23 @@ namespace SyntheticTests
             string assemblyName = System.Reflection.Assembly.GetExecutingAssembly().GetName().Name ?? "";
             string revitVersion = assemblyName.Replace("SyntheticTests", "");
             
-            var vmType = Type.GetType($"Synthetic.Modules.StandardsManagement.ViewModels.ProjectStandardsDashboardViewModel, Synthetic{revitVersion}");
+            var vmType = Type.GetType($"Synthetic.Features.StandardsManagement.ViewModels.ProjectStandardsDashboardViewModel, Synthetic{revitVersion}");
             Assert.IsNotNull(vmType, $"ProjectStandardsDashboardViewModel type could not be loaded for Revit version {revitVersion}.");
 
-            var windowType = Type.GetType($"Synthetic.Modules.StandardsManagement.Views.ProjectStandardsDashboardWindow, Synthetic{revitVersion}");
+            var windowType = Type.GetType($"Synthetic.Features.StandardsManagement.Views.ProjectStandardsDashboardWindow, Synthetic{revitVersion}");
             Assert.IsNotNull(windowType, $"ProjectStandardsDashboardWindow type could not be loaded for Revit version {revitVersion}.");
 
             var fakeDialog = new FakeFileDialogService();
 
             var suffix = $", Synthetic{revitVersion}";
+            var coreSuffix = ", Synthetic.Core";
             var guardrail = new SyntheticTests.Modules.StandardsManagement.FakeGuardrailPromptService();
             var userPromptService = new SyntheticTests.Modules.StandardsManagement.FakeUserPromptService();
 
-            var exportServiceType = Type.GetType($"Synthetic.RevitDOM.Operations.Standards.StandardsExportService{suffix}");
+            var exportServiceType = Type.GetType($"Synthetic.Features.StandardsManagement.StandardsExportService{suffix}");
             var exportService = Activator.CreateInstance(exportServiceType, guardrail, fakeDialog);
 
-            var findReplaceType = Type.GetType($"Synthetic.RevitDOM.Operations.Standards.FindReplaceService{suffix}");
+            var findReplaceType = Type.GetType($"Synthetic.Features.StandardsManagement.FindReplaceService{coreSuffix}");
             var findReplaceService = Activator.CreateInstance(findReplaceType);
 
             var serializationEngineType = Type.GetType($"Synthetic.RevitDOM.Operations.StandardSerializationEngine{suffix}");
@@ -58,19 +59,19 @@ namespace SyntheticTests
             var revitIdentityType = Type.GetType($"Synthetic.RevitDOM.Translation.RevitIdentityService{suffix}");
             var revitIdentity = Activator.CreateInstance(revitIdentityType);
 
-            var orchestratorType = Type.GetType($"Synthetic.RevitDOM.Operations.Standards.StandardsExtractionOrchestrator{suffix}");
+            var orchestratorType = Type.GetType($"Synthetic.Features.StandardsManagement.StandardsExtractionOrchestrator{suffix}");
             var orchestrator = Activator.CreateInstance(orchestratorType, revitIdentity, serializationEngine);
 
-            var pocoIdentityType = Type.GetType($"Synthetic.RevitDOM.Translation.PocoIdentityService{suffix}");
+            var pocoIdentityType = Type.GetType($"Synthetic.RevitDOM.Translation.PocoIdentityService{coreSuffix}");
             var pocoIdentityService = Activator.CreateInstance(pocoIdentityType);
 
             var diffEngineType = Type.GetType($"Synthetic.RevitDOM.Operations.Diffing.PocoToRevitDiffEngine{suffix}");
             var diffEngine = Activator.CreateInstance(diffEngineType, revitIdentity);
 
-            var revitFamilyEnforcerType = Type.GetType($"Synthetic.RevitDOM.Operations.Standards.RevitFamilyEnforcer{suffix}");
+            var revitFamilyEnforcerType = Type.GetType($"Synthetic.Features.StandardsManagement.RevitFamilyEnforcer{suffix}");
             var revitFamilyEnforcer = Activator.CreateInstance(revitFamilyEnforcerType, serializationEngine);
 
-            var pipelineType = Type.GetType($"Synthetic.RevitDOM.Operations.Standards.StandardsExecutionPipeline{suffix}");
+            var pipelineType = Type.GetType($"Synthetic.Features.StandardsManagement.StandardsExecutionPipeline{suffix}");
             var pipeline = Activator.CreateInstance(pipelineType, serializationEngine, exportService, revitFamilyEnforcer);
 
             var vm = Activator.CreateInstance(vmType, 

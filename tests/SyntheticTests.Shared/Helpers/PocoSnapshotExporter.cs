@@ -4,7 +4,7 @@ using System.IO;
 using System.Linq;
 using Autodesk.Revit.DB;
 using Newtonsoft.Json;
-using Synthetic.Modules.MergeDuplicates.Services;
+using Synthetic.Features.MergeDuplicates.Services;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 

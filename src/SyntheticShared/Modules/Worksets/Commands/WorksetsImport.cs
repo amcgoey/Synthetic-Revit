@@ -21,7 +21,6 @@ using Synthetic.Platform.Settings;
 using Synthetic.Features.Worksets.Settings;
 
 using Synthetic.Platform.UI;
-using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Platform.Revit;
 
 namespace Synthetic.Modules.Worksets.Commands

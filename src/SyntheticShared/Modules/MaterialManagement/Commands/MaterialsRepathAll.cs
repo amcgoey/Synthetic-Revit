@@ -16,7 +16,6 @@ using System.Linq;
 using Application = Autodesk.Revit.ApplicationServices.Application;
 using Synthetic.Platform.Settings;
 using Synthetic.Features.MaterialManagement.Settings;
-using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
