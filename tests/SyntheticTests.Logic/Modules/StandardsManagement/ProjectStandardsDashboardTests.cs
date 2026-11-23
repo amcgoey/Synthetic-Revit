@@ -12,7 +12,6 @@ using Synthetic.Platform.Settings;
 using Synthetic.Features.StandardsManagement.Settings;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.RevitDOM.Operations.Standards;
-using Synthetic.RevitDOM.Operations.Merge;
 using SyntheticTests.Modules.RevitDOM;
 using Synthetic.Platform.UI;
 using Synthetic.Features.StandardsManagement;

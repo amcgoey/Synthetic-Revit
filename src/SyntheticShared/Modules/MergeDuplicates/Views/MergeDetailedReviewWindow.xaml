@@ -1,7 +1,7 @@
 <Window x:Class="Synthetic.Modules.MergeDuplicates.Views.MergeDetailedReviewWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:models="clr-namespace:Synthetic.RevitDOM.Operations.Merge"
+        xmlns:models="clr-namespace:Synthetic.RevitDOM.Models;assembly=Synthetic.Core"
         xmlns:local="clr-namespace:Synthetic.Platform.UI;assembly=Synthetic.Core"
         xmlns:theme="clr-namespace:Synthetic.Platform.UI"
         xmlns:sys="clr-namespace:System;assembly=mscorlib"
