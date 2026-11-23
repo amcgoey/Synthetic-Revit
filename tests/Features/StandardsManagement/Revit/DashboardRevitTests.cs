@@ -121,18 +121,20 @@ namespace SyntheticTests.Features.StandardsManagement
                 WithRolledBackDocument(doc =>
                 {
                     // Create test elements in the document to ensure they exist for scanning
-                    Transaction t = new Transaction(doc, "Create Test Elements");
-                    t.Start();
+                    using (Transaction t = new Transaction(doc, "Create Test Elements"))
+                    {
+                        t.Start();
 
-                    ElementId matId = Material.Create(doc, "Scanning_Test_Material");
-                    
-                    WallType defaultWallType = new FilteredElementCollector(doc)
-                        .OfClass(typeof(WallType))
-                        .Cast<WallType>()
-                        .First();
-                    WallType customWallType = (WallType)defaultWallType.Duplicate("Scanning_Test_WallType");
+                        ElementId matId = Material.Create(doc, "Scanning_Test_Material");
 
-                    t.Commit();
+                        WallType defaultWallType = new FilteredElementCollector(doc)
+                            .OfClass(typeof(WallType))
+                            .Cast<WallType>()
+                            .First();
+                        WallType customWallType = (WallType)defaultWallType.Duplicate("Scanning_Test_WallType");
+
+                        t.Commit();
+                    }
 
                     // Create the Dashboard View Model
                     var vm = DashboardTestFactory.Create(doc, dialogService: fakeFileDialog, exportService: new StandardsExportService(fakeGuardrail, fakeFileDialog), settings: settings);

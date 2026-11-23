@@ -24,6 +24,7 @@ namespace SyntheticTests.Features.SharedCoordinates
     public class SharedCoordinatesSmokeRevitTests
     {
         private UIApplication? _uiapp;
+        private int _initialDocCount;
 
         [OneTimeSetUp]
         public void Setup(UIApplication uiapp)
@@ -31,6 +32,19 @@ namespace SyntheticTests.Features.SharedCoordinates
             _uiapp = uiapp;
             HostSettingsRegistrar.EnsureRegistered();
             TestWorkerJournalMarker.EnsureWritten(uiapp);
+            _initialDocCount = uiapp.Application.Documents.Size;
+        }
+
+        [OneTimeTearDown]
+        public void OneTimeTearDown()
+        {
+            if (_uiapp?.Application != null)
+            {
+                Assert.AreEqual(
+                    _initialDocCount,
+                    _uiapp.Application.Documents.Size,
+                    "SharedCoordinatesSmokeRevitTests leaked open Revit document(s).");
+            }
         }
 
         [Test]
