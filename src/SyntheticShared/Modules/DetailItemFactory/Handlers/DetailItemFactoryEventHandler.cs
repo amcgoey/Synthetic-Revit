@@ -22,8 +22,6 @@ using Synthetic.RevitDOM;
 using Synthetic.Platform.IO;
 
 using Synthetic.Platform.UI;
-using Synthetic.Modules.MergeDuplicates.Handlers;
-using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Modules.DetailItemFactory.Models;
 
 namespace Synthetic.Modules.DetailItemFactory.Handlers

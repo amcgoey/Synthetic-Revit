@@ -1,0 +1,726 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Windows;
+using Autodesk.Revit.DB;
+using Autodesk.Revit.UI;
+using Newtonsoft.Json;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
+using Synthetic.Platform.IO;
+using Synthetic.Platform.UI;
+using Synthetic.Features.MergeDuplicates.ViewModels;
+using Synthetic.Platform.Revit;
+using Synthetic.Features.MergeDuplicates.Services;
+
+namespace Synthetic.Features.MergeDuplicates.Handlers
+{
+    /// <summary>
+    /// Tracks the summary results of a merge cluster execution for Step 6.
+    /// </summary>
+    public class MergeExecutionReport
+    {
+        /// <summary>
+        /// Gets or sets the name of the merge cluster.
+        /// </summary>
+        public string ClusterName { get; set; } = string.Empty;
+        /// <summary>
+        /// Gets or sets the count of instances swapped during the merge.
+        /// </summary>
+        public int InstancesSwappedCount { get; set; }
+        /// <summary>
+        /// Gets or sets the count of duplicate types purged.
+        /// </summary>
+        public int DuplicateTypesPurged { get; set; }
+        /// <summary>
+        /// Gets or sets a value indicating whether the merge execution succeeded.
+        /// </summary>
+        public bool ExecutionSuccessStatus { get; set; }
+        /// <summary>
+        /// Gets or sets the error message if the execution failed.
+        /// </summary>
+        public string? ErrorMessage { get; set; }
+    }
+    /// <summary>
+    /// Standard family load options to automatically overwrite parameter values.
+    /// </summary>
+    public class ProcessMergeFamilyLoadOptions : IFamilyLoadOptions
+    {
+        /// <summary>
+        /// Called when a family is found in the target document. Overwrites parameter values.
+        /// </summary>
+        /// <param name="familyInUse">Indicates if the family is currently in use.</param>
+        /// <param name="overwriteParameterValues">Output parameter indicating if parameter values should be overwritten.</param>
+        /// <returns>True to load the family.</returns>
+        public bool OnFamilyFound(bool familyInUse, out bool overwriteParameterValues)
+        {
+            overwriteParameterValues = true;
+            return true;
+        }
+        /// <summary>
+        /// Called when a shared family is found in the target document. Overwrites parameter values.
+        /// </summary>
+        /// <param name="sharedFamily">The shared family being loaded.</param>
+        /// <param name="familyInUse">Indicates if the shared family is currently in use.</param>
+        /// <param name="source">Output parameter indicating the source of the family.</param>
+        /// <param name="overwriteParameterValues">Output parameter indicating if parameter values should be overwritten.</param>
+        /// <returns>True to load the shared family.</returns>
+        public bool OnSharedFamilyFound(Family sharedFamily, bool familyInUse, out FamilySource source, out bool overwriteParameterValues)
+        {
+            source = FamilySource.Family;
+            overwriteParameterValues = true;
+            return true;
+        }
+    }
+    /// <summary>
+    /// External event handler to process the active merge queue on the Revit API thread.
+    /// </summary>
+    public class ProcessMergeEventHandler : IExternalEventHandler
+    {
+        private const string MigratedSuffix = "_Migrated";
+        private const string MergeWarningPrefix = "[MERGE_WARNING]";
+        private readonly object _lock = new object();
+        private MergeQueueViewModel? _queueVM;
+        private Window? _parentWindow;
+        private MergeDuplicatesViewModel? _mainVM;
+        private CancellationToken _cancellationToken;
+        /// <summary>
+        /// Queues a merge execution request with its corresponding UI/VM contexts.
+        /// </summary>
+        public void QueueRequest(MergeQueueViewModel? queueVM, Window? window, MergeDuplicatesViewModel? mainVM, CancellationToken cancellationToken)
+        {
+            lock (_lock)
+            {
+                _queueVM = queueVM;
+                _parentWindow = window;
+                _mainVM = mainVM;
+                _cancellationToken = cancellationToken;
+            }
+        }
+        /// <summary>
+        /// Executes the merge processing on the Revit API thread.
+        /// </summary>
+        public void Execute(UIApplication app)
+        {
+            MergeQueueViewModel? currentQueue;
+            Window? currentWindow;
+            MergeDuplicatesViewModel? currentMainVM;
+            CancellationToken currentToken;
+            lock (_lock)
+            {
+                currentQueue = _queueVM;
+                currentWindow = _parentWindow;
+                currentMainVM = _mainVM;
+                currentToken = _cancellationToken;
+                // Reset state
+                _queueVM = null;
+                _parentWindow = null;
+                _mainVM = null;
+                _cancellationToken = CancellationToken.None;
+            }
+            if (currentQueue == null || currentQueue.QueuedClusters.Count == 0) return;
+            Document? doc = null;
+            var primItem = currentQueue.QueuedClusters.FirstOrDefault()?.SelectedPrimary;
+            if (primItem != null && app.Application.Documents != null)
+            {
+                var targetId = primItem.RevitElementId.ToElementId();
+                foreach (Document openDoc in app.Application.Documents)
+                {
+                    if (!openDoc.IsFamilyDocument)
+                    {
+                        try
+                        {
+                            if (openDoc.GetElement(targetId) != null)
+                            {
+                                doc = openDoc;
+                                break;
+                            }
+                        }
+                        catch {}
+                    }
+                }
+            }
+            if (doc == null)
+            {
+                doc = app.ActiveUIDocument?.Document;
+            }
+            if (doc == null && app.Application.Documents != null)
+            {
+                foreach (Document openDoc in app.Application.Documents)
+                {
+                    if (!openDoc.IsFamilyDocument)
+                    {
+                        doc = openDoc;
+                        break;
+                    }
+                }
+            }
+            if (doc == null) return;
+            // 1. Disable UI during processing to prevent concurrent modifications
+            if (currentWindow != null)
+            {
+                currentWindow.Dispatcher.Invoke(() => currentWindow.IsEnabled = false);
+            }
+            var reports = new List<MergeExecutionReport>();
+            var clustersToProcess = currentQueue.QueuedClusters.ToList();
+            bool wasCancelled = false;
+            using (var transGroup = new TransactionGroup(doc, "Merge Duplicates"))
+            {
+                transGroup.Start();
+                foreach (var cluster in clustersToProcess)
+                {
+                    // Check cancellation token boundary
+                    if (currentToken.IsCancellationRequested)
+                    {
+                        wasCancelled = true;
+                        transGroup.RollBack();
+                        break;
+                    }
+                    var report = new MergeExecutionReport
+                    {
+                        ClusterName = cluster.ClusterName,
+                        ExecutionSuccessStatus = false
+                    };
+                    var primaryItem = cluster.SelectedPrimary;
+                    if (primaryItem == null)
+                    {
+                        reports.Add(report);
+                        continue;
+                    }
+                    var duplicateItems = cluster.Items
+                        .Where(i => i != primaryItem && i.IsIncludedForMerge)
+                        .ToList();
+                    var typeMap = new Dictionary<ElementId, ElementId>();
+                    using (var trans = new Transaction(doc, $"Merge Cluster Step 1: {cluster.ClusterName}"))
+                    {
+                        trans.Start();
+                        try
+                        {
+                            Element primElement = doc.GetElement(primaryItem.RevitElementId.ToElementId());
+                            if (primElement != null)
+                            {
+                                // 1. Schema Parameter Injection (bypassed for system elements and non-loadable families)
+                                if (!RevitMergeDataCollector.IsSystemElement(primElement) && primElement is Family primFamily)
+                                {
+                                    var parametersToInject = new List<string>();
+                                    foreach (var mapping in cluster.TypeMappings)
+                                    {
+                                        if (mapping.RecommendedAction == RecommendedAction.Exclude) continue;
+                                        foreach (var row in mapping.ParameterResolutions)
+                                        {
+                                            if (row.InjectParameter && !parametersToInject.Contains(row.ParameterName))
+                                            {
+                                                parametersToInject.Add(row.ParameterName);
+                                            }
+                                        }
+                                    }
+                                    if (parametersToInject.Count > 0)
+                                    {
+                                        Document famDoc = doc.EditFamily(primFamily);
+                                        if (famDoc != null)
+                                        {
+                                            bool anyInjected = false;
+                                            using (Transaction famTrans = new Transaction(famDoc, "Inject Parameters"))
+                                            {
+                                                famTrans.Start();
+                                                FamilyManager famManager = famDoc.FamilyManager;
+                                                foreach (var paramName in parametersToInject)
+                                                {
+                                                    bool paramExists = false;
+                                                    foreach (FamilyParameter fp in famManager.Parameters)
+                                                    {
+                                                        if (fp.Definition.Name.Equals(paramName, StringComparison.OrdinalIgnoreCase))
+                                                        {
+                                                            paramExists = true;
+                                                            break;
+                                                        }
+                                                    }
+                                                    if (!paramExists)
+                                                    {
+                                                        ParameterDefinitionSpec? spec = null; bool foundSource = false;
+                                                        foreach (var mapping in cluster.TypeMappings)
+                                                        {
+                                                            if (mapping.RecommendedAction == RecommendedAction.Exclude) continue;
+                                                            if (mapping.SourceType == null) continue;
+                                                            FamilySymbol? sourceSymbol = doc.GetElement(mapping.SourceType.RevitTypeId.ToElementId()) as FamilySymbol;
+                                                            if (sourceSymbol != null)
+                                                            {
+                                                                Parameter sourceParam = sourceSymbol.LookupParameter(paramName);
+                                                                if (sourceParam != null)
+                                                                {
+                                                                    spec = GetParamGroupAndTypeFromSource(sourceParam); if (spec != null && spec.Group != null && spec.SpecType != null) { foundSource = true; break; }
+                                                                    if (foundSource) break;
+                                                                }
+                                                            }
+                                                        }
+                                                        if (!foundSource || spec == null || spec.Group == null || spec.SpecType == null) { spec = GetDefaultGroupAndType(); }
+                                                        if (InjectParameterToFamily(famManager, paramName, spec))
+                                                        {
+                                                            anyInjected = true;
+                                                        }
+                                                    }
+                                                }
+                                                famTrans.Commit();
+                                            }
+                                            if (anyInjected)
+                                            {
+                                                primFamily = famDoc.LoadFamily(doc, new ProcessMergeFamilyLoadOptions());
+                                            }
+                                            famDoc.Close(false);
+                                            // Re-retrieve primary element reference in case LoadFamily updated it
+                                            primElement = doc.GetElement(primaryItem.RevitElementId.ToElementId());
+                                        }
+                                    }
+                                }
+                                // 2. Type Mapping & Value Copying
+                                foreach (var mapping in cluster.TypeMappings)
+                                {
+                                    if (mapping.RecommendedAction == RecommendedAction.Exclude) continue;
+                                    if (mapping.SourceType == null || mapping.TargetType == null) continue;
+                                    ElementId resolvedTargetTypeId = mapping.TargetType.RevitTypeId.ToElementId();
+                                    if (mapping.RecommendedAction == RecommendedAction.Migrate)
+                                    {
+                                        ElementType? targetTypeElement = doc.GetElement(mapping.TargetType.RevitTypeId.ToElementId()) as ElementType;
+                                        if (targetTypeElement != null)
+                                        {
+                                            string targetName = mapping.MigrateRenameText;
+                                            if (string.IsNullOrWhiteSpace(targetName))
+                                            {
+                                                targetName = mapping.SourceType.Name;
+                                            }
+                                            targetName = SanitizeRevitTypeName(targetName);
+                                            ElementType? existingSymbol = null;
+                                            if (primElement is Family f)
+                                            {
+                                                foreach (ElementId symbolId in f.GetFamilySymbolIds())
+                                                {
+                                                    FamilySymbol? sym = doc.GetElement(symbolId) as FamilySymbol;
+                                                    if (sym != null && sym.Name.Equals(targetName, StringComparison.OrdinalIgnoreCase))
+                                                    {
+                                                        existingSymbol = sym;
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                            else
+                                            {
+                                                existingSymbol = RevitMergeDataCollector.FindExistingElementType(doc, targetTypeElement, targetName);
+                                            }
+                                            if (existingSymbol != null)
+                                            {
+                                                resolvedTargetTypeId = existingSymbol.Id;
+                                            }
+                                            else
+                                            {
+                                                ElementType? duplicatedType = null;
+                                                try
+                                                {
+                                                    duplicatedType = targetTypeElement.Duplicate(targetName);
+                                                }
+                                                catch (Exception primaryDuplicateException)
+                                                {
+                                                    app.Application.WriteJournalComment($"[MERGE_WARNING] Duplicate('{targetName}') failed: {primaryDuplicateException.Message}. Trying fallback name.", true);
+                                                    string fallbackName = SanitizeRevitTypeName(targetName + MigratedSuffix);
+                                                    try
+                                                    {
+                                                        duplicatedType = targetTypeElement.Duplicate(fallbackName);
+                                                    }
+                                                    catch (Exception fallbackException)
+                                                    {
+                                                        int suffixCounter = 1;
+                                                        while (duplicatedType == null && suffixCounter <= 10)
+                                                        {
+                                                            try
+                                                            {
+                                                                duplicatedType = targetTypeElement.Duplicate($"{targetName}{MigratedSuffix}_{suffixCounter}");
+                                                            }
+                                                            catch (Exception suffixException)
+                                                            {
+                                                                suffixCounter++;
+                                                            }
+                                                        }
+                                                    }
+                                                }
+
+                                                // Safe Fallback for non-duplicable system symbols: use target element as-is without mutating original in-place
+                                                if (duplicatedType == null)
+                                                {
+                                                    app.Application.WriteJournalComment($"[MERGE_WARNING] Unable to duplicate system type '{targetName}'. Using target type '{targetTypeElement.Name}' as-is.", true);
+                                                    duplicatedType = targetTypeElement;
+                                                }
+
+                                                if (duplicatedType != null)
+                                                {
+                                                    resolvedTargetTypeId = duplicatedType.Id;
+                                                    // Copy parameters only if a new duplicated type was successfully created
+                                                    if (duplicatedType.Id != targetTypeElement.Id)
+                                                    {
+                                                        Element sourceSymbol = doc.GetElement(mapping.SourceType.RevitTypeId.ToElementId());
+                                                        if (sourceSymbol != null)
+                                                        {
+                                                            foreach (Parameter sourceParam in sourceSymbol.Parameters)
+                                                            {
+                                                                if (sourceParam.IsReadOnly || !sourceParam.HasValue) continue;
+                                                                Parameter targetParam = duplicatedType.LookupParameter(sourceParam.Definition.Name);
+                                                                if (targetParam != null && !targetParam.IsReadOnly)
+                                                                {
+                                                                    CopyParameterValue(sourceParam, targetParam);
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    // Apply resolved parameters
+                                    Element targetTypeObj = doc.GetElement(resolvedTargetTypeId);
+                                    if (targetTypeObj != null)
+                                    {
+                                        foreach (var row in mapping.ParameterResolutions)
+                                        {
+                                            Element winningElement = doc.GetElement(row.WinningValueElementId.ToElementId());
+                                            if (winningElement != null)
+                                            {
+                                                Parameter winningParam = winningElement.LookupParameter(row.ParameterName);
+                                                Parameter targetParam = targetTypeObj.LookupParameter(row.ParameterName);
+                                                if (winningParam != null && targetParam != null && !targetParam.IsReadOnly)
+                                                {
+                                                    CopyParameterValue(winningParam, targetParam);
+                                                }
+                                            }
+                                        }
+                                    }
+                                    typeMap[mapping.SourceType.RevitTypeId.ToElementId()] = resolvedTargetTypeId;
+                                }
+                            }
+                            trans.Commit();
+                        }
+                        catch (Exception ex)
+                        {
+                            trans.RollBack();
+                            report.ExecutionSuccessStatus = false;
+                            report.ErrorMessage = ex.Message;
+                            app.Application.WriteJournalComment($"[MERGE_ERROR] Error processing cluster step 1 '{cluster.ClusterName}': {ex.Message}", true);
+                            reports.Add(report);
+                            continue;
+                        }
+                    }
+                    // 3.5 AliasSwapEngine deep scan and swap (outside any active transaction!)
+                    try
+                    {
+                        int totalInstancesSwapped = 0;
+                        if (typeMap != null && typeMap.Count > 0)
+                        {
+                            var redirectionResult = AliasSwapEngine.SwapElementReferences(doc, typeMap);
+                            if (redirectionResult != null)
+                            {
+                                totalInstancesSwapped += redirectionResult.InstancesCount;
+
+                                if (redirectionResult.Errors != null && redirectionResult.Errors.Count > 0)
+                                {
+                                    report.ExecutionSuccessStatus = false;
+                                    string errStr = string.Join("; ", redirectionResult.Errors);
+                                    report.ErrorMessage = string.IsNullOrEmpty(report.ErrorMessage) ? errStr : $"{report.ErrorMessage}; {errStr}";
+                                }
+                                if (redirectionResult.Warnings != null && redirectionResult.Warnings.Count > 0)
+                                {
+                                    foreach (var warn in redirectionResult.Warnings)
+                                    {
+                                        app.Application.WriteJournalComment($"[MERGE_WARNING] {warn}", true);
+                                    }
+                                }
+                            }
+                        }
+                        report.InstancesSwappedCount = totalInstancesSwapped;
+                    }
+                    catch (Exception ex)
+                    {
+                        report.ExecutionSuccessStatus = false;
+                        string exMsg = $"Error swapping alias references: {ex.Message}";
+                        report.ErrorMessage = string.IsNullOrEmpty(report.ErrorMessage) ? exMsg : $"{report.ErrorMessage}; {exMsg}";
+                        app.Application.WriteJournalComment($"[MERGE_ERROR] {exMsg}", true);
+                    }
+                    // 4. Redundancy Deletion in Transaction 2
+                    using (var trans2 = new Transaction(doc, $"Merge Cluster Step 2: {cluster.ClusterName}"))
+                    {
+                        trans2.Start();
+                        try
+                        {
+                            Element primElement = doc.GetElement(primaryItem.RevitElementId.ToElementId());
+                            int purgedCount = 0;
+                            foreach (var dupItem in duplicateItems)
+                            {
+                                bool allTypesMergedOrMigrated = true;
+                                foreach (var t in dupItem.Types)
+                                {
+                                    var mapping = cluster.TypeMappings.FirstOrDefault(m => m.SourceType != null && m.SourceType.RevitTypeId.ToElementId() == t.RevitTypeId.ToElementId());
+                                    if (mapping != null && mapping.RecommendedAction == RecommendedAction.Exclude)
+                                    {
+                                        allTypesMergedOrMigrated = false;
+                                        break;
+                                    }
+                                }
+                                if (allTypesMergedOrMigrated)
+                                {
+                                    try
+                                    {
+                                        doc.Delete(dupItem.RevitElementId.ToElementId());
+                                        purgedCount++;
+                                    }
+                                     catch (Exception ex)
+                                     {
+                                         try
+                                         {
+                                             System.IO.File.WriteAllText(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "synthetic_test_error.txt"), ex.ToString());
+                                         }
+                                         catch {}
+                                         report.ExecutionSuccessStatus = false;
+                                         report.ErrorMessage = "Family deletion failed: " + ex.Message + " | " + ex.StackTrace;
+                                     }
+                                }
+                                else
+                                {
+                                    if (primElement is Family || primElement is GroupType || primElement is AssemblyType)
+                                    {
+                                        foreach (var t in dupItem.Types)
+                                        {
+                                            var mapping = cluster.TypeMappings.FirstOrDefault(m => m.SourceType != null && m.SourceType.RevitTypeId.ToElementId() == t.RevitTypeId.ToElementId());
+                                            if (mapping != null && mapping.RecommendedAction != RecommendedAction.Exclude)
+                                            {
+                                                try
+                                                {
+                                                    doc.Delete(t.RevitTypeId.ToElementId());
+                                                    purgedCount++;
+                                                }
+                                                catch (Exception)
+                                                {
+                                                    // Silently handle symbol deletion error
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            report.DuplicateTypesPurged = purgedCount;
+                            trans2.Commit();
+                            report.ExecutionSuccessStatus = true;
+                        }
+                        catch (Exception ex)
+                        {
+                            trans2.RollBack();
+                            report.ExecutionSuccessStatus = false;
+                            report.ErrorMessage = ex.Message;
+                            app.Application.WriteJournalComment($"[MERGE_ERROR] Error processing cluster step 2 '{cluster.ClusterName}': {ex.Message}", true);
+                        }
+                    }
+                    reports.Add(report);
+                    // Safely update UI Queue collections on Dispatcher
+                    if (currentWindow != null && report.ExecutionSuccessStatus)
+                    {
+                        currentWindow.Dispatcher.Invoke(() =>
+                        {
+                            currentQueue.QueuedClusters.Remove(cluster);
+                            if (currentMainVM != null && currentMainVM.ScannedClusters.Contains(cluster))
+                            {
+                                currentMainVM.ScannedClusters.Remove(cluster);
+                            }
+                        });
+                    }
+                }
+                if (!wasCancelled)
+                {
+                    transGroup.Assimilate();
+                }
+            }
+            // Export execution summary to JSON file
+            string? logPath = ExportStep6ResultsSummary(reports);
+            // Re-enable UI window
+            if (currentWindow != null)
+            {
+                currentWindow.Dispatcher.Invoke(() =>
+                {
+                    currentWindow.IsEnabled = true;
+                    if (wasCancelled)
+                    {
+                        Autodesk.Revit.UI.TaskDialog.Show("Merge Process Cancelled", "The merge process was cancelled. All changes in this batch have been rolled back.");
+                    }
+                    else
+                    {
+                        int successCount = reports.Count(r => r.ExecutionSuccessStatus);
+                        string resultLocation = !string.IsNullOrEmpty(logPath)
+                            ? $"Results written to:\n{logPath}"
+                            : "Results summary could not be written to the logs directory.";
+                        Autodesk.Revit.UI.TaskDialog.Show("Merge Duplicates Completed", $"{successCount} cluster(s) merged successfully.\n{resultLocation}");
+                    }
+                });
+            }
+        }
+        private static void CopyParameterValue(Parameter sourceParam, Parameter targetParam)
+        {
+            if (sourceParam == null || targetParam == null || targetParam.IsReadOnly || !sourceParam.HasValue) return;
+            switch (sourceParam.StorageType)
+            {
+                case StorageType.Double:
+                    targetParam.Set(sourceParam.AsDouble());
+                    break;
+                case StorageType.Integer:
+                    targetParam.Set(sourceParam.AsInteger());
+                    break;
+                case StorageType.String:
+                    targetParam.Set(sourceParam.AsString());
+                    break;
+                case StorageType.ElementId:
+                    targetParam.Set(sourceParam.AsElementId());
+                    break;
+            }
+        }
+                private static ParameterDefinitionSpec GetDefaultGroupAndType()
+        {
+            return ParameterDefinitionSpec.CreateDefault();
+        }
+
+        private static ParameterDefinitionSpec GetParamGroupAndTypeFromSource(Parameter sourceParam)
+        {
+            if (sourceParam == null) return GetDefaultGroupAndType();
+
+            object? group = null;
+            object? specType = null;
+
+            Definition def = sourceParam.Definition;
+            if (def != null)
+            {
+#if REVIT2023
+                group = def.ParameterGroup;
+                specType = def.GetDataType();
+#else
+                // Default baseline: Revit 2024+
+                group = def.GetGroupTypeId();
+                specType = def.GetDataType();
+#endif
+
+                // Reflection fallbacks for cross-version / mock execution contexts
+                if (group == null)
+                {
+                    var groupProp = def.GetType().GetProperty("ParameterGroup");
+                    if (groupProp != null)
+                    {
+                        group = groupProp.GetValue(def);
+                    }
+                    else
+                    {
+                        var groupMethod = def.GetType().GetMethod("GetGroupTypeId");
+                        if (groupMethod != null)
+                        {
+                            group = groupMethod.Invoke(def, null);
+                        }
+                    }
+                }
+
+                if (specType == null)
+                {
+                    var typeProp = def.GetType().GetProperty("ParameterType");
+                    if (typeProp != null)
+                    {
+                        specType = typeProp.GetValue(def);
+                    }
+                    else
+                    {
+                        var typeMethod = def.GetType().GetMethod("GetDataType");
+                        if (typeMethod != null)
+                        {
+                            specType = typeMethod.Invoke(def, null);
+                        }
+                    }
+                }
+            }
+
+            if (group == null || specType == null)
+            {
+                var defaultSpec = GetDefaultGroupAndType();
+                group ??= defaultSpec.Group;
+                specType ??= defaultSpec.SpecType;
+            }
+
+            return new ParameterDefinitionSpec(group, specType);
+        }
+
+        private static bool InjectParameterToFamily(FamilyManager famManager, string paramName, ParameterDefinitionSpec spec)
+        {
+            if (famManager == null || spec == null || spec.Group == null || spec.SpecType == null) return false;
+
+            var addParamMethod = famManager.GetType().GetMethods()
+                .FirstOrDefault(m => m.Name == "AddParameter" && m.GetParameters().Length == 4);
+
+            if (addParamMethod != null)
+            {
+                try
+                {
+                    addParamMethod.Invoke(famManager, new object[] { paramName, spec.Group, spec.SpecType, false });
+                    return true;
+                }
+                catch (Exception)
+                {
+                    return false;
+                }
+            }
+            return false;
+        }
+
+        internal static string GetStep6ResultsLogPath() => GetStep6ResultsLogPath(null);
+
+        internal static string GetStep6ResultsLogPath(string? localAppDataOverride)
+        {
+            return DiagnosticLogPaths.GetStep6ResultsLogPath(localAppDataOverride);
+        }
+
+        private string? ExportStep6ResultsSummary(List<MergeExecutionReport> summaries)
+        {
+            try
+            {
+                var settings = new JsonSerializerSettings
+                {
+                    Formatting = Formatting.Indented
+                };
+                string json = JsonConvert.SerializeObject(summaries, settings);
+                string logPath = GetStep6ResultsLogPath();
+                string? logDir = Path.GetDirectoryName(logPath);
+                if (!string.IsNullOrEmpty(logDir))
+                {
+                    Directory.CreateDirectory(logDir);
+                }
+                File.WriteAllText(logPath, json);
+                return logPath;
+            }
+            catch (Exception)
+            {
+                // Fail silently
+                return null;
+            }
+        }
+        private string SanitizeRevitTypeName(string input)
+        {
+            if (string.IsNullOrWhiteSpace(input)) return "Unnamed_Type";
+            char[] illegalChars = new char[] { '\\', ':', '{', '}', '[', ']', '|', ';', '<', '>', '?', '\'', '~' };
+            string sanitized = input;
+            foreach (char c in illegalChars)
+            {
+                sanitized = sanitized.Replace(c.ToString(), string.Empty);
+            }
+            sanitized = sanitized.Trim();
+            return string.IsNullOrWhiteSpace(sanitized) ? "Unnamed_Type" : sanitized;
+        }
+        /// <summary>
+        /// Gets the name of the external event handler.
+        /// </summary>
+        /// <returns>A string name of the handler.</returns>
+        public string GetName()
+        {
+            return "Process Merge External Event Handler";
+        }
+    }
+}

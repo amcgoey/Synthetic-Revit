@@ -13,7 +13,6 @@ using Synthetic.Platform.Revit;
 using Synthetic.Platform.IO;
 
 using Synthetic.Infrastructure.Diagnostics;
-using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;

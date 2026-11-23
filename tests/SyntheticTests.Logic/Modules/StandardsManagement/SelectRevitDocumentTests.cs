@@ -2,8 +2,8 @@
 using System.Collections.Generic;
 using System.Linq;
 using NUnit.Framework;
-using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.RevitDOM.Operations.Standards;
+using Synthetic.Features.StandardsManagement.ViewModels;
+using Synthetic.Features.StandardsManagement;
 
 namespace SyntheticTests.Modules.StandardsManagement
 {

@@ -85,18 +85,18 @@
       "items": [
         {
           "type": "PushButton",
-          "name": "Synthetic.Modules.MergeDuplicates.Commands.CmdMergeDuplicates",
+          "name": "Synthetic.Features.MergeDuplicates.Commands.CmdMergeDuplicates",
           "text": "Merge\nDuplicates",
-          "class": "Synthetic.Modules.MergeDuplicates.Commands.CmdMergeDuplicates",
+          "class": "Synthetic.Features.MergeDuplicates.Commands.CmdMergeDuplicates",
           "tooltip": "Scans the model or active selection for duplicate families, groups, or assemblies, matching parameters and swapping instances cleanly.",
           "large_image": "family_32.png",
           "image": "family_16.png"
         },
         {
           "type": "PushButton",
-          "name": "Synthetic.Modules.StandardsManagement.Commands.CmdProjectStandards",
+          "name": "Synthetic.Features.StandardsManagement.Commands.CmdProjectStandards",
           "text": "Project Standards",
-          "class": "Synthetic.Modules.StandardsManagement.Commands.CmdProjectStandards",
+          "class": "Synthetic.Features.StandardsManagement.Commands.CmdProjectStandards",
           "tooltip": "Launch the Project Standards Workspace to load, stage, batch edit, and enforce standard configurations.",
           "large_image": "family_32.png",
           "image": "family_16.png"

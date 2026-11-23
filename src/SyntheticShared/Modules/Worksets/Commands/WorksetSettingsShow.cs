@@ -20,7 +20,6 @@ using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
 using Synthetic.Platform.Settings;
 using Synthetic.Features.Worksets.Settings;
-using Synthetic.Modules.StandardsManagement.ViewModels;
 
 #endregion
 

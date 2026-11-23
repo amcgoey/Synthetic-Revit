@@ -11,7 +11,6 @@ using Autodesk.Revit.Attributes;
 using System.Diagnostics;
 using System.IO;
 using Newtonsoft.Json;
-using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;

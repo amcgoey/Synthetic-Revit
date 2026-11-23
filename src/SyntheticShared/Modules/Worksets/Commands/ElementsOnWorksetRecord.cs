@@ -20,7 +20,6 @@ using Synthetic.Platform.IO;
 using Synthetic.Platform.UI;
 
 using Synthetic.Platform.Revit;
-using Synthetic.Modules.StandardsManagement.ViewModels;
 
 namespace Synthetic.Modules.Worksets.Commands
 {

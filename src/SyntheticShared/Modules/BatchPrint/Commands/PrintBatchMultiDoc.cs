@@ -13,7 +13,6 @@ using System.IO;
 using Autodesk.Revit.DB.Events;
 
 using Synthetic.Platform.UI;
-using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;

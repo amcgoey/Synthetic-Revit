@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using System.Reflection;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
-using Synthetic.Modules.MergeDuplicates.Services;
-using Synthetic.Modules.MergeDuplicates.Handlers;
-using Synthetic.Modules.MergeDuplicates.ViewModels;
+using Synthetic.Features.MergeDuplicates.Services;
+using Synthetic.Features.MergeDuplicates.Handlers;
+using Synthetic.Features.MergeDuplicates.ViewModels;
 using Synthetic.RevitDOM.Models;
 
 namespace SyntheticTests.Logic.Modules.MergeDuplicates

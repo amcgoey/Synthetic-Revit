@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using NUnit.Framework;
 using Synthetic.RevitDOM.Models;
-using Synthetic.Modules.MergeDuplicates.ViewModels;
+using Synthetic.Features.MergeDuplicates.ViewModels;
 
 namespace SyntheticTests.Modules.StandardsManagement
 {

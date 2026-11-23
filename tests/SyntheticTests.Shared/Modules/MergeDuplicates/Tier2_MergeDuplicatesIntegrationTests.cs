@@ -1,4 +1,4 @@
-using Synthetic.Modules.MergeDuplicates.Services;
+using Synthetic.Features.MergeDuplicates.Services;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -9,9 +9,8 @@ using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
 using Newtonsoft.Json;
 
-using Synthetic.Modules.MergeDuplicates.Handlers;
-using Synthetic.Modules.MergeDuplicates.ViewModels;
-using Synthetic.RevitDOM.Operations.Merge;
+using Synthetic.Features.MergeDuplicates.Handlers;
+using Synthetic.Features.MergeDuplicates.ViewModels;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using SyntheticTests.Helpers;
