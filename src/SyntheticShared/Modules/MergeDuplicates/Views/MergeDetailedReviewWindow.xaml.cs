@@ -4,7 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Threading;
 
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 
 using Synthetic.Modules.MergeDuplicates.ViewModels;
 using Synthetic.RevitDOM.Models;

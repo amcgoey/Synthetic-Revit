@@ -13,7 +13,7 @@ using System.Windows.Input;
 using Autodesk.Revit.DB;
 using View = Autodesk.Revit.DB.View;
 
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 using Synthetic.Settings;
 using Synthetic.Infrastructure.Persistence;
 

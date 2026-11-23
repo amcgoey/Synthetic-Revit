@@ -7,7 +7,7 @@ using Autodesk.Revit.DB;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.Settings;
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;

@@ -6,7 +6,7 @@ using System.Threading;
 using NUnit.Framework;
 using Synthetic.Modules.ShadowStudy.Models;
 using Synthetic.Modules.ShadowStudy.Services;
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 
 namespace SyntheticTests.Modules.ShadowStudy
 {

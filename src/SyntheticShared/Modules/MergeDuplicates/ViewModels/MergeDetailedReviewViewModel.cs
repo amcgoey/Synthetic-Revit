@@ -10,7 +10,7 @@ using Synthetic.RevitDOM;
 using Synthetic.Infrastructure.Serialization;
 
 
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 
 using Synthetic.RevitDOM.Operations.Merge;
 namespace Synthetic.Modules.MergeDuplicates.ViewModels

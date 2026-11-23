@@ -4,7 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using Synthetic.Modules.ShadowStudy.ViewModels;
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 
 namespace Synthetic.Modules.ShadowStudy.Views
 {

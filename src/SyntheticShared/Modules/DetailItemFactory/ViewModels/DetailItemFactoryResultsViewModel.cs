@@ -18,7 +18,7 @@ using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
 using Synthetic.Infrastructure.Serialization;
 
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Modules.DetailItemFactory.Models;
 namespace Synthetic.Modules.DetailItemFactory.ViewModels

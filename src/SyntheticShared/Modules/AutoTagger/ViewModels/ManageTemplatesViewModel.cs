@@ -16,7 +16,7 @@ using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
 using Synthetic.Infrastructure.Serialization;
 
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 namespace Synthetic.Modules.AutoTagger.ViewModels
 {

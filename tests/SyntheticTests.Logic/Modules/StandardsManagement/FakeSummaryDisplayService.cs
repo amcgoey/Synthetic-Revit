@@ -1,5 +1,5 @@
 ﻿using System;
-using Synthetic.Shared.UI;
+using Synthetic.Features.StandardsManagement;
 
 namespace SyntheticTests.Modules.StandardsManagement
 {

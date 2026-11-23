@@ -1,6 +1,6 @@
 using System;
 using System.Windows;
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 
 namespace Synthetic.Modules.StandardsManagement.Views
 {

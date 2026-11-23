@@ -10,7 +10,7 @@ using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
 using Synthetic.Shared.RevitAPI;
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 
 namespace Synthetic.RevitDOM.Operations.Standards

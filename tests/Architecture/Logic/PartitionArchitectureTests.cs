@@ -26,7 +26,9 @@ namespace SyntheticTests.Architecture
             string testsRoot = Path.Combine(projectRoot, "tests");
 
             Assert.IsTrue(Directory.Exists(Path.Combine(srcRoot, "Platform", "Host")), "Expected src/Platform/Host partition root.");
+            Assert.IsTrue(Directory.Exists(Path.Combine(srcRoot, "Platform", "UI")), "Expected src/Platform/UI partition root.");
             Assert.IsTrue(Directory.Exists(Path.Combine(testsRoot, "Platform", "Host")), "Expected tests/Platform/Host partition root.");
+            Assert.IsTrue(Directory.Exists(Path.Combine(testsRoot, "Platform", "UI")), "Expected tests/Platform/UI partition root.");
             Assert.IsTrue(Directory.Exists(Path.Combine(testsRoot, "Architecture")), "Expected tests/Architecture partition root.");
 
             var sourceViolations = new List<string>();
@@ -175,6 +177,84 @@ namespace SyntheticTests.Architecture
                 .ToList();
 
             Assert.IsEmpty(xamlResources, "Synthetic.Core.dll must not embed WPF XAML/BAML resources.");
+        }
+
+        [Test]
+        public void PlatformUICore_ContainsZeroWinFormsFeatureOrRevitDomImports_AndNoAppControlledDependency()
+        {
+            string projectRoot = TestPathHelper.GetProjectRoot();
+            string uiCoreDir = Path.Combine(projectRoot, "src", "Platform", "UI", "Core");
+            string uiAddinDir = Path.Combine(projectRoot, "src", "Platform", "UI", "Addin");
+
+            Assert.IsTrue(Directory.Exists(uiCoreDir), "Expected src/Platform/UI/Core directory.");
+            Assert.IsTrue(File.Exists(Path.Combine(uiAddinDir, "SyntheticTheme.xaml")), "Expected src/Platform/UI/Addin/SyntheticTheme.xaml.");
+            Assert.IsTrue(File.Exists(Path.Combine(uiAddinDir, "SyntheticThemeDictionary.cs")), "Expected src/Platform/UI/Addin/SyntheticThemeDictionary.cs.");
+
+            var violations = new List<string>();
+            foreach (string file in Directory.EnumerateFiles(uiCoreDir, "*.cs", SearchOption.AllDirectories))
+            {
+                string text = File.ReadAllText(file);
+                string rel = GetRelativeNormalizedPath(projectRoot, file);
+                if (Regex.IsMatch(text, @"\bSystem\.Windows\.Forms\b"))
+                {
+                    violations.Add($"{rel} references System.Windows.Forms");
+                }
+                if (Regex.IsMatch(text, @"\bSynthetic\.Features\b"))
+                {
+                    violations.Add($"{rel} references Synthetic.Features");
+                }
+                if (Regex.IsMatch(text, @"\bSynthetic\.RevitDOM\b"))
+                {
+                    violations.Add($"{rel} references Synthetic.RevitDOM");
+                }
+            }
+
+            string progressCoordinatorPath = Path.Combine(uiAddinDir, "ProgressCoordinator.cs");
+            Assert.IsTrue(File.Exists(progressCoordinatorPath), "Expected src/Platform/UI/Addin/ProgressCoordinator.cs.");
+            string coordinatorText = File.ReadAllText(progressCoordinatorPath);
+            if (Regex.IsMatch(coordinatorText, @"\bApp\.AppControlled\b"))
+            {
+                violations.Add("src/Platform/UI/Addin/ProgressCoordinator.cs must not reference App.AppControlled.");
+            }
+
+            Assert.IsEmpty(violations, string.Join(Environment.NewLine, violations));
+        }
+
+        [Test]
+        public void ThemedXamlViews_UseSyntheticThemeDictionary_WithoutRelativeThemeSource()
+        {
+            string projectRoot = TestPathHelper.GetProjectRoot();
+            string srcRoot = Path.Combine(projectRoot, "src");
+            var violations = new List<string>();
+            int themeMergeCount = 0;
+
+            foreach (string xamlFile in Directory.EnumerateFiles(srcRoot, "*.xaml", SearchOption.AllDirectories))
+            {
+                if (xamlFile.IndexOf("\\obj\\", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    xamlFile.IndexOf("\\bin\\", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    continue;
+                }
+
+                string text = File.ReadAllText(xamlFile);
+                string rel = GetRelativeNormalizedPath(srcRoot, xamlFile);
+
+                if (text.IndexOf("SyntheticTheme.xaml", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    violations.Add($"src/{rel} must merge <theme:SyntheticThemeDictionary /> instead of relative SyntheticTheme.xaml.");
+                }
+                if (text.IndexOf("Synthetic.Shared.UI", StringComparison.Ordinal) >= 0)
+                {
+                    violations.Add($"src/{rel} still references obsolete Synthetic.Shared.UI namespace.");
+                }
+                if (text.IndexOf("SyntheticThemeDictionary", StringComparison.Ordinal) >= 0)
+                {
+                    themeMergeCount++;
+                }
+            }
+
+            Assert.IsEmpty(violations, string.Join(Environment.NewLine, violations));
+            Assert.AreEqual(35, themeMergeCount, "Expected exactly 35 themed .xaml views merging SyntheticThemeDictionary.");
         }
 
         private static string GetRelativeNormalizedPath(string rootDir, string fullPath)

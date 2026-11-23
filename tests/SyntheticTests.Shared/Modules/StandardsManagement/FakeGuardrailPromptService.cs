@@ -1,6 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 
 namespace SyntheticTests.Modules.StandardsManagement
 {

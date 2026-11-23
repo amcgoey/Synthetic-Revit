@@ -5,7 +5,7 @@ using System.Linq;
 using System.Threading;
 using Synthetic.Modules.ShadowStudy.Adapters;
 using Synthetic.Modules.ShadowStudy.Models;
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 
 namespace Synthetic.Modules.ShadowStudy.Services
 {

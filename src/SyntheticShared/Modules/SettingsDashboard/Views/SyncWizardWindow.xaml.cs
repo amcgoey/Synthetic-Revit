@@ -1,7 +1,7 @@
 using System;
 using System.Windows;
 
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;

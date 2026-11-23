@@ -10,7 +10,7 @@ using System.Collections.Generic;
 using System.Windows.Media.Imaging;
 using Autodesk.Revit.DB.Events;
 
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 using Synthetic.Shared.RevitAPI;
 using Synthetic.Settings;
 using Synthetic.Infrastructure.Persistence;
@@ -53,6 +53,7 @@ namespace Synthetic.Platform.Host
         public Result OnStartup(UIControlledApplication appControlled)
         {
             AppControlled = appControlled;
+            RevitWindowHelper.MainWindowHandle = appControlled.MainWindowHandle;
             RibbonManager.Create(appControlled, _path);
 
             Configurations.AddAppConfig(Config.ReadAppConfig());

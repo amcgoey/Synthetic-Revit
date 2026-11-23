@@ -4,7 +4,7 @@ using System.Linq;
 using NUnit.Framework;
 using Synthetic.Modules.ShadowStudy.Models;
 using Synthetic.Modules.ShadowStudy.ViewModels;
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 
 namespace SyntheticTests.Modules.ShadowStudy
 {

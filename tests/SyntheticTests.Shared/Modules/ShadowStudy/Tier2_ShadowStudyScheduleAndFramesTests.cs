@@ -264,7 +264,7 @@ namespace SyntheticTests.Modules.ShadowStudy
             }
         }
 
-        private sealed class StubFolderDialogService : Synthetic.Shared.UI.IFolderDialogService
+        private sealed class StubFolderDialogService : Synthetic.Platform.UI.IFolderDialogService
         {
             public string? SelectFolder(string title, string? initialPath = null) => null;
         }
@@ -300,7 +300,7 @@ namespace SyntheticTests.Modules.ShadowStudy
 
             public RawFrameExportResult ExportRawFrames(
                 RawFrameExportRequest request,
-                IProgress<Synthetic.Shared.UI.ProgressState>? progress = null,
+                IProgress<Synthetic.Platform.UI.ProgressState>? progress = null,
                 System.Threading.CancellationToken cancellationToken = default)
                 => _inner.ExportRawFrames(request, progress, cancellationToken);
         }

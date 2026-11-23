@@ -4,7 +4,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using Autodesk.Revit.DB;
 
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;

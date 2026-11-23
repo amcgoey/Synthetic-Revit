@@ -10,7 +10,7 @@ using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
 using Synthetic.RevitDOM.Operations.Standards;
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.RevitDOM.Operations.Standards;
 using Synthetic.RevitDOM.Operations.Diffing;
@@ -448,7 +448,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             if (parameter is System.Collections.IList list && CanExecuteMergeQueue(parameter))
             {
                 var selectedItems = list.Cast<QueueItemModel>().ToList();
-                var vm = new Synthetic.Shared.UI.SingleItemSelectionViewModel<QueueItemModel>(
+                var vm = new Synthetic.Platform.UI.SingleItemSelectionViewModel<QueueItemModel>(
                     selectedItems,
                     "Select the primary survivor element. The other selected elements will be deleted, and their names will be appended to the survivor's Aliases list.",
                     q => q.Name)

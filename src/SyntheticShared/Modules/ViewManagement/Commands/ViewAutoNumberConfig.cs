@@ -4,7 +4,7 @@ using Autodesk.Revit.UI;
 using Synthetic.Settings;
 using Synthetic.Infrastructure.Persistence;
 
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 
 using Synthetic.Shared.RevitAPI;
 using Synthetic.Infrastructure.IO;

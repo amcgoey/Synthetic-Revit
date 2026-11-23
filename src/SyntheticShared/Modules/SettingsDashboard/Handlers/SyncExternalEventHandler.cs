@@ -11,7 +11,7 @@ using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
 using Synthetic.Modules.SettingsDashboard.Handlers;
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 
 namespace Synthetic.Modules.SettingsDashboard.Handlers
 {

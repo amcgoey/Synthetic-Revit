@@ -11,7 +11,8 @@ using Autodesk.Revit.UI;
 using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.RevitDOM.Operations.Standards;
 
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
+using Synthetic.Features.StandardsManagement;
 using Synthetic.Shared.RevitAPI;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
@@ -372,7 +373,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
 
         public List<Document>? MockOpenDocuments { get; set; }
         public Func<SelectRevitDocumentViewModel, bool?>? ShowDocumentSelectionDialog { get; set; }
-        public Func<Synthetic.Shared.UI.SingleItemSelectionViewModel<QueueItemModel>, bool?>? ShowMergeDialog { get; set; }
+        public Func<Synthetic.Platform.UI.SingleItemSelectionViewModel<QueueItemModel>, bool?>? ShowMergeDialog { get; set; }
 
         #region Commands
         public ICommand AddFileSourceCommand => _sourceTreeViewModel.AddFileSourceCommand;
@@ -457,7 +458,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
                 try
                 {
                     IntPtr handle = _uiapp != null ? _uiapp.MainWindowHandle : IntPtr.Zero;
-                    var view = new Synthetic.Shared.UI.SingleItemSelectionWindow(handle)
+                    var view = new Synthetic.Platform.UI.SingleItemSelectionWindow(handle)
                     {
                         DataContext = vm
                     };

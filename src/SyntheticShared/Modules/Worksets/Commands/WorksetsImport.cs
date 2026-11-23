@@ -21,7 +21,7 @@ using Synthetic.RevitDOM;
 using Synthetic.Settings;
 using Synthetic.Infrastructure.Persistence;
 
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Shared.RevitAPI;
 

@@ -43,7 +43,7 @@
     <Compile Include="Infrastructure\UI\RibbonTests.cs" />
     <Compile Remove="Modules\SharedCoordinates\RevitSharedCoordinatesAdapterTests.cs" />
     <Compile Include="Modules\SharedCoordinates\RevitSharedCoordinatesAdapterTests.cs" />
-    <None Include="..\..\src\SyntheticShared\Shared\UI\SyntheticTheme.xaml" Link="SyntheticTheme.xaml" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\src\Platform\UI\Addin\SyntheticTheme.xaml" Link="SyntheticTheme.xaml" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- Swap NuGet RevitAPI with RevitAPIMock for headless logic tests -->

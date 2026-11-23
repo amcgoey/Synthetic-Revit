@@ -2,7 +2,7 @@ using System;
 using System.Globalization;
 using System.Windows.Input;
 using Synthetic.Modules.ShadowStudy.Models;
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 
 namespace Synthetic.Modules.ShadowStudy.ViewModels
 {

@@ -1,7 +1,7 @@
 using System;
 using System.Windows;
 using Synthetic.Modules.SharedCoordinates.ViewModels;
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 
 namespace Synthetic.Modules.SharedCoordinates.Views
 {

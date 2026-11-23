@@ -13,7 +13,7 @@ using Synthetic.Infrastructure.Serialization;
 using Autodesk.Revit.DB;
 using Select = Synthetic.Shared.RevitAPI.Select;
 
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 using Synthetic.Modules.MergeDuplicates.Handlers;
 using Synthetic.Modules.StandardsManagement.Views;
 using Synthetic.Shared.RevitAPI;

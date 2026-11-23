@@ -4,6 +4,8 @@
              Link="Fixtures\TestPathHelper.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Fixtures\Shared\TypedCategoryAttributes.cs"
              Link="Fixtures\TypedCategoryAttributes.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Platform\**\Revit\**\*.cs"
+             Link="Platform\%(RecursiveDir)%(Filename)%(Extension)" />
     <Compile Include="$(MSBuildThisFileDirectory)SyntheticTests.Shared\**\*.cs"
              Exclude="$(MSBuildThisFileDirectory)SyntheticTests.Shared\Modules\SheetIndex\**\*.cs"
              Link="%(RecursiveDir)%(Filename)%(Extension)" />

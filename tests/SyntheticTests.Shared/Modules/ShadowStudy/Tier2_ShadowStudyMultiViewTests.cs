@@ -505,7 +505,7 @@ namespace SyntheticTests.Modules.ShadowStudy
             public DateTime StartDateAndTime { get; set; }
         }
 
-        private sealed class NoOpFolderDialogService : Synthetic.Shared.UI.IFolderDialogService
+        private sealed class NoOpFolderDialogService : Synthetic.Platform.UI.IFolderDialogService
         {
             public string? SelectFolder(string description, string? initialDirectory = null) => null;
         }

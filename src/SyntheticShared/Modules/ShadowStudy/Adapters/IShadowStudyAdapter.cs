@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using Synthetic.Modules.ShadowStudy.Models;
 using Synthetic.Modules.ShadowStudy.Settings;
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 
 namespace Synthetic.Modules.ShadowStudy.Adapters
 {
