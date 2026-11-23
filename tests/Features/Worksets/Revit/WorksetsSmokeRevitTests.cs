@@ -17,6 +17,7 @@ namespace SyntheticTests.Features.Worksets
     public class WorksetsSmokeRevitTests
     {
         private UIApplication? _uiapp;
+        private int _initialDocCount;
 
         [OneTimeSetUp]
         public void Setup(UIApplication uiapp)
@@ -24,6 +25,19 @@ namespace SyntheticTests.Features.Worksets
             _uiapp = uiapp;
             HostSettingsRegistrar.EnsureRegistered();
             TestWorkerJournalMarker.EnsureWritten(uiapp);
+            _initialDocCount = uiapp.Application.Documents.Size;
+        }
+
+        [OneTimeTearDown]
+        public void OneTimeTearDown()
+        {
+            if (_uiapp?.Application != null)
+            {
+                Assert.AreEqual(
+                    _initialDocCount,
+                    _uiapp.Application.Documents.Size,
+                    "WorksetsSmokeRevitTests leaked open Revit document(s).");
+            }
         }
 
         [Test]

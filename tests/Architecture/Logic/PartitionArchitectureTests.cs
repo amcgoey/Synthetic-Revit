@@ -825,6 +825,10 @@ namespace SyntheticTests.Architecture
             StringAssert.DoesNotContain("SyntheticTests", srcTargetsText, "src/Directory.Build.targets must not retain legacy SyntheticTests* InternalsVisibleTo entries.");
             StringAssert.DoesNotContain("<InternalsVisibleTo Include=\"Synthetic202", srcTargetsText, "src/Directory.Build.targets must not grant InternalsVisibleTo to Synthetic202* payload assemblies.");
 
+            string testsTargetsText = File.ReadAllText(Path.Combine(testsRoot, "Directory.Build.targets"));
+            StringAssert.DoesNotContain(@"Platform\**\Revit\", testsTargetsText, "tests/Directory.Build.targets must not use recursive Platform\\**\\Revit\\ glob that leaks Platform/Revit/Logic/*.cs into RevitTests.");
+            StringAssert.Contains(@"Platform\*\Revit\**\*.cs", testsTargetsText, "tests/Directory.Build.targets must scope Platform Revit test glob to Platform\\*\\Revit\\**\\*.cs.");
+
             var testLayoutViolations = new List<string>();
             var logicRevitApiViolations = new List<string>();
 
@@ -926,6 +930,49 @@ namespace SyntheticTests.Architecture
 
             Assert.IsEmpty(testLayoutViolations, string.Join(Environment.NewLine, testLayoutViolations));
             Assert.IsEmpty(logicRevitApiViolations, string.Join(Environment.NewLine, logicRevitApiViolations));
+        }
+
+        [Test]
+        public void NonHostProductionLayers_HaveZeroPlatformHostDependencies()
+        {
+            string projectRoot = TestPathHelper.GetProjectRoot();
+            string srcRoot = Path.Combine(projectRoot, "src");
+
+            string[] nonHostRoots =
+            {
+                Path.Combine(srcRoot, "Features"),
+                Path.Combine(srcRoot, "RevitDOM"),
+                Path.Combine(srcRoot, "Platform", "IO"),
+                Path.Combine(srcRoot, "Platform", "Settings"),
+                Path.Combine(srcRoot, "Platform", "UI"),
+                Path.Combine(srcRoot, "Platform", "Revit"),
+            };
+
+            var violations = new List<string>();
+            foreach (string rootDir in nonHostRoots)
+            {
+                if (!Directory.Exists(rootDir))
+                {
+                    continue;
+                }
+
+                foreach (string file in Directory.EnumerateFiles(rootDir, "*.cs", SearchOption.AllDirectories))
+                {
+                    if (file.IndexOf("\\obj\\", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        file.IndexOf("\\bin\\", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        continue;
+                    }
+
+                    string codeOnly = StripCommentsAndStringLiterals(File.ReadAllText(file));
+                    if (Regex.IsMatch(codeOnly, @"\bSynthetic\.Platform\.Host\b"))
+                    {
+                        violations.Add($"src/{GetRelativeNormalizedPath(srcRoot, file)} references Synthetic.Platform.Host outside src/Platform/Host/.");
+                    }
+                }
+            }
+
+            Assert.IsEmpty(violations, string.Join(Environment.NewLine, violations));
         }
 
         private static string StripCommentsAndStringLiterals(string source)
