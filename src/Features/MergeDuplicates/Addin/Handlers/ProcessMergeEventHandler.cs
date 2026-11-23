@@ -11,9 +11,7 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.Platform.IO;
-using Synthetic.Platform.UI;
 using Synthetic.Features.MergeDuplicates.ViewModels;
-using Synthetic.Platform.Revit;
 using Synthetic.Features.MergeDuplicates.Services;
 
 namespace Synthetic.Features.MergeDuplicates.Handlers

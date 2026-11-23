@@ -7,7 +7,6 @@ using Synthetic.Features.ViewManagement.Settings;
 using Synthetic.Platform.UI;
 
 using Synthetic.Platform.Revit;
-using Synthetic.Platform.IO;
 using Synthetic.Features.ViewManagement.Commands;
 using Synthetic.Features.ViewManagement.Models;
 using Synthetic.Features.ViewManagement.Utilities;

@@ -3,7 +3,6 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 
 using Synthetic.Platform.Revit;
-using Synthetic.Platform.IO;
 using SFileUtil = Synthetic.Platform.IO.FileUtil;
 
 using Synthetic.Platform.UI;

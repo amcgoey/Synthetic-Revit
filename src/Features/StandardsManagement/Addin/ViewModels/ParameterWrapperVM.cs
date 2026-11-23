@@ -6,7 +6,6 @@ using System.Linq;
 using System.Windows.Input;
 
 using Synthetic.RevitDOM.Models;
-using Synthetic.RevitDOM.Translation;
 using Synthetic.Platform.IO;
 using Autodesk.Revit.DB;
 using Select = Synthetic.Platform.Revit.Select;

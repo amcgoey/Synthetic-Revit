@@ -7,7 +7,6 @@ using System.Windows.Input;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using Synthetic.RevitDOM.Models;
-using Synthetic.RevitDOM.Operations;
 using Synthetic.Features.StandardsManagement;
 using Synthetic.Platform.UI;
 using Synthetic.Platform.Settings;

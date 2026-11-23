@@ -9,7 +9,6 @@ using Autodesk.Revit.UI;
 using Synthetic.Platform.UI;
 using Synthetic.Features.StandardsManagement;
 using Synthetic.RevitDOM.Models;
-using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 
 namespace Synthetic.Features.StandardsManagement.ViewModels
