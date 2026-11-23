@@ -7,10 +7,10 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using NUnit.Framework;
 using View = Autodesk.Revit.DB.View;
-using Synthetic.Modules.ShadowStudy.Adapters;
-using Synthetic.Modules.ShadowStudy.Models;
-using Synthetic.Modules.ShadowStudy.Services;
-using Synthetic.Modules.ShadowStudy.ViewModels;
+using Synthetic.Features.ShadowStudy.Adapters;
+using Synthetic.Features.ShadowStudy.Models;
+using Synthetic.Features.ShadowStudy.Services;
+using Synthetic.Features.ShadowStudy.ViewModels;
 using SyntheticTests.Helpers;
 
 namespace SyntheticTests.Modules.ShadowStudy
@@ -292,10 +292,10 @@ namespace SyntheticTests.Modules.ShadowStudy
                 string? sourcePrintSetId = null)
                 => _inner.SavePrintSet(printSetName, selectedShadowViewIds, saveAsNew, sourcePrintSetId);
 
-            public Synthetic.Modules.ShadowStudy.Settings.ShadowStudySettings LoadShadowStudySettings()
+            public Synthetic.Features.ShadowStudy.Settings.ShadowStudySettings LoadShadowStudySettings()
                 => _inner.LoadShadowStudySettings();
 
-            public void SaveShadowStudySettings(Synthetic.Modules.ShadowStudy.Settings.ShadowStudySettings settings)
+            public void SaveShadowStudySettings(Synthetic.Features.ShadowStudy.Settings.ShadowStudySettings settings)
                 => _inner.SaveShadowStudySettings(settings);
 
             public RawFrameExportResult ExportRawFrames(
