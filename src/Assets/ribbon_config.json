@@ -6,18 +6,18 @@
       "items": [
         {
           "type": "PushButton",
-          "name": "Synthetic.Modules.ViewManagement.Commands.ViewsAutoNumber",
+          "name": "Synthetic.Features.ViewManagement.Commands.ViewsAutoNumber",
           "text": " Autonumber\nViews ",
-          "class": "Synthetic.Modules.ViewManagement.Commands.ViewsAutoNumber",
+          "class": "Synthetic.Features.ViewManagement.Commands.ViewsAutoNumber",
           "tooltip": "Autonumber Views on the Active Sheet",
           "large_image": "autonumber_32.png",
           "image": "autonumber_16.png"
         },
         {
           "type": "PushButton",
-          "name": "Synthetic.Modules.AutoTagger.Commands.CmdBatchTag",
+          "name": "Synthetic.Features.AutoTagger.Commands.CmdBatchTag",
           "text": " AutoTag \nFamilies",
-          "class": "Synthetic.Modules.AutoTagger.Commands.CmdBatchTag",
+          "class": "Synthetic.Features.AutoTagger.Commands.CmdBatchTag",
           "tooltip": "Automatically tag all valid elements in the active view (or current selection) using your saved Universal Auto-Tagger templates.",
           "large_image": "autotag_32.png",
           "image": "autotag_16.png"
@@ -27,18 +27,18 @@
           "sub_items": [
             {
               "type": "PushButton",
-              "name": "Synthetic.Modules.AutoTagger.Commands.CmdManageTemplates",
+              "name": "Synthetic.Features.AutoTagger.Commands.CmdManageTemplates",
               "text": "Manage Templates",
-              "class": "Synthetic.Modules.AutoTagger.Commands.CmdManageTemplates",
+              "class": "Synthetic.Features.AutoTagger.Commands.CmdManageTemplates",
               "tooltip": "Open the Universal Auto-Tagger control panel to view, delete, import, or export tag templates.",
               "large_image": "autotag_32.png",
               "image": "autotag_16.png"
             },
             {
               "type": "PushButton",
-              "name": "Synthetic.Modules.ViewManagement.Commands.ViewAutoNumberConfig",
+              "name": "Synthetic.Features.ViewManagement.Commands.ViewAutoNumberConfig",
               "text": "Autonumber Config",
-              "class": "Synthetic.Modules.ViewManagement.Commands.ViewAutoNumberConfig",
+              "class": "Synthetic.Features.ViewManagement.Commands.ViewAutoNumberConfig",
               "tooltip": "Configure Autonumber View",
               "large_image": "autonumber_32.png",
               "image": "autonumber_16.png"
@@ -47,9 +47,9 @@
         },
         {
           "type": "PushButton",
-          "name": "Synthetic.Modules.DetailItemFactory.Commands.CmdDetailItemFactory",
+          "name": "Synthetic.Features.DetailItemFactory.Commands.CmdDetailItemFactory",
           "text": "Detail Item\nFactory",
-          "class": "Synthetic.Modules.DetailItemFactory.Commands.CmdDetailItemFactory",
+          "class": "Synthetic.Features.DetailItemFactory.Commands.CmdDetailItemFactory",
           "tooltip": "Batch process selected elements into 2D Detail Item families via DWG tracing.",
           "large_image": "convert_32.png",
           "image": "convert_16.png",
@@ -62,18 +62,18 @@
       "items": [
         {
           "type": "PushButton",
-          "name": "Synthetic.Modules.ViewManagement.Commands.ConvertDraftingToLegend",
+          "name": "Synthetic.Features.ViewManagement.Commands.ConvertDraftingToLegend",
           "text": " Drafting to\nLegend ",
-          "class": "Synthetic.Modules.ViewManagement.Commands.ConvertDraftingToLegend",
+          "class": "Synthetic.Features.ViewManagement.Commands.ConvertDraftingToLegend",
           "tooltip": "Converts Drafting Views to Legends",
           "large_image": "convert_32.png",
           "image": "convert_16.png"
         },
         {
           "type": "PushButton",
-          "name": "Synthetic.Modules.ViewManagement.Commands.ConvertLegendToDrafting",
+          "name": "Synthetic.Features.ViewManagement.Commands.ConvertLegendToDrafting",
           "text": " Legend to\nDrafting ",
-          "class": "Synthetic.Modules.ViewManagement.Commands.ConvertLegendToDrafting",
+          "class": "Synthetic.Features.ViewManagement.Commands.ConvertLegendToDrafting",
           "tooltip": "Converts Legends to Drafting Views",
           "large_image": "convert_32.png",
           "image": "convert_16.png"
@@ -106,27 +106,27 @@
           "sub_items": [
             {
               "type": "PushButton",
-              "name": "Synthetic.Modules.MaterialManagement.Commands.MaterialsRepathAll",
+              "name": "Synthetic.Features.MaterialManagement.Commands.MaterialsRepathAll",
               "text": "Material Repath",
-              "class": "Synthetic.Modules.MaterialManagement.Commands.MaterialsRepathAll",
+              "class": "Synthetic.Features.MaterialManagement.Commands.MaterialsRepathAll",
               "tooltip": "Command will replace the file paths for the selected materials based on a series of selected file paths to search.  The first instance of the file will be chosen based on the order of the paths.",
               "large_image": "material_32.png",
               "image": "material_16.png"
             },
             {
               "type": "PushButton",
-              "name": "Synthetic.Modules.MaterialManagement.Commands.MaterialImagesPackage",
+              "name": "Synthetic.Features.MaterialManagement.Commands.MaterialImagesPackage",
               "text": "Material Image Pkg",
-              "class": "Synthetic.Modules.MaterialManagement.Commands.MaterialImagesPackage",
+              "class": "Synthetic.Features.MaterialManagement.Commands.MaterialImagesPackage",
               "tooltip": "Copy all material bitmap images to a new folder location.",
               "large_image": "material_32.png",
               "image": "material_16.png"
             },
             {
               "type": "PushButton",
-              "name": "Synthetic.Modules.MaterialManagement.Commands.PaintElements",
+              "name": "Synthetic.Features.MaterialManagement.Commands.PaintElements",
               "text": " Paint\nElements ",
-              "class": "Synthetic.Modules.MaterialManagement.Commands.PaintElements",
+              "class": "Synthetic.Features.MaterialManagement.Commands.PaintElements",
               "tooltip": "Paints all faces of the selected elements with the chosen material.",
               "large_image": "paint_32.png",
               "image": "paint_16.png"
@@ -162,18 +162,18 @@
       "slideout_items": [
         {
           "type": "PushButton",
-          "name": "Synthetic.Modules.FamilyManagement.Commands.AuditPurgeAllFamilies",
+          "name": "Synthetic.Features.FamilyManagement.Commands.AuditPurgeAllFamilies",
           "text": "Audit & Purge Families",
-          "class": "Synthetic.Modules.FamilyManagement.Commands.AuditPurgeAllFamilies",
+          "class": "Synthetic.Features.FamilyManagement.Commands.AuditPurgeAllFamilies",
           "tooltip": "Command open each family in the project, checking it for warnings and errors as well as purging it and deleting all schema in memory.",
           "large_image": "family_32.png",
           "image": "family_16.png"
         },
         {
           "type": "PushButton",
-          "name": "Synthetic.Modules.FamilyManagement.Commands.FamiliesForceReinsert",
+          "name": "Synthetic.Features.FamilyManagement.Commands.FamiliesForceReinsert",
           "text": "Force Reinsert Families",
-          "class": "Synthetic.Modules.FamilyManagement.Commands.FamiliesForceReinsert",
+          "class": "Synthetic.Features.FamilyManagement.Commands.FamiliesForceReinsert",
           "tooltip": "Forces a reinsert and overwrite of all families.  This can fix some post upgrade issues such as when text in families revert back to default font style.",
           "large_image": "family_32.png",
           "image": "family_16.png"
@@ -185,18 +185,18 @@
       "items": [
         {
           "type": "PushButton",
-          "name": "Synthetic.Modules.Worksets.Commands.WorksetsImport",
+          "name": "Synthetic.Features.Worksets.Commands.WorksetsImport",
           "text": " Import\nWorksets ",
-          "class": "Synthetic.Modules.Worksets.Commands.WorksetsImport",
+          "class": "Synthetic.Features.Worksets.Commands.WorksetsImport",
           "tooltip": "Creates worksets from an Excel file",
           "large_image": "workset_32.png",
           "image": "workset_16.png"
         },
         {
           "type": "PushButton",
-          "name": "Synthetic.Modules.Worksets.Commands.ScopeBoxesMoveToWorkset",
+          "name": "Synthetic.Features.Worksets.Commands.ScopeBoxesMoveToWorkset",
           "text": " Move\nScope Boxes ",
-          "class": "Synthetic.Modules.Worksets.Commands.ScopeBoxesMoveToWorkset",
+          "class": "Synthetic.Features.Worksets.Commands.ScopeBoxesMoveToWorkset",
           "tooltip": "Moves all scope boxes in the project to a selected workset.",
           "large_image": "scopebox_32.png",
           "image": "scopebox_16.png"
@@ -206,27 +206,27 @@
           "sub_items": [
             {
               "type": "PushButton",
-              "name": "Synthetic.Modules.Worksets.Commands.WorksetSetFile",
+              "name": "Synthetic.Features.Worksets.Commands.WorksetSetFile",
               "text": "Set Workset File",
-              "class": "Synthetic.Modules.Worksets.Commands.WorksetSetFile",
+              "class": "Synthetic.Features.Worksets.Commands.WorksetSetFile",
               "tooltip": "Set the path and worksheet for importing Worksets",
               "large_image": "workset_32.png",
               "image": "workset_16.png"
             },
             {
               "type": "PushButton",
-              "name": "Synthetic.Modules.Worksets.Commands.WorksetSettingsShow",
+              "name": "Synthetic.Features.Worksets.Commands.WorksetSettingsShow",
               "text": "Display Settings",
-              "class": "Synthetic.Modules.Worksets.Commands.WorksetSettingsShow",
+              "class": "Synthetic.Features.Worksets.Commands.WorksetSettingsShow",
               "tooltip": "Display the project's Workset Settings",
               "large_image": "workset_32.png",
               "image": "workset_16.png"
             },
             {
               "type": "PushButton",
-              "name": "Synthetic.Modules.Worksets.Commands.WorksetStartView",
+              "name": "Synthetic.Features.Worksets.Commands.WorksetStartView",
               "text": "Workset Startview",
-              "class": "Synthetic.Modules.Worksets.Commands.WorksetStartView",
+              "class": "Synthetic.Features.Worksets.Commands.WorksetStartView",
               "tooltip": "Sets the project information (like start view) from the Excel file",
               "large_image": "workset_32.png",
               "image": "workset_16.png"
@@ -237,18 +237,18 @@
       "slideout_items": [
         {
           "type": "PushButton",
-          "name": "Synthetic.Modules.Worksets.Commands.ElementsOnWorksetRecord",
+          "name": "Synthetic.Features.Worksets.Commands.ElementsOnWorksetRecord",
           "text": "Record Elements",
-          "class": "Synthetic.Modules.Worksets.Commands.ElementsOnWorksetRecord",
+          "class": "Synthetic.Features.Worksets.Commands.ElementsOnWorksetRecord",
           "tooltip": "Records the elements on a workset in a text file to be recalled later.",
           "large_image": "workset_32.png",
           "image": "workset_16.png"
         },
         {
           "type": "PushButton",
-          "name": "Synthetic.Modules.Worksets.Commands.ElementsOnWorksetReload",
+          "name": "Synthetic.Features.Worksets.Commands.ElementsOnWorksetReload",
           "text": "Reload Elements",
-          "class": "Synthetic.Modules.Worksets.Commands.ElementsOnWorksetReload",
+          "class": "Synthetic.Features.Worksets.Commands.ElementsOnWorksetReload",
           "tooltip": "Reloads a list of elements from a file and moves them to the workset listed.  Command will create the workset if it doesn't already exist.",
           "large_image": "workset_32.png",
           "image": "workset_16.png"
@@ -260,9 +260,9 @@
       "items": [
         {
           "type": "PushButton",
-          "name": "Synthetic.Modules.BatchPrint.Commands.PrintBatchMultiDoc",
+          "name": "Synthetic.Features.BatchPrint.Commands.PrintBatchMultiDoc",
           "text": " Batch Print\nMulti Doc ",
-          "class": "Synthetic.Modules.BatchPrint.Commands.PrintBatchMultiDoc",
+          "class": "Synthetic.Features.BatchPrint.Commands.PrintBatchMultiDoc",
           "tooltip": "Prints a view set in multiple documents",
           "large_image": "print_32.png",
           "image": "print_16.png"
@@ -306,18 +306,18 @@
           "sub_items": [
             {
               "type": "PushButton",
-              "name": "Synthetic.Infrastructure.Diagnostics.StorageQuery",
+              "name": "Synthetic.Features.Diagnostics.Commands.StorageQuery",
               "text": "Display Ext Storage",
-              "class": "Synthetic.Infrastructure.Diagnostics.StorageQuery",
+              "class": "Synthetic.Features.Diagnostics.Commands.StorageQuery",
               "tooltip": "List all Schemas and entities",
               "large_image": "schema_32.png",
               "image": "schema_16.png"
             },
             {
               "type": "PushButton",
-              "name": "Synthetic.Infrastructure.Diagnostics.StorageDelete",
+              "name": "Synthetic.Features.Diagnostics.Commands.StorageDelete",
               "text": "Delete Ext Storage",
-              "class": "Synthetic.Infrastructure.Diagnostics.StorageDelete",
+              "class": "Synthetic.Features.Diagnostics.Commands.StorageDelete",
               "tooltip": "Delete All Schema and entities from current model.  Will throw errors if links are opened.",
               "large_image": "schema_32.png",
               "image": "schema_16.png"

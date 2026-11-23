@@ -1,0 +1,58 @@
+#region Namespaces
+using Autodesk.Revit.ApplicationServices;
+using Autodesk.Revit.Attributes;
+using Autodesk.Revit.DB;
+using Autodesk.Revit.UI;
+using Synthetic.Features.FamilyManagement.Commands;
+
+using System;
+using System.IO;
+using System.Collections.Generic;
+using System.Windows;
+using Synthetic.Platform.IO;
+using Synthetic.Platform.Settings;
+using Application = Autodesk.Revit.ApplicationServices.Application;
+using View = Autodesk.Revit.DB.View;
+using System.Linq;
+using System.Runtime;
+using Autodesk.Revit.DB.Events;
+
+using Synthetic.Features.FamilyManagement.Utilities;
+using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
+using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM;
+
+#endregion
+
+namespace Synthetic.Features.FamilyManagement.Commands
+{
+    /// <summary>
+    /// Sets the path and sheet to an Excel file with Worksets.  Stores the setting in an Extensible Storage.
+    /// </summary>
+    [Transaction(TransactionMode.Manual)]
+    public class FamiliesForceReinsert : IExternalCommand
+    {
+        /// <summary>
+        /// Execute a Revit Command
+        /// </summary>
+        /// <param name="commandData">commandData</param>
+        /// <param name="message">message</param>
+        /// <param name="elements">Currently selected elements</param>
+        /// <returns>A Autodesk.Revit.UI.Result</returns>
+        public Result Execute(
+          ExternalCommandData commandData,
+          ref string message,
+          ElementSet elements)
+        {
+            UIApplication uiapp = commandData.Application;
+            UIDocument uidoc = uiapp.ActiveUIDocument;
+            Application app = uiapp.Application;
+            Document doc = uidoc.Document;
+
+            AnnotationFamilyReinserter.ForceReinsertAnnotation(doc);
+            
+            return Result.Succeeded;
+        }
+    }
+}

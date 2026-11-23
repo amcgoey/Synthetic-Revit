@@ -9,7 +9,7 @@ using Synthetic.Features.MaterialManagement.Settings;
 using Synthetic.Features.StandardsManagement.Settings;
 using Synthetic.Features.ViewManagement.Settings;
 using Synthetic.Features.Worksets.Settings;
-using Synthetic.Modules.DetailItemFactory.Settings;
+using Synthetic.Features.DetailItemFactory.Settings;
 using Synthetic.Features.ShadowStudy.Models;
 using Synthetic.Features.ShadowStudy.Settings;
 using Synthetic.Platform.Host;
