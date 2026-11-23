@@ -8,7 +8,7 @@ using Synthetic.Modules.ShadowStudy.Models;
 using Synthetic.Modules.ShadowStudy.Services;
 using Synthetic.Modules.ShadowStudy.ViewModels;
 using Synthetic.Modules.ShadowStudy.Views;
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 
 namespace Synthetic.Modules.ShadowStudy.Commands
 {

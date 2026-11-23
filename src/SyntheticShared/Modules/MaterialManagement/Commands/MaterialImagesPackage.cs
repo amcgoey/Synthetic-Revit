@@ -6,7 +6,7 @@ using Synthetic.Shared.RevitAPI;
 using Synthetic.Platform.IO;
 using SFileUtil = Synthetic.Platform.IO.FileUtil;
 
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 using Synthetic.Modules.MaterialManagement.Commands;
 using Synthetic.Modules.MaterialManagement.Utilities;
 

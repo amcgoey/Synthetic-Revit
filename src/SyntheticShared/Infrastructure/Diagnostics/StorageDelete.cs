@@ -7,7 +7,7 @@ using Autodesk.Revit.UI;
 using TaskDialog = Autodesk.Revit.UI.TaskDialog;
 using Autodesk.Revit.DB.ExtensibleStorage;
 
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 
 using Synthetic.Shared.RevitAPI;
 using Synthetic.Platform.IO;

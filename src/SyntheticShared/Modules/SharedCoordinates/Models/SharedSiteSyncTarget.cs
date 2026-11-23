@@ -1,4 +1,4 @@
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 
 namespace Synthetic.Modules.SharedCoordinates.Models
 {

@@ -49,7 +49,7 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
         /// <summary>
         /// Shows the consolidation merge dialog callback.
         /// </summary>
-        Func<Synthetic.Shared.UI.SingleItemSelectionViewModel<QueueItemModel>, bool?>? ShowMergeDialog { get; set; }
+        Func<Synthetic.Platform.UI.SingleItemSelectionViewModel<QueueItemModel>, bool?>? ShowMergeDialog { get; set; }
 
         /// <summary>
         /// Traverses a source tree node hierarchy recursively and populates a flat list of ElementModels.

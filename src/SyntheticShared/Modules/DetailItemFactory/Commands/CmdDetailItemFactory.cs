@@ -13,7 +13,7 @@ using System.IO;
 using View = Autodesk.Revit.DB.View;
 using TaskDialog = Autodesk.Revit.UI.TaskDialog;
 
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.RevitDOM.Models;
@@ -75,7 +75,7 @@ namespace Synthetic.Modules.DetailItemFactory.Commands
             }
 
             // Setup asynchronous modeless progress dialog and event handler
-            Synthetic.Shared.UI.ProgressCoordinator.Initialize("Detail Item Factory Progress", "Starting batch processing...", vm.Elements.Count);
+            Synthetic.Platform.UI.ProgressCoordinator.Initialize("Detail Item Factory Progress", "Starting batch processing...", vm.Elements.Count);
 
             _eventHandler = new DetailItemFactoryEventHandler
             {
@@ -89,7 +89,7 @@ namespace Synthetic.Modules.DetailItemFactory.Commands
             _externalEvent = ExternalEvent.Create(_eventHandler);
             if (_externalEvent == null)
             {
-                Synthetic.Shared.UI.ProgressCoordinator.Close();
+                Synthetic.Platform.UI.ProgressCoordinator.Close();
                 TaskDialog.Show("Detail Item Factory", "Failed to create the external event handler.");
                 return Result.Failed;
             }

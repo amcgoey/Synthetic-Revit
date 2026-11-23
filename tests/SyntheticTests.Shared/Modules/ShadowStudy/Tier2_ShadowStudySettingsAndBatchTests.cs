@@ -16,7 +16,7 @@ using Synthetic.Modules.ShadowStudy.Models;
 using Synthetic.Modules.ShadowStudy.Services;
 using Synthetic.Modules.ShadowStudy.Settings;
 using Synthetic.Modules.ShadowStudy.ViewModels;
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 using SyntheticTests.Helpers;
 
 namespace SyntheticTests.Modules.ShadowStudy

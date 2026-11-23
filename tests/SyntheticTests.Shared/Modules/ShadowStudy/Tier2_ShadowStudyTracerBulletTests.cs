@@ -13,7 +13,7 @@ using View = Autodesk.Revit.DB.View;
 using Synthetic.Modules.ShadowStudy.Adapters;
 using Synthetic.Modules.ShadowStudy.Models;
 using Synthetic.Modules.ShadowStudy.Services;
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 using SyntheticTests.Helpers;
 
 namespace SyntheticTests.Modules.ShadowStudy

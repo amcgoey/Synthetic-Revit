@@ -10,7 +10,7 @@ using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.RevitDOM.Operations.Standards;
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 using Synthetic.RevitDOM.Operations.Diffing;
 using SyntheticTests.Modules.RevitDOM;
 

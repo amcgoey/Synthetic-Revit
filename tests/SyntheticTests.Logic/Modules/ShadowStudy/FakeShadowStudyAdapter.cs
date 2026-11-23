@@ -7,7 +7,7 @@ using System.Windows.Media.Imaging;
 using Synthetic.Modules.ShadowStudy.Adapters;
 using Synthetic.Modules.ShadowStudy.Models;
 using Synthetic.Modules.ShadowStudy.Settings;
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 
 namespace SyntheticTests.Modules.ShadowStudy
 {

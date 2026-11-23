@@ -1,6 +1,6 @@
 using System;
 using System.Collections.ObjectModel;
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 
 namespace Synthetic.Modules.StandardsManagement.ViewModels
 {

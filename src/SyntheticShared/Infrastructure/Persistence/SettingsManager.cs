@@ -111,7 +111,7 @@ namespace Synthetic.Infrastructure.Persistence{
             // 2. Deserialize the firmwide default from SyntheticSettings.json on local disk
             if (settings == null)
             {
-                if (Synthetic.Shared.UI.ProgressCoordinator.SuppressUI)
+                if (Synthetic.Platform.UI.ProgressCoordinator.SuppressUI)
                 {
                     settings = new T();
                 }

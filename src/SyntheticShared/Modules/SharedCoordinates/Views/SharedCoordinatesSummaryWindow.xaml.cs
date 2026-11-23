@@ -2,7 +2,7 @@ using System;
 using System.Text;
 using System.Windows;
 using Synthetic.Modules.SharedCoordinates.Models;
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 
 namespace Synthetic.Modules.SharedCoordinates.Views
 {

@@ -9,7 +9,7 @@ using System.Windows.Input;
 
 using Synthetic.Modules.SheetIndex.Models;
 using Synthetic.Modules.SheetIndex.Services;
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 
 namespace Synthetic.Modules.SheetIndex.ViewModels
 {

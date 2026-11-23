@@ -13,7 +13,7 @@ using Synthetic.Modules.SettingsDashboard.Handlers;
 using Synthetic.Modules.ShadowStudy.Models;
 using Synthetic.Modules.ShadowStudy.Settings;
 using Synthetic.Settings;
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 using SyntheticTests.Helpers;
 
 namespace SyntheticTests.Infrastructure.Persistence

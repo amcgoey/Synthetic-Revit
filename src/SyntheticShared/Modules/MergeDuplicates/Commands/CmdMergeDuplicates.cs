@@ -11,7 +11,7 @@ using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
 using Synthetic.Platform.IO;
 
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 
 using Synthetic.Shared.RevitAPI;
 using Synthetic.RevitDOM.Operations.Merge;
