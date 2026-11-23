@@ -1,0 +1,347 @@
+<UserControl x:Class="Synthetic.Features.ShadowStudy.Views.ShadowStudySettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:theme="clr-namespace:Synthetic.Platform.UI"
+             Background="Transparent" Foreground="{DynamicResource Synthetic.Brushes.TextPrimary}">
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <theme:SyntheticThemeDictionary />
+            </ResourceDictionary.MergedDictionaries>
+            <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/> <!-- Title -->
+            <RowDefinition Height="Auto"/> <!-- Override Checkbox & Reset -->
+            <RowDefinition Height="Auto"/> <!-- Validation Banner -->
+            <RowDefinition Height="*"/>    <!-- Scrollable Configuration -->
+        </Grid.RowDefinitions>
+
+        <!-- Title -->
+        <TextBlock Grid.Row="0"
+                   Text="Shadow Study Settings"
+                   FontSize="18" FontWeight="Bold"
+                   Foreground="{DynamicResource Synthetic.Brushes.TextPrimary}"
+                   Margin="0,0,0,12"/>
+
+        <!-- Override Checkbox & Reset Action -->
+        <Grid Grid.Row="1" Margin="0,0,0,12">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <CheckBox Grid.Column="0"
+                      Content="Override Firm Settings for this Project"
+                      IsChecked="{Binding IsOverridden, Mode=TwoWay}"
+                      FontSize="13"
+                      VerticalAlignment="Center"/>
+
+            <Button Grid.Column="1"
+                    Content="Reset to Defaults"
+                    Command="{Binding ResetToDefaultsCommand}"
+                    Style="{DynamicResource Synthetic.Styles.NeutralButton}"
+                    Padding="10,4"/>
+        </Grid>
+
+        <!-- Inline Validation Banner -->
+        <Border Grid.Row="2"
+                Visibility="{Binding HasValidationErrors, Converter={StaticResource BooleanToVisibilityConverter}}"
+                Background="#1AD37B75"
+                BorderBrush="{DynamicResource Synthetic.Brushes.Error}"
+                BorderThickness="1"
+                CornerRadius="3"
+                Padding="8,6"
+                Margin="0,0,0,10">
+            <TextBlock Text="{Binding ValidationErrorMessage}"
+                       Foreground="{DynamicResource Synthetic.Brushes.Error}"
+                       FontSize="11.5"
+                       TextWrapping="Wrap"/>
+        </Border>
+
+        <!-- Scrollable Settings Content -->
+        <ScrollViewer Grid.Row="3"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="0,0,4,0">
+                <!-- Studio Defaults -->
+                <GroupBox Header="Studio Defaults (Inherited by Built-In Presets &amp; New Dialog Opens)"
+                          BorderBrush="{DynamicResource Synthetic.Brushes.BorderNormal}"
+                          BorderThickness="1"
+                          Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
+                          Padding="12"
+                          Margin="0,0,0,14">
+                    <Grid IsEnabled="{Binding IsOverridden}">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="175"/>
+                            <ColumnDefinition Width="130"/>
+                            <ColumnDefinition Width="16"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="8"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="8"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="10"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0"
+                                   Text="Default Time Increment:"
+                                   Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
+                                   FontSize="12" VerticalAlignment="Center"/>
+                        <ComboBox Grid.Row="0" Grid.Column="1"
+                                  ItemsSource="{Binding TimeIncrementOptions}"
+                                  SelectedValuePath="Minutes"
+                                  SelectedValue="{Binding DefaultTimeIncrementMinutes, Mode=TwoWay}"
+                                  DisplayMemberPath="Label"/>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0"
+                                   Text="Default Min Sun Altitude:"
+                                   Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
+                                   FontSize="12" VerticalAlignment="Center"/>
+                        <TextBox Grid.Row="2" Grid.Column="1"
+                                 Text="{Binding DefaultMinSunAltitudeText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                        <TextBlock Grid.Row="2" Grid.Column="3"
+                                   Text="degrees (0 - 90)"
+                                   Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
+                                   FontSize="11" VerticalAlignment="Center"/>
+
+                        <TextBlock Grid.Row="4" Grid.Column="0"
+                                   Text="Default Max Darkness:"
+                                   Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
+                                   FontSize="12" VerticalAlignment="Center"/>
+                        <TextBox Grid.Row="4" Grid.Column="1"
+                                 Text="{Binding DefaultMaxCompositeDarknessText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                        <TextBlock Grid.Row="4" Grid.Column="3"
+                                   Text="% (1 - 95)"
+                                   Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
+                                   FontSize="11" VerticalAlignment="Center"/>
+
+                        <CheckBox Grid.Row="6" Grid.Column="0" Grid.ColumnSpan="4"
+                                  Content="Preserve each view's Visual Style and background by default"
+                                  IsChecked="{Binding DefaultPreserveVisualStyle, Mode=TwoWay}"
+                                  FontSize="12"/>
+                    </Grid>
+                </GroupBox>
+
+                <!-- Shared User-Defined Shadow Study Presets -->
+                <GroupBox Header="Shared Shadow Study Presets"
+                          BorderBrush="{DynamicResource Synthetic.Brushes.BorderNormal}"
+                          BorderThickness="1"
+                          Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
+                          Padding="12">
+                    <StackPanel>
+                        <!-- Preset Toolbar -->
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                            <Button Content="Add Preset..."
+                                    Command="{Binding AddPresetCommand}"
+                                    MinWidth="88" Padding="10,4" Margin="0,0,6,0"/>
+                            <Button Content="Rename..."
+                                    Command="{Binding RenamePresetCommand}"
+                                    MinWidth="74" Padding="10,4" Margin="0,0,6,0"/>
+                            <Button Content="Delete"
+                                    Command="{Binding DeletePresetCommand}"
+                                    Style="{DynamicResource Synthetic.Styles.NeutralButton}"
+                                    MinWidth="66" Padding="10,4"/>
+                        </StackPanel>
+
+                        <TextBlock Text="{Binding PresetStatusMessage}"
+                                   Visibility="{Binding HasPresetStatus, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                   Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
+                                   FontSize="11" TextWrapping="Wrap" Margin="0,0,0,6"/>
+
+                        <TextBlock Text="{Binding PresetErrorMessage}"
+                                   Visibility="{Binding HasPresetError, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                   Foreground="{DynamicResource Synthetic.Brushes.Error}"
+                                   FontSize="11" TextWrapping="Wrap" Margin="0,0,0,6"/>
+
+                        <!-- Preset Selector List -->
+                        <ListBox ItemsSource="{Binding UserPresets}"
+                                 SelectedItem="{Binding SelectedPreset, Mode=TwoWay}"
+                                 DisplayMemberPath="Name"
+                                 MinHeight="72" MaxHeight="120"
+                                 Background="{DynamicResource Synthetic.Brushes.BackgroundBase}"
+                                 BorderBrush="{DynamicResource Synthetic.Brushes.BorderNormal}"
+                                 BorderThickness="1"
+                                 Margin="0,0,0,10">
+                            <ListBox.Resources>
+                                <SolidColorBrush x:Key="{x:Static SystemColors.HighlightBrushKey}" Color="#2E2D2C"/>
+                                <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightBrushKey}" Color="#252423"/>
+                                <SolidColorBrush x:Key="{x:Static SystemColors.HighlightTextBrushKey}" Color="#F1F1F1"/>
+                                <SolidColorBrush x:Key="{x:Static SystemColors.InactiveSelectionHighlightTextBrushKey}" Color="#F1F1F1"/>
+                            </ListBox.Resources>
+                        </ListBox>
+
+                        <!-- Selected Preset Editor -->
+                        <StackPanel Visibility="{Binding HasSelectedPreset, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <TextBlock Text="{Binding SelectedPresetName, StringFormat='Editing Preset: {0}'}"
+                                       FontSize="12.5" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource Synthetic.Brushes.TextPrimary}"
+                                       Margin="0,0,0,8"/>
+
+                            <Grid Margin="0,0,0,10" IsEnabled="{Binding IsOverridden}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="175"/>
+                                    <ColumnDefinition Width="130"/>
+                                    <ColumnDefinition Width="16"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="8"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="8"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="10"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <TextBlock Grid.Row="0" Grid.Column="0"
+                                           Text="Preset Time Increment:"
+                                           Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
+                                           FontSize="12" VerticalAlignment="Center"/>
+                                <ComboBox Grid.Row="0" Grid.Column="1"
+                                          ItemsSource="{Binding TimeIncrementOptions}"
+                                          SelectedValuePath="Minutes"
+                                          SelectedValue="{Binding SelectedPresetTimeIncrementMinutes, Mode=TwoWay}"
+                                          DisplayMemberPath="Label"/>
+
+                                <TextBlock Grid.Row="2" Grid.Column="0"
+                                           Text="Preset Min Sun Altitude:"
+                                           Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
+                                           FontSize="12" VerticalAlignment="Center"/>
+                                <TextBox Grid.Row="2" Grid.Column="1"
+                                         Text="{Binding SelectedPresetMinSunAltitudeText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                <TextBlock Grid.Row="2" Grid.Column="3"
+                                           Text="degrees (0 - 90)"
+                                           Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
+                                           FontSize="11" VerticalAlignment="Center"/>
+
+                                <TextBlock Grid.Row="4" Grid.Column="0"
+                                           Text="Preset Max Darkness:"
+                                           Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
+                                           FontSize="12" VerticalAlignment="Center"/>
+                                <TextBox Grid.Row="4" Grid.Column="1"
+                                         Text="{Binding SelectedPresetMaxCompositeDarknessText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                <TextBlock Grid.Row="4" Grid.Column="3"
+                                           Text="% (1 - 95)"
+                                           Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
+                                           FontSize="11" VerticalAlignment="Center"/>
+
+                                <CheckBox Grid.Row="6" Grid.Column="0" Grid.ColumnSpan="4"
+                                          Content="Preserve each view's Visual Style and background for this preset"
+                                          IsChecked="{Binding SelectedPresetPreserveVisualStyle, Mode=TwoWay}"
+                                          FontSize="12"/>
+                            </Grid>
+
+                            <!-- Add Astronomical Event -->
+                            <Grid Margin="0,0,0,6" IsEnabled="{Binding IsOverridden}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="130"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="8"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+
+                                <TextBlock Grid.Column="0"
+                                           Text="Astronomical Event:"
+                                           Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
+                                           FontSize="12" VerticalAlignment="Center"/>
+                                <ComboBox Grid.Column="1"
+                                          ItemsSource="{Binding AstronomicalEventOptions}"
+                                          SelectedValuePath="Kind"
+                                          SelectedValue="{Binding SelectedAstronomicalEventToAdd, Mode=TwoWay}"
+                                          DisplayMemberPath="Label"/>
+                                <Button Grid.Column="3"
+                                        Content="Add Event"
+                                        Command="{Binding AddAstronomicalDateCommand}"
+                                        MinWidth="84" Padding="8,4"/>
+                            </Grid>
+
+                            <!-- Add Custom Calendar Date -->
+                            <Grid Margin="0,0,0,8" IsEnabled="{Binding IsOverridden}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="130"/>
+                                    <ColumnDefinition Width="145"/>
+                                    <ColumnDefinition Width="8"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <TextBlock Grid.Column="0"
+                                           Text="Custom Date:"
+                                           Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
+                                           FontSize="12" VerticalAlignment="Center"/>
+                                <DatePicker Grid.Column="1"
+                                            SelectedDate="{Binding CustomDateToAdd, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                                <Button Grid.Column="3"
+                                        Content="Add Date"
+                                        Command="{Binding AddCustomDateCommand}"
+                                        MinWidth="84" Padding="8,4"/>
+                            </Grid>
+
+                            <!-- Preset Dates List -->
+                            <Border Background="{DynamicResource Synthetic.Brushes.BackgroundBase}"
+                                    BorderBrush="{DynamicResource Synthetic.Brushes.BorderNormal}"
+                                    BorderThickness="1"
+                                    CornerRadius="3"
+                                    Padding="6">
+                                <StackPanel>
+                                    <TextBlock Text="No dates configured yet. Add an astronomical event or custom date above."
+                                               Visibility="{Binding HasNoSelectedPresetDates, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                               Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
+                                               FontSize="11.5" Margin="4"/>
+                                    <ItemsControl ItemsSource="{Binding SelectedPresetDates}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border Background="{DynamicResource Synthetic.Brushes.ControlSurfaceLighter}"
+                                                        BorderBrush="{DynamicResource Synthetic.Brushes.BorderNormal}"
+                                                        BorderThickness="1"
+                                                        CornerRadius="3"
+                                                        Padding="8,4"
+                                                        Margin="0,2">
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="8"/>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                            <ColumnDefinition Width="8"/>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                        </Grid.ColumnDefinitions>
+
+                                                        <TextBlock Grid.Column="0"
+                                                                   Text="{Binding DisplayLabel}"
+                                                                   Foreground="{DynamicResource Synthetic.Brushes.TextPrimary}"
+                                                                   FontSize="12"
+                                                                   VerticalAlignment="Center"/>
+                                                        <TextBlock Grid.Column="2"
+                                                                   Text="{Binding KindLabel}"
+                                                                   Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
+                                                                   FontSize="11"
+                                                                   VerticalAlignment="Center"/>
+                                                        <Button Grid.Column="4"
+                                                                Content="Remove"
+                                                                Command="{Binding RemoveCommand}"
+                                                                IsEnabled="{Binding DataContext.IsOverridden, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                                Style="{DynamicResource Synthetic.Styles.NeutralButton}"
+                                                                MinWidth="56" MinHeight="22" Padding="6,2"/>
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </StackPanel>
+                </GroupBox>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

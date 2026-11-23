@@ -28,6 +28,8 @@
     <Compile Include="..\SyntheticTests.Shared\Modules\StandardsManagement\FakeFileDialogService.cs" Link="Modules\StandardsManagement\FakeFileDialogService.cs" />
     <Compile Include="..\SyntheticTests.Shared\Modules\StandardsManagement\FakeGuardrailPromptService.cs" Link="Modules\StandardsManagement\FakeGuardrailPromptService.cs" />
     <Compile Include="..\SyntheticTests.Shared\Modules\StandardsManagement\FakeUserPromptService.cs" Link="Modules\StandardsManagement\FakeUserPromptService.cs" />
+    <Compile Include="..\Fixtures\Shared\FakeFolderDialogService.cs" Link="Fixtures\FakeFolderDialogService.cs" />
+    <Compile Include="..\Fixtures\Shared\FakeShadowStudyAdapter.cs" Link="Fixtures\FakeShadowStudyAdapter.cs" />
     <Compile Include="..\Fixtures\Shared\TestPathHelper.cs" Link="Fixtures\TestPathHelper.cs" />
     <Compile Include="..\Fixtures\Shared\TypedCategoryAttributes.cs" Link="Fixtures\TypedCategoryAttributes.cs" />
     <Compile Include="..\SyntheticTests.Shared\Modules\FailureProcessing\DocumentTransactionExtensionsTests.cs" Link="Modules\FailureProcessing\DocumentTransactionExtensionsTests.cs" />

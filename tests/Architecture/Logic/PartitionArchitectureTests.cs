@@ -536,6 +536,9 @@ namespace SyntheticTests.Architecture
 
             Assert.IsTrue(Directory.Exists(Path.Combine(featuresRoot, "SheetIndex", "Core")), "Expected src/Features/SheetIndex/Core partition root.");
             Assert.IsTrue(Directory.Exists(Path.Combine(featuresRoot, "SharedCoordinates", "Core")), "Expected src/Features/SharedCoordinates/Core partition root.");
+            Assert.IsTrue(Directory.Exists(Path.Combine(featuresRoot, "ShadowStudy", "Core")), "Expected src/Features/ShadowStudy/Core partition root.");
+            Assert.IsTrue(Directory.Exists(Path.Combine(featuresRoot, "ShadowStudy", "Addin")), "Expected src/Features/ShadowStudy/Addin partition root.");
+            Assert.IsTrue(Directory.Exists(Path.Combine(projectRoot, "tests", "Features", "ShadowStudy", "Logic")), "Expected tests/Features/ShadowStudy/Logic partition root.");
             Assert.IsTrue(Directory.Exists(Path.Combine(featuresRoot, "MergeDuplicates", "Core")), "Expected src/Features/MergeDuplicates/Core partition root.");
             Assert.IsTrue(Directory.Exists(Path.Combine(featuresRoot, "StandardsManagement", "Core")), "Expected src/Features/StandardsManagement/Core partition root.");
             Assert.IsFalse(Directory.Exists(Path.Combine(srcRoot, "SyntheticShared", "Modules", "MergeDuplicates")), "Legacy src/SyntheticShared/Modules/MergeDuplicates must be removed.");
@@ -555,6 +558,16 @@ namespace SyntheticTests.Architecture
                 {
                     string rel = GetRelativeNormalizedPath(projectRoot, file);
                     string text = File.ReadAllText(file);
+
+                    if (Regex.IsMatch(text, @"\bAutodesk\.Revit\b"))
+                    {
+                        violations.Add($"{rel} imports Autodesk.Revit inside Core/.");
+                    }
+
+                    if (Regex.IsMatch(text, @"\bProgressCoordinator\b"))
+                    {
+                        violations.Add($"{rel} references ProgressCoordinator inside Core/.");
+                    }
 
                     if (Regex.IsMatch(text, @"\bSynthetic\.Modules\b"))
                     {

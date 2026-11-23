@@ -1,5 +1,9 @@
 <Project>
   <ItemGroup Condition="'$(IsRevitTestProject)' == 'true'">
+    <Compile Include="$(MSBuildThisFileDirectory)Fixtures\Shared\FakeFolderDialogService.cs"
+             Link="Fixtures\FakeFolderDialogService.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Fixtures\Shared\FakeShadowStudyAdapter.cs"
+             Link="Fixtures\FakeShadowStudyAdapter.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Fixtures\Shared\FakeSharedCoordinatesAdapter.cs"
              Link="Fixtures\FakeSharedCoordinatesAdapter.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Fixtures\Shared\TestPathHelper.cs"

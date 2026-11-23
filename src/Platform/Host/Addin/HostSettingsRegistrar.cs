@@ -7,10 +7,10 @@ using Synthetic.Features.Worksets.Settings;
 using Synthetic.Modules.DetailItemFactory.Settings;
 using Synthetic.Modules.DetailItemFactory.ViewModels;
 using Synthetic.Modules.DetailItemFactory.Views;
-using Synthetic.Modules.ShadowStudy.Adapters;
-using Synthetic.Modules.ShadowStudy.Settings;
-using Synthetic.Modules.ShadowStudy.ViewModels;
-using Synthetic.Modules.ShadowStudy.Views;
+using Synthetic.Features.ShadowStudy.Adapters;
+using Synthetic.Features.ShadowStudy.Settings;
+using Synthetic.Features.ShadowStudy.ViewModels;
+using Synthetic.Features.ShadowStudy.Views;
 using Synthetic.Platform.Settings;
 using Synthetic.Platform.UI;
 
