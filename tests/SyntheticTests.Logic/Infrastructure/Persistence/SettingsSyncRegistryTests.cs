@@ -5,11 +5,15 @@ using System.Linq;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
-using Synthetic.Infrastructure.Persistence;
+using Synthetic.Features.MaterialManagement.Settings;
+using Synthetic.Features.StandardsManagement.Settings;
+using Synthetic.Features.ViewManagement.Settings;
+using Synthetic.Features.Worksets.Settings;
 using Synthetic.Modules.DetailItemFactory.Settings;
 using Synthetic.Modules.ShadowStudy.Models;
 using Synthetic.Modules.ShadowStudy.Settings;
-using Synthetic.Settings;
+using Synthetic.Platform.Host;
+using Synthetic.Platform.Settings;
 using SyntheticTests.Helpers;
 
 namespace SyntheticTests.Infrastructure.Persistence
@@ -17,6 +21,12 @@ namespace SyntheticTests.Infrastructure.Persistence
     [TestFixture]
     public class SettingsSyncRegistryTests
     {
+        [OneTimeSetUp]
+        public void OneTimeSetUp()
+        {
+            HostSettingsRegistrar.EnsureRegistered();
+        }
+
         private static readonly string[] ExpectedSyncedModuleKeys = new[]
         {
             WorksetSettings.Name,
@@ -32,13 +42,22 @@ namespace SyntheticTests.Infrastructure.Persistence
         private static string FindTemplateJsonPath()
         {
             string projectRoot = TestPathHelper.GetProjectRoot();
-            string candidate = Path.Combine(projectRoot, "src", "SyntheticShared", "SyntheticSettings.template.json");
+            string candidate = Path.Combine(
+                projectRoot,
+                "src",
+                "Platform",
+                "Settings",
+                "Addin",
+                "Defaults",
+                "SyntheticSettings.template.json");
             if (File.Exists(candidate))
             {
                 return candidate;
             }
 
-            throw new FileNotFoundException("Could not locate src/SyntheticShared/SyntheticSettings.template.json.", candidate);
+            throw new FileNotFoundException(
+                "Could not locate src/Platform/Settings/Addin/Defaults/SyntheticSettings.template.json.",
+                candidate);
         }
 
         private static Dictionary<string, object> CreateDefaultDocumentSettings()
@@ -84,21 +103,31 @@ namespace SyntheticTests.Infrastructure.Persistence
         [Test]
         public void AssemblyReflection_AllConcreteSettingModules_AreRegisteredInSyncedModulesConfigAndTemplate()
         {
+            HostSettingsRegistrar.EnsureRegistered();
             var settingModuleInterface = typeof(ISettingModule);
-            System.Reflection.Assembly assembly = typeof(Synthetic.Platform.Host.App).Assembly;
-            Type?[] rawTypes;
-            try
+            var assemblies = new[]
             {
-                rawTypes = assembly.GetTypes();
-            }
-            catch (System.Reflection.ReflectionTypeLoadException ex)
+                typeof(ISettingModule).Assembly,
+                typeof(App).Assembly
+            }.Distinct();
+
+            var rawTypes = new List<Type?>();
+            foreach (System.Reflection.Assembly assembly in assemblies)
             {
-                rawTypes = ex.Types;
+                try
+                {
+                    rawTypes.AddRange(assembly.GetTypes());
+                }
+                catch (System.Reflection.ReflectionTypeLoadException ex)
+                {
+                    rawTypes.AddRange(ex.Types);
+                }
             }
 
             List<Type> concreteSettingTypes = rawTypes
                 .Where(t => t != null && !t.IsAbstract && !t.IsInterface && settingModuleInterface.IsAssignableFrom(t))
                 .Cast<Type>()
+                .Distinct()
                 .Where(t => t != typeof(SyncSettings))
                 .ToList();
 

@@ -1,8 +1,8 @@
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
-using Synthetic.Settings;
-using Synthetic.Infrastructure.Persistence;
+using Synthetic.Platform.Settings;
+using Synthetic.Features.ViewManagement.Settings;
 
 using Synthetic.Platform.UI;
 
@@ -48,18 +48,7 @@ namespace Synthetic.Modules.ViewManagement.Commands
             Autodesk.Revit.ApplicationServices.Application app = uiapp.Application;
             Document doc = uidoc.Document;
 
-            Config? config = null;
-            if (App.Configurations.ContainsProjectConfig(doc))
-            {
-                config = App.Configurations.GetProjectConfig(doc);
-            }
-            else
-            {
-                config = new Config();
-                App.Configurations.AddProjectConfig(doc, config);
-            }
-
-            ViewAutoNumSettings settings = new ViewAutoNumSettings();
+            ViewAutoNumSettings settings = SettingsManager.Get<ViewAutoNumSettings>(doc) ?? new ViewAutoNumSettings();
 
             List<string> itemList = new List<string>();
             Dictionary<string, FamilySymbol> choices = new Dictionary<string, FamilySymbol>();
@@ -117,7 +106,7 @@ namespace Synthetic.Modules.ViewManagement.Commands
                                 settings.ViewAutoNumXGridName = viewAutoNumXGridName;
                                 settings.ViewAutoNumYGridName = viewAutoNumYGridName;
 
-                                config?.SetSettings(ViewAutoNumSettings.Name, settings);
+                                SettingsManager.Save(doc, settings);
                             }
                         }
                     }

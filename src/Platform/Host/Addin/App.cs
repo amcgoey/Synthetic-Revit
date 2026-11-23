@@ -12,15 +12,9 @@ using Autodesk.Revit.DB.Events;
 
 using Synthetic.Platform.UI;
 using Synthetic.Platform.Revit;
-using Synthetic.Settings;
-using Synthetic.Infrastructure.Persistence;
-using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.RevitDOM.Models;
-using Synthetic.RevitDOM.Translation;
-using Synthetic.RevitDOM.Operations;
-using Synthetic.RevitDOM;
-using Synthetic.Modules.SettingsDashboard.Handlers;
-using Synthetic.Modules.SettingsDashboard.Views;
+using Synthetic.Platform.Settings;
+using Synthetic.Features.SettingsDashboard.Handlers;
+using Synthetic.Features.SettingsDashboard.Views;
 
 #endregion
 
@@ -41,11 +35,6 @@ namespace Synthetic.Platform.Host
         public static UIControlledApplication? AppControlled;
 
         /// <summary>
-        /// Gets the configuration collection managing app and project settings.
-        /// </summary>
-        public static ConfigCollection Configurations = new ConfigCollection();
-
-        /// <summary>
         /// Called when Revit starts up. Initializes the ribbon UI and registers document event handlers.
         /// </summary>
         /// <param name="appControlled">The UIControlledApplication object representing the Revit application.</param>
@@ -54,9 +43,8 @@ namespace Synthetic.Platform.Host
         {
             AppControlled = appControlled;
             RevitWindowHelper.MainWindowHandle = appControlled.MainWindowHandle;
+            HostSettingsRegistrar.EnsureRegistered();
             RibbonManager.Create(appControlled, _path);
-
-            Configurations.AddAppConfig(Config.ReadAppConfig());
 
             appControlled.ControlledApplication.DocumentOpened +=
                 new EventHandler<DocumentOpenedEventArgs>(OnDocumentOpen);
@@ -82,7 +70,7 @@ namespace Synthetic.Platform.Host
 
         /// <summary>
         /// Event handler triggered when a Revit document is opened.
-        /// Reads and registers the project configuration for the opened document.
+        /// Checks for linked settings sync drift and displays a non-blocking toast notification if needed.
         /// </summary>
         /// <param name="sender">The source of the event.</param>
         /// <param name="args">The DocumentOpenedEventArgs containing event data.</param>
@@ -92,16 +80,6 @@ namespace Synthetic.Platform.Host
 
             if (doc != null && !doc.IsFamilyDocument)
             {
-                var configProject = Config.ReadProjectConfig(doc);
-                if (configProject != null)
-                {
-                    App.Configurations.AddProjectConfig(doc, configProject);
-                }
-                else
-                {
-                    App.Configurations.AddProjectConfig(doc, new Config());
-                }
-
                 try
                 {
                     if (SettingsManager.CheckSyncDrift(doc, out string linkedFilePath))
@@ -117,9 +95,9 @@ namespace Synthetic.Platform.Host
                             mainWindowHandle = uiApp.MainWindowHandle;
                         }
 
-                        var handler = new Synthetic.Modules.SettingsDashboard.Handlers.SyncExternalEventHandler();
+                        var handler = new SyncExternalEventHandler();
                         var externalEvent = ExternalEvent.Create(handler);
-                        var toast = new Synthetic.Modules.SettingsDashboard.Views.SyncToastNotification(mainWindowHandle, doc, linkedFilePath, handler, externalEvent);
+                        var toast = new SyncToastNotification(mainWindowHandle, doc, linkedFilePath, handler, externalEvent);
                         toast.Show();
                     }
                 }
@@ -132,17 +110,15 @@ namespace Synthetic.Platform.Host
 
         /// <summary>
         /// Event handler triggered when a Revit document is closing.
-        /// Removes the project configuration for the closing document.
         /// </summary>
         /// <param name="sender">The source of the event.</param>
         /// <param name="args">The DocumentClosingEventArgs containing event data.</param>
         public void OnDocumentClose(object? sender, Autodesk.Revit.DB.Events.DocumentClosingEventArgs args)
         {
             Document doc = args.Document;
-
-            if (doc != null && !doc.IsFamilyDocument && App.Configurations.ContainsProjectConfig(doc))
+            if (doc != null)
             {
-                App.Configurations.RemoveProjectConfig(doc);
+                SettingsManager.ClearCache(doc);
             }
         }
     }

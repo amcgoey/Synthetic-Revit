@@ -7,13 +7,15 @@ using Autodesk.Revit.UI;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
-using Synthetic.Infrastructure.Persistence;
-using Synthetic.Modules.SettingsDashboard.ViewModels;
+using Synthetic.Features.SettingsDashboard.ViewModels;
+using Synthetic.Features.StandardsManagement.Settings;
+using Synthetic.Features.Worksets.Settings;
 using Synthetic.Modules.ShadowStudy.Adapters;
 using Synthetic.Modules.ShadowStudy.Models;
 using Synthetic.Modules.ShadowStudy.Settings;
 using Synthetic.Modules.ShadowStudy.ViewModels;
-using Synthetic.Settings;
+using Synthetic.Platform.Host;
+using Synthetic.Platform.Settings;
 using Synthetic.Platform.UI;
 using SyntheticTests.Helpers;
 
@@ -31,11 +33,13 @@ namespace SyntheticTests.Modules.ShadowStudy
     {
         private UIApplication? _uiapp;
         private bool _previousSuppressUi;
+        private bool _previousSuppressDiskFallback;
 
         [OneTimeSetUp]
         public void OneTimeSetup(UIApplication uiapp)
         {
             _uiapp = uiapp;
+            HostSettingsRegistrar.EnsureRegistered();
             TestWorkerJournalMarker.EnsureWritten(uiapp);
         }
 
@@ -43,7 +47,9 @@ namespace SyntheticTests.Modules.ShadowStudy
         public void SetUp()
         {
             _previousSuppressUi = ProgressCoordinator.SuppressUI;
+            _previousSuppressDiskFallback = SettingsRuntimeOptions.SuppressFirmwideDiskFallback;
             ProgressCoordinator.SuppressUI = true;
+            SettingsRuntimeOptions.SuppressFirmwideDiskFallback = true;
             SettingsManager.ClearCache();
         }
 
@@ -52,6 +58,7 @@ namespace SyntheticTests.Modules.ShadowStudy
         {
             SettingsManager.ClearCache();
             ProgressCoordinator.SuppressUI = _previousSuppressUi;
+            SettingsRuntimeOptions.SuppressFirmwideDiskFallback = _previousSuppressDiskFallback;
         }
 
         private Document CreateFreshProjectDocument()
