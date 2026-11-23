@@ -12,10 +12,6 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.ExtensibleStorage;
 using Newtonsoft.Json;
 
-using Synthetic.RevitDOM.Models;
-using Synthetic.RevitDOM.Translation;
-using Synthetic.RevitDOM.Operations;
-using Synthetic.RevitDOM;
 using Synthetic.Platform.IO;
 
 namespace Synthetic.Features.AutoTagger.Repositories

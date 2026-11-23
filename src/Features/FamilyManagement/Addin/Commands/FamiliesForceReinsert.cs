@@ -18,10 +18,6 @@ using System.Runtime;
 using Autodesk.Revit.DB.Events;
 
 using Synthetic.Features.FamilyManagement.Utilities;
-using Synthetic.RevitDOM.Models;
-using Synthetic.RevitDOM.Translation;
-using Synthetic.RevitDOM.Operations;
-using Synthetic.RevitDOM;
 
 #endregion
 

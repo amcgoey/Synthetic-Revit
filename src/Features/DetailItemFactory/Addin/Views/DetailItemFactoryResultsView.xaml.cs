@@ -9,11 +9,6 @@ using System.Windows;
 
 using Synthetic.Platform.UI;
 
-using Synthetic.RevitDOM.Models;
-using Synthetic.RevitDOM.Translation;
-using Synthetic.RevitDOM.Operations;
-using Synthetic.RevitDOM;
-
 namespace Synthetic.Features.DetailItemFactory.Views
 {
     /// <summary>

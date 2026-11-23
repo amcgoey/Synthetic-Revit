@@ -12,10 +12,6 @@ using System.Windows.Input;
 using Autodesk.Revit.UI;
 using TaskDialog = Autodesk.Revit.UI.TaskDialog;
 
-using Synthetic.RevitDOM.Models;
-using Synthetic.RevitDOM.Translation;
-using Synthetic.RevitDOM.Operations;
-using Synthetic.RevitDOM;
 using Synthetic.Platform.IO;
 
 using Synthetic.Platform.UI;
