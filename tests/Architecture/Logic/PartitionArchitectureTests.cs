@@ -558,8 +558,9 @@ namespace SyntheticTests.Architecture
                 {
                     string rel = GetRelativeNormalizedPath(projectRoot, file);
                     string text = File.ReadAllText(file);
+                    string codeOnly = StripCommentsAndStringLiterals(text);
 
-                    if (Regex.IsMatch(text, @"\bAutodesk\.Revit\b"))
+                    if (Regex.IsMatch(codeOnly, @"\bAutodesk\.Revit\b"))
                     {
                         violations.Add($"{rel} imports Autodesk.Revit inside Core/.");
                     }
