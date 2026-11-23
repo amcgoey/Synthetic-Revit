@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Windows;
@@ -18,7 +17,10 @@ using Synthetic.Features.StandardsManagement.Commands;
 using Synthetic.Features.StandardsManagement.Settings;
 using Synthetic.Features.StandardsManagement.ViewModels;
 using Synthetic.Features.StandardsManagement.Views;
+using Synthetic.Platform.Host;
+using Synthetic.Platform.UI;
 using Synthetic.RevitDOM.Models;
+using SyntheticTests.Fixtures;
 using SyntheticTests.Helpers;
 using SyntheticTests.Modules.StandardsManagement;
 
@@ -27,41 +29,34 @@ namespace SyntheticTests.Features.MergeDuplicates
     /// <summary>
     /// Live Revit STA smoke tests verifying ribbon command resolution, theme loading,
     /// cross-assembly <c>Synthetic.RevitDOM.Models;assembly=Synthetic.Core</c> BAML resolution,
-    /// and zero WPF binding errors for all 4 Merge-POCO views across
-    /// <c>MergeDuplicates</c> and <c>StandardsManagement</c>.
+    /// and zero WPF binding errors across <c>MergeDuplicates</c> and <c>StandardsManagement</c> views.
     /// </summary>
     [TestFixture]
     [RevitSmokeTest]
     public class MergeAndStandardsSmokeRevitTests
     {
         private UIApplication? _uiapp;
-
-        private sealed class CapturingTraceListener : TraceListener
-        {
-            public List<string> Messages { get; } = new List<string>();
-
-            public override void Write(string? message)
-            {
-                if (!string.IsNullOrEmpty(message))
-                {
-                    Messages.Add(message!);
-                }
-            }
-
-            public override void WriteLine(string? message)
-            {
-                if (!string.IsNullOrEmpty(message))
-                {
-                    Messages.Add(message!);
-                }
-            }
-        }
+        private int _initialDocCount;
 
         [OneTimeSetUp]
         public void Setup(UIApplication uiapp)
         {
             _uiapp = uiapp;
+            HostSettingsRegistrar.EnsureRegistered();
             TestWorkerJournalMarker.EnsureWritten(uiapp);
+            _initialDocCount = uiapp.Application.Documents.Size;
+        }
+
+        [OneTimeTearDown]
+        public void OneTimeTearDown()
+        {
+            if (_uiapp?.Application != null)
+            {
+                Assert.AreEqual(
+                    _initialDocCount,
+                    _uiapp.Application.Documents.Size,
+                    "MergeAndStandardsSmokeRevitTests leaked open Revit document(s).");
+            }
         }
 
         [Test]
@@ -94,93 +89,96 @@ namespace SyntheticTests.Features.MergeDuplicates
             Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
             IntPtr ownerHandle = _uiapp!.MainWindowHandle;
 
-            var listener = new CapturingTraceListener();
-            TraceSource dataBindingSource = PresentationTraceSources.DataBindingSource;
-            SourceLevels previousLevel = dataBindingSource.Switch.Level;
-            dataBindingSource.Switch.Level = SourceLevels.Error;
-            dataBindingSource.Listeners.Add(listener);
-
             Document? doc = null;
 
-            try
+            using (var harness = new WpfBindingSmokeHarness())
             {
-                PresentationTraceSources.Refresh();
-                doc = _uiapp.Application.NewProjectDocument(UnitSystem.Metric);
-
-                DuplicateClusterModel sampleCluster = BuildSampleCluster();
-
-                // 1. MergeDuplicatesWindow
-                var mergeVm = new MergeDuplicatesViewModel
-                {
-                    MainWindowHandle = ownerHandle,
-                    Document = doc,
-                    ScannedClusters = new ObservableCollection<DuplicateClusterModel> { sampleCluster }
-                };
-                mergeVm.QueueVM.QueuedClusters.Add(sampleCluster);
-                ExerciseWindow(new MergeDuplicatesWindow(ownerHandle) { DataContext = mergeVm });
-
-                // 2. MergeDetailedReviewWindow
-                var detailVm = new MergeDetailedReviewViewModel(sampleCluster);
-                ExerciseWindow(new MergeDetailedReviewWindow(ownerHandle) { DataContext = detailVm });
-
-                // 3. ProjectStandardsDashboardWindow (Idle, Edit, and Diff sub-workspaces)
-                var dashboardVm = DashboardTestFactory.Create(doc, settings: new StandardsSettings());
-                dashboardVm.ActiveDiffClusters.Add(sampleCluster);
-                var dashboardWindow = new ProjectStandardsDashboardWindow(ownerHandle)
-                {
-                    DataContext = dashboardVm
-                };
                 try
                 {
-                    dashboardWindow.Show();
-                    foreach (WorkspaceMode mode in new[] { WorkspaceMode.Idle, WorkspaceMode.Edit, WorkspaceMode.Diff })
+                    doc = _uiapp.Application.NewProjectDocument(UnitSystem.Metric);
+
+                    DuplicateClusterModel sampleCluster = BuildSampleCluster();
+
+                    // 1. MergeDuplicatesWindow
+                    var mergeVm = new MergeDuplicatesViewModel
                     {
-                        dashboardVm.ActiveWorkspace = mode;
-                        dashboardWindow.UpdateLayout();
-                        Dispatcher.CurrentDispatcher.Invoke(DispatcherPriority.Loaded, new Action(() => { }));
-                        Assert.IsTrue(dashboardWindow.IsVisible, $"ProjectStandardsDashboardWindow should remain visible in '{mode}' mode.");
+                        MainWindowHandle = ownerHandle,
+                        Document = doc,
+                        ScannedClusters = new ObservableCollection<DuplicateClusterModel> { sampleCluster }
+                    };
+                    mergeVm.QueueVM.QueuedClusters.Add(sampleCluster);
+                    WpfBindingSmokeHarness.ExerciseWindow(new MergeDuplicatesWindow(ownerHandle) { DataContext = mergeVm }, clearDataContextOnClose: true);
+
+                    // 2. MergeDetailedReviewWindow
+                    var detailVm = new MergeDetailedReviewViewModel(sampleCluster);
+                    WpfBindingSmokeHarness.ExerciseWindow(new MergeDetailedReviewWindow(ownerHandle) { DataContext = detailVm }, clearDataContextOnClose: true);
+
+                    // 3. ProjectStandardsDashboardWindow (Idle, Edit, and Diff sub-workspaces)
+                    var dashboardVm = DashboardTestFactory.Create(doc, settings: new StandardsSettings());
+                    dashboardVm.ActiveDiffClusters.Add(sampleCluster);
+                    var dashboardWindow = new ProjectStandardsDashboardWindow(ownerHandle)
+                    {
+                        DataContext = dashboardVm
+                    };
+                    try
+                    {
+                        dashboardWindow.Show();
+                        foreach (WorkspaceMode mode in new[] { WorkspaceMode.Idle, WorkspaceMode.Edit, WorkspaceMode.Diff })
+                        {
+                            dashboardVm.ActiveWorkspace = mode;
+                            dashboardWindow.UpdateLayout();
+                            Dispatcher.CurrentDispatcher.Invoke(DispatcherPriority.Loaded, new Action(() => { }));
+                            Assert.IsTrue(dashboardWindow.IsVisible, $"ProjectStandardsDashboardWindow should remain visible in '{mode}' mode.");
+                        }
                     }
+                    finally
+                    {
+                        dashboardWindow.DataContext = null;
+                        dashboardWindow.Close();
+                    }
+
+                    // 4. StandardsReviewWindow
+                    var reviewVm = new StandardsReviewViewModel(doc, new ObservableCollection<DuplicateClusterModel> { sampleCluster });
+                    WpfBindingSmokeHarness.ExerciseWindow(new StandardsReviewWindow(ownerHandle) { DataContext = reviewVm }, clearDataContextOnClose: true);
+
+                    // 5. Additional StandardsManagement views
+                    var importSummaryVm = new ImportSummaryViewModel(new ObservableCollection<Synthetic.Features.StandardsManagement.ImportLogItem>());
+                    WpfBindingSmokeHarness.ExerciseWindow(new ImportSummaryWindow(ownerHandle, importSummaryVm), clearDataContextOnClose: true);
+
+                    var selectDocVm = new SelectRevitDocumentViewModel(null, new List<Document> { doc });
+                    var selectDocWindow = new SelectRevitDocumentWindow(selectDocVm);
+                    RevitWindowHelper.SetOwner(selectDocWindow, ownerHandle);
+                    WpfBindingSmokeHarness.ExerciseWindow(selectDocWindow, clearDataContextOnClose: true);
+
+                    var nestedEditorVm = new NestedDataEditorViewModel(
+                        new CompoundStructureModel(),
+                        new ObservableCollection<ElementTypeWrapperVM>());
+                    WpfBindingSmokeHarness.ExerciseWindow(new NestedDataEditorWindow(ownerHandle, nestedEditorVm), clearDataContextOnClose: true);
+
+                    var catControl = new CategorySelectionControl
+                    {
+                        DataContext = selectDocVm.FilterHierarchy
+                    };
+                    var catHostWindow = new Window
+                    {
+                        Title = "CategorySelectionControl Smoke Host",
+                        Content = catControl,
+                        Width = 400,
+                        Height = 400,
+                        ShowInTaskbar = false
+                    };
+                    RevitWindowHelper.SetOwner(catHostWindow, ownerHandle);
+                    WpfBindingSmokeHarness.ExerciseWindow(catHostWindow, clearDataContextOnClose: true);
+
+                    harness.AssertNoBindingErrors("MergeDuplicates and StandardsManagement views");
                 }
                 finally
                 {
-                    dashboardWindow.DataContext = null;
-                    dashboardWindow.Close();
+                    if (doc != null && doc.IsValidObject)
+                    {
+                        doc.Close(false);
+                    }
                 }
-
-                // 4. StandardsReviewWindow
-                var reviewVm = new StandardsReviewViewModel(doc, new ObservableCollection<DuplicateClusterModel> { sampleCluster });
-                ExerciseWindow(new StandardsReviewWindow(ownerHandle) { DataContext = reviewVm });
-
-                Assert.IsEmpty(
-                    listener.Messages,
-                    "Expected zero WPF DataBinding errors across all 4 Merge-POCO views:" + Environment.NewLine
-                    + string.Join(Environment.NewLine, listener.Messages));
-            }
-            finally
-            {
-                dataBindingSource.Listeners.Remove(listener);
-                dataBindingSource.Switch.Level = previousLevel;
-
-                if (doc != null && doc.IsValidObject)
-                {
-                    doc.Close(false);
-                }
-            }
-        }
-
-        private static void ExerciseWindow(Window window)
-        {
-            try
-            {
-                window.Show();
-                window.UpdateLayout();
-                Dispatcher.CurrentDispatcher.Invoke(DispatcherPriority.Loaded, new Action(() => { }));
-                Assert.IsTrue(window.IsVisible, $"{window.GetType().Name} should show cleanly without resource exceptions.");
-            }
-            finally
-            {
-                window.DataContext = null;
-                window.Close();
             }
         }
 

@@ -8,31 +8,18 @@ using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
 using SyntheticTests.Modules.RevitDOM;
-using SyntheticTests.Helpers;
+using SyntheticTests.Fixtures;
 
 namespace SyntheticTests.RevitDOM
 {
     [TestFixture]
     [RevitAdapterTest]
-    public class RevitDomExtensionsRevitTests
+    public class RevitDomExtensionsRevitTests : RevitTemplateRollbackFixture
     {
-        private UIApplication? _uiapp;
-
-        [OneTimeSetUp]
-        public void Setup(UIApplication uiapp)
-        {
-            _uiapp = uiapp;
-            TestWorkerJournalMarker.EnsureWritten(uiapp);
-        }
-
         [Test]
         public void ToModel_Material_DecoupledIdentityService_MapsCorrectly()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 Material? material = null;
                 using (Transaction trans = new Transaction(doc, "Create Material"))
@@ -59,21 +46,13 @@ namespace SyntheticTests.RevitDOM
                 Assert.AreEqual(120, model.Color.Red);
                 Assert.AreEqual(150, model.Color.Green);
                 Assert.AreEqual(180, model.Color.Blue);
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void ToModel_PlanViewRange_MapsOffsetsAndLevelIds()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 var viewPlan = new FilteredElementCollector(doc)
                     .OfClass(typeof(ViewPlan))
@@ -94,11 +73,7 @@ namespace SyntheticTests.RevitDOM
                 Assert.IsNotNull(model.CutPlaneLevelId);
                 Assert.IsNotNull(model.BottomLevelId);
                 Assert.IsNotNull(model.ViewDepthLevelId);
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
     }
 }

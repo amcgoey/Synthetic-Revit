@@ -8,31 +8,18 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
-using SyntheticTests.Helpers;
+using SyntheticTests.Fixtures;
 
 namespace SyntheticTests.RevitDOM
 {
     [TestFixture]
     [RevitAdapterTest]
-    public class RevitIdentityServiceResolutionRevitTests
+    public class RevitIdentityServiceResolutionRevitTests : RevitTemplateRollbackFixture
     {
-        private UIApplication? _uiapp;
-
-        [OneTimeSetUp]
-        public void Setup(UIApplication uiapp)
-        {
-            _uiapp = uiapp;
-            TestWorkerJournalMarker.EnsureWritten(uiapp);
-        }
-
         [Test]
         public void ResolveElement_ByUniqueId_ResolvesCorrectElement()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 Element? defaultLevel = new FilteredElementCollector(doc)
                     .OfClass(typeof(Level))
@@ -49,21 +36,13 @@ namespace SyntheticTests.RevitDOM
                 // Assert
                 Assert.IsNotNull(resolvedElem, "ResolveElement should resolve the element.");
                 Assert.AreEqual(defaultLevel.UniqueId, resolvedElem.UniqueId, "Resolved element UniqueId should match.");
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void ResolveElement_ByStandardIdFallback_ResolvesCorrectElement()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 Element? defaultLevel = new FilteredElementCollector(doc)
                     .OfClass(typeof(Level))
@@ -102,21 +81,13 @@ namespace SyntheticTests.RevitDOM
                 // Assert
                 Assert.IsNotNull(resolvedElem, "ResolveElement should resolve by standard ID fallback.");
                 Assert.AreEqual(defaultLevel.Id, resolvedElem.Id, "Resolved element ID should match.");
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void ResolveElement_ByNameAndClassFallback_ResolvesCorrectElement()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 WallType? defaultWallType = new FilteredElementCollector(doc)
                     .OfClass(typeof(WallType))
@@ -141,21 +112,13 @@ namespace SyntheticTests.RevitDOM
                 // Assert
                 Assert.IsNotNull(resolvedElem, "ResolveElement should resolve by Name and Class fallback.");
                 Assert.AreEqual(defaultWallType.Id, resolvedElem.Id, "Resolved element ID should match.");
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void ResolveElement_ByAliasesFallback_ResolvesCorrectElement()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 WallType? defaultWallType = new FilteredElementCollector(doc)
                     .OfClass(typeof(WallType))
@@ -181,21 +144,13 @@ namespace SyntheticTests.RevitDOM
                 // Assert
                 Assert.IsNotNull(resolvedElem, "ResolveElement should resolve by Aliases fallback.");
                 Assert.AreEqual(defaultWallType.Id, resolvedElem.Id, "Resolved element ID should match.");
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void ResolveElement_TypeGuardMismatch_ReturnsNull()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 Element? defaultLevel = new FilteredElementCollector(doc)
                     .OfClass(typeof(Level))
@@ -233,21 +188,13 @@ namespace SyntheticTests.RevitDOM
 
                 // Assert
                 Assert.IsNull(resolvedElem, "ResolveElement should return null due to Type Guard mismatch.");
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void ResolveElementId_BuiltInCategory_OST_Walls_ReturnsCorrectId()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 var model = new ElementIdModel
                 {
@@ -264,21 +211,13 @@ namespace SyntheticTests.RevitDOM
                 long expectedInt = (long)BuiltInCategory.OST_Walls;
                 long resolvedInt = GetElementIdValue(resolvedId);
                 Assert.AreEqual(expectedInt, resolvedInt);
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void ResolveElementId_BuiltInParameter_ALL_MODEL_MARK_ReturnsCorrectId()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 var model = new ElementIdModel
                 {
@@ -295,21 +234,13 @@ namespace SyntheticTests.RevitDOM
                 long expectedInt = (long)BuiltInParameter.ALL_MODEL_MARK;
                 long resolvedInt = GetElementIdValue(resolvedId);
                 Assert.AreEqual(expectedInt, resolvedInt);
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void ResolveElementId_MalformedEnum_GracefulFallback()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 Element? defaultLevel = new FilteredElementCollector(doc)
                     .OfClass(typeof(Level))
@@ -330,21 +261,13 @@ namespace SyntheticTests.RevitDOM
 
                 // Assert
                 Assert.AreEqual(defaultLevel.Id, resolvedId, "Should gracefully fall back to UniqueId fallback.");
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void ResolveElementId_JustEnumValue_ReturnsCorrectId()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 var model = new ElementIdModel
                 {
@@ -361,21 +284,13 @@ namespace SyntheticTests.RevitDOM
                 long expectedInt = (long)BuiltInCategory.OST_Walls;
                 long resolvedInt = GetElementIdValue(resolvedId);
                 Assert.AreEqual(expectedInt, resolvedInt);
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void GetElementsByElementIdModels_SuccessPath_ResolvesAllElements()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 Element? defaultLevel = new FilteredElementCollector(doc)
                     .OfClass(typeof(Level))
@@ -401,21 +316,13 @@ namespace SyntheticTests.RevitDOM
                 Assert.AreEqual(2, resolved.Count);
                 Assert.IsTrue(resolved.Any(e => e.UniqueId == defaultLevel.UniqueId));
                 Assert.IsTrue(resolved.Any(e => e.UniqueId == defaultView.UniqueId));
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void GetElementsByElementIdModels_DegradationPath_LogsWarningAndFiltersNulls()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 Element? defaultLevel = new FilteredElementCollector(doc)
                     .OfClass(typeof(Level))
@@ -448,11 +355,7 @@ namespace SyntheticTests.RevitDOM
                 var warnings = SerializationResultModel.CurrentThreadWarnings;
                 Assert.AreEqual(1, warnings.Count);
                 Assert.AreEqual("Dependency not found: Fictitious Level (Autodesk.Revit.DB.Level)", warnings[0]);
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         private static long GetElementIdValue(ElementId id)

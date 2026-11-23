@@ -9,23 +9,14 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
-using SyntheticTests.Helpers;
+using SyntheticTests.Fixtures;
 
 namespace SyntheticTests.RevitDOM
 {
     [TestFixture]
     [RevitAdapterTest]
-    public class MaterialAssetEngineRevitTests
+    public class MaterialAssetEngineRevitTests : RevitTemplateRollbackFixture
     {
-        private UIApplication? _uiapp;
-
-        [OneTimeSetUp]
-        public void Setup(UIApplication uiapp)
-        {
-            _uiapp = uiapp;
-            TestWorkerJournalMarker.EnsureWritten(uiapp);
-        }
-
         private AppearanceAssetElement GetOrCreateAppearanceAssetTemplate(Document doc)
         {
             var template = new FilteredElementCollector(doc)
@@ -51,11 +42,7 @@ namespace SyntheticTests.RevitDOM
         [Test]
         public void ExtractAppearance_WhenNoAsset_ReturnsNull()
         {
-            Assert.IsNotNull(_uiapp);
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 Material? mat = null;
                 using (Transaction t = new Transaction(doc, "Setup"))
@@ -69,21 +56,13 @@ namespace SyntheticTests.RevitDOM
                 Assert.IsNotNull(mat);
                 var model = MaterialAssetEngine.ExtractAppearance(mat);
                 Assert.IsNull(model);
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void InjectAppearance_InPlaceMutation_UpdatesExistingAsset()
         {
-            Assert.IsNotNull(_uiapp);
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 Material? mat = null;
                 AppearanceAssetElement? originalAsset = null;
@@ -136,21 +115,13 @@ namespace SyntheticTests.RevitDOM
                 Assert.AreEqual(200, extracted.Color.Blue);
                 Assert.AreEqual(0.5, extracted.Transparency, 1e-3);
                 Assert.AreEqual(0.8, extracted.Smoothness, 1e-3);
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void InjectAppearance_NameMatching_AssignsExistingAsset()
         {
-            Assert.IsNotNull(_uiapp);
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 Material? mat = null;
                 AppearanceAssetElement? existingAsset = null;
@@ -201,21 +172,13 @@ namespace SyntheticTests.RevitDOM
                 Assert.AreEqual(50, extracted.Color!.Red);
                 Assert.AreEqual(100, extracted.Color.Green);
                 Assert.AreEqual(150, extracted.Color.Blue);
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void InjectAppearance_Creation_DuplicatesDefaultTemplate()
         {
-            Assert.IsNotNull(_uiapp);
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 Material? mat = null;
                 using (Transaction t = new Transaction(doc, "Setup Material"))
@@ -254,21 +217,13 @@ namespace SyntheticTests.RevitDOM
                 Assert.AreEqual("BrandNewUniqueAsset_Creation", extracted!.Name);
                 Assert.AreEqual(200, extracted.Color!.Red);
                 Assert.AreEqual(0.5, extracted.Smoothness, 1e-3);
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void InjectStructural_InPlaceAndNameMatching_UpdatesCorrectly()
         {
-            Assert.IsNotNull(_uiapp);
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 Material? mat = null;
                 PropertySetElement? originalPse = null;
@@ -319,21 +274,13 @@ namespace SyntheticTests.RevitDOM
                 Assert.AreEqual(490.0, extracted.Density, 1e-3);
                 Assert.AreEqual(29000000.0, extracted.YoungModulus, 1e-3);
                 Assert.AreEqual(0.3, extracted.PoissonRatio, 1e-3);
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void InjectThermal_InPlaceAndNameMatching_UpdatesCorrectly()
         {
-            Assert.IsNotNull(_uiapp);
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 Material? mat = null;
                 PropertySetElement? originalPse = null;
@@ -385,11 +332,7 @@ namespace SyntheticTests.RevitDOM
                 Assert.AreEqual(1.5, extracted.ThermalConductivity, 1e-3);
                 Assert.AreEqual(0.2, extracted.SpecificHeat, 1e-3);
                 Assert.AreEqual(0.9, extracted.Emissivity, 1e-3);
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
     }
 }

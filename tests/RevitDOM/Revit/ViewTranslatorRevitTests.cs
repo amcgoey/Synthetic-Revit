@@ -8,7 +8,7 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
-using SyntheticTests.Helpers;
+using SyntheticTests.Fixtures;
 
 namespace SyntheticTests.RevitDOM
 {
@@ -26,25 +26,12 @@ namespace SyntheticTests.RevitDOM
 
     [TestFixture]
     [RevitAdapterTest]
-    public class ViewTranslatorRevitTests
+    public class ViewTranslatorRevitTests : RevitTemplateRollbackFixture
     {
-        private UIApplication? _uiapp;
-
-        [OneTimeSetUp]
-        public void Setup(UIApplication uiapp)
-        {
-            _uiapp = uiapp;
-            TestWorkerJournalMarker.EnsureWritten(uiapp);
-        }
-
         [Test]
         public void ViewPlan_ExtractAndInject_RoundtripsSuccessfully()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 using (var tg = new TransactionGroup(doc, "Test ViewPlan Group"))
                 {
@@ -99,21 +86,13 @@ namespace SyntheticTests.RevitDOM
 
                     tg.Assimilate();
                 }
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void ViewDrafting_ExtractAndInject_RoundtripsSuccessfully()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 using (var tg = new TransactionGroup(doc, "Test ViewDrafting Group"))
                 {
@@ -162,21 +141,13 @@ namespace SyntheticTests.RevitDOM
 
                     tg.Assimilate();
                 }
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void ViewPlan_MissingLevel_ThrowsHardAbort()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 using (var t = new Transaction(doc, "Inject Invalid ViewPlan"))
                 {
@@ -208,21 +179,13 @@ namespace SyntheticTests.RevitDOM
 
                     t.RollBack();
                 }
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void ViewPlan_MissingViewFamilyType_GracefulDegradation()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 using (var t = new Transaction(doc, "Inject ViewPlan with Missing Type"))
                 {
@@ -257,21 +220,13 @@ namespace SyntheticTests.RevitDOM
 
                     t.RollBack();
                 }
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void ViewSection_ExtractAndInject_RoundtripsSuccessfully()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 using (var tg = new TransactionGroup(doc, "Test ViewSection Group"))
                 {
@@ -325,21 +280,13 @@ namespace SyntheticTests.RevitDOM
 
                     tg.Assimilate();
                 }
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void ViewElevation_ExtractAndInject_RoundtripsSuccessfully()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 using (var tg = new TransactionGroup(doc, "Test ViewElevation Group"))
                 {
@@ -397,21 +344,13 @@ namespace SyntheticTests.RevitDOM
 
                     tg.Assimilate();
                 }
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void ViewSection_ScopeBoxFallback_WarningLogged()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 using (var t = new Transaction(doc, "Inject ViewSection with Missing Scope Box"))
                 {
@@ -452,21 +391,13 @@ namespace SyntheticTests.RevitDOM
 
                     t.RollBack();
                 }
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void ViewTemplate_Duplication_Strategy_SuccessfullyCreatesTemplate()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 using (var tg = new TransactionGroup(doc, "Test ViewTemplate Group"))
                 {
@@ -505,21 +436,13 @@ namespace SyntheticTests.RevitDOM
 
                     tg.Assimilate();
                 }
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void NonGraphicalView_Serialization_ExtractsWithoutExceptions()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 using (var tg = new TransactionGroup(doc, "Test NonGraphical View Group"))
                 {
@@ -559,21 +482,13 @@ namespace SyntheticTests.RevitDOM
 
                     tg.Assimilate();
                 }
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void ViewPlan_Translation_RoundTripsSuccessfully()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 using (var tg = new TransactionGroup(doc, "Test ViewPlan Group"))
                 {
@@ -624,21 +539,13 @@ namespace SyntheticTests.RevitDOM
 
                     tg.Assimilate();
                 }
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void NonGraphicalView_Translation_PolymorphicallyRoundTripsSuccessfully()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 using (var tg = new TransactionGroup(doc, "Test NonGraphical Polymorphic Group"))
                 {
@@ -699,11 +606,7 @@ namespace SyntheticTests.RevitDOM
 
                     tg.Assimilate();
                 }
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
     }
 }

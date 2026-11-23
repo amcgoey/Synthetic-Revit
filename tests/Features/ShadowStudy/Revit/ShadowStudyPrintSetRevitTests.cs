@@ -12,7 +12,7 @@ using Synthetic.Features.ShadowStudy.Services;
 using Synthetic.Features.ShadowStudy.ViewModels;
 using Synthetic.Platform.Settings;
 using Synthetic.Platform.UI;
-using SyntheticTests.Helpers;
+using SyntheticTests.Fixtures;
 
 namespace SyntheticTests.Features.ShadowStudy
 {
@@ -22,266 +22,190 @@ namespace SyntheticTests.Features.ShadowStudy
     /// </summary>
     [TestFixture]
     [RevitIsolatedDocTest]
-    public class ShadowStudyPrintSetRevitTests
+    public class ShadowStudyPrintSetRevitTests : RevitIsolatedDocumentFixture
     {
-        private UIApplication? _uiapp;
-        private string _tempDir = string.Empty;
         private bool _previousSuppressUi;
         private bool _previousSuppressDiskFallback;
 
-        [OneTimeSetUp]
-        public void OneTimeSetUp(UIApplication uiapp)
-        {
-            _uiapp = uiapp;
-            TestWorkerJournalMarker.EnsureWritten(uiapp);
-        }
-
-        [SetUp]
-        public void SetUp()
+        protected override void OnTestSetUp()
         {
             _previousSuppressUi = ProgressCoordinator.SuppressUI;
             _previousSuppressDiskFallback = SettingsRuntimeOptions.SuppressFirmwideDiskFallback;
             ProgressCoordinator.SuppressUI = true;
             SettingsRuntimeOptions.SuppressFirmwideDiskFallback = true;
-            _tempDir = Path.Combine(
-                Path.GetTempPath(),
-                "Tier2ShadowPrintSet_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(_tempDir);
         }
 
-        [TearDown]
-        public void TearDown()
+        protected override void OnTestTearDown()
         {
             ProgressCoordinator.SuppressUI = _previousSuppressUi;
             SettingsRuntimeOptions.SuppressFirmwideDiskFallback = _previousSuppressDiskFallback;
-            if (Directory.Exists(_tempDir))
-            {
-                try
-                {
-                    Directory.Delete(_tempDir, true);
-                }
-                catch
-                {
-                    // Best-effort cleanup
-                }
-            }
         }
 
         [Test]
         public void GetPrintSets_ReadsMixedPrintSetWithoutMutatingDocumentOrPrintRange()
         {
-            Assert.IsNotNull(_uiapp);
-            Document doc = OpenDetachedTestTemplate(_uiapp!.Application);
+            Document doc = OpenIsolatedTestTemplateCopy();
 
-            try
-            {
-                MixedPrintSetSuite suite = SetupMixedPrintSetSuite(doc, "Mixed Architectural Set");
+            MixedPrintSetSuite suite = SetupMixedPrintSetSuite(doc, "Mixed Architectural Set");
 
-                string baselinePath = Path.Combine(_tempDir, "BaselineReadOnly.rvt");
-                doc.SaveAs(baselinePath, new SaveAsOptions { OverwriteExistingFile = true });
-                Assert.IsFalse(doc.IsModified);
+            string baselinePath = GetTempFilePath("BaselineReadOnly.rvt");
+            doc.SaveAs(baselinePath, new SaveAsOptions { OverwriteExistingFile = true });
+            Assert.IsFalse(doc.IsModified);
 
-                PrintRange printRangeBefore = doc.PrintManager.PrintRange;
+            PrintRange printRangeBefore = doc.PrintManager.PrintRange;
 
-                var adapter = new RevitShadowStudyAdapter(doc, null, _uiapp);
-                IReadOnlyList<ShadowStudyPrintSetItem> printSets = adapter.GetPrintSets();
+            var adapter = new RevitShadowStudyAdapter(doc, null, UiApp);
+            IReadOnlyList<ShadowStudyPrintSetItem> printSets = adapter.GetPrintSets();
 
-                ShadowStudyPrintSetItem mixed = printSets.FirstOrDefault(p => p.Name == "Mixed Architectural Set")
-                    ?? throw new AssertionException("Expected saved Print Set 'Mixed Architectural Set' to be returned.");
+            ShadowStudyPrintSetItem mixed = printSets.FirstOrDefault(p => p.Name == "Mixed Architectural Set")
+                ?? throw new AssertionException("Expected saved Print Set 'Mixed Architectural Set' to be returned.");
 
-                CollectionAssert.AreEquivalent(new[] { suite.PlanA.UniqueId }, mixed.ShadowViewIds);
-                Assert.IsFalse(mixed.ShadowViewIds.Contains(suite.Sheet.UniqueId));
-                Assert.IsFalse(mixed.ShadowViewIds.Contains(suite.Schedule.UniqueId));
-                Assert.IsTrue(mixed.NonShadowMemberIds.Contains(suite.Sheet.UniqueId));
-                Assert.IsTrue(mixed.NonShadowMemberIds.Contains(suite.Schedule.UniqueId));
-                Assert.GreaterOrEqual(mixed.IgnoredNonShadowMemberCount, 2);
+            CollectionAssert.AreEquivalent(new[] { suite.PlanA.UniqueId }, mixed.ShadowViewIds);
+            Assert.IsFalse(mixed.ShadowViewIds.Contains(suite.Sheet.UniqueId));
+            Assert.IsFalse(mixed.ShadowViewIds.Contains(suite.Schedule.UniqueId));
+            Assert.IsTrue(mixed.NonShadowMemberIds.Contains(suite.Sheet.UniqueId));
+            Assert.IsTrue(mixed.NonShadowMemberIds.Contains(suite.Schedule.UniqueId));
+            Assert.GreaterOrEqual(mixed.IgnoredNonShadowMemberCount, 2);
 
-                Assert.IsFalse(doc.IsModified, "Inspecting Print Sets must not mutate the Revit document.");
-                Assert.AreEqual(printRangeBefore, doc.PrintManager.PrintRange, "Inspecting Print Sets must not mutate PrintManager.PrintRange.");
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            Assert.IsFalse(doc.IsModified, "Inspecting Print Sets must not mutate the Revit document.");
+            Assert.AreEqual(printRangeBefore, doc.PrintManager.PrintRange, "Inspecting Print Sets must not mutate PrintManager.PrintRange.");
         }
 
         [Test]
         public void SavePrintSet_UpdatesExistingMixedSetAndPreservesNonShadowMembersInCommittedTransaction()
         {
-            Assert.IsNotNull(_uiapp);
-            Document doc = OpenDetachedTestTemplate(_uiapp!.Application);
+            Document doc = OpenIsolatedTestTemplateCopy();
 
-            try
-            {
-                MixedPrintSetSuite suite = SetupMixedPrintSetSuite(doc, "Mixed Update Set");
+            MixedPrintSetSuite suite = SetupMixedPrintSetSuite(doc, "Mixed Update Set");
 
-                string baselinePath = Path.Combine(_tempDir, "BaselineSave.rvt");
-                doc.SaveAs(baselinePath, new SaveAsOptions { OverwriteExistingFile = true });
-                Assert.IsFalse(doc.IsModified);
+            string baselinePath = GetTempFilePath("BaselineSave.rvt");
+            doc.SaveAs(baselinePath, new SaveAsOptions { OverwriteExistingFile = true });
+            Assert.IsFalse(doc.IsModified);
 
-                var adapter = new RevitShadowStudyAdapter(doc, null, _uiapp);
-                ShadowStudyPrintSetItem before = adapter.GetPrintSets().First(p => p.Name == "Mixed Update Set");
+            var adapter = new RevitShadowStudyAdapter(doc, null, UiApp);
+            ShadowStudyPrintSetItem before = adapter.GetPrintSets().First(p => p.Name == "Mixed Update Set");
 
-                ShadowStudyPrintSetItem updated = adapter.SavePrintSet(
-                    "Mixed Update Set",
-                    new[] { suite.PlanB.UniqueId, suite.ThreeD.UniqueId },
-                    saveAsNew: false,
-                    sourcePrintSetId: before.Id);
+            ShadowStudyPrintSetItem updated = adapter.SavePrintSet(
+                "Mixed Update Set",
+                new[] { suite.PlanB.UniqueId, suite.ThreeD.UniqueId },
+                saveAsNew: false,
+                sourcePrintSetId: before.Id);
 
-                Assert.IsTrue(doc.IsModified, "Explicit Save Print Set must commit an Undo-visible transaction.");
-                CollectionAssert.AreEquivalent(new[] { suite.PlanB.UniqueId, suite.ThreeD.UniqueId }, updated.ShadowViewIds);
-                Assert.IsTrue(updated.NonShadowMemberIds.Contains(suite.Sheet.UniqueId), "Existing ViewSheet member must remain intact.");
-                Assert.IsTrue(updated.NonShadowMemberIds.Contains(suite.Schedule.UniqueId), "Existing ViewSchedule member must remain intact.");
+            Assert.IsTrue(doc.IsModified, "Explicit Save Print Set must commit an Undo-visible transaction.");
+            CollectionAssert.AreEquivalent(new[] { suite.PlanB.UniqueId, suite.ThreeD.UniqueId }, updated.ShadowViewIds);
+            Assert.IsTrue(updated.NonShadowMemberIds.Contains(suite.Sheet.UniqueId), "Existing ViewSheet member must remain intact.");
+            Assert.IsTrue(updated.NonShadowMemberIds.Contains(suite.Schedule.UniqueId), "Existing ViewSchedule member must remain intact.");
 
-                ViewSheetSet persisted = new FilteredElementCollector(doc)
-                    .OfClass(typeof(ViewSheetSet))
-                    .WhereElementIsNotElementType()
-                    .Cast<ViewSheetSet>()
-                    .First(s => s.Name == "Mixed Update Set");
+            ViewSheetSet persisted = new FilteredElementCollector(doc)
+                .OfClass(typeof(ViewSheetSet))
+                .WhereElementIsNotElementType()
+                .Cast<ViewSheetSet>()
+                .First(s => s.Name == "Mixed Update Set");
 
-                var persistedIds = new HashSet<string>(persisted.Views.Cast<View>().Select(v => v.UniqueId), StringComparer.Ordinal);
-                Assert.IsFalse(persistedIds.Contains(suite.PlanA.UniqueId));
-                Assert.IsTrue(persistedIds.Contains(suite.PlanB.UniqueId));
-                Assert.IsTrue(persistedIds.Contains(suite.ThreeD.UniqueId));
-                Assert.IsTrue(persistedIds.Contains(suite.Sheet.UniqueId));
-                Assert.IsTrue(persistedIds.Contains(suite.Schedule.UniqueId));
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            var persistedIds = new HashSet<string>(persisted.Views.Cast<View>().Select(v => v.UniqueId), StringComparer.Ordinal);
+            Assert.IsFalse(persistedIds.Contains(suite.PlanA.UniqueId));
+            Assert.IsTrue(persistedIds.Contains(suite.PlanB.UniqueId));
+            Assert.IsTrue(persistedIds.Contains(suite.ThreeD.UniqueId));
+            Assert.IsTrue(persistedIds.Contains(suite.Sheet.UniqueId));
+            Assert.IsTrue(persistedIds.Contains(suite.Schedule.UniqueId));
         }
 
         [Test]
         public void SavePrintSet_SaveAsFromMixedSet_CreatesNewSetPreservingNonShadowMembersAndGuardsDuplicates()
         {
-            Assert.IsNotNull(_uiapp);
-            Document doc = OpenDetachedTestTemplate(_uiapp!.Application);
+            Document doc = OpenIsolatedTestTemplateCopy();
 
-            try
-            {
-                MixedPrintSetSuite suite = SetupMixedPrintSetSuite(doc, "Mixed Source Set");
+            MixedPrintSetSuite suite = SetupMixedPrintSetSuite(doc, "Mixed Source Set");
 
-                var adapter = new RevitShadowStudyAdapter(doc, null, _uiapp);
-                ShadowStudyPrintSetItem source = adapter.GetPrintSets().First(p => p.Name == "Mixed Source Set");
+            var adapter = new RevitShadowStudyAdapter(doc, null, UiApp);
+            ShadowStudyPrintSetItem source = adapter.GetPrintSets().First(p => p.Name == "Mixed Source Set");
 
-                ShadowStudyPrintSetItem forked = adapter.SavePrintSet(
-                    "Mixed Forked Set",
-                    new[] { suite.ThreeD.UniqueId },
-                    saveAsNew: true,
-                    sourcePrintSetId: source.Id);
+            ShadowStudyPrintSetItem forked = adapter.SavePrintSet(
+                "Mixed Forked Set",
+                new[] { suite.ThreeD.UniqueId },
+                saveAsNew: true,
+                sourcePrintSetId: source.Id);
 
-                Assert.AreEqual("Mixed Forked Set", forked.Name);
-                Assert.AreNotEqual(source.Id, forked.Id);
-                CollectionAssert.AreEquivalent(new[] { suite.ThreeD.UniqueId }, forked.ShadowViewIds);
-                Assert.IsTrue(forked.NonShadowMemberIds.Contains(suite.Sheet.UniqueId));
-                Assert.IsTrue(forked.NonShadowMemberIds.Contains(suite.Schedule.UniqueId));
+            Assert.AreEqual("Mixed Forked Set", forked.Name);
+            Assert.AreNotEqual(source.Id, forked.Id);
+            CollectionAssert.AreEquivalent(new[] { suite.ThreeD.UniqueId }, forked.ShadowViewIds);
+            Assert.IsTrue(forked.NonShadowMemberIds.Contains(suite.Sheet.UniqueId));
+            Assert.IsTrue(forked.NonShadowMemberIds.Contains(suite.Schedule.UniqueId));
 
-                // Original set remains untouched
-                ShadowStudyPrintSetItem sourceAfter = adapter.GetPrintSets().First(p => p.Id == source.Id);
-                CollectionAssert.AreEquivalent(new[] { suite.PlanA.UniqueId }, sourceAfter.ShadowViewIds);
-                Assert.IsTrue(sourceAfter.NonShadowMemberIds.Contains(suite.Sheet.UniqueId));
+            // Original set remains untouched
+            ShadowStudyPrintSetItem sourceAfter = adapter.GetPrintSets().First(p => p.Id == source.Id);
+            CollectionAssert.AreEquivalent(new[] { suite.PlanA.UniqueId }, sourceAfter.ShadowViewIds);
+            Assert.IsTrue(sourceAfter.NonShadowMemberIds.Contains(suite.Sheet.UniqueId));
 
-                // Duplicate Save As name throws InvalidOperationException
-                Assert.Throws<InvalidOperationException>(() =>
-                    adapter.SavePrintSet(
-                        "mixed forked set",
-                        new[] { suite.PlanA.UniqueId },
-                        saveAsNew: true));
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            // Duplicate Save As name throws InvalidOperationException
+            Assert.Throws<InvalidOperationException>(() =>
+                adapter.SavePrintSet(
+                    "mixed forked set",
+                    new[] { suite.PlanA.UniqueId },
+                    saveAsNew: true));
         }
 
         [Test]
         public void Export_AfterLoadingPrintSetAndModifyingSelectionWithoutSaving_LeavesDocumentUntouched()
         {
-            Assert.IsNotNull(_uiapp);
-            Document doc = OpenDetachedTestTemplate(_uiapp!.Application);
+            Document doc = OpenIsolatedTestTemplateCopy();
 
-            try
+            MixedPrintSetSuite suite = SetupMixedPrintSetSuite(doc, "Export Only Set");
+
+            string baselinePath = GetTempFilePath("BaselineExportOnly.rvt");
+            doc.SaveAs(baselinePath, new SaveAsOptions { OverwriteExistingFile = true });
+            Assert.IsFalse(doc.IsModified);
+
+            var adapter = new RevitShadowStudyAdapter(doc, null, UiApp);
+            var vm = new ShadowStudyViewModel(
+                adapter,
+                new NoOpFolderDialogService(),
+                new DateTime(2026, 6, 21),
+                textInputPromptService: new StubTextInputPromptService())
             {
-                MixedPrintSetSuite suite = SetupMixedPrintSetSuite(doc, "Export Only Set");
-
-                string baselinePath = Path.Combine(_tempDir, "BaselineExportOnly.rvt");
-                doc.SaveAs(baselinePath, new SaveAsOptions { OverwriteExistingFile = true });
-                Assert.IsFalse(doc.IsModified);
-
-                var adapter = new RevitShadowStudyAdapter(doc, null, _uiapp);
-                var vm = new ShadowStudyViewModel(
-                    adapter,
-                    new NoOpFolderDialogService(),
-                    new DateTime(2026, 6, 21),
-                    textInputPromptService: new StubTextInputPromptService())
-                {
-                    ExportRangeMode = ShadowStudyExportRangeMode.SelectedViews,
-                    OutputFolder = _tempDir,
-                    PixelWidth = 320,
-                    TimeStepMinutes = 120,
-                    ExportIndividualFrames = false
-                };
-
-                vm.SelectedPrintSet = vm.PrintSets.First(p => p.Name == "Export Only Set");
-                Assert.AreEqual(1, vm.SelectedViewsCount);
-
-                // Modify selection without clicking Save / Save As
-                vm.AllViews.First(v => v.ViewId == suite.PlanB.UniqueId).IsSelected = true;
-                Assert.AreEqual(2, vm.SelectedViewsCount);
-
-                ShadowStudyRunRequest request = vm.BuildRunRequest();
-                request.KeepIndividualFrames = false;
-                // Keep test fast by limiting to a single slot if multiple exist
-                DateSolarSchedule fullSchedule = request.DateSchedules[0];
-                if (fullSchedule.Frames.Count > 1)
-                {
-                    request.DateSchedules = new[]
-                    {
-                        new DateSolarSchedule
-                        {
-                            DateEntry = fullSchedule.DateEntry,
-                            PeakSolarAltitudeDegrees = fullSchedule.PeakSolarAltitudeDegrees,
-                            ShadowIntensity = fullSchedule.ShadowIntensity,
-                            Frames = new[] { fullSchedule.Frames[fullSchedule.Frames.Count / 2] }
-                        }
-                    };
-                }
-
-                var pipeline = new ShadowStudyPipeline(adapter);
-                ShadowStudyRunSummary summary = pipeline.Execute(request);
-
-                Assert.IsFalse(summary.WasCancelled);
-                Assert.AreEqual(2, summary.GeneratedCount);
-                Assert.IsFalse(doc.IsModified, "Exporting without Save/Save As must leave the document and Undo stack completely untouched.");
-
-                // Persisted Print Set in document still only contains PlanA + non-shadow members
-                ShadowStudyPrintSetItem persisted = adapter.GetPrintSets().First(p => p.Name == "Export Only Set");
-                CollectionAssert.AreEquivalent(new[] { suite.PlanA.UniqueId }, persisted.ShadowViewIds);
-                Assert.IsTrue(persisted.NonShadowMemberIds.Contains(suite.Sheet.UniqueId));
-            }
-            finally
-            {
-                doc.Close(false);
-            }
-        }
-
-        private static Document OpenDetachedTestTemplate(Autodesk.Revit.ApplicationServices.Application app)
-        {
-            string projectRoot = TestPathHelper.GetProjectRoot();
-            string testModelName = "TestTemplate" + app.VersionNumber + ".rvt";
-            string modelPathStr = Path.Combine(projectRoot, "tests", "Assets", "test_models", testModelName);
-            if (!File.Exists(modelPathStr))
-            {
-                throw new FileNotFoundException("Test template model not found: " + modelPathStr);
-            }
-
-            ModelPath modelPath = ModelPathUtils.ConvertUserVisiblePathToModelPath(modelPathStr);
-            var openOptions = new OpenOptions
-            {
-                DetachFromCentralOption = DetachFromCentralOption.DetachAndDiscardWorksets
+                ExportRangeMode = ShadowStudyExportRangeMode.SelectedViews,
+                OutputFolder = CurrentTestTempDirectory,
+                PixelWidth = 320,
+                TimeStepMinutes = 120,
+                ExportIndividualFrames = false
             };
-            return app.OpenDocumentFile(modelPath, openOptions);
+
+            vm.SelectedPrintSet = vm.PrintSets.First(p => p.Name == "Export Only Set");
+            Assert.AreEqual(1, vm.SelectedViewsCount);
+
+            // Modify selection without clicking Save / Save As
+            vm.AllViews.First(v => v.ViewId == suite.PlanB.UniqueId).IsSelected = true;
+            Assert.AreEqual(2, vm.SelectedViewsCount);
+
+            ShadowStudyRunRequest request = vm.BuildRunRequest();
+            request.KeepIndividualFrames = false;
+            // Keep test fast by limiting to a single slot if multiple exist
+            DateSolarSchedule fullSchedule = request.DateSchedules[0];
+            if (fullSchedule.Frames.Count > 1)
+            {
+                request.DateSchedules = new[]
+                {
+                    new DateSolarSchedule
+                    {
+                        DateEntry = fullSchedule.DateEntry,
+                        PeakSolarAltitudeDegrees = fullSchedule.PeakSolarAltitudeDegrees,
+                        ShadowIntensity = fullSchedule.ShadowIntensity,
+                        Frames = new[] { fullSchedule.Frames[fullSchedule.Frames.Count / 2] }
+                    }
+                };
+            }
+
+            var pipeline = new ShadowStudyPipeline(adapter);
+            ShadowStudyRunSummary summary = pipeline.Execute(request);
+
+            Assert.IsFalse(summary.WasCancelled);
+            Assert.AreEqual(2, summary.GeneratedCount);
+            Assert.IsFalse(doc.IsModified, "Exporting without Save/Save As must leave the document and Undo stack completely untouched.");
+
+            // Persisted Print Set in document still only contains PlanA + non-shadow members
+            ShadowStudyPrintSetItem persisted = adapter.GetPrintSets().First(p => p.Name == "Export Only Set");
+            CollectionAssert.AreEquivalent(new[] { suite.PlanA.UniqueId }, persisted.ShadowViewIds);
+            Assert.IsTrue(persisted.NonShadowMemberIds.Contains(suite.Sheet.UniqueId));
         }
 
         private static MixedPrintSetSuite SetupMixedPrintSetSuite(Document doc, string printSetName)

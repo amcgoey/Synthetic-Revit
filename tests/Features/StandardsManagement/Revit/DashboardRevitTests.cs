@@ -13,30 +13,17 @@ using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.Features.StandardsManagement.Settings;
 using SyntheticTests.Modules.StandardsManagement;
-using SyntheticTests.Helpers;
+using SyntheticTests.Fixtures;
 
 namespace SyntheticTests.Features.StandardsManagement
 {
     [TestFixture]
     [RevitAdapterTest]
-    public class DashboardRevitTests
+    public class DashboardRevitTests : RevitTemplateRollbackFixture
     {
-        private UIApplication? _uiapp;
-
-        [OneTimeSetUp]
-        public void Setup(UIApplication uiapp)
-        {
-            _uiapp = uiapp;
-            TestWorkerJournalMarker.EnsureWritten(uiapp);
-        }
-
         [Test]
         public void RunQueue_ExecutesDatabaseWritesAndFileSerialization_UnderTransactionGroup()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
             string tempFile = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString() + ".json");
             var fakeFileDialog = new IntegrationFakeFileDialogService { PresetPath = tempFile };
             var fakeGuardrail = new IntegrationFakeGuardrailPromptService(GuardrailResult.Overwrite);
@@ -45,10 +32,8 @@ namespace SyntheticTests.Features.StandardsManagement
 
             try
             {
-                using (TransactionGroup txGroup = new TransactionGroup(doc, "Tier2_DashboardIntegrationTests"))
+                WithRolledBackDocument(doc =>
                 {
-                    txGroup.Start();
-
                     // Create a mock dashboard ViewModel using live Revit document
                     var vm = DashboardTestFactory.Create(doc, dialogService: fakeFileDialog, exportService: new StandardsExportService(fakeGuardrail, fakeFileDialog), settings: settings);
                     vm.SaveFilePath = tempFile;
@@ -108,10 +93,7 @@ namespace SyntheticTests.Features.StandardsManagement
                     Assert.IsTrue(logContent.Contains("# Project Standards Consolidation Execution Report"), "Markdown log should contain the title.");
                     Assert.IsTrue(logContent.Contains("| Created |"), "Markdown log should contain the Created action.");
                     Assert.IsTrue(logContent.Contains(materialModel.Name), "Markdown log should contain the material name.");
-
-                    // Rollback the TransactionGroup to ensure zero-leak test database execution
-                    txGroup.RollBack();
-                }
+                });
             }
             finally
             {
@@ -130,20 +112,14 @@ namespace SyntheticTests.Features.StandardsManagement
         [Test]
         public void AddRevitModel_ExtractsFilteredElements_UnderTransactionGroup()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
             var fakeFileDialog = new IntegrationFakeFileDialogService();
             var fakeGuardrail = new IntegrationFakeGuardrailPromptService(GuardrailResult.Overwrite);
             var settings = new StandardsSettings();
 
             try
             {
-                using (TransactionGroup txGroup = new TransactionGroup(doc, "Tier2_ScanningTest"))
+                WithRolledBackDocument(doc =>
                 {
-                    txGroup.Start();
-
                     // Create test elements in the document to ensure they exist for scanning
                     Transaction t = new Transaction(doc, "Create Test Elements");
                     t.Start();
@@ -218,9 +194,7 @@ namespace SyntheticTests.Features.StandardsManagement
                     // Since only "Materials & Assets" was selected, the material should be extracted, but the wall type should be skipped.
                     Assert.IsTrue(foundMaterial, "The selected grouping 'Materials & Assets' should extract the custom material.");
                     Assert.IsFalse(foundWallType, "The excluded grouping 'System Types' should NOT extract the custom wall type.");
-
-                    txGroup.RollBack();
-                }
+                });
             }
             catch (Exception ex)
             {
@@ -231,66 +205,51 @@ namespace SyntheticTests.Features.StandardsManagement
         [Test]
         public void RunQueue_IncludesAliasMergeLogItems_InSummaryDialog()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
             var fakeFileDialog = new IntegrationFakeFileDialogService();
             var fakeGuardrail = new IntegrationFakeGuardrailPromptService(GuardrailResult.Overwrite);
             var fakeSummaryService = new FakeSummaryDisplayService();
 
-            try
+            WithRolledBackDocument(doc =>
             {
-                using (TransactionGroup txGroup = new TransactionGroup(doc, "Tier2_DashboardAliasTest"))
+                // Create the alias material in a transaction
+                ElementId aliasMaterialId;
+                using (Transaction t = new Transaction(doc, "Create Alias Material"))
                 {
-                    txGroup.Start();
-
-                    // Create the alias material in a transaction
-                    ElementId aliasMaterialId;
-                    using (Transaction t = new Transaction(doc, "Create Alias Material"))
-                    {
-                        t.Start();
-                        aliasMaterialId = Material.Create(doc, "AliasMaterial_DashboardTest");
-                        t.Commit();
-                    }
-
-                    // Create the dashboard ViewModel
-                    var vm = DashboardTestFactory.Create(doc, dialogService: fakeFileDialog, exportService: new StandardsExportService(fakeGuardrail, fakeFileDialog), settings: null);
-                    vm.SummaryDisplayService = fakeSummaryService;
-
-                    // Enqueue the primary material with the alias
-                    var primaryModel = new MaterialModel
-                    {
-                        Name = "PrimaryMaterial_DashboardTest",
-                        Class = "Autodesk.Revit.DB.Material",
-                        Aliases = new List<string> { "AliasMaterial_DashboardTest" }
-                    };
-
-                    var queueItem = new QueueItemModel(primaryModel, true, false);
-                    vm.StagingQueue.Add(queueItem);
-
-                    // Act
-                    vm.RunQueueCommand.Execute(null);
-
-                    // Assert
-                    Assert.AreEqual(1, fakeSummaryService.ShowCallCount, "Summary dialog should be displayed.");
-                    var summaryVM = fakeSummaryService.LastViewModel as ImportSummaryViewModel;
-                    Assert.IsNotNull(summaryVM, "ViewModel should be ImportSummaryViewModel.");
-
-                    // Check that the log items contain both the creation and the alias merge
-                    var logItems = summaryVM!.LogItems.ToList();
-                    Assert.IsTrue(logItems.Any(l => l.ElementName == "PrimaryMaterial_DashboardTest" && l.Action == "Created"), 
-                        "Should contain a log item for the primary element creation.");
-                    Assert.IsTrue(logItems.Any(l => l.ElementName == "PrimaryMaterial_DashboardTest" && l.Action == "Merged Alias" && l.Message.Contains("AliasMaterial_DashboardTest")), 
-                        "Should contain a log item for the successful alias merge.");
-
-                    txGroup.RollBack();
+                    t.Start();
+                    aliasMaterialId = Material.Create(doc, "AliasMaterial_DashboardTest");
+                    t.Commit();
                 }
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+
+                // Create the dashboard ViewModel
+                var vm = DashboardTestFactory.Create(doc, dialogService: fakeFileDialog, exportService: new StandardsExportService(fakeGuardrail, fakeFileDialog), settings: null);
+                vm.SummaryDisplayService = fakeSummaryService;
+
+                // Enqueue the primary material with the alias
+                var primaryModel = new MaterialModel
+                {
+                    Name = "PrimaryMaterial_DashboardTest",
+                    Class = "Autodesk.Revit.DB.Material",
+                    Aliases = new List<string> { "AliasMaterial_DashboardTest" }
+                };
+
+                var queueItem = new QueueItemModel(primaryModel, true, false);
+                vm.StagingQueue.Add(queueItem);
+
+                // Act
+                vm.RunQueueCommand.Execute(null);
+
+                // Assert
+                Assert.AreEqual(1, fakeSummaryService.ShowCallCount, "Summary dialog should be displayed.");
+                var summaryVM = fakeSummaryService.LastViewModel as ImportSummaryViewModel;
+                Assert.IsNotNull(summaryVM, "ViewModel should be ImportSummaryViewModel.");
+
+                // Check that the log items contain both the creation and the alias merge
+                var logItems = summaryVM!.LogItems.ToList();
+                Assert.IsTrue(logItems.Any(l => l.ElementName == "PrimaryMaterial_DashboardTest" && l.Action == "Created"), 
+                    "Should contain a log item for the primary element creation.");
+                Assert.IsTrue(logItems.Any(l => l.ElementName == "PrimaryMaterial_DashboardTest" && l.Action == "Merged Alias" && l.Message.Contains("AliasMaterial_DashboardTest")), 
+                    "Should contain a log item for the successful alias merge.");
+            });
         }
 
         private class IntegrationFakeFileDialogService : IFileDialogService

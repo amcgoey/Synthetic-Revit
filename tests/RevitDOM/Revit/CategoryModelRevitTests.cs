@@ -6,35 +6,18 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
-using SyntheticTests.Helpers;
+using SyntheticTests.Fixtures;
 
 namespace SyntheticTests.RevitDOM
 {
     [TestFixture]
     [RevitAdapterTest]
-    public class CategoryModelRevitTests
+    public class CategoryModelRevitTests : RevitTemplateRollbackFixture
     {
-        private UIApplication? _uiapp;
-
-        [OneTimeSetUp]
-        public void Setup(UIApplication uiapp)
-        {
-            _uiapp = uiapp;
-            TestWorkerJournalMarker.EnsureWritten(uiapp);
-        }
-
         [Test]
         public void CategoryModelHydration_BuiltInWallsCategory_HydratesCorrectly()
         {
-            // Arrange
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Assert.IsNotNull(app, "Revit Application should not be null.");
-
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-            Assert.IsNotNull(doc, "New project document should be created.");
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 Category liveCategory = Category.GetCategory(doc, BuiltInCategory.OST_Walls);
                 Assert.IsNotNull(liveCategory, "Built-in OST_Walls category should exist.");
@@ -61,11 +44,7 @@ namespace SyntheticTests.RevitDOM
                 }
                 Assert.AreEqual(expectedId, model.ElementId.Id, "Category ID should match.");
                 Assert.AreEqual("Model Categories", model.CategoryGroupLevel1, "CategoryGroupLevel1 should evaluate to Model Categories.");
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
     }
 }

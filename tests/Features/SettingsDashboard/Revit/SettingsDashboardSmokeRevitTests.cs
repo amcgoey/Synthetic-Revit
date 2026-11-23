@@ -1,52 +1,33 @@
 using System;
-using System.Collections.Generic;
-using System.Diagnostics;
 using System.Windows.Threading;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using NUnit.Framework;
+using Synthetic.Features.SettingsDashboard.Handlers;
 using Synthetic.Features.SettingsDashboard.ViewModels;
 using Synthetic.Features.SettingsDashboard.Views;
 using Synthetic.Platform.Host;
 using Synthetic.Platform.Settings;
 using Synthetic.Platform.UI;
+using SyntheticTests.Fixtures;
 using SyntheticTests.Helpers;
 
 namespace SyntheticTests.Features.SettingsDashboard
 {
     /// <summary>
-    /// Live Revit STA smoke tests verifying <see cref="HostSettingsRegistrar.EnsureRegistered"/>
-    /// and dynamic <see cref="SettingsDashboardWindow"/> composition across all 9 tabs
-    /// without <see cref="System.IO.IOException"/> resource crashes or WPF <c>BindingExpression</c> errors.
+    /// Live Revit STA smoke tests verifying <see cref="HostSettingsRegistrar.EnsureRegistered"/>,
+    /// dynamic <see cref="SettingsDashboardWindow"/> composition across all 9 tabs, and auxiliary
+    /// Settings Dashboard windows without <see cref="System.IO.IOException"/> resource crashes or WPF
+    /// <c>BindingExpression</c> errors.
     /// </summary>
     [TestFixture]
     [RevitSmokeTest]
     public class SettingsDashboardSmokeRevitTests
     {
         private UIApplication? _uiapp;
+        private int _initialDocCount;
         private bool _previousSuppressUi;
         private bool _previousSuppressDiskFallback;
-
-        private sealed class CapturingTraceListener : TraceListener
-        {
-            public List<string> Messages { get; } = new List<string>();
-
-            public override void Write(string? message)
-            {
-                if (!string.IsNullOrEmpty(message))
-                {
-                    Messages.Add(message!);
-                }
-            }
-
-            public override void WriteLine(string? message)
-            {
-                if (!string.IsNullOrEmpty(message))
-                {
-                    Messages.Add(message!);
-                }
-            }
-        }
 
         [OneTimeSetUp]
         public void OneTimeSetup(UIApplication uiapp)
@@ -54,6 +35,19 @@ namespace SyntheticTests.Features.SettingsDashboard
             _uiapp = uiapp;
             HostSettingsRegistrar.EnsureRegistered();
             TestWorkerJournalMarker.EnsureWritten(uiapp);
+            _initialDocCount = uiapp.Application.Documents.Size;
+        }
+
+        [OneTimeTearDown]
+        public void OneTimeTearDown()
+        {
+            if (_uiapp?.Application != null)
+            {
+                Assert.AreEqual(
+                    _initialDocCount,
+                    _uiapp.Application.Documents.Size,
+                    "SettingsDashboardSmokeRevitTests leaked open Revit document(s).");
+            }
         }
 
         [SetUp]
@@ -85,54 +79,59 @@ namespace SyntheticTests.Features.SettingsDashboard
 
             Document? doc = null;
             SettingsDashboardWindow? window = null;
-            var listener = new CapturingTraceListener();
-            TraceSource dataBindingSource = PresentationTraceSources.DataBindingSource;
-            SourceLevels previousLevel = dataBindingSource.Switch.Level;
-            dataBindingSource.Switch.Level = SourceLevels.Error;
-            dataBindingSource.Listeners.Add(listener);
 
-            try
+            using (var harness = new WpfBindingSmokeHarness())
             {
-                PresentationTraceSources.Refresh();
-                doc = _uiapp!.Application.NewProjectDocument(UnitSystem.Imperial);
-                IntPtr ownerHandle = _uiapp.MainWindowHandle;
-
-                var viewModel = new SettingsDashboardViewModel(doc, ownerHandle);
-                Assert.AreEqual(9, viewModel.SettingModules.Count, "SettingsDashboardViewModel must materialize all 9 tabs.");
-
-                window = new SettingsDashboardWindow(ownerHandle)
+                try
                 {
-                    DataContext = viewModel
-                };
-                window.Show();
+                    doc = _uiapp!.Application.NewProjectDocument(UnitSystem.Imperial);
+                    IntPtr ownerHandle = _uiapp.MainWindowHandle;
 
-                foreach (ISettingModuleViewModel tabViewModel in viewModel.SettingModules)
-                {
-                    viewModel.SelectedModule = tabViewModel;
-                    window.UpdateLayout();
-                    Dispatcher.CurrentDispatcher.Invoke(DispatcherPriority.Loaded, new Action(() => { }));
-                    Assert.IsTrue(window.IsVisible, $"SettingsDashboardWindow should remain visible on tab '{tabViewModel.ModuleName}'.");
+                    var viewModel = new SettingsDashboardViewModel(doc, ownerHandle);
+                    Assert.AreEqual(9, viewModel.SettingModules.Count, "SettingsDashboardViewModel must materialize all 9 tabs.");
+
+                    window = new SettingsDashboardWindow(ownerHandle)
+                    {
+                        DataContext = viewModel
+                    };
+                    window.Show();
+
+                    foreach (ISettingModuleViewModel tabViewModel in viewModel.SettingModules)
+                    {
+                        viewModel.SelectedModule = tabViewModel;
+                        window.UpdateLayout();
+                        Dispatcher.CurrentDispatcher.Invoke(DispatcherPriority.Loaded, new Action(() => { }));
+                        Assert.IsTrue(window.IsVisible, $"SettingsDashboardWindow should remain visible on tab '{tabViewModel.ModuleName}'.");
+                    }
+
+                    // Auxiliary SettingsDashboard windows
+                    var netPathsVm = new NetworkPathsWizardViewModel(new FileUtilitySettings().Defaults(), ownerHandle);
+                    WpfBindingSmokeHarness.ExerciseWindow(new NetworkPathsWizardWindow(ownerHandle) { DataContext = netPathsVm }, clearDataContextOnClose: true);
+
+                    var syncWizardVm = new SyncWizardViewModel(new SyncSettings(), new SyntheticTests.Modules.StandardsManagement.FakeFileDialogService());
+                    WpfBindingSmokeHarness.ExerciseWindow(new SyncWizardWindow(ownerHandle) { DataContext = syncWizardVm }, clearDataContextOnClose: true);
+
+                    var syncHandler = new SyncExternalEventHandler();
+                    using (ExternalEvent syncEvent = ExternalEvent.Create(syncHandler))
+                    {
+                        WpfBindingSmokeHarness.ExerciseWindow(new SyncResolutionWindow(ownerHandle, doc, @"C:\Temp\SyntheticSmokeSync.json", syncHandler, syncEvent));
+                        WpfBindingSmokeHarness.ExerciseWindow(new SyncToastNotification(ownerHandle, doc, @"C:\Temp\SyntheticSmokeSync.json", syncHandler, syncEvent));
+                    }
+
+                    harness.AssertNoBindingErrors("all 9 Settings Dashboard tabs and auxiliary windows");
                 }
-
-                Assert.IsEmpty(
-                    listener.Messages,
-                    "Expected zero WPF DataBinding errors across all 9 Settings Dashboard tabs:" + Environment.NewLine
-                    + string.Join(Environment.NewLine, listener.Messages));
-            }
-            finally
-            {
-                dataBindingSource.Listeners.Remove(listener);
-                dataBindingSource.Switch.Level = previousLevel;
-
-                if (window != null)
+                finally
                 {
-                    window.DataContext = null;
-                    window.Close();
-                }
+                    if (window != null)
+                    {
+                        window.DataContext = null;
+                        window.Close();
+                    }
 
-                if (doc != null && doc.IsValidObject)
-                {
-                    doc.Close(false);
+                    if (doc != null && doc.IsValidObject)
+                    {
+                        doc.Close(false);
+                    }
                 }
             }
         }

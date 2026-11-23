@@ -10,7 +10,7 @@ using View = Autodesk.Revit.DB.View;
 using Synthetic.Features.ShadowStudy.Adapters;
 using Synthetic.Features.ShadowStudy.Models;
 using Synthetic.Features.ShadowStudy.Services;
-using SyntheticTests.Helpers;
+using SyntheticTests.Fixtures;
 
 namespace SyntheticTests.Features.ShadowStudy
 {
@@ -20,153 +20,97 @@ namespace SyntheticTests.Features.ShadowStudy
     /// </summary>
     [TestFixture]
     [RevitIsolatedDocTest]
-    public class ShadowStudyMultiDateRevitTests
+    public class ShadowStudyMultiDateRevitTests : RevitIsolatedDocumentFixture
     {
-        private UIApplication? _uiapp;
-        private string _tempDir = string.Empty;
-
-        [OneTimeSetUp]
-        public void OneTimeSetUp(UIApplication uiapp)
-        {
-            _uiapp = uiapp;
-            TestWorkerJournalMarker.EnsureWritten(uiapp);
-        }
-
-        [SetUp]
-        public void SetUp()
-        {
-            _tempDir = Path.Combine(
-                Path.GetTempPath(),
-                "Tier2Shadow154_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(_tempDir);
-        }
-
-        [TearDown]
-        public void TearDown()
-        {
-            if (Directory.Exists(_tempDir))
-            {
-                try
-                {
-                    Directory.Delete(_tempDir, true);
-                }
-                catch
-                {
-                    // Best-effort cleanup
-                }
-            }
-        }
-
         [Test]
         public void Pipeline_MultiDateBatch_ExportsSummerAndWinterCompositesInsideSingleRolledBackTransactionGroup()
         {
-            Assert.IsNotNull(_uiapp);
-            Document doc = OpenAndSaveCleanTempDocument(_uiapp!.Application, out View activePlan);
+            Document doc = OpenAndSaveCleanTempDocument(out View activePlan);
 
-            try
+            Assert.IsFalse(doc.IsModified, "Saved temp document must start clean (IsModified == false).");
+
+            int elementsBefore = new FilteredElementCollector(doc).GetElementCount();
+            ElementId templateBefore = activePlan.ViewTemplateId;
+            DisplayStyle styleBefore = activePlan.DisplayStyle;
+            int shadowIntensityBefore = activePlan.ShadowIntensity;
+            bool cropBefore = activePlan.CropBoxActive;
+
+            var adapter = new RevitShadowStudyAdapter(doc, null, UiApp);
+            ShadowStudyViewItem viewItem = adapter.GetEligibleViews().First(v => v.Id == activePlan.UniqueId);
+            ShadowStudySiteInfo site = adapter.GetSiteInfo();
+
+            ShadowStudyDateEntry summerEntry = BuiltInShadowStudyPresets.ExpandPreset(
+                BuiltInShadowStudyPresets.SummerSolstice,
+                2026,
+                site).Single();
+
+            ShadowStudyDateEntry winterEntry = BuiltInShadowStudyPresets.ExpandPreset(
+                BuiltInShadowStudyPresets.WinterSolstice,
+                2026,
+                site).Single();
+
+            DateSolarSchedule summerSchedule = SolarScheduleCalculator.BuildSchedule(
+                summerEntry,
+                site,
+                stepMinutes: 180,
+                minAltitudeDegrees: 10.0,
+                maxCompositeDarknessPercent: 80);
+
+            DateSolarSchedule winterSchedule = SolarScheduleCalculator.BuildSchedule(
+                winterEntry,
+                site,
+                stepMinutes: 180,
+                minAltitudeDegrees: 10.0,
+                maxCompositeDarknessPercent: 80);
+
+            Assert.IsTrue(summerSchedule.HasValidFrames, "Summer solstice must yield valid daylight frames.");
+            Assert.IsTrue(winterSchedule.HasValidFrames, "Winter solstice must yield valid daylight frames.");
+
+            string outputDir = GetTempFilePath("multi_date_output");
+            var pipeline = new ShadowStudyPipeline(adapter);
+            ShadowStudyRunSummary summary = pipeline.Execute(new ShadowStudyRunRequest
             {
-                Assert.IsFalse(doc.IsModified, "Saved temp document must start clean (IsModified == false).");
+                Views = new[] { viewItem },
+                DateSchedules = new[] { summerSchedule, winterSchedule },
+                OutputFolder = outputDir,
+                PixelWidth = 360,
+                KeepIndividualFrames = false
+            });
 
-                int elementsBefore = new FilteredElementCollector(doc).GetElementCount();
-                ElementId templateBefore = activePlan.ViewTemplateId;
-                DisplayStyle styleBefore = activePlan.DisplayStyle;
-                int shadowIntensityBefore = activePlan.ShadowIntensity;
-                bool cropBefore = activePlan.CropBoxActive;
+            Assert.IsFalse(summary.WasCancelled);
+            Assert.AreEqual(2, summary.GeneratedCount);
 
-                var adapter = new RevitShadowStudyAdapter(doc, null, _uiapp);
-                ShadowStudyViewItem viewItem = adapter.GetEligibleViews().First(v => v.Id == activePlan.UniqueId);
-                ShadowStudySiteInfo site = adapter.GetSiteInfo();
+            string expectedSummerPath = Path.Combine(
+                outputDir,
+                ShadowStudyPathHelper.BuildCompositeFileName(viewItem.ViewLabel, summerEntry.DateLabel));
+            string expectedWinterPath = Path.Combine(
+                outputDir,
+                ShadowStudyPathHelper.BuildCompositeFileName(viewItem.ViewLabel, winterEntry.DateLabel));
 
-                ShadowStudyDateEntry summerEntry = BuiltInShadowStudyPresets.ExpandPreset(
-                    BuiltInShadowStudyPresets.SummerSolstice,
-                    2026,
-                    site).Single();
+            Assert.IsTrue(File.Exists(expectedSummerPath), $"Missing summer composite: {expectedSummerPath}");
+            Assert.IsTrue(File.Exists(expectedWinterPath), $"Missing winter composite: {expectedWinterPath}");
+            CollectionAssert.AreEquivalent(
+                new[] { expectedSummerPath, expectedWinterPath },
+                summary.CompositePaths.ToArray());
 
-                ShadowStudyDateEntry winterEntry = BuiltInShadowStudyPresets.ExpandPreset(
-                    BuiltInShadowStudyPresets.WinterSolstice,
-                    2026,
-                    site).Single();
+            GetPngDimensions(expectedSummerPath, out int sw, out int sh);
+            GetPngDimensions(expectedWinterPath, out int ww, out int wh);
+            Assert.AreEqual(360, sw);
+            Assert.AreEqual(360, ww);
+            Assert.AreEqual(sh, wh);
 
-                DateSolarSchedule summerSchedule = SolarScheduleCalculator.BuildSchedule(
-                    summerEntry,
-                    site,
-                    stepMinutes: 180,
-                    minAltitudeDegrees: 10.0,
-                    maxCompositeDarknessPercent: 80);
-
-                DateSolarSchedule winterSchedule = SolarScheduleCalculator.BuildSchedule(
-                    winterEntry,
-                    site,
-                    stepMinutes: 180,
-                    minAltitudeDegrees: 10.0,
-                    maxCompositeDarknessPercent: 80);
-
-                Assert.IsTrue(summerSchedule.HasValidFrames, "Summer solstice must yield valid daylight frames.");
-                Assert.IsTrue(winterSchedule.HasValidFrames, "Winter solstice must yield valid daylight frames.");
-
-                string outputDir = Path.Combine(_tempDir, "multi_date_output");
-                var pipeline = new ShadowStudyPipeline(adapter);
-                ShadowStudyRunSummary summary = pipeline.Execute(new ShadowStudyRunRequest
-                {
-                    Views = new[] { viewItem },
-                    DateSchedules = new[] { summerSchedule, winterSchedule },
-                    OutputFolder = outputDir,
-                    PixelWidth = 360,
-                    KeepIndividualFrames = false
-                });
-
-                Assert.IsFalse(summary.WasCancelled);
-                Assert.AreEqual(2, summary.GeneratedCount);
-
-                string expectedSummerPath = Path.Combine(
-                    outputDir,
-                    ShadowStudyPathHelper.BuildCompositeFileName(viewItem.ViewLabel, summerEntry.DateLabel));
-                string expectedWinterPath = Path.Combine(
-                    outputDir,
-                    ShadowStudyPathHelper.BuildCompositeFileName(viewItem.ViewLabel, winterEntry.DateLabel));
-
-                Assert.IsTrue(File.Exists(expectedSummerPath), $"Missing summer composite: {expectedSummerPath}");
-                Assert.IsTrue(File.Exists(expectedWinterPath), $"Missing winter composite: {expectedWinterPath}");
-                CollectionAssert.AreEquivalent(
-                    new[] { expectedSummerPath, expectedWinterPath },
-                    summary.CompositePaths.ToArray());
-
-                GetPngDimensions(expectedSummerPath, out int sw, out int sh);
-                GetPngDimensions(expectedWinterPath, out int ww, out int wh);
-                Assert.AreEqual(360, sw);
-                Assert.AreEqual(360, ww);
-                Assert.AreEqual(sh, wh);
-
-                // Verify zero document or Undo mutations
-                Assert.IsFalse(doc.IsModified, "Multi-date Shadow Study Export must never modify the Revit document or Undo history.");
-                Assert.AreEqual(elementsBefore, new FilteredElementCollector(doc).GetElementCount());
-                Assert.AreEqual(templateBefore, activePlan.ViewTemplateId);
-                Assert.AreEqual(styleBefore, activePlan.DisplayStyle);
-                Assert.AreEqual(shadowIntensityBefore, activePlan.ShadowIntensity);
-                Assert.AreEqual(cropBefore, activePlan.CropBoxActive);
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            // Verify zero document or Undo mutations
+            Assert.IsFalse(doc.IsModified, "Multi-date Shadow Study Export must never modify the Revit document or Undo history.");
+            Assert.AreEqual(elementsBefore, new FilteredElementCollector(doc).GetElementCount());
+            Assert.AreEqual(templateBefore, activePlan.ViewTemplateId);
+            Assert.AreEqual(styleBefore, activePlan.DisplayStyle);
+            Assert.AreEqual(shadowIntensityBefore, activePlan.ShadowIntensity);
+            Assert.AreEqual(cropBefore, activePlan.CropBoxActive);
         }
 
-        private Document OpenAndSaveCleanTempDocument(Autodesk.Revit.ApplicationServices.Application app, out View activePlan)
+        private Document OpenAndSaveCleanTempDocument(out View activePlan)
         {
-            string projectRoot = TestPathHelper.GetProjectRoot();
-            string testModelName = "TestTemplate" + app.VersionNumber + ".rvt";
-            string modelPathStr = Path.Combine(projectRoot, "tests", "Assets", "test_models", testModelName);
-            if (!File.Exists(modelPathStr))
-            {
-                throw new FileNotFoundException("Test template model not found: " + modelPathStr);
-            }
-
-            ModelPath modelPath = ModelPathUtils.ConvertUserVisiblePathToModelPath(modelPathStr);
-            var openOptions = new OpenOptions
-            {
-                DetachFromCentralOption = DetachFromCentralOption.DetachAndDiscardWorksets
-            };
-            Document doc = app.OpenDocumentFile(modelPath, openOptions);
+            Document doc = OpenIsolatedTestTemplateCopy();
 
             using (var tx = new Transaction(doc, "Prepare Clean Test View"))
             {
@@ -186,7 +130,7 @@ namespace SyntheticTests.Features.ShadowStudy
                 tx.Commit();
             }
 
-            string cleanRvtPath = Path.Combine(_tempDir, $"CleanShadowMultiDate_{app.VersionNumber}.rvt");
+            string cleanRvtPath = GetTempFilePath($"CleanShadowMultiDate_{App.VersionNumber}.rvt");
             doc.SaveAs(cleanRvtPath, new SaveAsOptions { OverwriteExistingFile = true });
             return doc;
         }

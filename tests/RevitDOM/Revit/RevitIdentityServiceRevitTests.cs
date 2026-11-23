@@ -8,31 +8,18 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
-using SyntheticTests.Helpers;
+using SyntheticTests.Fixtures;
 
 namespace SyntheticTests.RevitDOM
 {
     [TestFixture]
     [RevitAdapterTest]
-    public class RevitIdentityServiceRevitTests
+    public class RevitIdentityServiceRevitTests : RevitTemplateRollbackFixture
     {
-        private UIApplication? _uiapp;
-
-        [OneTimeSetUp]
-        public void Setup(UIApplication uiapp)
-        {
-            _uiapp = uiapp;
-            TestWorkerJournalMarker.EnsureWritten(uiapp);
-        }
-
         [Test]
         public void ResolveElement_ByUniqueId_ResolvesCorrectElement()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 Element? defaultLevel = new FilteredElementCollector(doc)
                     .OfClass(typeof(Level))
@@ -49,21 +36,13 @@ namespace SyntheticTests.RevitDOM
                 // Assert
                 Assert.IsNotNull(resolvedElem, "ResolveElement should resolve the element.");
                 Assert.AreEqual(defaultLevel.UniqueId, resolvedElem.UniqueId, "Resolved element UniqueId should match.");
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void ResolveElement_ByStandardIdFallback_ResolvesCorrectElement()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 Element? defaultLevel = new FilteredElementCollector(doc)
                     .OfClass(typeof(Level))
@@ -102,11 +81,7 @@ namespace SyntheticTests.RevitDOM
                 // Assert
                 Assert.IsNotNull(resolvedElem, "ResolveElement should resolve by standard ID fallback.");
                 Assert.AreEqual(defaultLevel.Id, resolvedElem.Id, "Resolved element ID should match.");
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
@@ -135,11 +110,7 @@ namespace SyntheticTests.RevitDOM
         [Test]
         public void ToModel_FromElementId_PopulatesCorrectModelFields()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 Element? defaultLevel = new FilteredElementCollector(doc)
                     .OfClass(typeof(Level))
@@ -157,11 +128,7 @@ namespace SyntheticTests.RevitDOM
                 Assert.AreEqual(defaultLevel.Name, model.Name);
                 Assert.AreEqual(defaultLevel.GetType().FullName, model.Class);
                 Assert.AreEqual(defaultLevel.UniqueId, model.UniqueId);
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
     }
 }

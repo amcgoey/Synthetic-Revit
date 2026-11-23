@@ -14,7 +14,7 @@ using Synthetic.Features.ShadowStudy.Adapters;
 using Synthetic.Features.ShadowStudy.Models;
 using Synthetic.Features.ShadowStudy.Services;
 using Synthetic.Platform.UI;
-using SyntheticTests.Helpers;
+using SyntheticTests.Fixtures;
 
 namespace SyntheticTests.Features.ShadowStudy
 {
@@ -24,278 +24,200 @@ namespace SyntheticTests.Features.ShadowStudy
     /// </summary>
     [TestFixture]
     [RevitIsolatedDocTest]
-    public class ShadowStudyTracerBulletRevitTests
+    public class ShadowStudyTracerBulletRevitTests : RevitIsolatedDocumentFixture
     {
-        private UIApplication? _uiapp;
-        private string _tempOutputDir = string.Empty;
-
-        [OneTimeSetUp]
-        public void OneTimeSetUp(UIApplication uiapp)
-        {
-            _uiapp = uiapp;
-            TestWorkerJournalMarker.EnsureWritten(uiapp);
-        }
-
-        [SetUp]
-        public void SetUp()
-        {
-            _tempOutputDir = Path.Combine(
-                Path.GetTempPath(),
-                "Tier2ShadowStudy_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(_tempOutputDir);
-        }
-
-        [TearDown]
-        public void TearDown()
-        {
-            if (Directory.Exists(_tempOutputDir))
-            {
-                try
-                {
-                    Directory.Delete(_tempOutputDir, true);
-                }
-                catch
-                {
-                    // Best-effort cleanup
-                }
-            }
-        }
-
         [Test]
         public void Adapter_AllowlistAndSiteInfo_FiltersViewsAndConvertsSiteRadians()
         {
-            Assert.IsNotNull(_uiapp);
-            Document doc = OpenDetachedTestTemplate(_uiapp!.Application);
+            Document doc = OpenIsolatedTestTemplateCopy();
 
-            try
-            {
-                EnsureNonGraphicalTestViews(doc);
+            EnsureNonGraphicalTestViews(doc);
 
-                var adapter = new RevitShadowStudyAdapter(doc, null, _uiapp);
-                IReadOnlyList<ShadowStudyViewItem> eligible = adapter.GetEligibleViews();
+            var adapter = new RevitShadowStudyAdapter(doc, null, UiApp);
+            IReadOnlyList<ShadowStudyViewItem> eligible = adapter.GetEligibleViews();
 
-                Assert.IsNotEmpty(eligible, "Detached template must contain eligible graphical views.");
-                Assert.IsFalse(eligible.Any(v => v.ViewType == "DrawingSheet"), "DrawingSheet must be excluded.");
-                Assert.IsFalse(eligible.Any(v => v.ViewType == "Schedule"), "Schedule must be excluded.");
-                Assert.IsFalse(eligible.Any(v => v.ViewType == "DraftingView"), "DraftingView must be excluded.");
-                Assert.IsFalse(eligible.Any(v => v.ViewType == "Legend"), "Legend must be excluded.");
-                Assert.IsFalse(eligible.Any(v => v.ViewType == "Walkthrough"), "Walkthrough must be excluded.");
+            Assert.IsNotEmpty(eligible, "Detached template must contain eligible graphical views.");
+            Assert.IsFalse(eligible.Any(v => v.ViewType == "DrawingSheet"), "DrawingSheet must be excluded.");
+            Assert.IsFalse(eligible.Any(v => v.ViewType == "Schedule"), "Schedule must be excluded.");
+            Assert.IsFalse(eligible.Any(v => v.ViewType == "DraftingView"), "DraftingView must be excluded.");
+            Assert.IsFalse(eligible.Any(v => v.ViewType == "Legend"), "Legend must be excluded.");
+            Assert.IsFalse(eligible.Any(v => v.ViewType == "Walkthrough"), "Walkthrough must be excluded.");
 
-                ShadowStudySiteInfo site = adapter.GetSiteInfo();
-                double expectedLat = doc.SiteLocation.Latitude * (180.0 / Math.PI);
-                double expectedLon = doc.SiteLocation.Longitude * (180.0 / Math.PI);
+            ShadowStudySiteInfo site = adapter.GetSiteInfo();
+            double expectedLat = doc.SiteLocation.Latitude * (180.0 / Math.PI);
+            double expectedLon = doc.SiteLocation.Longitude * (180.0 / Math.PI);
 
-                Assert.AreEqual(expectedLat, site.LatitudeDegrees, 1e-6);
-                Assert.AreEqual(expectedLon, site.LongitudeDegrees, 1e-6);
-                Assert.AreEqual(doc.SiteLocation.TimeZone, site.TimeZoneHours, 1e-6);
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            Assert.AreEqual(expectedLat, site.LatitudeDegrees, 1e-6);
+            Assert.AreEqual(expectedLon, site.LongitudeDegrees, 1e-6);
+            Assert.AreEqual(doc.SiteLocation.TimeZone, site.TimeZoneHours, 1e-6);
         }
 
         [Test]
         public void Pipeline_MultiViewTypesWithControllingTemplate_ExportsConsistentPngsAndRestoresModel()
         {
-            Assert.IsNotNull(_uiapp);
-            Document doc = OpenDetachedTestTemplate(_uiapp!.Application);
+            Document doc = OpenIsolatedTestTemplateCopy();
 
-            try
+            List<View> targetViews = PrepareDiverseGraphicalViewsWithMassingAndTemplate(doc);
+            Assert.GreaterOrEqual(targetViews.Count, 4, "Expected FloorPlan, Ortho 3D, Perspective 3D, Section, and Elevation.");
+
+            var adapter = new RevitShadowStudyAdapter(doc, null, UiApp);
+            ShadowStudySiteInfo site = adapter.GetSiteInfo();
+            DateSolarSchedule schedule = SolarScheduleCalculator.BuildSchedule(
+                new ShadowStudyDateEntry { Date = new DateTime(2026, 6, 21) },
+                site,
+                stepMinutes: 120,
+                minAltitudeDegrees: 10.0,
+                maxCompositeDarknessPercent: 80);
+
+            Assert.IsTrue(schedule.HasValidFrames, "Summer solstice schedule must produce valid frames.");
+
+            IReadOnlyList<ShadowStudyViewItem> eligible = adapter.GetEligibleViews();
+            var selectedItems = targetViews
+                .Select(v => eligible.First(item => item.Id == v.UniqueId))
+                .ToList();
+
+            int elementCountBefore = CountAllElements(doc);
+            List<ViewSnapshot> snapshotsBefore = targetViews.Select(CaptureSnapshot).ToList();
+
+            var pipeline = new ShadowStudyPipeline(adapter);
+            ShadowStudyRunSummary summary = pipeline.Execute(new ShadowStudyRunRequest
             {
-                List<View> targetViews = PrepareDiverseGraphicalViewsWithMassingAndTemplate(doc);
-                Assert.GreaterOrEqual(targetViews.Count, 4, "Expected FloorPlan, Ortho 3D, Perspective 3D, Section, and Elevation.");
+                Views = selectedItems,
+                DateSchedules = new[] { schedule },
+                OutputFolder = CurrentTestTempDirectory,
+                PixelWidth = 400,
+                ForceHiddenLine = true,
+                ForceWhiteBackground = true,
+                KeepIndividualFrames = true
+            });
 
-                var adapter = new RevitShadowStudyAdapter(doc, null, _uiapp);
-                ShadowStudySiteInfo site = adapter.GetSiteInfo();
-                DateSolarSchedule schedule = SolarScheduleCalculator.BuildSchedule(
-                    new ShadowStudyDateEntry { Date = new DateTime(2026, 6, 21) },
-                    site,
-                    stepMinutes: 120,
-                    minAltitudeDegrees: 10.0,
-                    maxCompositeDarknessPercent: 80);
+            Assert.IsFalse(summary.WasCancelled);
+            Assert.AreEqual(selectedItems.Count, summary.GeneratedCount);
 
-                Assert.IsTrue(schedule.HasValidFrames, "Summer solstice schedule must produce valid frames.");
+            foreach (string compositePath in summary.CompositePaths)
+            {
+                Assert.IsTrue(File.Exists(compositePath), $"Missing composite PNG: {compositePath}");
+                GetPngDimensions(compositePath, out int w, out int h);
+                Assert.AreEqual(400, w, $"Expected 400px horizontal width for {compositePath}");
+                Assert.Greater(h, 0);
+            }
 
-                IReadOnlyList<ShadowStudyViewItem> eligible = adapter.GetEligibleViews();
-                var selectedItems = targetViews
-                    .Select(v => eligible.First(item => item.Id == v.UniqueId))
-                    .ToList();
+            // Verify frame dimensions match composite dimensions per view
+            foreach (var viewItem in selectedItems)
+            {
+                string compositePath = summary.CompositePaths.First(p => Path.GetFileName(p).StartsWith(viewItem.ViewLabel + " - ", StringComparison.OrdinalIgnoreCase));
+                GetPngDimensions(compositePath, out int compW, out int compH);
 
-                int elementCountBefore = CountAllElements(doc);
-                List<ViewSnapshot> snapshotsBefore = targetViews.Select(CaptureSnapshot).ToList();
+                string framesDir = GetTempFilePath(
+                    ShadowStudyPathHelper.BuildFrameFolderName(viewItem.ViewLabel, schedule.DateEntry.DateLabel));
+                Assert.IsTrue(Directory.Exists(framesDir));
+                string[] framePngs = Directory.GetFiles(framesDir, "*.png");
+                Assert.AreEqual(schedule.Frames.Count, framePngs.Length);
 
-                var pipeline = new ShadowStudyPipeline(adapter);
-                ShadowStudyRunSummary summary = pipeline.Execute(new ShadowStudyRunRequest
+                foreach (SolarFrameSlot slot in schedule.Frames)
                 {
-                    Views = selectedItems,
-                    DateSchedules = new[] { schedule },
-                    OutputFolder = _tempOutputDir,
-                    PixelWidth = 400,
-                    ForceHiddenLine = true,
-                    ForceWhiteBackground = true,
-                    KeepIndividualFrames = true
-                });
-
-                Assert.IsFalse(summary.WasCancelled);
-                Assert.AreEqual(selectedItems.Count, summary.GeneratedCount);
-
-                foreach (string compositePath in summary.CompositePaths)
-                {
-                    Assert.IsTrue(File.Exists(compositePath), $"Missing composite PNG: {compositePath}");
-                    GetPngDimensions(compositePath, out int w, out int h);
-                    Assert.AreEqual(400, w, $"Expected 400px horizontal width for {compositePath}");
-                    Assert.Greater(h, 0);
+                    string expectedFramePath = Path.Combine(
+                        framesDir,
+                        ShadowStudyPathHelper.BuildFrameFileName(viewItem.ViewLabel, schedule.DateEntry.DateLabel, slot.ProjectLocalTime));
+                    Assert.IsTrue(File.Exists(expectedFramePath), $"Missing expected frame PNG: {expectedFramePath}");
                 }
 
-                // Verify frame dimensions match composite dimensions per view
-                foreach (var viewItem in selectedItems)
+                foreach (string framePng in framePngs)
                 {
-                    string compositePath = summary.CompositePaths.First(p => Path.GetFileName(p).StartsWith(viewItem.ViewLabel + " - ", StringComparison.OrdinalIgnoreCase));
-                    GetPngDimensions(compositePath, out int compW, out int compH);
-
-                    string framesDir = Path.Combine(
-                        _tempOutputDir,
-                        ShadowStudyPathHelper.BuildFrameFolderName(viewItem.ViewLabel, schedule.DateEntry.DateLabel));
-                    Assert.IsTrue(Directory.Exists(framesDir));
-                    string[] framePngs = Directory.GetFiles(framesDir, "*.png");
-                    Assert.AreEqual(schedule.Frames.Count, framePngs.Length);
-
-                    foreach (SolarFrameSlot slot in schedule.Frames)
-                    {
-                        string expectedFramePath = Path.Combine(
-                            framesDir,
-                            ShadowStudyPathHelper.BuildFrameFileName(viewItem.ViewLabel, schedule.DateEntry.DateLabel, slot.ProjectLocalTime));
-                        Assert.IsTrue(File.Exists(expectedFramePath), $"Missing expected frame PNG: {expectedFramePath}");
-                    }
-
-                    foreach (string framePng in framePngs)
-                    {
-                        GetPngDimensions(framePng, out int fw, out int fh);
-                        Assert.AreEqual(compW, fw, $"Frame width mismatch in {framePng}");
-                        Assert.AreEqual(compH, fh, $"Frame height mismatch in {framePng}");
-                    }
-
-                    // If Cast Shadows is active on the view, verify shadow/dark pixels exist
-                    View revitView = (View)doc.GetElement(viewItem.Id);
-                    Parameter? shadowParam = revitView.get_Parameter(BuiltInParameter.GRAPHIC_DISPLAY_OPTIONS_SHADOWS);
-                    if (shadowParam != null && shadowParam.AsInteger() == 1)
-                    {
-                        Assert.IsTrue(ContainsNonWhitePixels(compositePath), $"Expected shadow/model pixels in {compositePath}");
-                    }
+                    GetPngDimensions(framePng, out int fw, out int fh);
+                    Assert.AreEqual(compW, fw, $"Frame width mismatch in {framePng}");
+                    Assert.AreEqual(compH, fh, $"Frame height mismatch in {framePng}");
                 }
 
-                // Verify 100% restoration of element counts, view properties, View Templates, Crop/Scope Boxes
-                Assert.AreEqual(elementCountBefore, CountAllElements(doc), "Document element count must remain unchanged.");
-                for (int i = 0; i < targetViews.Count; i++)
+                // If Cast Shadows is active on the view, verify shadow/dark pixels exist
+                View revitView = (View)doc.GetElement(viewItem.Id);
+                Parameter? shadowParam = revitView.get_Parameter(BuiltInParameter.GRAPHIC_DISPLAY_OPTIONS_SHADOWS);
+                if (shadowParam != null && shadowParam.AsInteger() == 1)
                 {
-                    AssertSnapshotUnchanged(snapshotsBefore[i], targetViews[i]);
+                    Assert.IsTrue(ContainsNonWhitePixels(compositePath), $"Expected shadow/model pixels in {compositePath}");
                 }
             }
-            finally
+
+            // Verify 100% restoration of element counts, view properties, View Templates, Crop/Scope Boxes
+            Assert.AreEqual(elementCountBefore, CountAllElements(doc), "Document element count must remain unchanged.");
+            for (int i = 0; i < targetViews.Count; i++)
             {
-                doc.Close(false);
+                AssertSnapshotUnchanged(snapshotsBefore[i], targetViews[i]);
             }
         }
 
         [Test]
         public void Pipeline_OnCancellationAndMidBatchException_RestoresDocumentAndViewsCompletely()
         {
-            Assert.IsNotNull(_uiapp);
-            Document doc = OpenDetachedTestTemplate(_uiapp!.Application);
+            Document doc = OpenIsolatedTestTemplateCopy();
 
-            try
+            List<View> targetViews = PrepareDiverseGraphicalViewsWithMassingAndTemplate(doc);
+            View testView = targetViews[0];
+
+            var adapter = new RevitShadowStudyAdapter(doc, null, UiApp);
+            ShadowStudySiteInfo site = adapter.GetSiteInfo();
+            DateSolarSchedule schedule = SolarScheduleCalculator.BuildSchedule(
+                new ShadowStudyDateEntry { Date = new DateTime(2026, 6, 21) },
+                site,
+                stepMinutes: 120,
+                minAltitudeDegrees: 10.0,
+                maxCompositeDarknessPercent: 80);
+
+            ShadowStudyViewItem viewItem = adapter.GetEligibleViews().First(v => v.Id == testView.UniqueId);
+            int elementCountBefore = CountAllElements(doc);
+            ViewSnapshot snapshotBefore = CaptureSnapshot(testView);
+
+            // 1. Mid-run cancellation after first progress report
+            using (var cts = new CancellationTokenSource())
             {
-                List<View> targetViews = PrepareDiverseGraphicalViewsWithMassingAndTemplate(doc);
-                View testView = targetViews[0];
-
-                var adapter = new RevitShadowStudyAdapter(doc, null, _uiapp);
-                ShadowStudySiteInfo site = adapter.GetSiteInfo();
-                DateSolarSchedule schedule = SolarScheduleCalculator.BuildSchedule(
-                    new ShadowStudyDateEntry { Date = new DateTime(2026, 6, 21) },
-                    site,
-                    stepMinutes: 120,
-                    minAltitudeDegrees: 10.0,
-                    maxCompositeDarknessPercent: 80);
-
-                ShadowStudyViewItem viewItem = adapter.GetEligibleViews().First(v => v.Id == testView.UniqueId);
-                int elementCountBefore = CountAllElements(doc);
-                ViewSnapshot snapshotBefore = CaptureSnapshot(testView);
-
-                // 1. Mid-run cancellation after first progress report
-                using (var cts = new CancellationTokenSource())
+                var progress = new CallbackProgress(state =>
                 {
-                    var progress = new CallbackProgress(state =>
+                    if (state.ProgressIndex >= 1)
                     {
-                        if (state.ProgressIndex >= 1)
-                        {
-                            cts.Cancel();
-                        }
-                    });
+                        cts.Cancel();
+                    }
+                });
 
-                    var pipeline = new ShadowStudyPipeline(adapter);
-                    ShadowStudyRunSummary cancelledSummary = pipeline.Execute(
-                        new ShadowStudyRunRequest
-                        {
-                            Views = new[] { viewItem },
-                            DateSchedules = new[] { schedule },
-                            OutputFolder = _tempOutputDir,
-                            PixelWidth = 300
-                        },
-                        progress,
-                        cts.Token);
-
-                    Assert.IsTrue(cancelledSummary.WasCancelled);
-                    Assert.AreEqual(0, cancelledSummary.GeneratedCount);
-                    Assert.AreEqual(0, Directory.GetFiles(_tempOutputDir, "*.png").Length);
-                }
-
-                Assert.AreEqual(elementCountBefore, CountAllElements(doc));
-                AssertSnapshotUnchanged(snapshotBefore, testView);
-
-                // 2. Mid-batch exception after first valid view is prepared/mutated inside outer TransactionGroup
-                var missingSecondView = new ShadowStudyViewItem
-                {
-                    Id = "non-existent-unique-id",
-                    Name = "Missing",
-                    ViewType = "FloorPlan"
-                };
-
-                var pipelineForError = new ShadowStudyPipeline(adapter);
-                Assert.Throws<InvalidOperationException>(() => pipelineForError.Execute(
+                var pipeline = new ShadowStudyPipeline(adapter);
+                ShadowStudyRunSummary cancelledSummary = pipeline.Execute(
                     new ShadowStudyRunRequest
                     {
-                        Views = new[] { viewItem, missingSecondView },
+                        Views = new[] { viewItem },
                         DateSchedules = new[] { schedule },
-                        OutputFolder = _tempOutputDir,
+                        OutputFolder = CurrentTestTempDirectory,
                         PixelWidth = 300
-                    }));
+                    },
+                    progress,
+                    cts.Token);
 
-                Assert.AreEqual(elementCountBefore, CountAllElements(doc));
-                AssertSnapshotUnchanged(snapshotBefore, testView);
-            }
-            finally
-            {
-                doc.Close(false);
-            }
-        }
-
-        private static Document OpenDetachedTestTemplate(Autodesk.Revit.ApplicationServices.Application app)
-        {
-            string projectRoot = TestPathHelper.GetProjectRoot();
-            string testModelName = "TestTemplate" + app.VersionNumber + ".rvt";
-            string modelPathStr = Path.Combine(projectRoot, "tests", "Assets", "test_models", testModelName);
-            if (!File.Exists(modelPathStr))
-            {
-                throw new FileNotFoundException("Test template model not found: " + modelPathStr);
+                Assert.IsTrue(cancelledSummary.WasCancelled);
+                Assert.AreEqual(0, cancelledSummary.GeneratedCount);
+                Assert.AreEqual(0, Directory.GetFiles(CurrentTestTempDirectory, "*.png").Length);
             }
 
-            ModelPath modelPath = ModelPathUtils.ConvertUserVisiblePathToModelPath(modelPathStr);
-            var openOptions = new OpenOptions
+            Assert.AreEqual(elementCountBefore, CountAllElements(doc));
+            AssertSnapshotUnchanged(snapshotBefore, testView);
+
+            // 2. Mid-batch exception after first valid view is prepared/mutated inside outer TransactionGroup
+            var missingSecondView = new ShadowStudyViewItem
             {
-                DetachFromCentralOption = DetachFromCentralOption.DetachAndDiscardWorksets
+                Id = "non-existent-unique-id",
+                Name = "Missing",
+                ViewType = "FloorPlan"
             };
-            return app.OpenDocumentFile(modelPath, openOptions);
+
+            var pipelineForError = new ShadowStudyPipeline(adapter);
+            Assert.Throws<InvalidOperationException>(() => pipelineForError.Execute(
+                new ShadowStudyRunRequest
+                {
+                    Views = new[] { viewItem, missingSecondView },
+                    DateSchedules = new[] { schedule },
+                    OutputFolder = CurrentTestTempDirectory,
+                    PixelWidth = 300
+                }));
+
+            Assert.AreEqual(elementCountBefore, CountAllElements(doc));
+            AssertSnapshotUnchanged(snapshotBefore, testView);
         }
 
         private static void EnsureNonGraphicalTestViews(Document doc)

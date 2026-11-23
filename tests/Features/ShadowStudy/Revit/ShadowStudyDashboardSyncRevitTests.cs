@@ -17,7 +17,7 @@ using Synthetic.Features.ShadowStudy.ViewModels;
 using Synthetic.Platform.Host;
 using Synthetic.Platform.Settings;
 using Synthetic.Platform.UI;
-using SyntheticTests.Helpers;
+using SyntheticTests.Fixtures;
 
 namespace SyntheticTests.Features.ShadowStudy
 {
@@ -30,22 +30,14 @@ namespace SyntheticTests.Features.ShadowStudy
     /// </summary>
     [TestFixture]
     [RevitAdapterTest]
-    public class ShadowStudyDashboardSyncRevitTests
+    public class ShadowStudyDashboardSyncRevitTests : RevitTemplateRollbackFixture
     {
-        private UIApplication? _uiapp;
         private bool _previousSuppressUi;
         private bool _previousSuppressDiskFallback;
 
-        [OneTimeSetUp]
-        public void OneTimeSetup(UIApplication uiapp)
-        {
-            _uiapp = uiapp;
-            HostSettingsRegistrar.EnsureRegistered();
-            TestWorkerJournalMarker.EnsureWritten(uiapp);
-        }
+        protected override RevitBaselineDocumentKind BaselineKind => RevitBaselineDocumentKind.ImperialProject;
 
-        [SetUp]
-        public void SetUp()
+        protected override void OnTestSetUp()
         {
             _previousSuppressUi = ProgressCoordinator.SuppressUI;
             _previousSuppressDiskFallback = SettingsRuntimeOptions.SuppressFirmwideDiskFallback;
@@ -54,18 +46,11 @@ namespace SyntheticTests.Features.ShadowStudy
             SettingsManager.ClearCache();
         }
 
-        [TearDown]
-        public void TearDown()
+        protected override void OnTestTearDown()
         {
             SettingsManager.ClearCache();
             ProgressCoordinator.SuppressUI = _previousSuppressUi;
             SettingsRuntimeOptions.SuppressFirmwideDiskFallback = _previousSuppressDiskFallback;
-        }
-
-        private Document CreateFreshProjectDocument()
-        {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context must not be null.");
-            return _uiapp!.Application.NewProjectDocument(UnitSystem.Imperial);
         }
 
         private static string CreateTempJsonPath()
@@ -76,12 +61,8 @@ namespace SyntheticTests.Features.ShadowStudy
         [Test]
         public void SettingsDashboardViewModel_ShadowStudyPage_CancelIsolatesCache_AndSavePersistsStudioDefaultsToDialog()
         {
-            Document? doc = null;
-
-            try
+            WithRolledBackDocument(doc =>
             {
-                doc = CreateFreshProjectDocument();
-
                 // Seed initial settings in document storage
                 SettingsManager.Save(doc, new ShadowStudySettings
                 {
@@ -166,7 +147,7 @@ namespace SyntheticTests.Features.ShadowStudy
                 Assert.AreEqual(2, persisted.UserPresets[0].Dates.Count);
 
                 // 3. Verify ShadowStudyViewModel opened from this document inherits saved studio defaults & shared preset
-                var adapter = new RevitShadowStudyAdapter(doc, null, _uiapp);
+                var adapter = new RevitShadowStudyAdapter(doc, null, UiApp);
                 var dialogVm = new ShadowStudyViewModel(adapter, new NoOpFolderDialogService());
 
                 Assert.AreEqual(15, dialogVm.TimeStepMinutes);
@@ -174,22 +155,14 @@ namespace SyntheticTests.Features.ShadowStudy
                 Assert.AreEqual(65, dialogVm.MaxCompositeDarknessPercent);
                 Assert.IsTrue(dialogVm.PreserveVisualStyle);
                 Assert.IsTrue(dialogVm.AvailablePresets.Any(p => p.Name == "Initial Shared Preset"));
-            }
-            finally
-            {
-                if (doc != null && doc.IsValidObject) doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void ShadowStudySettingsViewModel_Reload_RefreshesIsOverriddenFromDataStorage()
         {
-            Document? doc = null;
-
-            try
+            WithRolledBackDocument(doc =>
             {
-                doc = CreateFreshProjectDocument();
-
                 var vm = RevitShadowStudyAdapter.CreateSettingsViewModel(doc, IntPtr.Zero);
                 Assert.IsFalse(vm.IsOverridden);
 
@@ -214,120 +187,112 @@ namespace SyntheticTests.Features.ShadowStudy
                 vm.Reload();
                 Assert.IsFalse(vm.IsOverridden);
                 Assert.IsFalse(vm.IsDirty);
-            }
-            finally
-            {
-                if (doc != null && doc.IsValidObject) doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void FirmwideSync_RoundTripsAllEightModulesIncludingShadowStudy_AndToleratesLegacyJsonWithoutShadowStudy()
         {
             string tempJsonPath = CreateTempJsonPath();
-            Document? sourceDoc = null;
-            Document? targetDoc = null;
 
             try
             {
-                sourceDoc = CreateFreshProjectDocument();
-                targetDoc = CreateFreshProjectDocument();
-
-                using (Transaction tx = new Transaction(sourceDoc, "Seed 8 Modules for Shadow Sync Test"))
+                WithRolledBackDocumentPair((sourceDoc, targetDoc) =>
                 {
-                    tx.Start();
-                    SettingsManager.Save(sourceDoc, new WorksetSettings("FirmWorksets.xlsx", @"C:\Firm\Worksets", "FirmGroup"));
-                    SettingsManager.Save(sourceDoc, new StandardsSettings { StandardsFilePath = @"C:\Firm\standards.json" });
-                    SettingsManager.Save(sourceDoc, new ShadowStudySettings
+                    using (Transaction tx = new Transaction(sourceDoc, "Seed 8 Modules for Shadow Sync Test"))
                     {
-                        SchemaVersion = 1,
-                        DefaultTimeIncrementMinutes = 15,
-                        DefaultMinSunAltitudeDegrees = 10.0,
-                        DefaultMaxCompositeDarknessPercent = 60,
-                        DefaultPreserveVisualStyle = true,
-                        UserPresets = new List<ShadowStudyPresetModel>
+                        tx.Start();
+                        SettingsManager.Save(sourceDoc, new WorksetSettings("FirmWorksets.xlsx", @"C:\Firm\Worksets", "FirmGroup"));
+                        SettingsManager.Save(sourceDoc, new StandardsSettings { StandardsFilePath = @"C:\Firm\standards.json" });
+                        SettingsManager.Save(sourceDoc, new ShadowStudySettings
                         {
-                            new ShadowStudyPresetModel
+                            SchemaVersion = 1,
+                            DefaultTimeIncrementMinutes = 15,
+                            DefaultMinSunAltitudeDegrees = 10.0,
+                            DefaultMaxCompositeDarknessPercent = 60,
+                            DefaultPreserveVisualStyle = true,
+                            UserPresets = new List<ShadowStudyPresetModel>
                             {
-                                Name = "Office Solstice Package",
-                                TimeIncrementMinutes = 30,
-                                MinSunAltitudeDegrees = 7.5,
-                                MaxCompositeDarknessPercent = 75,
-                                PreserveVisualStyle = false,
-                                Dates = new List<ShadowStudyPresetDateSpec>
+                                new ShadowStudyPresetModel
                                 {
-                                    new ShadowStudyPresetDateSpec { AstronomicalEvent = AstronomicalEventKind.SummerSolstice },
-                                    new ShadowStudyPresetDateSpec
+                                    Name = "Office Solstice Package",
+                                    TimeIncrementMinutes = 30,
+                                    MinSunAltitudeDegrees = 7.5,
+                                    MaxCompositeDarknessPercent = 75,
+                                    PreserveVisualStyle = false,
+                                    Dates = new List<ShadowStudyPresetDateSpec>
                                     {
-                                        AstronomicalEvent = AstronomicalEventKind.None,
-                                        CustomDate = new DateTime(2026, 5, 15),
-                                        CustomLabel = "Milestone"
+                                        new ShadowStudyPresetDateSpec { AstronomicalEvent = AstronomicalEventKind.SummerSolstice },
+                                        new ShadowStudyPresetDateSpec
+                                        {
+                                            AstronomicalEvent = AstronomicalEventKind.None,
+                                            CustomDate = new DateTime(2026, 5, 15),
+                                            CustomLabel = "Milestone"
+                                        }
                                     }
                                 }
                             }
-                        }
-                    });
-                    SettingsManager.Save(sourceDoc, new SyncSettings { LinkedFilePath = tempJsonPath });
-                    tx.Commit();
-                }
+                        });
+                        SettingsManager.Save(sourceDoc, new SyncSettings { LinkedFilePath = tempJsonPath });
+                        tx.Commit();
+                    }
 
-                // 1. PushToLinkedFile includes all 8 synced modules + SyncSettings
-                SettingsManager.PushToLinkedFile(sourceDoc, tempJsonPath);
-                JObject pushedJson = JObject.Parse(File.ReadAllText(tempJsonPath));
-                Assert.AreEqual(8, SettingsModuleRegistry.SyncedModules.Count);
-                foreach (SettingsModuleDescriptor descriptor in SettingsModuleRegistry.SyncedModules)
-                {
-                    Assert.IsNotNull(pushedJson[descriptor.ModuleKey],
-                        $"Pushed JSON must include '{descriptor.ModuleKey}'.");
-                }
+                    // 1. PushToLinkedFile includes all 8 synced modules + SyncSettings
+                    SettingsManager.PushToLinkedFile(sourceDoc, tempJsonPath);
+                    JObject pushedJson = JObject.Parse(File.ReadAllText(tempJsonPath));
+                    Assert.AreEqual(8, SettingsModuleRegistry.SyncedModules.Count);
+                    foreach (SettingsModuleDescriptor descriptor in SettingsModuleRegistry.SyncedModules)
+                    {
+                        Assert.IsNotNull(pushedJson[descriptor.ModuleKey],
+                            $"Pushed JSON must include '{descriptor.ModuleKey}'.");
+                    }
 
-                // 2. PullFromLinkedFile round-trips ShadowStudySettings and existing modules without truncation
-                SettingsManager.PullFromLinkedFile(targetDoc, tempJsonPath);
-                SettingsManager.ClearCache(targetDoc);
+                    // 2. PullFromLinkedFile round-trips ShadowStudySettings and existing modules without truncation
+                    SettingsManager.PullFromLinkedFile(targetDoc, tempJsonPath);
+                    SettingsManager.ClearCache(targetDoc);
 
-                ShadowStudySettings pulledShadow = SettingsManager.Get<ShadowStudySettings>(targetDoc);
-                Assert.AreEqual(15, pulledShadow.DefaultTimeIncrementMinutes);
-                Assert.AreEqual(10.0, pulledShadow.DefaultMinSunAltitudeDegrees, 1e-6);
-                Assert.AreEqual(60, pulledShadow.DefaultMaxCompositeDarknessPercent);
-                Assert.IsTrue(pulledShadow.DefaultPreserveVisualStyle);
-                Assert.AreEqual(1, pulledShadow.UserPresets.Count);
-                Assert.AreEqual("Office Solstice Package", pulledShadow.UserPresets[0].Name);
-                Assert.AreEqual(2, pulledShadow.UserPresets[0].Dates.Count);
-                Assert.AreEqual(AstronomicalEventKind.SummerSolstice, pulledShadow.UserPresets[0].Dates[0].AstronomicalEvent);
-                Assert.AreEqual(new DateTime(2026, 5, 15), pulledShadow.UserPresets[0].Dates[1].CustomDate);
-                Assert.AreEqual("FirmWorksets.xlsx", SettingsManager.Get<WorksetSettings>(targetDoc).WorksetFile);
-                Assert.AreEqual(@"C:\Firm\standards.json", SettingsManager.Get<StandardsSettings>(targetDoc).StandardsFilePath);
+                    ShadowStudySettings pulledShadow = SettingsManager.Get<ShadowStudySettings>(targetDoc);
+                    Assert.AreEqual(15, pulledShadow.DefaultTimeIncrementMinutes);
+                    Assert.AreEqual(10.0, pulledShadow.DefaultMinSunAltitudeDegrees, 1e-6);
+                    Assert.AreEqual(60, pulledShadow.DefaultMaxCompositeDarknessPercent);
+                    Assert.IsTrue(pulledShadow.DefaultPreserveVisualStyle);
+                    Assert.AreEqual(1, pulledShadow.UserPresets.Count);
+                    Assert.AreEqual("Office Solstice Package", pulledShadow.UserPresets[0].Name);
+                    Assert.AreEqual(2, pulledShadow.UserPresets[0].Dates.Count);
+                    Assert.AreEqual(AstronomicalEventKind.SummerSolstice, pulledShadow.UserPresets[0].Dates[0].AstronomicalEvent);
+                    Assert.AreEqual(new DateTime(2026, 5, 15), pulledShadow.UserPresets[0].Dates[1].CustomDate);
+                    Assert.AreEqual("FirmWorksets.xlsx", SettingsManager.Get<WorksetSettings>(targetDoc).WorksetFile);
+                    Assert.AreEqual(@"C:\Firm\standards.json", SettingsManager.Get<StandardsSettings>(targetDoc).StandardsFilePath);
 
-                // 3. ExportAllToFile / ImportAllFromFile round-trip
-                SettingsManager.ExportAllToFile(sourceDoc, tempJsonPath);
-                JObject exportedJson = JObject.Parse(File.ReadAllText(tempJsonPath));
-                Assert.IsNull(exportedJson[SyncSettings.Name]);
-                Assert.IsNotNull(exportedJson[ShadowStudySettings.Name]);
+                    // 3. ExportAllToFile / ImportAllFromFile round-trip
+                    SettingsManager.ExportAllToFile(sourceDoc, tempJsonPath);
+                    JObject exportedJson = JObject.Parse(File.ReadAllText(tempJsonPath));
+                    Assert.IsNull(exportedJson[SyncSettings.Name]);
+                    Assert.IsNotNull(exportedJson[ShadowStudySettings.Name]);
 
-                // 4. Legacy drift tolerance: removing "ShadowStudy" from linked JSON returns false;
-                //    modifying "ShadowStudy" in linked JSON returns true.
-                var legacyDict = JsonConvert.DeserializeObject<Dictionary<string, JToken>>(File.ReadAllText(tempJsonPath))!;
-                legacyDict.Remove(ShadowStudySettings.Name);
-                File.WriteAllText(tempJsonPath, JsonConvert.SerializeObject(legacyDict, Formatting.Indented));
+                    // 4. Legacy drift tolerance: removing "ShadowStudy" from linked JSON returns false;
+                    //    modifying "ShadowStudy" in linked JSON returns true.
+                    var legacyDict = JsonConvert.DeserializeObject<Dictionary<string, JToken>>(File.ReadAllText(tempJsonPath))!;
+                    legacyDict.Remove(ShadowStudySettings.Name);
+                    File.WriteAllText(tempJsonPath, JsonConvert.SerializeObject(legacyDict, Formatting.Indented));
 
-                Assert.IsFalse(SettingsManager.CheckSyncDrift(sourceDoc, out _),
-                    "Legacy linked JSON predating 'ShadowStudy' must not trigger false-positive sync drift.");
+                    Assert.IsFalse(SettingsManager.CheckSyncDrift(sourceDoc, out _),
+                        "Legacy linked JSON predating 'ShadowStudy' must not trigger false-positive sync drift.");
 
-                var modifiedShadow = new ShadowStudySettings
-                {
-                    DefaultTimeIncrementMinutes = 120,
-                    DefaultMinSunAltitudeDegrees = 20.0
-                };
-                legacyDict[ShadowStudySettings.Name] = JToken.FromObject(modifiedShadow);
-                File.WriteAllText(tempJsonPath, JsonConvert.SerializeObject(legacyDict, Formatting.Indented));
+                    var modifiedShadow = new ShadowStudySettings
+                    {
+                        DefaultTimeIncrementMinutes = 120,
+                        DefaultMinSunAltitudeDegrees = 20.0
+                    };
+                    legacyDict[ShadowStudySettings.Name] = JToken.FromObject(modifiedShadow);
+                    File.WriteAllText(tempJsonPath, JsonConvert.SerializeObject(legacyDict, Formatting.Indented));
 
-                Assert.IsTrue(SettingsManager.CheckSyncDrift(sourceDoc, out _),
-                    "Modified 'ShadowStudy' key in linked JSON must trigger sync drift.");
+                    Assert.IsTrue(SettingsManager.CheckSyncDrift(sourceDoc, out _),
+                        "Modified 'ShadowStudy' key in linked JSON must trigger sync drift.");
+                });
             }
             finally
             {
-                if (targetDoc != null && targetDoc.IsValidObject) targetDoc.Close(false);
-                if (sourceDoc != null && sourceDoc.IsValidObject) sourceDoc.Close(false);
                 if (File.Exists(tempJsonPath)) File.Delete(tempJsonPath);
             }
         }

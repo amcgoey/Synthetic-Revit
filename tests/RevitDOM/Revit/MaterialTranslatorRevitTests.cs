@@ -9,23 +9,14 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
-using SyntheticTests.Helpers;
+using SyntheticTests.Fixtures;
 
 namespace SyntheticTests.RevitDOM
 {
     [TestFixture]
     [RevitAdapterTest]
-    public class MaterialTranslatorRevitTests
+    public class MaterialTranslatorRevitTests : RevitTemplateRollbackFixture
     {
-        private UIApplication? _uiapp;
-
-        [OneTimeSetUp]
-        public void Setup(UIApplication uiapp)
-        {
-            _uiapp = uiapp;
-            TestWorkerJournalMarker.EnsureWritten(uiapp);
-        }
-
         private AppearanceAssetElement GetOrCreateAppearanceAssetTemplate(Document doc)
         {
             var template = new FilteredElementCollector(doc)
@@ -59,11 +50,7 @@ namespace SyntheticTests.RevitDOM
         [Test]
         public void ExtractSpecifics_CorrectlyPopulatesColorsAndPatterns()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 Material? mat = null;
                 FillPatternElement? fp = GetFirstFillPattern(doc);
@@ -128,21 +115,13 @@ namespace SyntheticTests.RevitDOM
                     Assert.IsNotNull(model.SurfaceBackgroundPatternId);
                     Assert.AreEqual(fp.Name, model.SurfaceBackgroundPatternId!.Name);
                 }
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void ExtractSpecifics_DelegatesToMaterialAssetEngine()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 Material? mat = null;
                 using (Transaction t = new Transaction(doc, "Setup Appearance Asset"))
@@ -166,21 +145,13 @@ namespace SyntheticTests.RevitDOM
                 // Assert
                 Assert.IsNotNull(model.AppearanceAsset);
                 Assert.AreEqual("ExtractAsset_Appearance", model.AppearanceAsset!.Name);
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void InjectSpecifics_CreatesMaterialWithProperties()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 Material? createdElem = null;
                 FillPatternElement? fp = GetFirstFillPattern(doc);
@@ -237,21 +208,13 @@ namespace SyntheticTests.RevitDOM
                 var assetElem = doc.GetElement(createdElem.AppearanceAssetId) as AppearanceAssetElement;
                 Assert.IsNotNull(assetElem);
                 Assert.AreEqual("InjectAsset_Appearance", assetElem!.Name);
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void InjectSpecifics_UpdatesExistingMaterial()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 Material? mat = null;
                 using (Transaction t = new Transaction(doc, "Setup Material"))
@@ -289,11 +252,7 @@ namespace SyntheticTests.RevitDOM
                 Assert.AreEqual(100, updatedElem.CutForegroundPatternColor.Red);
                 Assert.AreEqual(200, updatedElem.CutForegroundPatternColor.Green);
                 Assert.AreEqual(255, updatedElem.CutForegroundPatternColor.Blue);
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
     }
 }

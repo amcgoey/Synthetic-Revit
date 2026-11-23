@@ -24,6 +24,7 @@ namespace SyntheticTests.Platform.Host
         public void Setup(UIApplication uiapp)
         {
             _uiapp = uiapp;
+            HostSettingsRegistrar.EnsureRegistered();
             TestWorkerJournalMarker.EnsureWritten(uiapp);
         }
 

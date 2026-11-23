@@ -12,7 +12,7 @@ using Synthetic.Features.ShadowStudy.Adapters;
 using Synthetic.Features.ShadowStudy.Models;
 using Synthetic.Features.ShadowStudy.Services;
 using Synthetic.Features.ShadowStudy.ViewModels;
-using SyntheticTests.Helpers;
+using SyntheticTests.Fixtures;
 
 namespace SyntheticTests.Features.ShadowStudy
 {
@@ -22,253 +22,176 @@ namespace SyntheticTests.Features.ShadowStudy
     /// </summary>
     [TestFixture]
     [RevitIsolatedDocTest]
-    public class ShadowStudyMultiViewRevitTests
+    public class ShadowStudyMultiViewRevitTests : RevitIsolatedDocumentFixture
     {
-        private UIApplication? _uiapp;
-        private string _tempDir = string.Empty;
-
-        [OneTimeSetUp]
-        public void OneTimeSetUp(UIApplication uiapp)
-        {
-            _uiapp = uiapp;
-            TestWorkerJournalMarker.EnsureWritten(uiapp);
-        }
-
-        [SetUp]
-        public void SetUp()
-        {
-            _tempDir = Path.Combine(
-                Path.GetTempPath(),
-                "Tier2ShadowMultiView_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(_tempDir);
-        }
-
-        [TearDown]
-        public void TearDown()
-        {
-            if (Directory.Exists(_tempDir))
-            {
-                try
-                {
-                    Directory.Delete(_tempDir, true);
-                }
-                catch
-                {
-                    // Best-effort cleanup
-                }
-            }
-        }
-
         [Test]
         public void GetEligibleViews_HarvestsAllShadowCapableFamiliesExcludesNonGraphicalAndFlagsUncropped()
         {
-            Assert.IsNotNull(_uiapp);
-            Document doc = OpenDetachedTestTemplate(_uiapp!.Application);
+            Document doc = OpenIsolatedTestTemplateCopy();
 
-            try
+            CreatedViewSuite suite = SetupMultiViewSuite(doc);
+
+            var adapter = new RevitShadowStudyAdapter(doc, null, UiApp);
+            IReadOnlyList<ShadowStudyViewItem> eligible = adapter.GetEligibleViews();
+
+            Assert.IsTrue(eligible.Any(v => v.Id == suite.FloorPlan.UniqueId && v.ViewType == "FloorPlan"));
+            Assert.IsTrue(eligible.Any(v => v.Id == suite.CeilingPlan.UniqueId && v.ViewType == "CeilingPlan"));
+            Assert.IsTrue(eligible.Any(v => v.Id == suite.ThreeD.UniqueId && v.ViewType == "ThreeD"));
+            Assert.IsTrue(eligible.Any(v => v.Id == suite.Section.UniqueId && v.ViewType == "Section"));
+            Assert.IsTrue(eligible.Any(v => v.Id == suite.Elevation.UniqueId && v.ViewType == "Elevation"));
+            Assert.IsTrue(eligible.Any(v => v.Id == suite.Detail.UniqueId && v.ViewType == "Detail"));
+
+            if (suite.EngineeringPlan != null)
             {
-                CreatedViewSuite suite = SetupMultiViewSuite(doc);
-
-                var adapter = new RevitShadowStudyAdapter(doc, null, _uiapp);
-                IReadOnlyList<ShadowStudyViewItem> eligible = adapter.GetEligibleViews();
-
-                Assert.IsTrue(eligible.Any(v => v.Id == suite.FloorPlan.UniqueId && v.ViewType == "FloorPlan"));
-                Assert.IsTrue(eligible.Any(v => v.Id == suite.CeilingPlan.UniqueId && v.ViewType == "CeilingPlan"));
-                Assert.IsTrue(eligible.Any(v => v.Id == suite.ThreeD.UniqueId && v.ViewType == "ThreeD"));
-                Assert.IsTrue(eligible.Any(v => v.Id == suite.Section.UniqueId && v.ViewType == "Section"));
-                Assert.IsTrue(eligible.Any(v => v.Id == suite.Elevation.UniqueId && v.ViewType == "Elevation"));
-                Assert.IsTrue(eligible.Any(v => v.Id == suite.Detail.UniqueId && v.ViewType == "Detail"));
-
-                if (suite.EngineeringPlan != null)
-                {
-                    Assert.IsTrue(eligible.Any(v => v.Id == suite.EngineeringPlan.UniqueId && v.ViewType == "EngineeringPlan"));
-                }
-
-                if (suite.AreaPlan != null)
-                {
-                    Assert.IsTrue(eligible.Any(v => v.Id == suite.AreaPlan.UniqueId && v.ViewType == "AreaPlan"));
-                }
-
-                // Excluded non-graphical and Walkthrough views
-                Assert.IsFalse(eligible.Any(v => v.Id == suite.Sheet.UniqueId));
-                Assert.IsFalse(eligible.Any(v => v.Id == suite.Schedule.UniqueId));
-                if (suite.DraftingView != null)
-                {
-                    Assert.IsFalse(eligible.Any(v => v.Id == suite.DraftingView.UniqueId));
-                }
-
-                Assert.IsFalse(eligible.Any(v =>
-                    v.ViewType == "DrawingSheet" ||
-                    v.ViewType == "Schedule" ||
-                    v.ViewType == "DraftingView" ||
-                    v.ViewType == "Legend" ||
-                    v.ViewType == "Walkthrough"));
-
-                // Uncropped warning badge check
-                ShadowStudyViewItem uncroppedItem = eligible.First(v => v.Id == suite.CeilingPlan.UniqueId);
-                Assert.IsFalse(uncroppedItem.IsCropped);
-                Assert.IsTrue(uncroppedItem.HasWarnings);
-                Assert.IsTrue(uncroppedItem.Warnings.Any(w => w.Code == "Uncropped"));
+                Assert.IsTrue(eligible.Any(v => v.Id == suite.EngineeringPlan.UniqueId && v.ViewType == "EngineeringPlan"));
             }
-            finally
+
+            if (suite.AreaPlan != null)
             {
-                doc.Close(false);
+                Assert.IsTrue(eligible.Any(v => v.Id == suite.AreaPlan.UniqueId && v.ViewType == "AreaPlan"));
             }
+
+            // Excluded non-graphical and Walkthrough views
+            Assert.IsFalse(eligible.Any(v => v.Id == suite.Sheet.UniqueId));
+            Assert.IsFalse(eligible.Any(v => v.Id == suite.Schedule.UniqueId));
+            if (suite.DraftingView != null)
+            {
+                Assert.IsFalse(eligible.Any(v => v.Id == suite.DraftingView.UniqueId));
+            }
+
+            Assert.IsFalse(eligible.Any(v =>
+                v.ViewType == "DrawingSheet" ||
+                v.ViewType == "Schedule" ||
+                v.ViewType == "DraftingView" ||
+                v.ViewType == "Legend" ||
+                v.ViewType == "Walkthrough"));
+
+            // Uncropped warning badge check
+            ShadowStudyViewItem uncroppedItem = eligible.First(v => v.Id == suite.CeilingPlan.UniqueId);
+            Assert.IsFalse(uncroppedItem.IsCropped);
+            Assert.IsTrue(uncroppedItem.HasWarnings);
+            Assert.IsTrue(uncroppedItem.Warnings.Any(w => w.Code == "Uncropped"));
         }
 
         [Test]
         public void GetSiteInfo_WhenActiveViewIsSheetOrSchedule_AutoSelectsSelectedViewsAndResolvesDstFallback()
         {
-            Assert.IsNotNull(_uiapp);
-            Document doc = OpenDetachedTestTemplate(_uiapp!.Application);
+            Document doc = OpenIsolatedTestTemplateCopy();
 
-            try
+            CreatedViewSuite suite = SetupMultiViewSuite(doc);
+
+            bool expectedFallbackUsesDst = new FilteredElementCollector(doc)
+                .OfClass(typeof(View))
+                .WhereElementIsNotElementType()
+                .Cast<View>()
+                .First(v => RevitShadowStudyAdapter.IsEligibleView(v) && v.SunAndShadowSettings != null)
+                .SunAndShadowSettings.UsesDST;
+
+            foreach (View nonGraphicalActive in new View[] { suite.Sheet, suite.Schedule })
             {
-                CreatedViewSuite suite = SetupMultiViewSuite(doc);
+                Assert.IsNull(nonGraphicalActive.SunAndShadowSettings, $"Expected {nonGraphicalActive.ViewType} to have null SunAndShadowSettings.");
 
-                bool expectedFallbackUsesDst = new FilteredElementCollector(doc)
-                    .OfClass(typeof(View))
-                    .WhereElementIsNotElementType()
-                    .Cast<View>()
-                    .First(v => RevitShadowStudyAdapter.IsEligibleView(v) && v.SunAndShadowSettings != null)
-                    .SunAndShadowSettings.UsesDST;
+                var adapter = new RevitShadowStudyAdapter(doc, null, UiApp, nonGraphicalActive);
+                Assert.IsNull(adapter.GetActiveViewInfo(), $"Expected {nonGraphicalActive.ViewType} to be ineligible as active view.");
 
-                foreach (View nonGraphicalActive in new View[] { suite.Sheet, suite.Schedule })
-                {
-                    Assert.IsNull(nonGraphicalActive.SunAndShadowSettings, $"Expected {nonGraphicalActive.ViewType} to have null SunAndShadowSettings.");
+                ShadowStudySiteInfo site = adapter.GetSiteInfo();
+                Assert.AreEqual(expectedFallbackUsesDst, site.UsesDst, $"Expected UsesDst fallback resolution when active view is {nonGraphicalActive.ViewType}.");
 
-                    var adapter = new RevitShadowStudyAdapter(doc, null, _uiapp, nonGraphicalActive);
-                    Assert.IsNull(adapter.GetActiveViewInfo(), $"Expected {nonGraphicalActive.ViewType} to be ineligible as active view.");
-
-                    ShadowStudySiteInfo site = adapter.GetSiteInfo();
-                    Assert.AreEqual(expectedFallbackUsesDst, site.UsesDst, $"Expected UsesDst fallback resolution when active view is {nonGraphicalActive.ViewType}.");
-
-                    var vm = new ShadowStudyViewModel(adapter, new NoOpFolderDialogService(), new DateTime(2026, 6, 21));
-                    Assert.IsFalse(vm.IsCurrentViewEligible);
-                    Assert.AreEqual(ShadowStudyExportRangeMode.SelectedViews, vm.ExportRangeMode);
-                    Assert.IsTrue(vm.IsSelectedViewsMode);
-                    Assert.GreaterOrEqual(vm.TotalEligibleViewsCount, 6);
-                    Assert.IsFalse(vm.CanExport);
-                }
-            }
-            finally
-            {
-                doc.Close(false);
+                var vm = new ShadowStudyViewModel(adapter, new NoOpFolderDialogService(), new DateTime(2026, 6, 21));
+                Assert.IsFalse(vm.IsCurrentViewEligible);
+                Assert.AreEqual(ShadowStudyExportRangeMode.SelectedViews, vm.ExportRangeMode);
+                Assert.IsTrue(vm.IsSelectedViewsMode);
+                Assert.GreaterOrEqual(vm.TotalEligibleViewsCount, 6);
+                Assert.IsFalse(vm.CanExport);
             }
         }
 
         [Test]
         public void BatchExport_MultiViewWithNameCollisionsTemplatesAndUncropped_ExportsPngsAndRollsBackCleanly()
         {
-            Assert.IsNotNull(_uiapp);
-            Document doc = OpenDetachedTestTemplate(_uiapp!.Application);
+            Document doc = OpenIsolatedTestTemplateCopy();
 
-            try
+            CreatedViewSuite suite = SetupMultiViewSuite(doc);
+
+            // Save to a clean temp .rvt so doc.IsModified starts as false before export
+            string cleanRvtPath = GetTempFilePath("CleanBaseline.rvt");
+            doc.SaveAs(cleanRvtPath, new SaveAsOptions { OverwriteExistingFile = true });
+            Assert.IsFalse(doc.IsModified);
+
+            var adapter = new RevitShadowStudyAdapter(doc, null, UiApp);
+            ShadowStudySiteInfo site = adapter.GetSiteInfo();
+            DateSolarSchedule schedule = SolarScheduleCalculator.BuildSchedule(
+                new ShadowStudyDateEntry { Date = new DateTime(2026, 6, 21) },
+                site,
+                stepMinutes: 180,
+                minAltitudeDegrees: 15.0,
+                maxCompositeDarknessPercent: 80);
+
+            Assert.IsTrue(schedule.HasValidFrames);
+
+            IReadOnlyList<ShadowStudyViewItem> eligible = adapter.GetEligibleViews();
+            var batchViews = new List<View>
             {
-                CreatedViewSuite suite = SetupMultiViewSuite(doc);
-
-                // Save to a clean temp .rvt so doc.IsModified starts as false before export
-                string cleanRvtPath = Path.Combine(_tempDir, "CleanBaseline.rvt");
-                doc.SaveAs(cleanRvtPath, new SaveAsOptions { OverwriteExistingFile = true });
-                Assert.IsFalse(doc.IsModified);
-
-                var adapter = new RevitShadowStudyAdapter(doc, null, _uiapp);
-                ShadowStudySiteInfo site = adapter.GetSiteInfo();
-                DateSolarSchedule schedule = SolarScheduleCalculator.BuildSchedule(
-                    new ShadowStudyDateEntry { Date = new DateTime(2026, 6, 21) },
-                    site,
-                    stepMinutes: 180,
-                    minAltitudeDegrees: 15.0,
-                    maxCompositeDarknessPercent: 80);
-
-                Assert.IsTrue(schedule.HasValidFrames);
-
-                IReadOnlyList<ShadowStudyViewItem> eligible = adapter.GetEligibleViews();
-                var batchViews = new List<View>
-                {
-                    suite.FloorPlan,      // Named "Shadow Study Level 1" (collides with CeilingPlan)
-                    suite.CeilingPlan,    // Named "Shadow Study Level 1" (collides with FloorPlan, uncropped!)
-                    suite.ThreeD,         // Unique name
-                    suite.Section,        // Unique name
-                    suite.Elevation,      // Unique name
-                    suite.Detail          // Unique name
-                };
-
-                var selectedItems = batchViews
-                    .Select(v => eligible.First(item => item.Id == v.UniqueId))
-                    .ToList();
-
-                int elementCountBefore = new FilteredElementCollector(doc).GetElementCount();
-                List<ViewSnapshot> targetSnapshotsBefore = batchViews.Select(CaptureSnapshot).ToList();
-                ViewSnapshot siblingSnapshotBefore = CaptureSnapshot(suite.SiblingTemplatedPlan);
-
-                var pipeline = new ShadowStudyPipeline(adapter);
-                ShadowStudyRunSummary summary = pipeline.Execute(new ShadowStudyRunRequest
-                {
-                    Views = selectedItems,
-                    DateSchedules = new[] { schedule },
-                    OutputFolder = _tempDir,
-                    PixelWidth = 360,
-                    ForceHiddenLine = true,
-                    ForceWhiteBackground = true,
-                    KeepIndividualFrames = false
-                });
-
-                Assert.IsFalse(summary.WasCancelled);
-                Assert.AreEqual(batchViews.Count, summary.GeneratedCount);
-
-                // Verify collision-only (<ViewType>) filenames
-                string dateLabel = schedule.DateEntry.DateLabel;
-                var expectedFileNames = new[]
-                {
-                    $"Shadow Study Level 1 (FloorPlan) - {dateLabel} - Composite.png",
-                    $"Shadow Study Level 1 (CeilingPlan) - {dateLabel} - Composite.png",
-                    $"Shadow Study 3D - {dateLabel} - Composite.png",
-                    $"Shadow Study Section - {dateLabel} - Composite.png",
-                    $"Shadow Study Elevation - {dateLabel} - Composite.png",
-                    $"Shadow Study Detail - {dateLabel} - Composite.png"
-                };
-
-                foreach (string expectedFileName in expectedFileNames)
-                {
-                    string expectedPath = Path.Combine(_tempDir, expectedFileName);
-                    Assert.IsTrue(File.Exists(expectedPath), $"Missing expected composite output: {expectedFileName}");
-                    GetPngDimensions(expectedPath, out int w, out int h);
-                    Assert.AreEqual(360, w, $"Expected 360px width for {expectedFileName}");
-                    Assert.Greater(h, 0);
-                }
-
-                // Verify zero model / undo-state / view / sibling template / crop-box / scope-box mutations
-                Assert.IsFalse(doc.IsModified, "Batch export must roll back cleanly without dirtying the document or Undo stack.");
-                Assert.AreEqual(elementCountBefore, new FilteredElementCollector(doc).GetElementCount());
-                for (int i = 0; i < batchViews.Count; i++)
-                {
-                    AssertSnapshotUnchanged(targetSnapshotsBefore[i], batchViews[i]);
-                }
-                AssertSnapshotUnchanged(siblingSnapshotBefore, suite.SiblingTemplatedPlan);
-            }
-            finally
-            {
-                doc.Close(false);
-            }
-        }
-
-        private static Document OpenDetachedTestTemplate(Autodesk.Revit.ApplicationServices.Application app)
-        {
-            string projectRoot = TestPathHelper.GetProjectRoot();
-            string testModelName = "TestTemplate" + app.VersionNumber + ".rvt";
-            string modelPathStr = Path.Combine(projectRoot, "tests", "Assets", "test_models", testModelName);
-            if (!File.Exists(modelPathStr))
-            {
-                throw new FileNotFoundException("Test template model not found: " + modelPathStr);
-            }
-
-            ModelPath modelPath = ModelPathUtils.ConvertUserVisiblePathToModelPath(modelPathStr);
-            var openOptions = new OpenOptions
-            {
-                DetachFromCentralOption = DetachFromCentralOption.DetachAndDiscardWorksets
+                suite.FloorPlan,      // Named "Shadow Study Level 1" (collides with CeilingPlan)
+                suite.CeilingPlan,    // Named "Shadow Study Level 1" (collides with FloorPlan, uncropped!)
+                suite.ThreeD,         // Unique name
+                suite.Section,        // Unique name
+                suite.Elevation,      // Unique name
+                suite.Detail          // Unique name
             };
-            return app.OpenDocumentFile(modelPath, openOptions);
+
+            var selectedItems = batchViews
+                .Select(v => eligible.First(item => item.Id == v.UniqueId))
+                .ToList();
+
+            int elementCountBefore = new FilteredElementCollector(doc).GetElementCount();
+            List<ViewSnapshot> targetSnapshotsBefore = batchViews.Select(CaptureSnapshot).ToList();
+            ViewSnapshot siblingSnapshotBefore = CaptureSnapshot(suite.SiblingTemplatedPlan);
+
+            var pipeline = new ShadowStudyPipeline(adapter);
+            ShadowStudyRunSummary summary = pipeline.Execute(new ShadowStudyRunRequest
+            {
+                Views = selectedItems,
+                DateSchedules = new[] { schedule },
+                OutputFolder = CurrentTestTempDirectory,
+                PixelWidth = 360,
+                ForceHiddenLine = true,
+                ForceWhiteBackground = true,
+                KeepIndividualFrames = false
+            });
+
+            Assert.IsFalse(summary.WasCancelled);
+            Assert.AreEqual(batchViews.Count, summary.GeneratedCount);
+
+            // Verify collision-only (<ViewType>) filenames
+            string dateLabel = schedule.DateEntry.DateLabel;
+            var expectedFileNames = new[]
+            {
+                $"Shadow Study Level 1 (FloorPlan) - {dateLabel} - Composite.png",
+                $"Shadow Study Level 1 (CeilingPlan) - {dateLabel} - Composite.png",
+                $"Shadow Study 3D - {dateLabel} - Composite.png",
+                $"Shadow Study Section - {dateLabel} - Composite.png",
+                $"Shadow Study Elevation - {dateLabel} - Composite.png",
+                $"Shadow Study Detail - {dateLabel} - Composite.png"
+            };
+
+            foreach (string expectedFileName in expectedFileNames)
+            {
+                string expectedPath = GetTempFilePath(expectedFileName);
+                Assert.IsTrue(File.Exists(expectedPath), $"Missing expected composite output: {expectedFileName}");
+                GetPngDimensions(expectedPath, out int w, out int h);
+                Assert.AreEqual(360, w, $"Expected 360px width for {expectedFileName}");
+                Assert.Greater(h, 0);
+            }
+
+            // Verify zero model / undo-state / view / sibling template / crop-box / scope-box mutations
+            Assert.IsFalse(doc.IsModified, "Batch export must roll back cleanly without dirtying the document or Undo stack.");
+            Assert.AreEqual(elementCountBefore, new FilteredElementCollector(doc).GetElementCount());
+            for (int i = 0; i < batchViews.Count; i++)
+            {
+                AssertSnapshotUnchanged(targetSnapshotsBefore[i], batchViews[i]);
+            }
+            AssertSnapshotUnchanged(siblingSnapshotBefore, suite.SiblingTemplatedPlan);
         }
 
         private static CreatedViewSuite SetupMultiViewSuite(Document doc)

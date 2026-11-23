@@ -8,31 +8,18 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
-using SyntheticTests.Helpers;
+using SyntheticTests.Fixtures;
 
 namespace SyntheticTests.RevitDOM
 {
     [TestFixture]
     [RevitAdapterTest]
-    public class HostObjTypeTranslatorRevitTests
+    public class HostObjTypeTranslatorRevitTests : RevitTemplateRollbackFixture
     {
-        private UIApplication? _uiapp;
-
-        [OneTimeSetUp]
-        public void Setup(UIApplication uiapp)
-        {
-            _uiapp = uiapp;
-            TestWorkerJournalMarker.EnsureWritten(uiapp);
-        }
-
         [Test]
         public void HostObjTypeTranslator_ExtractAndInject_WallTypeCompoundStructure_RoundtripsSuccessfully()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 using (var tg = new TransactionGroup(doc, "Test Group"))
                 {
@@ -125,21 +112,13 @@ namespace SyntheticTests.RevitDOM
 
                     tg.RollBack();
                 }
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void HostObjTypeTranslator_Inject_MissingMaterial_DegradesGracefully()
         {
-            Assert.IsNotNull(_uiapp);
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 using (var tg = new TransactionGroup(doc, "Test Group"))
                 {
@@ -190,21 +169,13 @@ namespace SyntheticTests.RevitDOM
 
                     tg.RollBack();
                 }
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void HostObjTypeTranslator_Inject_ZeroWidthLayer_ThrowsAndAborts()
         {
-            Assert.IsNotNull(_uiapp);
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 using (var tg = new TransactionGroup(doc, "Test Group"))
                 {
@@ -243,21 +214,13 @@ namespace SyntheticTests.RevitDOM
 
                     tg.RollBack();
                 }
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void HostObjTypeTranslator_ExtractSpecifics_ExtractsWallSweepsAsNonNull()
         {
-            Assert.IsNotNull(_uiapp);
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 var templateType = new FilteredElementCollector(doc)
                     .OfClass(typeof(WallType))
@@ -273,11 +236,7 @@ namespace SyntheticTests.RevitDOM
 
                 Assert.IsNotNull(model.Structure);
                 Assert.IsNotNull(model.Structure!.WallSweeps);
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
     }
 }

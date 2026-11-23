@@ -11,7 +11,7 @@ using Synthetic.Features.ShadowStudy.Adapters;
 using Synthetic.Features.ShadowStudy.Models;
 using Synthetic.Features.ShadowStudy.Services;
 using Synthetic.Features.ShadowStudy.ViewModels;
-using SyntheticTests.Helpers;
+using SyntheticTests.Fixtures;
 
 namespace SyntheticTests.Features.ShadowStudy
 {
@@ -21,216 +21,152 @@ namespace SyntheticTests.Features.ShadowStudy
     /// </summary>
     [TestFixture]
     [RevitIsolatedDocTest]
-    public class ShadowStudyScheduleAndFramesRevitTests
+    public class ShadowStudyScheduleAndFramesRevitTests : RevitIsolatedDocumentFixture
     {
-        private UIApplication? _uiapp;
-        private string _tempDir = string.Empty;
-
-        [OneTimeSetUp]
-        public void OneTimeSetUp(UIApplication uiapp)
-        {
-            _uiapp = uiapp;
-            TestWorkerJournalMarker.EnsureWritten(uiapp);
-        }
-
-        [SetUp]
-        public void SetUp()
-        {
-            _tempDir = Path.Combine(
-                Path.GetTempPath(),
-                "Tier2Shadow150_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(_tempDir);
-        }
-
-        [TearDown]
-        public void TearDown()
-        {
-            if (Directory.Exists(_tempDir))
-            {
-                try
-                {
-                    Directory.Delete(_tempDir, true);
-                }
-                catch
-                {
-                    // Best-effort cleanup
-                }
-            }
-        }
-
         [Test]
         public void ViewModelAndPipeline_CustomPixelWidthAndKeepFrames_ExportsExactSubfolderWithZeroUndoMutations()
         {
-            Assert.IsNotNull(_uiapp);
-            Document doc = OpenAndSaveCleanTempDocument(_uiapp!.Application, out View activePlan);
+            Document doc = OpenAndSaveCleanTempDocument(out View activePlan);
 
-            try
+            Assert.IsFalse(doc.IsModified, "Saved temp document must start clean (IsModified == false).");
+
+            int elementsBefore = new FilteredElementCollector(doc).GetElementCount();
+            ElementId templateBefore = activePlan.ViewTemplateId;
+            DisplayStyle styleBefore = activePlan.DisplayStyle;
+            int shadowIntensityBefore = activePlan.ShadowIntensity;
+            bool cropBefore = activePlan.CropBoxActive;
+
+            string outputDir = GetTempFilePath("output_keep_frames");
+            string prefsPath = Path.Combine(CurrentTestTempDirectory, "prefs", "ShadowStudyUserPrefs.json");
+            var prefsStore = new ShadowStudyUserPrefsStore(prefsPath);
+
+            var realAdapter = new RevitShadowStudyAdapter(doc, null, UiApp);
+            ShadowStudyViewItem activePlanItem = realAdapter.GetEligibleViews().First(v => v.Id == activePlan.UniqueId);
+            IShadowStudyAdapter adapter = new ActiveViewAdapter(realAdapter, activePlanItem);
+            var folderDialog = new StubFolderDialogService();
+            var vm = new ShadowStudyViewModel(adapter, folderDialog, new DateTime(2026, 6, 21), prefsStore);
+
+            Assert.IsTrue(vm.ExportIndividualFrames);
+            Assert.AreEqual(3000, vm.PixelWidth);
+
+            vm.OutputFolder = outputDir;
+            vm.TimeStepMinutes = 120;
+            vm.MinSunAltitudeText = "10";
+            vm.MaxCompositeDarknessText = "75";
+            vm.PixelWidthText = "512";
+
+            Assert.IsFalse(vm.HasValidationErrors);
+            Assert.IsTrue(vm.CanExport);
+
+            bool confirmed = false;
+            vm.RequestClose += result => confirmed = result;
+            vm.ExportCommand.Execute(null);
+            Assert.IsTrue(confirmed);
+
+            ShadowStudyUserPrefs savedPrefs = prefsStore.Load();
+            Assert.AreEqual(outputDir, savedPrefs.LastOutputFolder);
+            Assert.AreEqual(512, savedPrefs.PixelWidth);
+            Assert.IsTrue(savedPrefs.ExportIndividualFrames);
+
+            ShadowStudyRunRequest request = vm.BuildRunRequest();
+            Assert.AreEqual(512, request.PixelWidth);
+            Assert.IsTrue(request.KeepIndividualFrames);
+
+            var pipeline = new ShadowStudyPipeline(adapter);
+            ShadowStudyRunSummary summary = pipeline.Execute(request);
+
+            Assert.IsFalse(summary.WasCancelled);
+            Assert.AreEqual(1, summary.GeneratedCount);
+
+            // Verify zero document or Undo mutations
+            Assert.IsFalse(doc.IsModified, "Shadow Study Export must never modify the Revit document or dirty Undo history.");
+            Assert.AreEqual(elementsBefore, new FilteredElementCollector(doc).GetElementCount());
+            Assert.AreEqual(templateBefore, activePlan.ViewTemplateId);
+            Assert.AreEqual(styleBefore, activePlan.DisplayStyle);
+            Assert.AreEqual(shadowIntensityBefore, activePlan.ShadowIntensity);
+            Assert.AreEqual(cropBefore, activePlan.CropBoxActive);
+
+            // Verify composite dimensions
+            string compositePath = summary.PrimaryCompositePath!;
+            Assert.IsTrue(File.Exists(compositePath));
+            GetPngDimensions(compositePath, out int compWidth, out int compHeight);
+            Assert.AreEqual(512, compWidth);
+            Assert.Greater(compHeight, 0);
+
+            // Verify exact frame subfolder and <ViewLabel> - <DateLabel> - <HHmm>.png naming
+            ShadowStudyViewItem viewItem = request.Views[0];
+            DateSolarSchedule schedule = request.DateSchedules[0];
+            string expectedSubfolder = Path.Combine(
+                outputDir,
+                ShadowStudyPathHelper.BuildFrameFolderName(viewItem.ViewLabel, schedule.DateEntry.DateLabel));
+            string wrongLegacySubfolder = expectedSubfolder + " - Frames";
+
+            Assert.IsTrue(Directory.Exists(expectedSubfolder), "Expected <ViewLabel> - <DateLabel> subfolder.");
+            Assert.IsFalse(Directory.Exists(wrongLegacySubfolder), "Legacy ' - Frames' subfolder must not be created.");
+
+            string[] frameFiles = Directory.GetFiles(expectedSubfolder, "*.png");
+            Assert.AreEqual(schedule.Frames.Count, frameFiles.Length);
+            Assert.IsFalse(Directory.EnumerateFiles(outputDir, "*ref*", SearchOption.AllDirectories).Any());
+
+            foreach (SolarFrameSlot slot in schedule.Frames)
             {
-                Assert.IsFalse(doc.IsModified, "Saved temp document must start clean (IsModified == false).");
-
-                int elementsBefore = new FilteredElementCollector(doc).GetElementCount();
-                ElementId templateBefore = activePlan.ViewTemplateId;
-                DisplayStyle styleBefore = activePlan.DisplayStyle;
-                int shadowIntensityBefore = activePlan.ShadowIntensity;
-                bool cropBefore = activePlan.CropBoxActive;
-
-                string outputDir = Path.Combine(_tempDir, "output_keep_frames");
-                string prefsPath = Path.Combine(_tempDir, "prefs", "ShadowStudyUserPrefs.json");
-                var prefsStore = new ShadowStudyUserPrefsStore(prefsPath);
-
-                var realAdapter = new RevitShadowStudyAdapter(doc, null, _uiapp);
-                ShadowStudyViewItem activePlanItem = realAdapter.GetEligibleViews().First(v => v.Id == activePlan.UniqueId);
-                IShadowStudyAdapter adapter = new ActiveViewAdapter(realAdapter, activePlanItem);
-                var folderDialog = new StubFolderDialogService();
-                var vm = new ShadowStudyViewModel(adapter, folderDialog, new DateTime(2026, 6, 21), prefsStore);
-
-                Assert.IsTrue(vm.ExportIndividualFrames);
-                Assert.AreEqual(3000, vm.PixelWidth);
-
-                vm.OutputFolder = outputDir;
-                vm.TimeStepMinutes = 120;
-                vm.MinSunAltitudeText = "10";
-                vm.MaxCompositeDarknessText = "75";
-                vm.PixelWidthText = "512";
-
-                Assert.IsFalse(vm.HasValidationErrors);
-                Assert.IsTrue(vm.CanExport);
-
-                bool confirmed = false;
-                vm.RequestClose += result => confirmed = result;
-                vm.ExportCommand.Execute(null);
-                Assert.IsTrue(confirmed);
-
-                ShadowStudyUserPrefs savedPrefs = prefsStore.Load();
-                Assert.AreEqual(outputDir, savedPrefs.LastOutputFolder);
-                Assert.AreEqual(512, savedPrefs.PixelWidth);
-                Assert.IsTrue(savedPrefs.ExportIndividualFrames);
-
-                ShadowStudyRunRequest request = vm.BuildRunRequest();
-                Assert.AreEqual(512, request.PixelWidth);
-                Assert.IsTrue(request.KeepIndividualFrames);
-
-                var pipeline = new ShadowStudyPipeline(adapter);
-                ShadowStudyRunSummary summary = pipeline.Execute(request);
-
-                Assert.IsFalse(summary.WasCancelled);
-                Assert.AreEqual(1, summary.GeneratedCount);
-
-                // Verify zero document or Undo mutations
-                Assert.IsFalse(doc.IsModified, "Shadow Study Export must never modify the Revit document or dirty Undo history.");
-                Assert.AreEqual(elementsBefore, new FilteredElementCollector(doc).GetElementCount());
-                Assert.AreEqual(templateBefore, activePlan.ViewTemplateId);
-                Assert.AreEqual(styleBefore, activePlan.DisplayStyle);
-                Assert.AreEqual(shadowIntensityBefore, activePlan.ShadowIntensity);
-                Assert.AreEqual(cropBefore, activePlan.CropBoxActive);
-
-                // Verify composite dimensions
-                string compositePath = summary.PrimaryCompositePath!;
-                Assert.IsTrue(File.Exists(compositePath));
-                GetPngDimensions(compositePath, out int compWidth, out int compHeight);
-                Assert.AreEqual(512, compWidth);
-                Assert.Greater(compHeight, 0);
-
-                // Verify exact frame subfolder and <ViewLabel> - <DateLabel> - <HHmm>.png naming
-                ShadowStudyViewItem viewItem = request.Views[0];
-                DateSolarSchedule schedule = request.DateSchedules[0];
-                string expectedSubfolder = Path.Combine(
-                    outputDir,
-                    ShadowStudyPathHelper.BuildFrameFolderName(viewItem.ViewLabel, schedule.DateEntry.DateLabel));
-                string wrongLegacySubfolder = expectedSubfolder + " - Frames";
-
-                Assert.IsTrue(Directory.Exists(expectedSubfolder), "Expected <ViewLabel> - <DateLabel> subfolder.");
-                Assert.IsFalse(Directory.Exists(wrongLegacySubfolder), "Legacy ' - Frames' subfolder must not be created.");
-
-                string[] frameFiles = Directory.GetFiles(expectedSubfolder, "*.png");
-                Assert.AreEqual(schedule.Frames.Count, frameFiles.Length);
-                Assert.IsFalse(Directory.EnumerateFiles(outputDir, "*ref*", SearchOption.AllDirectories).Any());
-
-                foreach (SolarFrameSlot slot in schedule.Frames)
-                {
-                    string expectedFramePath = Path.Combine(
-                        expectedSubfolder,
-                        ShadowStudyPathHelper.BuildFrameFileName(viewItem.ViewLabel, schedule.DateEntry.DateLabel, slot.ProjectLocalTime));
-                    Assert.IsTrue(File.Exists(expectedFramePath), $"Missing Shadow Frame: {expectedFramePath}");
-                    GetPngDimensions(expectedFramePath, out int fw, out int fh);
-                    Assert.AreEqual(512, fw);
-                    Assert.AreEqual(compHeight, fh);
-                }
-            }
-            finally
-            {
-                doc.Close(false);
+                string expectedFramePath = Path.Combine(
+                    expectedSubfolder,
+                    ShadowStudyPathHelper.BuildFrameFileName(viewItem.ViewLabel, schedule.DateEntry.DateLabel, slot.ProjectLocalTime));
+                Assert.IsTrue(File.Exists(expectedFramePath), $"Missing Shadow Frame: {expectedFramePath}");
+                GetPngDimensions(expectedFramePath, out int fw, out int fh);
+                Assert.AreEqual(512, fw);
+                Assert.AreEqual(compHeight, fh);
             }
         }
 
         [Test]
         public void Pipeline_WhenKeepIndividualFramesIsFalse_LeavesOnlyCompositeAndZeroDocumentMutations()
         {
-            Assert.IsNotNull(_uiapp);
-            Document doc = OpenAndSaveCleanTempDocument(_uiapp!.Application, out View activePlan);
+            Document doc = OpenAndSaveCleanTempDocument(out View activePlan);
 
-            try
+            Assert.IsFalse(doc.IsModified);
+
+            string outputDir = GetTempFilePath("output_composite_only");
+            var adapter = new RevitShadowStudyAdapter(doc, null, UiApp);
+            ShadowStudyViewItem viewItem = adapter.GetEligibleViews().First(v => v.Id == activePlan.UniqueId);
+            ShadowStudySiteInfo site = adapter.GetSiteInfo();
+            DateSolarSchedule schedule = SolarScheduleCalculator.BuildSchedule(
+                new ShadowStudyDateEntry { Date = new DateTime(2026, 6, 21) },
+                site,
+                stepMinutes: 120,
+                minAltitudeDegrees: 10.0,
+                maxCompositeDarknessPercent: 80);
+
+            var pipeline = new ShadowStudyPipeline(adapter);
+            ShadowStudyRunSummary summary = pipeline.Execute(new ShadowStudyRunRequest
             {
-                Assert.IsFalse(doc.IsModified);
+                Views = new[] { viewItem },
+                DateSchedules = new[] { schedule },
+                OutputFolder = outputDir,
+                PixelWidth = 360,
+                KeepIndividualFrames = false
+            });
 
-                string outputDir = Path.Combine(_tempDir, "output_composite_only");
-                var adapter = new RevitShadowStudyAdapter(doc, null, _uiapp);
-                ShadowStudyViewItem viewItem = adapter.GetEligibleViews().First(v => v.Id == activePlan.UniqueId);
-                ShadowStudySiteInfo site = adapter.GetSiteInfo();
-                DateSolarSchedule schedule = SolarScheduleCalculator.BuildSchedule(
-                    new ShadowStudyDateEntry { Date = new DateTime(2026, 6, 21) },
-                    site,
-                    stepMinutes: 120,
-                    minAltitudeDegrees: 10.0,
-                    maxCompositeDarknessPercent: 80);
+            Assert.IsFalse(summary.WasCancelled);
+            Assert.AreEqual(1, summary.GeneratedCount);
+            Assert.AreEqual(0, summary.SavedFramePaths.Count);
+            Assert.AreEqual(0, Directory.GetDirectories(outputDir).Length);
 
-                var pipeline = new ShadowStudyPipeline(adapter);
-                ShadowStudyRunSummary summary = pipeline.Execute(new ShadowStudyRunRequest
-                {
-                    Views = new[] { viewItem },
-                    DateSchedules = new[] { schedule },
-                    OutputFolder = outputDir,
-                    PixelWidth = 360,
-                    KeepIndividualFrames = false
-                });
+            string[] allOutputFiles = Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories);
+            Assert.AreEqual(1, allOutputFiles.Length);
+            Assert.AreEqual(summary.PrimaryCompositePath, allOutputFiles[0]);
 
-                Assert.IsFalse(summary.WasCancelled);
-                Assert.AreEqual(1, summary.GeneratedCount);
-                Assert.AreEqual(0, summary.SavedFramePaths.Count);
-                Assert.AreEqual(0, Directory.GetDirectories(outputDir).Length);
+            GetPngDimensions(allOutputFiles[0], out int width, out int height);
+            Assert.AreEqual(360, width);
+            Assert.Greater(height, 0);
 
-                string[] allOutputFiles = Directory.GetFiles(outputDir, "*", SearchOption.AllDirectories);
-                Assert.AreEqual(1, allOutputFiles.Length);
-                Assert.AreEqual(summary.PrimaryCompositePath, allOutputFiles[0]);
-
-                GetPngDimensions(allOutputFiles[0], out int width, out int height);
-                Assert.AreEqual(360, width);
-                Assert.Greater(height, 0);
-
-                Assert.IsFalse(doc.IsModified, "Document must remain unmodified when KeepIndividualFrames is false.");
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            Assert.IsFalse(doc.IsModified, "Document must remain unmodified when KeepIndividualFrames is false.");
         }
 
-        private Document OpenAndSaveCleanTempDocument(Autodesk.Revit.ApplicationServices.Application app, out View activePlan)
+        private Document OpenAndSaveCleanTempDocument(out View activePlan)
         {
-            string projectRoot = TestPathHelper.GetProjectRoot();
-            string testModelName = "TestTemplate" + app.VersionNumber + ".rvt";
-            string modelPathStr = Path.Combine(projectRoot, "tests", "Assets", "test_models", testModelName);
-            if (!File.Exists(modelPathStr))
-            {
-                throw new FileNotFoundException("Test template model not found: " + modelPathStr);
-            }
-
-            ModelPath modelPath = ModelPathUtils.ConvertUserVisiblePathToModelPath(modelPathStr);
-            var openOptions = new OpenOptions
-            {
-                DetachFromCentralOption = DetachFromCentralOption.DetachAndDiscardWorksets
-            };
-            Document doc = app.OpenDocumentFile(modelPath, openOptions);
+            Document doc = OpenIsolatedTestTemplateCopy();
 
             using (var tx = new Transaction(doc, "Prepare Clean Test View"))
             {
@@ -250,7 +186,7 @@ namespace SyntheticTests.Features.ShadowStudy
                 tx.Commit();
             }
 
-            string cleanRvtPath = Path.Combine(_tempDir, $"CleanShadowStudy_{app.VersionNumber}.rvt");
+            string cleanRvtPath = GetTempFilePath($"CleanShadowStudy_{App.VersionNumber}.rvt");
             doc.SaveAs(cleanRvtPath, new SaveAsOptions { OverwriteExistingFile = true });
             return doc;
         }

@@ -6,35 +6,24 @@ using Autodesk.Revit.DB.Events;
 using Autodesk.Revit.UI;
 using NUnit.Framework;
 using Synthetic.Platform.Revit;
-using SyntheticTests.Helpers;
+using SyntheticTests.Fixtures;
 
 namespace SyntheticTests.Platform.Revit
 {
     [TestFixture]
     [RevitAdapterTest]
-    public class FailurePipelinesRevitTests
+    public class FailurePipelinesRevitTests : RevitTemplateRollbackFixture
     {
-        private UIApplication? _uiapp;
-
-        [OneTimeSetUp]
-        public void OneTimeSetup(UIApplication uiapp)
-        {
-            _uiapp = uiapp;
-            TestWorkerJournalMarker.EnsureWritten(uiapp);
-        }
-
         [Test]
         public void ObserveOnly_RecordsNativeOverlapWarning_WithoutDeletingWarning()
         {
-            Assert.IsNotNull(_uiapp);
-            Document doc = _uiapp!.Application.NewProjectDocument(UnitSystem.Metric);
-            try
+            WithRolledBackDocument(doc =>
             {
                 Level level = FindFirstLevel(doc);
                 FailureProcessingReport? capturedReport = null;
                 var phase2ObservedIds = new List<Guid>();
 
-                WithPhase2WarningCaptureCleanup(_uiapp, phase2ObservedIds, () =>
+                WithPhase2WarningCaptureCleanup(UiApp, phase2ObservedIds, () =>
                 {
                     doc.ExecuteRolledBackGroup("ObserveOnly Overlap Warning", () =>
                     {
@@ -60,25 +49,19 @@ namespace SyntheticTests.Platform.Revit
                     phase2ObservedIds,
                     BuiltInFailures.OverlapFailures.WallsOverlap.Guid,
                     "ObserveOnly must leave WallsOverlap intact into Revit Phase 2 FailuresProcessing.");
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void DeleteAllWarningsRecorded_DeletesNativeOverlapWarning_AndSetsWarningTripped()
         {
-            Assert.IsNotNull(_uiapp);
-            Document doc = _uiapp!.Application.NewProjectDocument(UnitSystem.Metric);
-            try
+            WithRolledBackDocument(doc =>
             {
                 Level level = FindFirstLevel(doc);
                 FailureProcessingReport? capturedReport = null;
                 var phase2ObservedIds = new List<Guid>();
 
-                WithPhase2WarningCaptureCleanup(_uiapp, phase2ObservedIds, () =>
+                WithPhase2WarningCaptureCleanup(UiApp, phase2ObservedIds, () =>
                 {
                     doc.ExecuteRolledBackGroup("DeleteAllWarningsRecorded Overlap Warning", () =>
                     {
@@ -104,24 +87,18 @@ namespace SyntheticTests.Platform.Revit
                     phase2ObservedIds,
                     BuiltInFailures.OverlapFailures.WallsOverlap.Guid,
                     "DeleteAllWarningsRecorded must have deleted WallsOverlap before Phase 2 FailuresProcessing.");
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void SuppressConstraints_DeletesNativeGroupConstraintWarning_AndPassesThroughUnmatchedWarnings()
         {
-            Assert.IsNotNull(_uiapp);
-            Document doc = _uiapp!.Application.NewProjectDocument(UnitSystem.Metric);
-            try
+            WithRolledBackDocument(doc =>
             {
                 Level level = FindFirstLevel(doc);
                 var phase2ObservedIds = new List<Guid>();
 
-                WithPhase2WarningCaptureCleanup(_uiapp, phase2ObservedIds, () =>
+                WithPhase2WarningCaptureCleanup(UiApp, phase2ObservedIds, () =>
                 {
                     doc.ExecuteRolledBackGroup("SuppressConstraints Native Provocation", () =>
                     {
@@ -160,24 +137,18 @@ namespace SyntheticTests.Platform.Revit
                         Assert.IsEmpty(phase2ObservedIds, "Suppressed constraint warning must not leak to Phase 2 FailuresProcessing.");
                     });
                 });
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
         public void FailurePipelineBuilder_OnFailureTargetedRule_DeletesTargetedRoomNotEnclosedWarning()
         {
-            Assert.IsNotNull(_uiapp);
-            Document doc = _uiapp!.Application.NewProjectDocument(UnitSystem.Metric);
-            try
+            WithRolledBackDocument(doc =>
             {
                 Level level = FindFirstLevel(doc);
                 var phase2ObservedIds = new List<Guid>();
 
-                WithPhase2WarningCaptureCleanup(_uiapp, phase2ObservedIds, () =>
+                WithPhase2WarningCaptureCleanup(UiApp, phase2ObservedIds, () =>
                 {
                     doc.ExecuteRolledBackGroup("Targeted RoomNotEnclosed Rule", () =>
                     {
@@ -199,11 +170,7 @@ namespace SyntheticTests.Platform.Revit
                         Assert.IsEmpty(phase2ObservedIds, "Deleted warning should not reach Phase 2.");
                     });
                 });
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         private static void WithPhase2WarningCaptureCleanup(

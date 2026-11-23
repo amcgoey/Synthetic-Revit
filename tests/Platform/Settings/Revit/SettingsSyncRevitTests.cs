@@ -17,28 +17,20 @@ using Synthetic.Features.ShadowStudy.Settings;
 using Synthetic.Platform.Host;
 using Synthetic.Platform.Settings;
 using Synthetic.Platform.UI;
-using SyntheticTests.Helpers;
+using SyntheticTests.Fixtures;
 
 namespace SyntheticTests.Platform.Settings
 {
     [TestFixture]
     [RevitAdapterTest]
-    public class SettingsSyncRevitTests
+    public class SettingsSyncRevitTests : RevitTemplateRollbackFixture
     {
-        private UIApplication? _uiapp;
         private bool _previousSuppressUi;
         private bool _previousSuppressDiskFallback;
 
-        [OneTimeSetUp]
-        public void OneTimeSetup(UIApplication uiapp)
-        {
-            _uiapp = uiapp;
-            HostSettingsRegistrar.EnsureRegistered();
-            TestWorkerJournalMarker.EnsureWritten(uiapp);
-        }
+        protected override RevitBaselineDocumentKind BaselineKind => RevitBaselineDocumentKind.ImperialProject;
 
-        [SetUp]
-        public void SetUp()
+        protected override void OnTestSetUp()
         {
             _previousSuppressUi = ProgressCoordinator.SuppressUI;
             _previousSuppressDiskFallback = SettingsRuntimeOptions.SuppressFirmwideDiskFallback;
@@ -47,18 +39,11 @@ namespace SyntheticTests.Platform.Settings
             SettingsManager.ClearCache();
         }
 
-        [TearDown]
-        public void TearDown()
+        protected override void OnTestTearDown()
         {
             SettingsManager.ClearCache();
             ProgressCoordinator.SuppressUI = _previousSuppressUi;
             SettingsRuntimeOptions.SuppressFirmwideDiskFallback = _previousSuppressDiskFallback;
-        }
-
-        private Document CreateFreshProjectDocument()
-        {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context must not be null.");
-            return _uiapp!.Application.NewProjectDocument(UnitSystem.Imperial);
         }
 
         private static string CreateTempJsonPath()
@@ -183,35 +168,31 @@ namespace SyntheticTests.Platform.Settings
         public void PushAndPull_RoundTripsAllEightSyncedModules_AcrossDocuments()
         {
             string tempJsonPath = CreateTempJsonPath();
-            Document? sourceDoc = null;
-            Document? targetDoc = null;
 
             try
             {
-                sourceDoc = CreateFreshProjectDocument();
-                targetDoc = CreateFreshProjectDocument();
-
-                SaveDistinctSettingsToDocument(sourceDoc, tempJsonPath);
-                SettingsManager.PushToLinkedFile(sourceDoc, tempJsonPath);
-
-                Assert.IsTrue(File.Exists(tempJsonPath));
-                JObject pushedJson = JObject.Parse(File.ReadAllText(tempJsonPath));
-                Assert.IsNotNull(pushedJson[SyncSettings.Name]);
-                foreach (var descriptor in SettingsModuleRegistry.SyncedModules)
+                WithRolledBackDocumentPair((sourceDoc, targetDoc) =>
                 {
-                    Assert.IsNotNull(pushedJson[descriptor.ModuleKey],
-                        $"Pushed JSON must include module '{descriptor.ModuleKey}'.");
-                }
+                    SaveDistinctSettingsToDocument(sourceDoc, tempJsonPath);
+                    SettingsManager.PushToLinkedFile(sourceDoc, tempJsonPath);
 
-                SettingsManager.PullFromLinkedFile(targetDoc, tempJsonPath);
-                SettingsManager.ClearCache(targetDoc);
+                    Assert.IsTrue(File.Exists(tempJsonPath));
+                    JObject pushedJson = JObject.Parse(File.ReadAllText(tempJsonPath));
+                    Assert.IsNotNull(pushedJson[SyncSettings.Name]);
+                    foreach (var descriptor in SettingsModuleRegistry.SyncedModules)
+                    {
+                        Assert.IsNotNull(pushedJson[descriptor.ModuleKey],
+                            $"Pushed JSON must include module '{descriptor.ModuleKey}'.");
+                    }
 
-                AssertAllEightModulesMatchSeededValues(targetDoc);
+                    SettingsManager.PullFromLinkedFile(targetDoc, tempJsonPath);
+                    SettingsManager.ClearCache(targetDoc);
+
+                    AssertAllEightModulesMatchSeededValues(targetDoc);
+                });
             }
             finally
             {
-                if (targetDoc != null && targetDoc.IsValidObject) targetDoc.Close(false);
-                if (sourceDoc != null && sourceDoc.IsValidObject) sourceDoc.Close(false);
                 if (File.Exists(tempJsonPath)) File.Delete(tempJsonPath);
             }
         }
@@ -220,34 +201,30 @@ namespace SyntheticTests.Platform.Settings
         public void ExportAllToFile_And_ImportAllFromFile_RoundTripsAllEightModules()
         {
             string tempJsonPath = CreateTempJsonPath();
-            Document? sourceDoc = null;
-            Document? targetDoc = null;
 
             try
             {
-                sourceDoc = CreateFreshProjectDocument();
-                targetDoc = CreateFreshProjectDocument();
-
-                SaveDistinctSettingsToDocument(sourceDoc, tempJsonPath);
-                SettingsManager.ExportAllToFile(sourceDoc, tempJsonPath);
-
-                JObject exportedJson = JObject.Parse(File.ReadAllText(tempJsonPath));
-                Assert.IsNull(exportedJson[SyncSettings.Name], "ExportAllToFile must exclude SyncSettings.");
-                foreach (var descriptor in SettingsModuleRegistry.SyncedModules)
+                WithRolledBackDocumentPair((sourceDoc, targetDoc) =>
                 {
-                    Assert.IsNotNull(exportedJson[descriptor.ModuleKey],
-                        $"Exported JSON must include module '{descriptor.ModuleKey}'.");
-                }
+                    SaveDistinctSettingsToDocument(sourceDoc, tempJsonPath);
+                    SettingsManager.ExportAllToFile(sourceDoc, tempJsonPath);
 
-                SettingsManager.ImportAllFromFile(targetDoc, tempJsonPath);
-                SettingsManager.ClearCache(targetDoc);
+                    JObject exportedJson = JObject.Parse(File.ReadAllText(tempJsonPath));
+                    Assert.IsNull(exportedJson[SyncSettings.Name], "ExportAllToFile must exclude SyncSettings.");
+                    foreach (var descriptor in SettingsModuleRegistry.SyncedModules)
+                    {
+                        Assert.IsNotNull(exportedJson[descriptor.ModuleKey],
+                            $"Exported JSON must include module '{descriptor.ModuleKey}'.");
+                    }
 
-                AssertAllEightModulesMatchSeededValues(targetDoc);
+                    SettingsManager.ImportAllFromFile(targetDoc, tempJsonPath);
+                    SettingsManager.ClearCache(targetDoc);
+
+                    AssertAllEightModulesMatchSeededValues(targetDoc);
+                });
             }
             finally
             {
-                if (targetDoc != null && targetDoc.IsValidObject) targetDoc.Close(false);
-                if (sourceDoc != null && sourceDoc.IsValidObject) sourceDoc.Close(false);
                 if (File.Exists(tempJsonPath)) File.Delete(tempJsonPath);
             }
         }
@@ -256,39 +233,39 @@ namespace SyntheticTests.Platform.Settings
         public void CheckSyncDrift_LegacyFourKeyJson_ReturnsFalse_AndModifiedReturnsTrue()
         {
             string tempJsonPath = CreateTempJsonPath();
-            Document? doc = null;
 
             try
             {
-                doc = CreateFreshProjectDocument();
-                SaveDistinctSettingsToDocument(doc, tempJsonPath);
-
-                var legacyFourKeys = new Dictionary<string, object>
+                WithRolledBackDocument(doc =>
                 {
-                    { WorksetSettings.Name, SettingsManager.Get<WorksetSettings>(doc) },
-                    { ViewAutoNumSettings.Name, SettingsManager.Get<ViewAutoNumSettings>(doc) },
-                    { MaterialLibrarySettings.Name, SettingsManager.Get<MaterialLibrarySettings>(doc) },
-                    { ProjectMaterialSettings.Name, SettingsManager.Get<ProjectMaterialSettings>(doc) }
-                };
-                File.WriteAllText(tempJsonPath, JsonConvert.SerializeObject(legacyFourKeys, Formatting.Indented));
+                    SaveDistinctSettingsToDocument(doc, tempJsonPath);
 
-                bool legacyDrift = SettingsManager.CheckSyncDrift(doc, out string linkedPath);
-                Assert.IsFalse(legacyDrift, "Legacy 4-key JSON without newer module keys must not report false-positive drift.");
-                Assert.AreEqual(tempJsonPath, linkedPath);
+                    var legacyFourKeys = new Dictionary<string, object>
+                    {
+                        { WorksetSettings.Name, SettingsManager.Get<WorksetSettings>(doc) },
+                        { ViewAutoNumSettings.Name, SettingsManager.Get<ViewAutoNumSettings>(doc) },
+                        { MaterialLibrarySettings.Name, SettingsManager.Get<MaterialLibrarySettings>(doc) },
+                        { ProjectMaterialSettings.Name, SettingsManager.Get<ProjectMaterialSettings>(doc) }
+                    };
+                    File.WriteAllText(tempJsonPath, JsonConvert.SerializeObject(legacyFourKeys, Formatting.Indented));
 
-                var driftedJson = new Dictionary<string, object>(legacyFourKeys)
-                {
-                    { StandardsSettings.Name, new StandardsSettings { StandardsFilePath = @"C:\Standards\different.json" } }
-                };
-                File.WriteAllText(tempJsonPath, JsonConvert.SerializeObject(driftedJson, Formatting.Indented));
+                    bool legacyDrift = SettingsManager.CheckSyncDrift(doc, out string linkedPath);
+                    Assert.IsFalse(legacyDrift, "Legacy 4-key JSON without newer module keys must not report false-positive drift.");
+                    Assert.AreEqual(tempJsonPath, linkedPath);
 
-                bool modifiedDrift = SettingsManager.CheckSyncDrift(doc, out string driftedLinkedPath);
-                Assert.IsTrue(modifiedDrift, "Modified Standards value in linked JSON must report sync drift.");
-                Assert.AreEqual(tempJsonPath, driftedLinkedPath);
+                    var driftedJson = new Dictionary<string, object>(legacyFourKeys)
+                    {
+                        { StandardsSettings.Name, new StandardsSettings { StandardsFilePath = @"C:\Standards\different.json" } }
+                    };
+                    File.WriteAllText(tempJsonPath, JsonConvert.SerializeObject(driftedJson, Formatting.Indented));
+
+                    bool modifiedDrift = SettingsManager.CheckSyncDrift(doc, out string driftedLinkedPath);
+                    Assert.IsTrue(modifiedDrift, "Modified Standards value in linked JSON must report sync drift.");
+                    Assert.AreEqual(tempJsonPath, driftedLinkedPath);
+                });
             }
             finally
             {
-                if (doc != null && doc.IsValidObject) doc.Close(false);
                 if (File.Exists(tempJsonPath)) File.Delete(tempJsonPath);
             }
         }
@@ -297,32 +274,28 @@ namespace SyntheticTests.Platform.Settings
         public void SyncExternalEventHandler_PushAndPull_SyncsAllEightModulesWithoutUiPrompt()
         {
             string tempJsonPath = CreateTempJsonPath();
-            Document? sourceDoc = null;
-            Document? targetDoc = null;
 
             try
             {
-                sourceDoc = CreateFreshProjectDocument();
-                targetDoc = CreateFreshProjectDocument();
+                WithRolledBackDocumentPair((sourceDoc, targetDoc) =>
+                {
+                    SaveDistinctSettingsToDocument(sourceDoc, tempJsonPath);
 
-                SaveDistinctSettingsToDocument(sourceDoc, tempJsonPath);
+                    var handler = new SyncExternalEventHandler();
+                    handler.QueueRequest(SyncRequestType.Push, sourceDoc, tempJsonPath);
+                    handler.Execute(UiApp);
 
-                var handler = new SyncExternalEventHandler();
-                handler.QueueRequest(SyncRequestType.Push, sourceDoc, tempJsonPath);
-                handler.Execute(_uiapp!);
+                    Assert.IsTrue(File.Exists(tempJsonPath));
 
-                Assert.IsTrue(File.Exists(tempJsonPath));
+                    handler.QueueRequest(SyncRequestType.Pull, targetDoc, tempJsonPath);
+                    handler.Execute(UiApp);
 
-                handler.QueueRequest(SyncRequestType.Pull, targetDoc, tempJsonPath);
-                handler.Execute(_uiapp!);
-
-                SettingsManager.ClearCache(targetDoc);
-                AssertAllEightModulesMatchSeededValues(targetDoc);
+                    SettingsManager.ClearCache(targetDoc);
+                    AssertAllEightModulesMatchSeededValues(targetDoc);
+                });
             }
             finally
             {
-                if (targetDoc != null && targetDoc.IsValidObject) targetDoc.Close(false);
-                if (sourceDoc != null && sourceDoc.IsValidObject) sourceDoc.Close(false);
                 if (File.Exists(tempJsonPath)) File.Delete(tempJsonPath);
             }
         }
@@ -330,12 +303,8 @@ namespace SyntheticTests.Platform.Settings
         [Test]
         public void DetailItemFactorySettingsViewModel_Reload_RefreshesIsOverriddenFromDataStorage()
         {
-            Document? doc = null;
-
-            try
+            WithRolledBackDocument(doc =>
             {
-                doc = CreateFreshProjectDocument();
-
                 var vm = new DetailItemFactorySettingsViewModel(doc, IntPtr.Zero);
                 Assert.IsFalse(vm.IsOverridden);
 
@@ -355,11 +324,7 @@ namespace SyntheticTests.Platform.Settings
                 vm.Reload();
                 Assert.IsFalse(vm.IsOverridden, "Reload() must clear IsOverridden when DataStorage is deleted.");
                 Assert.IsFalse(vm.IsDirty);
-            }
-            finally
-            {
-                if (doc != null && doc.IsValidObject) doc.Close(false);
-            }
+            });
         }
     }
 }

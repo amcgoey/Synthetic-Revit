@@ -10,22 +10,14 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
-using SyntheticTests.Helpers;
+using SyntheticTests.Fixtures;
 
 namespace SyntheticTests.RevitDOM
 {
     [TestFixture]
-    public class StandardSerializationEngineRevitTests
+    [RevitAdapterTest]
+    public class StandardSerializationEngineRevitTests : RevitTemplateRollbackFixture
     {
-        private UIApplication? _uiapp;
-
-        [OneTimeSetUp]
-        public void Setup(UIApplication uiapp)
-        {
-            _uiapp = uiapp;
-            TestWorkerJournalMarker.EnsureWritten(uiapp);
-        }
-
         private class StubLevelTranslator : IModelTranslator
         {
             public bool WasInjected { get; private set; }
@@ -49,14 +41,9 @@ namespace SyntheticTests.RevitDOM
         }
 
         [Test]
-        [RevitAdapterTest]
         public void ToRevit_GracefulDegradation_CapturesFailedAndSuccessfulTransactions()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 // Find a default level to modify
                 Level? defaultLevel = new FilteredElementCollector(doc)
@@ -109,22 +96,13 @@ namespace SyntheticTests.RevitDOM
                 // Assert that the successful element was actually modified and committed
                 Assert.AreEqual("ModifiedByStubTranslator", defaultLevel.Name, "The successful model modifications should be committed.");
                 Assert.IsTrue(stubTranslator.WasInjected, "Translator InjectSpecifics should have run.");
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
-        [RevitAdapterTest]
         public void ToRevit_Cancellation_RollsBackAllChangesAndThrowsException()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 // Find default level
                 Level? defaultLevel = new FilteredElementCollector(doc)
@@ -158,22 +136,13 @@ namespace SyntheticTests.RevitDOM
 
                 // Assert that the level was NOT modified because the outer transaction group was rolled back
                 Assert.AreEqual(originalName, defaultLevel.Name, "Changes must be rolled back on cancellation.");
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
-        [RevitAdapterTest]
         public void ToRevit_UnchangedElement_SkipsModificationsAndReturnsUnchanged()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 // Find a default level to target
                 Level? defaultLevel = new FilteredElementCollector(doc)
@@ -207,22 +176,13 @@ namespace SyntheticTests.RevitDOM
                 Assert.AreEqual("Unchanged", result.Action, "Should be flagged as Unchanged.");
                 Assert.IsFalse(stubTranslator.WasInjected, "InjectSpecifics should be skipped when element is unchanged.");
                 Assert.AreEqual(originalName, defaultLevel.Name, "Level name should not have changed.");
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
-        [RevitAdapterTest]
         public void ToRevit_CompositeRouting_DispatchesAllStandardTypesToRegisteredTranslatorsWithoutOverwrite()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 var engine = new StandardSerializationEngine();
 
@@ -311,23 +271,13 @@ namespace SyntheticTests.RevitDOM
                             $"Model {r.Model?.GetType().Name} failed with missing translator: {r.ErrorMessage}");
                     }
                 }
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
 
         [Test]
-        [RevitAdapterTest]
         public void ToRevit_CrossDocumentTransfer_GuardsPositiveIdAndClearsStaleReferences()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document docA = app.NewProjectDocument(UnitSystem.Metric);
-            Document docB = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocumentPair((docA, docB) =>
             {
                 // In docA, create Material_DocA
                 Material matA;
@@ -393,24 +343,13 @@ namespace SyntheticTests.RevitDOM
                 Assert.AreEqual(1, results.Count);
                 Assert.IsTrue(results[0].Success);
                 Assert.AreEqual("Created", results[0].Action);
-            }
-            finally
-            {
-                docA.Close(false);
-                docB.Close(false);
-            }
+            });
         }
 
         [Test]
-        [RevitAdapterTest]
         public void ToRevit_DimensionType_DisambiguatesLinearAndAngularRoundTrip()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document docA = app.NewProjectDocument(UnitSystem.Metric);
-            Document docB = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocumentPair((docA, docB) =>
             {
                 // In docA, find or create Linear and Angular dimension types
                 var allDimsDocA = new FilteredElementCollector(docA)
@@ -471,24 +410,13 @@ namespace SyntheticTests.RevitDOM
                 Assert.AreEqual(2, docBDims.Count, "Both Linear and Angular Disambig_Standard must exist in docB.");
                 Assert.IsTrue(docBDims.Any(d => d.StyleType == DimensionStyleType.Linear));
                 Assert.IsTrue(docBDims.Any(d => d.StyleType == DimensionStyleType.Angular));
-            }
-            finally
-            {
-                docA.Close(false);
-                docB.Close(false);
-            }
+            });
         }
 
         [Test]
-        [RevitAdapterTest]
         public void ToRevit_FillPatternElement_DisambiguatesDraftingAndModelRoundTrip()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document docA = app.NewProjectDocument(UnitSystem.Metric);
-            Document docB = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocumentPair((docA, docB) =>
             {
                 // In docA, create colliding Drafting and Model fill pattern elements named "Crosshatch_Collide"
                 FillPatternElement fpDrafting;
@@ -542,24 +470,13 @@ namespace SyntheticTests.RevitDOM
                 var secondResults = engine.ToRevit(rehydrated, docB).ToList();
                 Assert.AreEqual(2, secondResults.Count);
                 Assert.IsTrue(secondResults.All(r => r.Action == "Unchanged"), "Both identical patterns should report Unchanged.");
-            }
-            finally
-            {
-                docA.Close(false);
-                docB.Close(false);
-            }
+            });
         }
 
         [Test]
-        [RevitAdapterTest]
         public void ToRevit_MultiFamilySystemTypes_DisambiguatesFamilyNameAndWildcards()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document docA = app.NewProjectDocument(UnitSystem.Metric);
-            Document docB = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocumentPair((docA, docB) =>
             {
                 // In docA, find WallTypes across Basic Wall and Curtain Wall
                 var wallTypesDocA = new FilteredElementCollector(docA)
@@ -624,398 +541,13 @@ namespace SyntheticTests.RevitDOM
                     .Cast<WallType>()
                     .FirstOrDefault(w => w.Name == "Disambig_WildcardWall");
                 Assert.IsNotNull(wildcardWall, "Legacy empty-FamilyName wildcard model must create/duplicate successfully.");
-            }
-            finally
-            {
-                docA.Close(false);
-                docB.Close(false);
-            }
-        }
-
-        private (Document ProjectDoc, Document FamilyDoc, bool IsTemplateDoc) OpenProjectAndEditableFamilyDocs(Autodesk.Revit.ApplicationServices.Application app)
-        {
-            Document projDoc = app.NewProjectDocument(UnitSystem.Metric);
-            Family? editableFamily = new FilteredElementCollector(projDoc)
-                .OfClass(typeof(Family))
-                .Cast<Family>()
-                .FirstOrDefault(f => f.IsEditable);
-
-            if (editableFamily != null)
-            {
-                Document famDoc = projDoc.EditFamily(editableFamily);
-                if (famDoc != null)
-                {
-                    return (projDoc, famDoc, false);
-                }
-            }
-
-            projDoc.Close(false);
-
-            string projectRoot = TestPathHelper.GetProjectRoot();
-            string testModelName = "TestTemplate" + app.VersionNumber + ".rvt";
-            string modelPathStr = Path.Combine(projectRoot, "tests", "Assets", "test_models", testModelName);
-            if (File.Exists(modelPathStr))
-            {
-                ModelPath modelPath = ModelPathUtils.ConvertUserVisiblePathToModelPath(modelPathStr);
-                OpenOptions openOptions = new OpenOptions
-                {
-                    DetachFromCentralOption = DetachFromCentralOption.DetachAndDiscardWorksets
-                };
-                projDoc = app.OpenDocumentFile(modelPath, openOptions);
-                editableFamily = new FilteredElementCollector(projDoc)
-                    .OfClass(typeof(Family))
-                    .Cast<Family>()
-                    .FirstOrDefault(f => f.IsEditable);
-
-                if (editableFamily != null)
-                {
-                    Document famDoc = projDoc.EditFamily(editableFamily);
-                    if (famDoc != null)
-                    {
-                        return (projDoc, famDoc, true);
-                    }
-                }
-            }
-
-            throw new InvalidOperationException("Could not find an editable family in test document to open family document.");
+            });
         }
 
         [Test]
-        [RevitIsolatedDocTest]
-        public void ToRevit_DocumentScope_EnforcesUniversalFamilyAndProjectScopes()
-        {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            var (projDoc, famDoc, _) = OpenProjectAndEditableFamilyDocs(app);
-
-            try
-            {
-                var engine = new StandardSerializationEngine();
-
-                // 1. In Family Document: ProjectOnly types + unknown classes are skipped with Success = true, Action = "Skipped"
-                var wallType = new HostObjTypeModel { Name = "Generic Wall", Class = "Autodesk.Revit.DB.WallType" };
-                var gridType = new ElementTypeModel { Name = "1/4 Circle", Class = "Autodesk.Revit.DB.GridType" };
-                var paramElement = new ParameterElementModel { Name = "CostCode", Class = "Autodesk.Revit.DB.ParameterElement" };
-                var familySymbol = new ElementTypeModel { Name = "Door 36x84", Class = "Autodesk.Revit.DB.FamilySymbol" };
-                var viewFamilyType = new ElementTypeModel { Name = "Floor Plan", Class = "Autodesk.Revit.DB.ViewFamilyType" };
-                var unknownClass = new ElementModel { Name = "CustomWidget", Class = "Custom.Unknown.WidgetType" };
-
-                var outOfScopeFamilyBatch = new List<ObjectModel> { wallType, gridType, paramElement, familySymbol, viewFamilyType, unknownClass };
-                var familyResults = engine.ToRevit(outOfScopeFamilyBatch, famDoc).ToList();
-
-                Assert.AreEqual(6, familyResults.Count);
-                foreach (var r in familyResults)
-                {
-                    Assert.IsTrue(r.Success, $"Model {r.Model} must succeed with Skipped action.");
-                    Assert.AreEqual("Skipped", r.Action, $"Model {r.Model} must have Action = Skipped.");
-                    Assert.IsTrue(r.Message!.Contains("out of scope for family document"), $"Message should state out of scope for family document: {r.Message}");
-                }
-
-                // Verify Universal + FamilyOnly scope checks in family document
-                var universalModels = new ObjectModel[]
-                {
-                    new LinePatternElementModel { Class = "Autodesk.Revit.DB.LinePatternElement" },
-                    new FillPatternElementModel { Class = "Autodesk.Revit.DB.FillPatternElement" },
-                    new PropertySetElementModel { Class = "Autodesk.Revit.DB.PropertySetElement" },
-                    new MaterialModel { Class = "Autodesk.Revit.DB.Material" },
-                    new CategoryModel { Class = "Autodesk.Revit.DB.Category" },
-                    new DimensionTypeModel { Class = "Autodesk.Revit.DB.DimensionType" },
-                    new FilledRegionTypeModel { Class = "Autodesk.Revit.DB.FilledRegionType" },
-                    new ElementTypeModel { Class = "Autodesk.Revit.DB.TextNoteType" },
-                    new ElementTypeModel { Class = "Autodesk.Revit.DB.ModelTextType" },
-                    new ElementTypeModel { Class = "Autodesk.Revit.DB.TextElementType" } // FamilyOnly
-                };
-
-                foreach (var m in universalModels)
-                {
-                    Assert.IsTrue(StandardTypeRegistry.IsInDocumentScope(m, famDoc.IsFamilyDocument),
-                        $"Model {m.GetType().Name} with class {(m as ElementModel)?.Class} must be in scope for family document.");
-                }
-
-                // 2. In Project Document: FamilyOnly type (TextElementType) is skipped with Success = true, Action = "Skipped"
-                var textElementType = new ElementTypeModel { Name = "Family Label 1/8", Class = "Autodesk.Revit.DB.TextElementType" };
-                var projResults = engine.ToRevit(new[] { textElementType }, projDoc).ToList();
-
-                Assert.AreEqual(1, projResults.Count);
-                Assert.IsTrue(projResults[0].Success);
-                Assert.AreEqual("Skipped", projResults[0].Action);
-                Assert.IsTrue(projResults[0].Message!.Contains("out of scope for project document"));
-            }
-            finally
-            {
-                famDoc.Close(false);
-                projDoc.Close(false);
-            }
-        }
-
-        [Test]
-        [RevitIsolatedDocTest]
-        public void Analyze_DocumentScope_OmitsOutOfScopeClustersInProjectAndFamilyDocs()
-        {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            var (projDoc, famDoc, _) = OpenProjectAndEditableFamilyDocs(app);
-
-            try
-            {
-                var engine = new StandardSerializationEngine();
-
-                var linePattern = new LinePatternElementModel { Name = "Dash 1/8", Class = "Autodesk.Revit.DB.LinePatternElement", Category = "Line Patterns" };
-                var textElementType = new ElementTypeModel { Name = "FamLabel", Class = "Autodesk.Revit.DB.TextElementType", Category = "Text Element Types" };
-                var wallType = new HostObjTypeModel { Name = "Generic 8\"", Class = "Autodesk.Revit.DB.WallType", Category = "Walls" };
-                var unknownType = new ElementModel { Name = "UnknownThing", Class = "Custom.Unknown.Class", Category = "Custom" };
-
-                var allModels = new List<ObjectModel> { linePattern, textElementType, wallType, unknownType };
-
-                // 1. Analyze against family doc: WallType and unknown types must be omitted from diff clusters
-                var familyClusters = engine.Analyze(allModels, famDoc).ToList();
-                var familyCategories = familyClusters.SelectMany(c => c.Items).Select(i => i.CategoryName).Distinct().ToList();
-
-                Assert.IsFalse(familyCategories.Contains("Walls"), "WallType must be omitted from family diff clusters.");
-                Assert.IsFalse(familyCategories.Contains("Custom"), "Unknown classes must be omitted from family diff clusters.");
-
-                // 2. Analyze against project doc: TextElementType must be omitted from diff clusters
-                var projectClusters = engine.Analyze(allModels, projDoc).ToList();
-                var projectCategories = projectClusters.SelectMany(c => c.Items).Select(i => i.CategoryName).Distinct().ToList();
-
-                Assert.IsFalse(projectCategories.Contains("Text Element Types"), "TextElementType must be omitted from project diff clusters.");
-            }
-            finally
-            {
-                famDoc.Close(false);
-                projDoc.Close(false);
-            }
-        }
-
-        private (Document Doc, string TempPath) OpenDetachedTestTemplateCopy(Autodesk.Revit.ApplicationServices.Application app)
-        {
-            string projectRoot = TestPathHelper.GetProjectRoot();
-            string testModelName = "TestTemplate" + app.VersionNumber + ".rvt";
-            string sourcePath = Path.Combine(projectRoot, "tests", "Assets", "test_models", testModelName);
-            Assert.IsTrue(File.Exists(sourcePath), $"Test template not found at {sourcePath}");
-
-            string tempCopyPath = Path.Combine(Path.GetTempPath(), $"SyntheticTestTemplate_{Guid.NewGuid():N}.rvt");
-            File.Copy(sourcePath, tempCopyPath, overwrite: true);
-
-            ModelPath modelPath = ModelPathUtils.ConvertUserVisiblePathToModelPath(tempCopyPath);
-            var openOptions = new OpenOptions
-            {
-                DetachFromCentralOption = DetachFromCentralOption.DetachAndDiscardWorksets
-            };
-            return (app.OpenDocumentFile(modelPath, openOptions), tempCopyPath);
-        }
-
-        [Test]
-        [RevitIsolatedDocTest]
-        public void ToRevit_FamilySymbol_TwoDoc_LoadedSiblingDuplication_RoundTrip()
-        {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            var (docA, pathA) = OpenDetachedTestTemplateCopy(app);
-            var (docB, pathB) = OpenDetachedTestTemplateCopy(app);
-
-            try
-            {
-                FamilySymbol? seedA = new FilteredElementCollector(docA)
-                    .OfClass(typeof(FamilySymbol))
-                    .Cast<FamilySymbol>()
-                    .FirstOrDefault(s => s.GetType() == typeof(FamilySymbol) && s.Family != null && !s.Family.IsInPlace && s.Category != null && !string.IsNullOrEmpty(s.Family.Name));
-                Assert.IsNotNull(seedA, "TestTemplate must contain a loadable FamilySymbol.");
-
-                string targetFamilyName = seedA!.Family.Name;
-                string newSymbolName = "SiblingSymbol_143_" + Guid.NewGuid().ToString("N").Substring(0, 6);
-
-                FamilySymbol duplicatedA;
-                using (var tA = new Transaction(docA, "Create Sibling FamilySymbol"))
-                {
-                    tA.Start();
-                    duplicatedA = (FamilySymbol)seedA.Duplicate(newSymbolName);
-                    tA.Commit();
-                }
-
-                var engine = new StandardSerializationEngine();
-                var extracted = engine.ByRevit(new Element[] { duplicatedA }, docA, isTemplate: true).ToList();
-                Assert.AreEqual(1, extracted.Count);
-
-                string json = StandardSerializationEngine.ToJson(extracted);
-                var rehydrated = StandardSerializationEngine.FromJson(json).ToList();
-                Assert.AreEqual(1, rehydrated.Count);
-
-                var fsModel = rehydrated[0] as ElementTypeModel;
-                Assert.IsNotNull(fsModel);
-                Assert.AreEqual(targetFamilyName, fsModel!.FamilyName);
-
-                var clusters = engine.Analyze(rehydrated, docB).ToList();
-                Assert.IsFalse(clusters.SelectMany(c => c.Items).Any(i => i.ItemName == newSymbolName),
-                    "New sibling symbol should not yet exist in docB.");
-
-                var results = engine.ToRevit(rehydrated, docB).ToList();
-                Assert.AreEqual(1, results.Count);
-                Assert.IsTrue(results[0].Success, $"ToRevit failed: {results[0].Message}");
-                Assert.AreEqual("Created", results[0].Action);
-
-                var createdInDocB = new FilteredElementCollector(docB)
-                    .OfClass(typeof(FamilySymbol))
-                    .Cast<FamilySymbol>()
-                    .FirstOrDefault(s => s.Name == newSymbolName && string.Equals(s.Family?.Name, targetFamilyName, StringComparison.OrdinalIgnoreCase));
-                Assert.IsNotNull(createdInDocB, $"Symbol '{newSymbolName}' must be duplicated strictly inside loaded family '{targetFamilyName}'.");
-            }
-            finally
-            {
-                docA.Close(false);
-                docB.Close(false);
-                try { File.Delete(pathA); } catch { }
-                try { File.Delete(pathB); } catch { }
-            }
-        }
-
-        [Test]
-        [RevitIsolatedDocTest]
-        public void ToRevit_FamilySymbol_TwoDoc_ConflictingFamilyDoesNotOverwriteUnrelatedFamily()
-        {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            var (docA, pathA) = OpenDetachedTestTemplateCopy(app);
-            var (docB, pathB) = OpenDetachedTestTemplateCopy(app);
-
-            try
-            {
-                var symbolsA = new FilteredElementCollector(docA)
-                    .OfClass(typeof(FamilySymbol))
-                    .Cast<FamilySymbol>()
-                    .Where(s => s.GetType() == typeof(FamilySymbol) && s.Family != null && !s.Family.IsInPlace && s.Category != null && !string.IsNullOrEmpty(s.Family.Name))
-                    .GroupBy(s => s.Family.Name, StringComparer.OrdinalIgnoreCase)
-                    .Select(g => g.First())
-                    .ToList();
-
-                Assert.GreaterOrEqual(symbolsA.Count, 2, "TestTemplate must contain at least 2 distinct loadable families.");
-                FamilySymbol fam1SeedA = symbolsA[0];
-                string fam1Name = fam1SeedA.Family.Name;
-                string fam2Name = symbolsA[1].Family.Name;
-
-                string collidingName = "CollideSymbol_143_" + Guid.NewGuid().ToString("N").Substring(0, 6);
-
-                FamilySymbol createdInA;
-                using (var tA = new Transaction(docA, "Create Fam1 Symbol in DocA"))
-                {
-                    tA.Start();
-                    createdInA = (FamilySymbol)fam1SeedA.Duplicate(collidingName);
-                    tA.Commit();
-                }
-
-                // In docB, create a same-named symbol under fam2 (NOT fam1)
-                FamilySymbol? fam2SeedB = new FilteredElementCollector(docB)
-                    .OfClass(typeof(FamilySymbol))
-                    .Cast<FamilySymbol>()
-                    .FirstOrDefault(s => string.Equals(s.Family?.Name, fam2Name, StringComparison.OrdinalIgnoreCase));
-                Assert.IsNotNull(fam2SeedB);
-
-                ElementId fam2SymbolIdB;
-                using (var tB = new Transaction(docB, "Create Conflicting Fam2 Symbol in DocB"))
-                {
-                    tB.Start();
-                    var fam2SymB = (FamilySymbol)fam2SeedB!.Duplicate(collidingName);
-                    fam2SymbolIdB = fam2SymB.Id;
-                    tB.Commit();
-                }
-
-                var engine = new StandardSerializationEngine();
-                var rehydrated = StandardSerializationEngine.FromJson(
-                    StandardSerializationEngine.ToJson(engine.ByRevit(new Element[] { createdInA }, docA, isTemplate: true))).ToList();
-
-                var results = engine.ToRevit(rehydrated, docB).ToList();
-                Assert.AreEqual(1, results.Count);
-                Assert.IsTrue(results[0].Success, $"ToRevit failed: {results[0].Message}");
-                Assert.AreEqual("Created", results[0].Action, "Conflicting family in docB must not match; must duplicate inside fam1 instead.");
-
-                var docBColliders = new FilteredElementCollector(docB)
-                    .OfClass(typeof(FamilySymbol))
-                    .Cast<FamilySymbol>()
-                    .Where(s => s.Name == collidingName)
-                    .ToList();
-
-                Assert.IsTrue(docBColliders.Any(s => string.Equals(s.Family?.Name, fam1Name, StringComparison.OrdinalIgnoreCase)),
-                    "fam1 must receive the newly duplicated symbol.");
-                var untouchedFam2 = docB.GetElement(fam2SymbolIdB) as FamilySymbol;
-                Assert.IsNotNull(untouchedFam2, "Unrelated fam2 symbol in docB must remain intact.");
-                Assert.AreEqual(collidingName, untouchedFam2!.Name);
-                Assert.AreEqual(fam2Name, untouchedFam2.Family?.Name);
-            }
-            finally
-            {
-                docA.Close(false);
-                docB.Close(false);
-                try { File.Delete(pathA); } catch { }
-                try { File.Delete(pathB); } catch { }
-            }
-        }
-
-        [Test]
-        [RevitIsolatedDocTest]
-        public void ToRevit_FamilySymbol_TwoDoc_UnloadedFamilyRollsBackInnerTransactionOnly()
-        {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            var (docA, pathA) = OpenDetachedTestTemplateCopy(app);
-            Document docB = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
-            {
-                var docBFamilyNames = new HashSet<string>(
-                    new FilteredElementCollector(docB).OfClass(typeof(Family)).Cast<Family>().Select(f => f.Name),
-                    StringComparer.OrdinalIgnoreCase);
-
-                FamilySymbol? missingInDocB = new FilteredElementCollector(docA)
-                    .OfClass(typeof(FamilySymbol))
-                    .Cast<FamilySymbol>()
-                    .FirstOrDefault(s => s.GetType() == typeof(FamilySymbol) && s.Family != null && !s.Family.IsInPlace && !string.IsNullOrEmpty(s.Family.Name) && !docBFamilyNames.Contains(s.Family.Name));
-                Assert.IsNotNull(missingInDocB, "Need a FamilySymbol in TestTemplate whose Family is not in blank metric project.");
-
-                string missingFamilyName = missingInDocB!.Family.Name;
-
-                var engine = new StandardSerializationEngine();
-                var rehydratedFs = StandardSerializationEngine.FromJson(
-                    StandardSerializationEngine.ToJson(engine.ByRevit(new Element[] { missingInDocB }, docA, isTemplate: true))).ToList();
-                Assert.AreEqual(1, rehydratedFs.Count);
-
-                var healthyMat = new MaterialModel
-                {
-                    Name = "HealthyBatchMat_143_" + Guid.NewGuid().ToString("N").Substring(0, 6),
-                    Class = "Autodesk.Revit.DB.Material"
-                };
-
-                var results = engine.ToRevit(new ObjectModel[] { rehydratedFs[0], healthyMat }, docB).ToList();
-                Assert.AreEqual(2, results.Count);
-
-                var fsRes = results.First(r => r.Model == rehydratedFs[0]);
-                Assert.IsFalse(fsRes.Success, "Missing parent family must fail.");
-                Assert.AreEqual("Failed", fsRes.Action);
-                Assert.IsTrue(fsRes.Message.Contains(missingFamilyName), $"Failure message must name missing FamilyName '{missingFamilyName}', got: {fsRes.Message}");
-
-                var matRes = results.First(r => r.Model == healthyMat);
-                Assert.IsTrue(matRes.Success, "Healthy sibling model in same TransactionGroup must commit.");
-                Assert.AreEqual("Created", matRes.Action);
-
-                Assert.IsTrue(new FilteredElementCollector(docB).OfClass(typeof(Material)).Any(m => m.Name == healthyMat.Name));
-            }
-            finally
-            {
-                docA.Close(false);
-                docB.Close(false);
-                try { File.Delete(pathA); } catch { }
-            }
-        }
-
-        [Test]
-        [RevitAdapterTest]
         public void GatherRootElements_And_ToRevit_ViewFamilyType_TwoDocRoundTrip_AndNonCopiableSeedFailure()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document docA = app.NewProjectDocument(UnitSystem.Metric);
-            Document docB = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocumentPair((docA, docB) =>
             {
                 var copiableSeedA = new FilteredElementCollector(docA)
                     .OfClass(typeof(ViewFamilyType))
@@ -1094,12 +626,7 @@ namespace SyntheticTests.RevitDOM
                     Assert.IsTrue(matOk.Success);
                     Assert.AreEqual("Created", matOk.Action);
                 }
-            }
-            finally
-            {
-                docA.Close(false);
-                docB.Close(false);
-            }
+            });
         }
     }
 }

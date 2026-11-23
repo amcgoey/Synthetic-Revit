@@ -7,31 +7,18 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
-using SyntheticTests.Helpers;
+using SyntheticTests.Fixtures;
 
 namespace SyntheticTests.RevitDOM
 {
     [TestFixture]
     [RevitAdapterTest]
-    public class BrowserOrganizationTranslatorRevitTests
+    public class BrowserOrganizationTranslatorRevitTests : RevitTemplateRollbackFixture
     {
-        private UIApplication? _uiapp;
-
-        [OneTimeSetUp]
-        public void Setup(UIApplication uiapp)
-        {
-            _uiapp = uiapp;
-            TestWorkerJournalMarker.EnsureWritten(uiapp);
-        }
-
         [Test]
         public void BrowserOrganizationTranslator_Inject_Null_LogsWarning()
         {
-            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
-            var app = _uiapp!.Application;
-            Document doc = app.NewProjectDocument(UnitSystem.Metric);
-
-            try
+            WithRolledBackDocument(doc =>
             {
                 SerializationResultModel.ClearWarnings();
 
@@ -59,11 +46,7 @@ namespace SyntheticTests.RevitDOM
                 Assert.IsTrue(warnings.Count > 0, "A warning should be logged.");
                 Assert.IsTrue(warnings.Any(w => w.Contains("Revit API prevents the programmatic creation of new Browser Organizations")), 
                     "Warning message should inform the user about the Revit API limitation.");
-            }
-            finally
-            {
-                doc.Close(false);
-            }
+            });
         }
     }
 }

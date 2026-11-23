@@ -1,6 +1,8 @@
 using System;
 using Autodesk.Revit.UI;
 using NUnit.Framework;
+using Synthetic.Platform.Host;
+using SyntheticTests.Fixtures;
 using SyntheticTests.Helpers;
 
 namespace SyntheticTests.Platform.Host
@@ -10,12 +12,27 @@ namespace SyntheticTests.Platform.Host
     public class RevitSmokeRevitTests
     {
         private UIApplication? _uiapp;
+        private int _initialDocCount;
 
         [OneTimeSetUp]
         public void Setup(UIApplication uiapp)
         {
             _uiapp = uiapp;
+            HostSettingsRegistrar.EnsureRegistered();
             TestWorkerJournalMarker.EnsureWritten(uiapp);
+            _initialDocCount = uiapp.Application.Documents.Size;
+        }
+
+        [OneTimeTearDown]
+        public void OneTimeTearDown()
+        {
+            if (_uiapp?.Application != null)
+            {
+                Assert.AreEqual(
+                    _initialDocCount,
+                    _uiapp.Application.Documents.Size,
+                    "RevitSmokeRevitTests leaked open Revit document(s).");
+            }
         }
 
         [Test]
@@ -31,9 +48,8 @@ namespace SyntheticTests.Platform.Host
         {
             Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
 
-            // Resolve types dynamically via reflection based on executing assembly's Revit version suffix
-            string assemblyName = System.Reflection.Assembly.GetExecutingAssembly().GetName().Name ?? "";
-            string revitVersion = assemblyName.Replace("SyntheticTests", "");
+            // Resolve types dynamically via reflection based on the live Revit VersionNumber
+            string revitVersion = _uiapp!.Application.VersionNumber;
             
             var vmType = Type.GetType($"Synthetic.Features.StandardsManagement.ViewModels.ProjectStandardsDashboardViewModel, Synthetic{revitVersion}");
             Assert.IsNotNull(vmType, $"ProjectStandardsDashboardViewModel type could not be loaded for Revit version {revitVersion}.");
@@ -88,34 +104,20 @@ namespace SyntheticTests.Platform.Host
                 serializationEngine, 
                 pipeline);
 
-            var window = Activator.CreateInstance(windowType, _uiapp!.MainWindowHandle);
-
-            Assert.IsNotNull(vm, "ViewModel could not be instantiated.");
-            Assert.IsNotNull(window, "Window could not be instantiated.");
-
-            // Set DataContext
-            var dataContextProp = windowType.GetProperty("DataContext");
-            Assert.IsNotNull(dataContextProp, "DataContext property should exist on the window.");
-            dataContextProp.SetValue(window, vm);
-
-            try
+            using (var harness = new WpfBindingSmokeHarness())
             {
-                // Show window modelessly to verify XAML parsing & theme loading
-                var showMethod = windowType.GetMethod("Show");
-                Assert.IsNotNull(showMethod, "Show method should exist on the window.");
-                showMethod.Invoke(window, null);
+                var window = Activator.CreateInstance(windowType, _uiapp!.MainWindowHandle);
 
-                var isVisibleProp = windowType.GetProperty("IsVisible");
-                Assert.IsNotNull(isVisibleProp, "IsVisible property should exist on the window.");
-                bool isVisible = (bool)(isVisibleProp.GetValue(window) ?? false);
-                Assert.IsTrue(isVisible, "Dashboard window should be visible.");
-            }
-            finally
-            {
-                // Close window to clean up
-                var closeMethod = windowType.GetMethod("Close");
-                Assert.IsNotNull(closeMethod, "Close method should exist on the window.");
-                closeMethod.Invoke(window, null);
+                Assert.IsNotNull(vm, "ViewModel could not be instantiated.");
+                Assert.IsNotNull(window, "Window could not be instantiated.");
+
+                // Set DataContext
+                var dataContextProp = windowType.GetProperty("DataContext");
+                Assert.IsNotNull(dataContextProp, "DataContext property should exist on the window.");
+                dataContextProp!.SetValue(window, vm);
+
+                WpfBindingSmokeHarness.ExerciseWindow((System.Windows.Window)window!, clearDataContextOnClose: true);
+                harness.AssertNoBindingErrors("ProjectStandardsDashboardWindow");
             }
         }
 

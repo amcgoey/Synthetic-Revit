@@ -1,9 +1,7 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Windows;
 using Autodesk.Revit.UI;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
@@ -11,6 +9,7 @@ using Synthetic.Features.SharedCoordinates.Commands;
 using Synthetic.Features.SharedCoordinates.Models;
 using Synthetic.Features.SharedCoordinates.ViewModels;
 using Synthetic.Features.SharedCoordinates.Views;
+using Synthetic.Platform.Host;
 using SyntheticTests.Fixtures;
 using SyntheticTests.Helpers;
 
@@ -26,31 +25,11 @@ namespace SyntheticTests.Features.SharedCoordinates
     {
         private UIApplication? _uiapp;
 
-        private sealed class CapturingTraceListener : TraceListener
-        {
-            public List<string> Messages { get; } = new List<string>();
-
-            public override void Write(string? message)
-            {
-                if (!string.IsNullOrEmpty(message))
-                {
-                    Messages.Add(message!);
-                }
-            }
-
-            public override void WriteLine(string? message)
-            {
-                if (!string.IsNullOrEmpty(message))
-                {
-                    Messages.Add(message!);
-                }
-            }
-        }
-
         [OneTimeSetUp]
         public void Setup(UIApplication uiapp)
         {
             _uiapp = uiapp;
+            HostSettingsRegistrar.EnsureRegistered();
             TestWorkerJournalMarker.EnsureWritten(uiapp);
         }
 
@@ -84,16 +63,8 @@ namespace SyntheticTests.Features.SharedCoordinates
             Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
             IntPtr ownerHandle = _uiapp!.MainWindowHandle;
 
-            var listener = new CapturingTraceListener();
-            TraceSource dataBindingSource = PresentationTraceSources.DataBindingSource;
-            SourceLevels previousLevel = dataBindingSource.Switch.Level;
-            dataBindingSource.Switch.Level = SourceLevels.Error;
-            dataBindingSource.Listeners.Add(listener);
-
-            try
+            using (var harness = new WpfBindingSmokeHarness())
             {
-                PresentationTraceSources.Refresh();
-
                 var fakeAdapter = new FakeSharedCoordinatesAdapter();
                 fakeAdapter.AddLinkedModel("link-1", "Tower_Host.rvt", isSelected: true);
                 fakeAdapter.AddActiveLevel("Level 1", 0.0);
@@ -112,11 +83,11 @@ namespace SyntheticTests.Features.SharedCoordinates
 
                 // 1. MoveLinksToSharedSitesWindow
                 var moveVm = new MoveLinksToSharedSitesViewModel(fakeAdapter);
-                ExerciseWindow(new MoveLinksToSharedSitesWindow(ownerHandle) { DataContext = moveVm });
+                WpfBindingSmokeHarness.ExerciseWindow(new MoveLinksToSharedSitesWindow(ownerHandle) { DataContext = moveVm });
 
                 // 2. SyncSharedSitesWindow
                 var syncVm = new SyncSharedSitesViewModel(fakeAdapter);
-                ExerciseWindow(new SyncSharedSitesWindow(ownerHandle) { DataContext = syncVm });
+                WpfBindingSmokeHarness.ExerciseWindow(new SyncSharedSitesWindow(ownerHandle) { DataContext = syncVm });
 
                 // 3. SharedCoordinatesSummaryWindow (Sync mode)
                 var syncSummary = new SyncSharedSitesSummary
@@ -126,7 +97,7 @@ namespace SyntheticTests.Features.SharedCoordinates
                     CreatedSiteNames = new[] { "Floor 2" },
                     UpdatedSiteNames = new[] { "Floor 1" }
                 };
-                ExerciseWindow(new SharedCoordinatesSummaryWindow(ownerHandle, syncSummary));
+                WpfBindingSmokeHarness.ExerciseWindow(new SharedCoordinatesSummaryWindow(ownerHandle, syncSummary));
 
                 // 4. SharedCoordinatesSummaryWindow (Reposition mode)
                 var repoSummary = new RepositionLinksSummary
@@ -137,31 +108,9 @@ namespace SyntheticTests.Features.SharedCoordinates
                     RepositionedInstanceNames = new[] { "Unit_A : 1" },
                     SkippedInstanceNames = new[] { "Unit_B : <Not Shared>" }
                 };
-                ExerciseWindow(new SharedCoordinatesSummaryWindow(ownerHandle, repoSummary));
+                WpfBindingSmokeHarness.ExerciseWindow(new SharedCoordinatesSummaryWindow(ownerHandle, repoSummary));
 
-                Assert.IsEmpty(
-                    listener.Messages,
-                    "Expected zero WPF DataBinding errors across SharedCoordinates views:" + Environment.NewLine
-                    + string.Join(Environment.NewLine, listener.Messages));
-            }
-            finally
-            {
-                dataBindingSource.Listeners.Remove(listener);
-                dataBindingSource.Switch.Level = previousLevel;
-            }
-        }
-
-        private static void ExerciseWindow(Window window)
-        {
-            try
-            {
-                window.Show();
-                window.UpdateLayout();
-                Assert.IsTrue(window.IsVisible, $"{window.GetType().Name} should show cleanly without resource exceptions.");
-            }
-            finally
-            {
-                window.Close();
+                harness.AssertNoBindingErrors("SharedCoordinates views");
             }
         }
     }
