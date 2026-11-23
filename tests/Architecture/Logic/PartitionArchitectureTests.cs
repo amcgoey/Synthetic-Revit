@@ -7,6 +7,7 @@ using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using NUnit.Framework;
 using Synthetic.Platform.Host;
+using Synthetic.Platform.IO;
 using SyntheticTests.Helpers;
 
 namespace SyntheticTests.Architecture
@@ -26,8 +27,11 @@ namespace SyntheticTests.Architecture
             string testsRoot = Path.Combine(projectRoot, "tests");
 
             Assert.IsTrue(Directory.Exists(Path.Combine(srcRoot, "Platform", "Host")), "Expected src/Platform/Host partition root.");
+            Assert.IsTrue(Directory.Exists(Path.Combine(srcRoot, "Platform", "Host")), "Expected src/Platform/Host partition root.");
+            Assert.IsTrue(Directory.Exists(Path.Combine(srcRoot, "Platform", "IO", "Core")), "Expected src/Platform/IO/Core partition root.");
             Assert.IsTrue(Directory.Exists(Path.Combine(srcRoot, "Platform", "UI")), "Expected src/Platform/UI partition root.");
             Assert.IsTrue(Directory.Exists(Path.Combine(testsRoot, "Platform", "Host")), "Expected tests/Platform/Host partition root.");
+            Assert.IsTrue(Directory.Exists(Path.Combine(testsRoot, "Platform", "IO", "Logic")), "Expected tests/Platform/IO/Logic partition root.");
             Assert.IsTrue(Directory.Exists(Path.Combine(testsRoot, "Platform", "UI")), "Expected tests/Platform/UI partition root.");
             Assert.IsTrue(Directory.Exists(Path.Combine(testsRoot, "Architecture")), "Expected tests/Architecture partition root.");
 
@@ -255,6 +259,58 @@ namespace SyntheticTests.Architecture
 
             Assert.IsEmpty(violations, string.Join(Environment.NewLine, violations));
             Assert.AreEqual(35, themeMergeCount, "Expected exactly 35 themed .xaml views merging SyntheticThemeDictionary.");
+        }
+
+        [Test]
+        public void PlatformIO_Core_HasZeroForbiddenDependencies_AndZeroEmittedExcelInteropDll()
+        {
+            string projectRoot = TestPathHelper.GetProjectRoot();
+            string ioCoreDir = Path.Combine(projectRoot, "src", "Platform", "IO", "Core");
+            Assert.IsTrue(Directory.Exists(ioCoreDir), $"Expected Platform/IO/Core directory at {ioCoreDir}");
+
+            string[] forbiddenPatterns =
+            {
+                @"\bAutodesk\.Revit\b",
+                @"\bSystem\.Windows\.Forms\b",
+                @"\bSynthetic\.Settings\b",
+                @"\bSynthetic\.Platform\.Settings\b",
+                @"\bSynthetic\.Platform\.UI\b",
+                @"\bSynthetic\.Shared\.UI\b",
+                @"\bSynthetic\.RevitDOM\b",
+                @"\bSynthetic\.Features\b",
+                @"\bSynthetic\.Modules\b",
+                @"\bSynthetic\.Infrastructure\.Persistence\b"
+            };
+
+            var sourceViolations = new List<string>();
+            foreach (string file in Directory.EnumerateFiles(ioCoreDir, "*.cs", SearchOption.AllDirectories))
+            {
+                string text = File.ReadAllText(file);
+                foreach (string pattern in forbiddenPatterns)
+                {
+                    if (Regex.IsMatch(text, pattern))
+                    {
+                        sourceViolations.Add($"src/Platform/IO/Core/{Path.GetFileName(file)} matched forbidden pattern '{pattern}'.");
+                    }
+                }
+            }
+
+            Assert.IsEmpty(sourceViolations, string.Join(Environment.NewLine, sourceViolations));
+
+            Assembly coreAssembly = typeof(FileUtil).Assembly;
+            Assert.AreEqual("Synthetic.Core", coreAssembly.GetName().Name);
+
+            var excelRefs = coreAssembly.GetReferencedAssemblies()
+                .Where(a => !string.IsNullOrEmpty(a.Name) &&
+                            a.Name!.IndexOf("Microsoft.Office.Interop.Excel", StringComparison.OrdinalIgnoreCase) >= 0)
+                .Select(a => a.FullName)
+                .ToList();
+            Assert.IsEmpty(excelRefs, "Synthetic.Core.dll must embed Excel interop types instead of emitting a runtime assembly reference.");
+
+            string? coreDir = Path.GetDirectoryName(coreAssembly.Location);
+            Assert.IsFalse(string.IsNullOrEmpty(coreDir));
+            string emittedExcelDll = Path.Combine(coreDir!, "Microsoft.Office.Interop.Excel.dll");
+            Assert.IsFalse(File.Exists(emittedExcelDll), $"Did not expect Microsoft.Office.Interop.Excel.dll at '{emittedExcelDll}'.");
         }
 
         private static string GetRelativeNormalizedPath(string rootDir, string fullPath)

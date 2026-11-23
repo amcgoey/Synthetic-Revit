@@ -8,7 +8,7 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
-using Synthetic.Infrastructure.Serialization;
+using Synthetic.Platform.IO;
 using Synthetic.Modules.MergeDuplicates.Handlers;
 using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.Modules.StandardsManagement.ViewModels;

@@ -6,8 +6,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
 using Microsoft.Win32;
-using Synthetic.Infrastructure.Serialization;
-using Synthetic.Infrastructure.IO;
+using Synthetic.Platform.IO;
 using Synthetic.Settings;
 using Synthetic.Infrastructure.Persistence;
 

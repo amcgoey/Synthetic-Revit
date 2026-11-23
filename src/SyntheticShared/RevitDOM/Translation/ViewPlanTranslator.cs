@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using Autodesk.Revit.DB;
-using Synthetic.Shared;
 
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;

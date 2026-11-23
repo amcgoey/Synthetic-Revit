@@ -3,8 +3,8 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 
 using Synthetic.Shared.RevitAPI;
-using Synthetic.Infrastructure.IO;
-using SFileUtil = Synthetic.Infrastructure.IO.FileUtil;
+using Synthetic.Platform.IO;
+using SFileUtil = Synthetic.Platform.IO.FileUtil;
 
 using Synthetic.Platform.UI;
 using Synthetic.Modules.MaterialManagement.Commands;
@@ -98,7 +98,30 @@ namespace Synthetic.Modules.MaterialManagement.Commands
                         }
                     }
                     List<string> rootNames = new List<string>() { "Materials","INC Material Maps", "Maps", "_Maps", "Substance" };
-                    results = SFileUtil.CopyFiles(filePaths, path, rootNames);
+                    IEnumerable<string>? archiveDirectories = null;
+                    IReadOnlyDictionary<string, List<string>>? alternatePaths = null;
+                    try
+                    {
+                        Config? appConfig = Config.ReadAppConfig();
+                        FileUtilitySettings? fileUtilSettings = appConfig?.GetSettings<FileUtilitySettings>(FileUtilitySettings.Name);
+                        if (fileUtilSettings != null)
+                        {
+                            archiveDirectories = fileUtilSettings.ArchiveDirectories;
+                            alternatePaths = fileUtilSettings.AlternatePaths;
+                        }
+                    }
+                    catch (Exception)
+                    {
+                        // Fall back gracefully when app config cannot be read
+                    }
+
+                    results = SFileUtil.CopyFiles(
+                        filePaths,
+                        path,
+                        rootNames,
+                        overwrite: true,
+                        archiveDirectories: archiveDirectories,
+                        alternatePaths: alternatePaths);
                 }
                 else { commandResult = Result.Failed; }
             }
