@@ -15,10 +15,6 @@ using Synthetic.Platform.Settings;
 
 using Synthetic.Platform.UI;
 
-using Synthetic.RevitDOM.Models;
-using Synthetic.RevitDOM.Translation;
-using Synthetic.RevitDOM.Operations;
-using Synthetic.RevitDOM;
 using Synthetic.Platform.Revit;
 namespace Synthetic.Features.DetailItemFactory.Settings
 {

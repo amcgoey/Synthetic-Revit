@@ -10,10 +10,6 @@ using System.Text;
 using Synthetic.Platform.UI;
 using Synthetic;
 
-using Synthetic.RevitDOM.Models;
-using Synthetic.RevitDOM.Translation;
-using Synthetic.RevitDOM.Operations;
-using Synthetic.RevitDOM;
 using Synthetic.Features.FamilyManagement.Handlers;
 using Synthetic.Features.FamilyManagement.Utilities;
 namespace Synthetic.Features.FamilyManagement.Handlers

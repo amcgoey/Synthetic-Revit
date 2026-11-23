@@ -10,7 +10,6 @@ using Autodesk.Revit.DB.ExtensibleStorage;
 using Synthetic.Platform.UI;
 
 using Synthetic.Platform.Revit;
-using Synthetic.Platform.IO;
 
 namespace Synthetic.Features.Diagnostics.Commands
 {
