@@ -6,7 +6,7 @@
     <Nullable>enable</Nullable>
     <RootNamespace>Synthetic</RootNamespace>
     <Deterministic>true</Deterministic>
-    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendTargetFrameworkToOutputPath Condition="'$(TargetFrameworks)' == ''">false</AppendTargetFrameworkToOutputPath>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
     <DefaultItemExcludes>$(DefaultItemExcludes);obj/**;bin/**</DefaultItemExcludes>
   </PropertyGroup>
@@ -26,7 +26,7 @@
     <BaseIntermediateOutputPath>$(_SyntheticIsolatedBuildRootTrimmed)\obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
     <MSBuildProjectExtensionsPath>$(BaseIntermediateOutputPath)</MSBuildProjectExtensionsPath>
     <OutputPath>$(_SyntheticIsolatedBuildRootTrimmed)\bin\$(MSBuildProjectName)_$(SyntheticRunId)\</OutputPath>
-    <OutDir>$(OutputPath)</OutDir>
+    <OutDir Condition="'$(TargetFrameworks)' == ''">$(OutputPath)</OutDir>
   </PropertyGroup>
 
   <PropertyGroup>

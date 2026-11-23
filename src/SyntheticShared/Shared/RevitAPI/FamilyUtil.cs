@@ -18,7 +18,7 @@ using Synthetic.RevitDOM;
 using Synthetic.Infrastructure.Serialization;
 
 using Synthetic.Shared.UI;
-using Synthetic.Core;
+using Synthetic.Platform.Host;
 
 using Synthetic.Shared.RevitAPI;
 using Synthetic.Modules.StandardsManagement.ViewModels;

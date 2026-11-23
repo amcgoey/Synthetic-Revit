@@ -8,7 +8,6 @@ using System;
 using System.Windows;
 
 using Synthetic.Shared.UI;
-using Synthetic.Core;
 
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.RevitDOM.Models;

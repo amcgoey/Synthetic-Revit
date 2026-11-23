@@ -1,40 +1,30 @@
 ---
 name: revit-debug-by-user
-description: Procedure for opening Visual Studio and running the debugger to review the build in Revit. Use when launching a debug session.
+description: Launch an interactive Visual Studio and Revit debug session via start_debugging.ps1. Use when starting F5 debugging or inspecting a Synthetic build in Revit.
 ---
 
 # Revit User Debugging Playbook (`revit-debug-by-user`)
 
-Use this playbook to automatically initiate a Revit debugging session in Visual Studio.
+Launch an interactive Visual Studio debugging session for a targeted **Revit Version** via [start_debugging.ps1](scripts/start_debugging.ps1). For build outputs, signing, and shadow-cache internals, see [revit-build-deploy](../revit-build-deploy/SKILL.md).
 
-## 1. Automated Debug Launch
+## 1. Launch from an Interactive Terminal
 
-> [!IMPORTANT]
-> Because the background AI agent runs in a non-interactive Windows session (Session 0), running the launch script via agent tools will spawn Visual Studio and Revit headlessly in the background. To see the graphical user interface, **the user must run these commands directly in their own interactive terminal**.
+Agent tool shells run in non-interactive Windows Session 0, which hides Visual Studio and Revit windows. Have the user run [start_debugging.ps1](scripts/start_debugging.ps1) directly in their own interactive PowerShell terminal:
 
-To open Visual Studio, select the correct project, and start debugging automatically, run one of the following commands in your local terminal:
-
-* **Debug the latest supported version (from `revit-config.md`):**
+- **Latest supported version (`CURRENT_LATEST_VERSION` in [revit-config.md](../../../docs/agents/revit-config.md)):**
   ```powershell
   powershell -File .agents/skills/revit-debug-by-user/scripts/start_debugging.ps1
   ```
-* **Debug a specific target version (e.g., Revit 2024):**
+- **Specific Revit Version (e.g., `2024`):**
   ```powershell
   powershell -File .agents/skills/revit-debug-by-user/scripts/start_debugging.ps1 -Version 2024
   ```
 
-## 2. Interactive Debugging Steps
+## 2. Startup Flow & Interactive Verification
 
-Once the script initiates the session:
+1. **Solution & Startup Project:** [start_debugging.ps1](scripts/start_debugging.ps1) attaches to or launches Visual Studio, opens [src/Synthetic.sln](../../../src/Synthetic.sln), sets `src/Synthetic<Year>/Synthetic<Year>.csproj` (for example, `Synthetic2026\Synthetic2026.csproj`) as the startup project, and starts debugging (`F5`).
+2. **Build & Bootstrap Entry:** Compiling `Synthetic<Year>` builds `Synthetic.Core`, `Synthetic<Year>`, and `Synthetic.Bootstrap<Year>`, signs `Debug` binaries, and writes `%APPDATA%\Autodesk\Revit\Addins\<Year>\Synthetic<Year>.addin` (**Local Deployment**). When Revit starts, **Add-In Bootstrap** ([BootstrapApp](../../../src/Synthetic.Bootstrap/BootstrapApp.cs)) stages `output/Synthetic/Payload/<Year>/` into `%LOCALAPPDATA%\Synthetic\ShadowCache\<Year>\<PID>_<UtcStartTicks>\` (or loads `Payload/<Year>/Synthetic<Year>.dll` in place if `SYNTHETIC_DISABLE_SHADOW_COPY=1`) and invokes [Synthetic.Platform.Host.App](../../../src/Platform/Host/Addin/App.cs).
+3. **Revit Launch Profile:** `Synthetic2025` and `Synthetic2026` include a `Synthetic<Year>Executable` launch profile targeting `Revit.exe` (`Properties/launchSettings.json`). For `2023–2024` (or if `F5` starts without launching Revit), launch Revit directly and use **Debug -> Attach to Process** (`Revit.exe`).
+4. **Inspect in Revit:** Place breakpoints in `Core/` (`Synthetic.Core`) or `Addin/` (`Synthetic<Year>`) source files, open a target model in Revit, and invoke the command from the `"Synthetic"` ribbon tab.
 
-1. **Verify Visual Studio Setup:**
-   * Visual Studio will open (or attach to an existing running instance) and load `Synthetic.sln`.
-   * The startup project will automatically change to the selected version (e.g., `Synthetic2026`).
-   * The debugger will start immediately (F5), building the project, signing the DLL, and launching Revit.
-2. **Review in Revit:**
-   * Place breakpoints inside the desired source files (e.g. command `Execute` methods).
-   * Open the target test model in Revit.
-   * Run the command from the custom "Synthetic" ribbon tab.
-   * Visual Studio will catch the execution path at your breakpoints.
-3. **Closing:**
-   * Visual Studio and Revit will remain open for your inspection until you close them.
+**Completion criterion:** Visual Studio attaches to `Revit.exe`, the `"Synthetic"` ribbon tab initializes via `BootstrapApp` -> `Synthetic.Platform.Host.App`, and execution stops at your breakpoints.

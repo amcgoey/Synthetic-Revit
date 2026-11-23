@@ -16,7 +16,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
-using Synthetic.Core;
+using Synthetic.Platform.Host;
 using Synthetic.Modules.MergeDuplicates.Handlers;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;

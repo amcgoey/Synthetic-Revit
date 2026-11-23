@@ -10,7 +10,6 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.RevitDOM.Operations.Standards;
-using Synthetic.Core;
 
 using Synthetic.Shared.UI;
 using Synthetic.Shared.RevitAPI;

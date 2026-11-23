@@ -7,7 +7,6 @@ using Synthetic.Infrastructure.IO;
 using SFileUtil = Synthetic.Infrastructure.IO.FileUtil;
 
 using Synthetic.Shared.UI;
-using Synthetic.Core;
 using Synthetic.Modules.MaterialManagement.Commands;
 using Synthetic.Modules.MaterialManagement.Utilities;
 

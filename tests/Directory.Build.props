@@ -14,8 +14,8 @@
     <BaseIntermediateOutputPath>$(_SyntheticIsolatedBuildRootTrimmed)\obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
     <MSBuildProjectExtensionsPath>$(BaseIntermediateOutputPath)</MSBuildProjectExtensionsPath>
     <OutputPath>$(_SyntheticIsolatedBuildRootTrimmed)\bin\$(MSBuildProjectName)_$(SyntheticRunId)\</OutputPath>
-    <OutDir>$(OutputPath)</OutDir>
-    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <OutDir Condition="'$(TargetFrameworks)' == ''">$(OutputPath)</OutDir>
+    <AppendTargetFrameworkToOutputPath Condition="'$(TargetFrameworks)' == ''">false</AppendTargetFrameworkToOutputPath>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
   </PropertyGroup>
 

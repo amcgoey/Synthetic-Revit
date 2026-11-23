@@ -8,7 +8,6 @@ using System.Linq;
 using System.Text;
 
 using Synthetic.Shared.UI;
-using Synthetic.Core;
 using Synthetic;
 
 using Synthetic.Shared.RevitAPI;

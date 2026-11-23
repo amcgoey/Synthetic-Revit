@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net48;net8.0-windows8.0</TargetFrameworks>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <LangVersion>9.0</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UseWPF>true</UseWPF>
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <IsTestProject>true</IsTestProject>
+    <AssemblyName>Synthetic.LogicTests</AssemblyName>
+    <RootNamespace>SyntheticTests</RootNamespace>
+    <AppendTargetFrameworkToOutputPath>true</AppendTargetFrameworkToOutputPath>
+    <OutDir></OutDir>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <EnableDefaultPageItems>false</EnableDefaultPageItems>
+    <EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <PackageReference Include="NUnit" Version="3.14.0" />
+    <PackageReference Include="NUnit3TestAdapter" Version="4.5.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\Synthetic.Core\Synthetic.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="AssemblyAttributes.cs" />
+    <Compile Include="..\..\Fixtures\Shared\TestPathHelper.cs"
+             Link="Fixtures\TestPathHelper.cs" />
+    <Compile Include="..\..\Fixtures\Shared\TypedCategoryAttributes.cs"
+             Link="Fixtures\TypedCategoryAttributes.cs" />
+    <Compile Include="..\..\..\src\Synthetic.Bootstrap\ShadowCacheManager.cs"
+             Link="Bootstrap\ShadowCacheManager.cs" />
+    <Compile Include="..\..\Architecture\Logic\**\*.cs"
+             Link="Architecture\Logic\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="..\..\Platform\**\Logic\**\*.cs"
+             Link="Platform\%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+</Project>

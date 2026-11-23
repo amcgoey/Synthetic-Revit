@@ -14,7 +14,6 @@ using Autodesk.Revit.DB;
 using View = Autodesk.Revit.DB.View;
 
 using Synthetic.Shared.UI;
-using Synthetic.Core;
 using Synthetic.Settings;
 using Synthetic.Infrastructure.Persistence;
 

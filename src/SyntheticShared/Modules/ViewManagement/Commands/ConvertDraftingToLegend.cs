@@ -6,7 +6,6 @@ using Synthetic.Shared.RevitAPI;
 using Synthetic.Infrastructure.IO;
 
 using Synthetic.Shared.UI;
-using Synthetic.Core;
 using Synthetic.Modules.ViewManagement.Commands;
 using Synthetic.Modules.ViewManagement.Models;
 using Synthetic.Modules.ViewManagement.Utilities;

@@ -194,11 +194,11 @@ public class ExcludedSheetIndexTests {}
         self.assertFalse(zero2)
         self.assertEqual(
             expr_cat,
-            "(FullyQualifiedName~AlphaSmokeTests|FullyQualifiedName~BetaRevitTests.FastCheck)",
+            "(FullyQualifiedName~SyntheticTests.BetaRevitTests.FastCheck|FullyQualifiedName~SyntheticTests.Modules.Smoke.AlphaSmokeTests)",
         )
         self.assertEqual(
             expr_both,
-            "(FullyQualifiedName~AlphaSmokeTests|FullyQualifiedName~BetaRevitTests.FastCheck)&(FullyQualifiedName~Smoke)",
+            "(FullyQualifiedName~SyntheticTests.BetaRevitTests.FastCheck|FullyQualifiedName~SyntheticTests.Modules.Smoke.AlphaSmokeTests)&(FullyQualifiedName~Smoke)",
         )
 
     def test_revit_zero_match_category_short_circuits_cleanly(self):
@@ -220,6 +220,127 @@ public class ExcludedSheetIndexTests {}
         )
         self.assertEqual(res.returncode, 0, msg=res.stdout + res.stderr)
         self.assertIn("0 matching tests", res.stdout)
+
+    def test_discover_test_projects_discovers_projects_dir_and_legacy_dirs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tdir = os.path.join(tmp, "tests")
+            for rel, csproj_name in (
+                (os.path.join("Projects", "Synthetic.LogicTests"), "Synthetic.LogicTests.csproj"),
+                (os.path.join("Projects", "Synthetic.LegacyMockTests"), "Synthetic.LegacyMockTests.csproj"),
+                (os.path.join("Projects", "Synthetic.RevitTests.2026"), "Synthetic.RevitTests.2026.csproj"),
+                ("SyntheticTests.Logic", "SyntheticTests.Logic.csproj"),
+                ("SyntheticTests2026", "SyntheticTests2026.csproj"),
+                ("SyntheticTests.Shared", "SyntheticTests.Shared.csproj"),
+            ):
+                pdir = os.path.join(tdir, rel)
+                os.makedirs(pdir, exist_ok=True)
+                with open(os.path.join(pdir, csproj_name), "w", encoding="utf-8") as f:
+                    f.write("<Project Sdk=\"Microsoft.NET.Sdk\" />")
+
+            discovered = te.discover_test_projects(tdir)
+
+            self.assertEqual(
+                discovered["Logic"],
+                [
+                    os.path.join(tdir, "Projects", "Synthetic.LogicTests", "Synthetic.LogicTests.csproj"),
+                    os.path.join(tdir, "SyntheticTests.Logic", "SyntheticTests.Logic.csproj"),
+                ],
+            )
+            self.assertEqual(
+                discovered["LegacyMock"],
+                [os.path.join(tdir, "Projects", "Synthetic.LegacyMockTests", "Synthetic.LegacyMockTests.csproj")],
+            )
+            self.assertEqual(
+                discovered["2026"],
+                [
+                    os.path.join(tdir, "Projects", "Synthetic.RevitTests.2026", "Synthetic.RevitTests.2026.csproj"),
+                    os.path.join(tdir, "SyntheticTests2026", "SyntheticTests2026.csproj"),
+                ],
+            )
+            self.assertNotIn("Shared", discovered)
+
+    def test_multi_tfm_target_framework_parsing_and_trx_isolation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            multi_csproj = os.path.join(tmp, "Multi.csproj")
+            single_csproj = os.path.join(tmp, "Single.csproj")
+            with open(multi_csproj, "w", encoding="utf-8") as f:
+                f.write("<Project><PropertyGroup><TargetFrameworks>net48;net8.0-windows8.0</TargetFrameworks></PropertyGroup></Project>")
+            with open(single_csproj, "w", encoding="utf-8") as f:
+                f.write("<Project><PropertyGroup><TargetFramework>net8.0-windows8.0</TargetFramework></PropertyGroup></Project>")
+
+            multi_tfms, is_multi = te.get_project_target_frameworks(multi_csproj)
+            single_tfms, is_single_multi = te.get_project_target_frameworks(single_csproj)
+
+            self.assertTrue(is_multi)
+            self.assertEqual(multi_tfms, ["net48", "net8.0-windows8.0"])
+            self.assertFalse(is_single_multi)
+            self.assertEqual(single_tfms, ["net8.0-windows8.0"])
+
+            trx_net48 = te.build_trx_filename("Logic", tfm="net48", is_multi_tfm=True)
+            trx_net8 = te.build_trx_filename("Logic", tfm="net8.0-windows8.0", is_multi_tfm=True)
+            trx_legacy = te.build_trx_filename("Logic", tfm="net8.0-windows8.0", is_multi_tfm=False)
+
+            self.assertEqual(trx_net48, "results_Logic_net48.trx")
+            self.assertEqual(trx_net8, "results_Logic_net8.0-windows8.0.trx")
+            self.assertEqual(trx_legacy, "results_Logic.trx")
+            self.assertEqual(len({trx_net48, trx_net8, trx_legacy}), 3)
+
+    def test_multiline_class_headers_typed_attributes_inherited_categories_and_fqn(self):
+        fixtures_dir = os.path.join(self.tests_dir, "Fixtures", "Revit")
+        revit_dir = os.path.join(self.tests_dir, "Features", "Sample", "Revit")
+        os.makedirs(fixtures_dir, exist_ok=True)
+        os.makedirs(revit_dir, exist_ok=True)
+
+        with open(os.path.join(fixtures_dir, "RevitTemplateRollbackFixture.cs"), "w", encoding="utf-8") as f:
+            f.write(
+                """
+using System;
+namespace SyntheticTests.Fixtures
+{
+    [RevitAdapterTest]
+    public abstract class RevitTemplateRollbackFixture
+    {
+    }
+}
+"""
+            )
+
+        with open(os.path.join(revit_dir, "SampleAdapterRevitTests.cs"), "w", encoding="utf-8") as f:
+            f.write(
+                """
+using System;
+using NUnit.Framework;
+using SyntheticTests.Fixtures;
+
+namespace SyntheticTests.Features.Sample
+{
+    [TestFixture]
+    public sealed class MultilineInheritedAdapterTests
+        : RevitTemplateRollbackFixture,
+          IDisposable
+    {
+        public void Dispose() {}
+
+        [Test]
+        public void InheritedAdapterRuns() {}
+    }
+
+    [TestFixture]
+    public class MethodTypedSmokeTests
+    {
+        [Test, RevitSmokeTest]
+        public void SmokeMethod() {}
+    }
+}
+"""
+            )
+
+        adapter_matches = te.find_tests_by_category(self.tests_dir, "RevitAdapter", version="2026")
+        self.assertEqual(adapter_matches, ["SyntheticTests.Features.Sample.MultilineInheritedAdapterTests"])
+        self.assertNotIn("SyntheticTests.Fixtures.RevitTemplateRollbackFixture", adapter_matches)
+
+        smoke_matches = te.find_tests_by_category(self.tests_dir, "RevitSmoke", version="2026")
+        self.assertIn("SyntheticTests.Features.Sample.MethodTypedSmokeTests.SmokeMethod", smoke_matches)
 
 
 class TestPoolFallbackAndResultRotation(unittest.TestCase):
@@ -607,6 +728,53 @@ class TestRicaunBundleLeaseAndWorkerHardening(unittest.TestCase):
         )
         self.assertFalse(ok_real)
         self.assertIn("Cleanliness Gate Result: DIRTY", out_real)
+
+
+class TestBuildOutputsAndPayloadStaging(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.msbuild = te.find_msbuild()
+        cls.env = os.environ.copy()
+        te.configure_dotnet_environment(env=cls.env)
+
+    def test_core_and_payload_outputs_zero_excel_pia_and_flat_payload_staging(self):
+        with tempfile.TemporaryDirectory() as iso_root:
+            core_csproj = os.path.join(REPO_ROOT, "src", "Synthetic.Core", "Synthetic.Core.csproj")
+            payload_csproj = os.path.join(REPO_ROOT, "src", "Synthetic2026", "Synthetic2026.csproj")
+            run_id = "tooltest"
+
+            for csproj in (core_csproj, payload_csproj):
+                cmd = [
+                    self.msbuild,
+                    csproj,
+                    "/t:Build",
+                    "/restore",
+                    "/p:Configuration=Debug",
+                    "/p:Platform=x64",
+                    f"/p:SyntheticIsolatedBuildRoot={iso_root}",
+                    f"/p:SyntheticRunId={run_id}",
+                    "/v:minimal",
+                    "/clp:ErrorsOnly;Summary",
+                ]
+                res = subprocess.run(cmd, env=self.env, capture_output=True, text=True)
+                self.assertEqual(res.returncode, 0, msg=res.stdout + res.stderr)
+
+            core_bin = os.path.join(iso_root, "bin", f"Synthetic.Core_{run_id}")
+            for tfm in ("net48", "net8.0-windows8.0"):
+                tfm_dir = os.path.join(core_bin, tfm)
+                self.assertTrue(os.path.isfile(os.path.join(tfm_dir, "Synthetic.Core.dll")), f"Missing {tfm} Synthetic.Core.dll")
+                self.assertFalse(os.path.exists(os.path.join(tfm_dir, "Microsoft.Office.Interop.Excel.dll")))
+                self.assertFalse(os.path.exists(os.path.join(tfm_dir, "Assets")))
+                self.assertFalse(os.path.exists(os.path.join(tfm_dir, "SyntheticSettings.template.json")))
+                self.assertFalse(os.path.exists(os.path.join(tfm_dir, "SyntheticWorksets.xlsx")))
+
+            payload_bin = os.path.join(iso_root, "bin", f"Synthetic2026_{run_id}")
+            self.assertTrue(os.path.isfile(os.path.join(payload_bin, "Synthetic2026.dll")))
+            self.assertTrue(os.path.isfile(os.path.join(payload_bin, "Synthetic.Core.dll")))
+            self.assertTrue(os.path.isfile(os.path.join(payload_bin, "Assets", "ribbon_config.json")))
+            self.assertTrue(os.path.isfile(os.path.join(payload_bin, "SyntheticSettings.template.json")))
+            self.assertTrue(os.path.isfile(os.path.join(payload_bin, "SyntheticWorksets.xlsx")))
+            self.assertFalse(os.path.exists(os.path.join(payload_bin, "Microsoft.Office.Interop.Excel.dll")))
 
 
 if __name__ == "__main__":
