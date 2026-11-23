@@ -11,13 +11,11 @@ using Synthetic.Features.Worksets.Utilities;
 using System;
 using System.IO;
 using System.Collections.Generic;
-using Synthetic.Platform.IO;
 
 using Synthetic.Platform.Settings;
 using Synthetic.Features.Worksets.Settings;
 
 using Synthetic.Platform.UI;
-using Synthetic.Platform.Revit;
 
 namespace Synthetic.Features.Worksets.Commands
 {

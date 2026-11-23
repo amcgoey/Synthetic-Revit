@@ -9,8 +9,6 @@ using System;
 using System.IO;
 using System.Collections.Generic;
 using System.Windows;
-using Synthetic.Platform.IO;
-using Synthetic.Platform.Settings;
 using Application = Autodesk.Revit.ApplicationServices.Application;
 using View = Autodesk.Revit.DB.View;
 using System.Linq;

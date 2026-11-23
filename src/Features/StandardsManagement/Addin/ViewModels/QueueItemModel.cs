@@ -1,6 +1,5 @@
 using System;
 using Synthetic.RevitDOM.Models;
-using Synthetic.RevitDOM.Operations;
 using Synthetic.Platform.UI;
 
 namespace Synthetic.Features.StandardsManagement.ViewModels

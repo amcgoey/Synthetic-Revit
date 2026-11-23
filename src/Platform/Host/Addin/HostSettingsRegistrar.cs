@@ -8,7 +8,6 @@ using Synthetic.Features.DetailItemFactory.Settings;
 using Synthetic.Features.DetailItemFactory.Views;
 using Synthetic.Features.ShadowStudy.Adapters;
 using Synthetic.Features.ShadowStudy.Settings;
-using Synthetic.Features.ShadowStudy.ViewModels;
 using Synthetic.Features.ShadowStudy.Views;
 using Synthetic.Platform.Settings;
 using Synthetic.Platform.UI;
