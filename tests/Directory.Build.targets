@@ -1,15 +1,16 @@
 <Project>
   <ItemGroup Condition="'$(IsRevitTestProject)' == 'true'">
+    <Compile Include="$(MSBuildThisFileDirectory)Fixtures\Shared\FakeSharedCoordinatesAdapter.cs"
+             Link="Fixtures\FakeSharedCoordinatesAdapter.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Fixtures\Shared\TestPathHelper.cs"
              Link="Fixtures\TestPathHelper.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)Fixtures\Shared\TypedCategoryAttributes.cs"
              Link="Fixtures\TypedCategoryAttributes.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Platform\**\Revit\**\*.cs"
-             Link="Platform\%(RecursiveDir)%(Filename)%(Extension)" />
     <Compile Include="$(MSBuildThisFileDirectory)Features\**\Revit\**\*.cs"
              Link="Features\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="$(MSBuildThisFileDirectory)Platform\**\Revit\**\*.cs"
+             Link="Platform\%(RecursiveDir)%(Filename)%(Extension)" />
     <Compile Include="$(MSBuildThisFileDirectory)SyntheticTests.Shared\**\*.cs"
-             Exclude="$(MSBuildThisFileDirectory)SyntheticTests.Shared\Modules\SheetIndex\**\*.cs"
              Link="%(RecursiveDir)%(Filename)%(Extension)" />
     <None Include="$(MSBuildThisFileDirectory)SyntheticTests.Shared\Assets\**\*.json"
           Link="Assets\%(RecursiveDir)%(Filename)%(Extension)"

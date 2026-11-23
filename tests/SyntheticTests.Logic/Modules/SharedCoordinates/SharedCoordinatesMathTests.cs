@@ -1,7 +1,7 @@
 using System;
 using Autodesk.Revit.DB;
 using NUnit.Framework;
-using Synthetic.Modules.SharedCoordinates.Models;
+using Synthetic.Features.SharedCoordinates.Models;
 
 namespace SyntheticTests.Modules.SharedCoordinates
 {

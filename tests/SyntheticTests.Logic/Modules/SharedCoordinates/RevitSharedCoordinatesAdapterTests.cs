@@ -4,8 +4,8 @@ using System.Linq;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using NUnit.Framework;
-using Synthetic.Modules.SharedCoordinates.Adapters;
-using Synthetic.Modules.SharedCoordinates.Models;
+using Synthetic.Features.SharedCoordinates.Adapters;
+using Synthetic.Features.SharedCoordinates.Models;
 
 namespace SyntheticTests.Modules.SharedCoordinates
 {
