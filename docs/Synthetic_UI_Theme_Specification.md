@@ -82,7 +82,7 @@ Every `Window` and `UserControl` XAML view must merge the theme locally using `S
 
 **Window Template:**
 ```xml
-<Window x:Class="Synthetic.Modules.Example.Views.ExampleWindow"
+<Window x:Class="Synthetic.Features.Example.Views.ExampleWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:Synthetic.Platform.UI;assembly=Synthetic.Core"
@@ -104,7 +104,7 @@ Every `Window` and `UserControl` XAML view must merge the theme locally using `S
 
 **UserControl Template:**
 ```xml
-<UserControl x:Class="Synthetic.Modules.Example.Views.ExampleSettingsView"
+<UserControl x:Class="Synthetic.Features.Example.Views.ExampleSettingsView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:theme="clr-namespace:Synthetic.Platform.UI"
