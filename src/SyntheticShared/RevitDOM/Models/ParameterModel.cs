@@ -5,7 +5,7 @@ using System.Reflection;
 
 using Newtonsoft.Json;
 
-using Synthetic.Infrastructure.Serialization;
+using Synthetic.Platform.IO;
 using Autodesk.Revit.DB;
 
 using Synthetic.RevitDOM.Translation;

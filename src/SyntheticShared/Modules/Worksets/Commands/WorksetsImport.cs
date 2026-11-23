@@ -11,8 +11,7 @@ using Synthetic.Modules.Worksets.Utilities;
 using System;
 using System.IO;
 using System.Collections.Generic;
-using Synthetic.Infrastructure.Serialization;
-using Synthetic.Infrastructure.IO;
+using Synthetic.Platform.IO;
 
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;

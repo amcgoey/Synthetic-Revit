@@ -1,19 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using System.Text;
-using ExcelMS = Microsoft.Office.Interop.Excel;
 
-using Synthetic.Infrastructure.IO;
-using Synthetic.RevitDOM.Models;
-using Synthetic.RevitDOM.Translation;
-using Synthetic.RevitDOM.Operations;
-using Synthetic.RevitDOM;
-using Synthetic.Modules.StandardsManagement.ViewModels;
-namespace Synthetic.Infrastructure.IO{
+namespace Synthetic.Platform.IO
+{
     /// <summary>
-    /// Helper class to read data from Microsoft Excel spreadsheets using Interop.
+    /// Helper class to read data from Microsoft Excel spreadsheets using COM Interop.
     /// </summary>
     public class Excel
     {
@@ -61,7 +53,7 @@ namespace Synthetic.Infrastructure.IO{
         /// <returns>A list of rows, where each row is a list of cell values.</returns>
         public List<List<object>>? ReadExcel()
         {
-            if (path == null || !File.Exists(path))
+            if (string.IsNullOrEmpty(path) || !File.Exists(path))
             {
                 Console.WriteLine("File not found.");
                 return null;
@@ -111,7 +103,6 @@ namespace Synthetic.Infrastructure.IO{
                 }
             }
 
-            //excelWorkbook.Save();
             excelWorkbook.Close();
             excelApp.Quit();
 
@@ -122,9 +113,9 @@ namespace Synthetic.Infrastructure.IO{
         /// Retrieves the list of worksheet names from the Excel workbook.
         /// </summary>
         /// <returns>A list of worksheet name strings.</returns>
-        public List<string> WorkSheetNames ()
+        public List<string> WorkSheetNames()
         {
-            if (path == null || !File.Exists(path))
+            if (string.IsNullOrEmpty(path) || !File.Exists(path))
             {
                 Console.WriteLine("File not found.");
                 return new List<string>();
@@ -136,7 +127,10 @@ namespace Synthetic.Infrastructure.IO{
             List<string> names = new List<string>();
             foreach (Microsoft.Office.Interop.Excel.Worksheet ws in excelWorkbook.Worksheets)
             {
-                names.Add(ws.Name);
+                if (!string.IsNullOrEmpty(ws.Name))
+                {
+                    names.Add(ws.Name);
+                }
             }
 
             excelWorkbook.Close();

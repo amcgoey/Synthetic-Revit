@@ -251,7 +251,7 @@ namespace Synthetic.RevitDOM.Translation
         public static T DeepClone<T>(this T source) where T : ObjectModel
         {
             if (source == null) return default;
-            string json = Infrastructure.Serialization.Json.EncodeMinimal(source);
+            string json = Synthetic.Platform.IO.Json.EncodeMinimal(source);
             return (T)JsonConvert.DeserializeObject(json, source.GetType())!;
         }
     }

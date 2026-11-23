@@ -1,7 +1,7 @@
 using System;
 using NUnit.Framework;
 using Newtonsoft.Json.Linq;
-using Synthetic.Infrastructure.Serialization;
+using Synthetic.Platform.IO;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;

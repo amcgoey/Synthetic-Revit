@@ -4,7 +4,7 @@ using System.Linq;
 
 using Newtonsoft.Json;
 
-using Synthetic.Infrastructure.Serialization;
+using Synthetic.Platform.IO;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;

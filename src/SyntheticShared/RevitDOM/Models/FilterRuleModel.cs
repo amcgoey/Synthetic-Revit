@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Newtonsoft.Json;
-using Synthetic.Infrastructure.Serialization;
+using Synthetic.Platform.IO;
 
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;

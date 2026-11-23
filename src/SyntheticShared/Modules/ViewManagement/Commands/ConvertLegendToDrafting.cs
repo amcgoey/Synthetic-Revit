@@ -3,7 +3,7 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 
 using Synthetic.Shared.RevitAPI;
-using Synthetic.Infrastructure.IO;
+using Synthetic.Platform.IO;
 
 using Synthetic.Shared.UI;
 using Synthetic.Modules.ViewManagement.Commands;
