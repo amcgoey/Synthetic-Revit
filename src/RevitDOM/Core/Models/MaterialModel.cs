@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using Newtonsoft.Json;
-using Synthetic.Platform.IO;
 
 namespace Synthetic.RevitDOM.Models
 {

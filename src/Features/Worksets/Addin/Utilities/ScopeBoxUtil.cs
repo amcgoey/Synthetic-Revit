@@ -10,10 +10,6 @@ using System.Linq;
 using RevitDB = Autodesk.Revit.DB;
 using RevitDoc = Autodesk.Revit.DB.Document;
 using RevitElem = Autodesk.Revit.DB.Element;
-using Synthetic.RevitDOM.Models;
-using Synthetic.RevitDOM.Translation;
-using Synthetic.RevitDOM.Operations;
-using Synthetic.RevitDOM;
 
 namespace Synthetic.Features.Worksets.Utilities
 {
