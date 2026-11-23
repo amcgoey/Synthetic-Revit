@@ -8,6 +8,7 @@ using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
+using Synthetic.Platform.Settings;
 using Synthetic.Platform.UI;
 
 namespace SyntheticTests.Modules.StandardsManagement
@@ -17,13 +18,25 @@ namespace SyntheticTests.Modules.StandardsManagement
     {
         private Document _doc = null!;
         private FakeFileDialogService _fakeDialogService = null!;
+        private bool _previousSuppressUi;
+        private bool _previousSuppressDiskFallback;
 
         [SetUp]
         public void Setup()
         {
             _doc = (Document)Activator.CreateInstance(typeof(Document), true)!;
             _fakeDialogService = new FakeFileDialogService();
+            _previousSuppressUi = ProgressCoordinator.SuppressUI;
+            _previousSuppressDiskFallback = SettingsRuntimeOptions.SuppressFirmwideDiskFallback;
             ProgressCoordinator.SuppressUI = true;
+            SettingsRuntimeOptions.SuppressFirmwideDiskFallback = true;
+        }
+
+        [TearDown]
+        public void TearDown()
+        {
+            ProgressCoordinator.SuppressUI = _previousSuppressUi;
+            SettingsRuntimeOptions.SuppressFirmwideDiskFallback = _previousSuppressDiskFallback;
         }
 
         [Test]

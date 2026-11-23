@@ -10,6 +10,7 @@ using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.RevitDOM.Operations.Standards;
+using Synthetic.Platform.Settings;
 using Synthetic.Platform.UI;
 using Synthetic.RevitDOM.Operations.Diffing;
 using SyntheticTests.Modules.RevitDOM;
@@ -21,13 +22,25 @@ namespace SyntheticTests.Modules.StandardsManagement
     {
         private Document _doc = null!;
         private FakeFileDialogService _fakeDialogService = null!;
+        private bool _previousSuppressUi;
+        private bool _previousSuppressDiskFallback;
 
         [SetUp]
         public void Setup()
         {
             _doc = (Document)Activator.CreateInstance(typeof(Document), true)!;
             _fakeDialogService = new FakeFileDialogService();
+            _previousSuppressUi = ProgressCoordinator.SuppressUI;
+            _previousSuppressDiskFallback = SettingsRuntimeOptions.SuppressFirmwideDiskFallback;
             ProgressCoordinator.SuppressUI = true;
+            SettingsRuntimeOptions.SuppressFirmwideDiskFallback = true;
+        }
+
+        [TearDown]
+        public void TearDown()
+        {
+            ProgressCoordinator.SuppressUI = _previousSuppressUi;
+            SettingsRuntimeOptions.SuppressFirmwideDiskFallback = _previousSuppressDiskFallback;
         }
 
         private T CreateMockElement<T>(Document doc, string name, int idVal) where T : Element

@@ -22,10 +22,23 @@ namespace SyntheticTests.Modules.RevitDOM
     [TestFixture]
     public class ViewModelSerializationTests
     {
+        private bool _previousSuppressUi;
+        private bool _previousSuppressDiskFallback;
+
         [SetUp]
         public void SetUp()
         {
+            _previousSuppressUi = ProgressCoordinator.SuppressUI;
+            _previousSuppressDiskFallback = SettingsRuntimeOptions.SuppressFirmwideDiskFallback;
             ProgressCoordinator.SuppressUI = true;
+            SettingsRuntimeOptions.SuppressFirmwideDiskFallback = true;
+        }
+
+        [TearDown]
+        public void TearDown()
+        {
+            ProgressCoordinator.SuppressUI = _previousSuppressUi;
+            SettingsRuntimeOptions.SuppressFirmwideDiskFallback = _previousSuppressDiskFallback;
         }
         [Test]
         public void ViewSheetModel_Serialization_OmitsGraphicalPropertiesWhenNull()

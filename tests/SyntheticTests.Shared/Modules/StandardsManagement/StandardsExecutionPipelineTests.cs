@@ -27,6 +27,8 @@ namespace SyntheticTests.Modules.StandardsManagement
         private ConfigurableSerializationEngine _fakeEngine = null!;
         private ConfigurableExportService _fakeExportService = null!;
         private FakeFamilyEnforcer _fakeFamilyEnforcer = null!;
+        private bool _previousSuppressUi;
+        private bool _previousSuppressDiskFallback;
 
         [SetUp]
         public void Setup()
@@ -35,8 +37,17 @@ namespace SyntheticTests.Modules.StandardsManagement
             _fakeEngine = new ConfigurableSerializationEngine();
             _fakeExportService = new ConfigurableExportService();
             _fakeFamilyEnforcer = new FakeFamilyEnforcer();
+            _previousSuppressUi = ProgressCoordinator.SuppressUI;
+            _previousSuppressDiskFallback = SettingsRuntimeOptions.SuppressFirmwideDiskFallback;
             ProgressCoordinator.SuppressUI = true;
             SettingsRuntimeOptions.SuppressFirmwideDiskFallback = true;
+        }
+
+        [TearDown]
+        public void TearDown()
+        {
+            ProgressCoordinator.SuppressUI = _previousSuppressUi;
+            SettingsRuntimeOptions.SuppressFirmwideDiskFallback = _previousSuppressDiskFallback;
         }
 
         [Test]

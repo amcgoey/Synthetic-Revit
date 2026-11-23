@@ -10,6 +10,7 @@ using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
 using Synthetic.RevitDOM.Operations.Standards;
 using Synthetic.Modules.StandardsManagement.ViewModels;
+using Synthetic.Platform.Settings;
 using Synthetic.Platform.UI;
 
 namespace SyntheticTests.Modules.StandardsManagement
@@ -20,6 +21,8 @@ namespace SyntheticTests.Modules.StandardsManagement
         private Document _doc = null!;
         private FakeFileDialogService _fakeDialogService = null!;
         private string _tempSavePath = null!;
+        private bool _previousSuppressUi;
+        private bool _previousSuppressDiskFallback;
 
         [SetUp]
         public void Setup()
@@ -28,7 +31,10 @@ namespace SyntheticTests.Modules.StandardsManagement
             _fakeDialogService = new FakeFileDialogService();
             _tempSavePath = Path.Combine(Path.GetTempPath(), $"SyntheticTemp_{Guid.NewGuid():N}.json");
             _fakeDialogService.PresetPath = _tempSavePath;
+            _previousSuppressUi = ProgressCoordinator.SuppressUI;
+            _previousSuppressDiskFallback = SettingsRuntimeOptions.SuppressFirmwideDiskFallback;
             ProgressCoordinator.SuppressUI = true;
+            SettingsRuntimeOptions.SuppressFirmwideDiskFallback = true;
         }
 
         [TearDown]
@@ -38,7 +44,8 @@ namespace SyntheticTests.Modules.StandardsManagement
             {
                 try { File.Delete(_tempSavePath); } catch { }
             }
-            ProgressCoordinator.SuppressUI = false;
+            ProgressCoordinator.SuppressUI = _previousSuppressUi;
+            SettingsRuntimeOptions.SuppressFirmwideDiskFallback = _previousSuppressDiskFallback;
             ProgressCoordinator.ForceCancel = false;
         }
 
