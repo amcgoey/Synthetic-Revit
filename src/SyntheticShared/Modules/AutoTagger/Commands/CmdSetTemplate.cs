@@ -10,7 +10,8 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.UI.Selection;
 
-using Synthetic.Shared.RevitAPI;
+using Synthetic.Features.AutoTagger.Utilities;
+using Synthetic.Platform.Revit;
 using Synthetic.Infrastructure.IO;
 
 using Synthetic.Shared.UI;

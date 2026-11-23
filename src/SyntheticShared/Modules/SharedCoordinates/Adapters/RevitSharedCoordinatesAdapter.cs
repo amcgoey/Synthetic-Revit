@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
-using Synthetic.Infrastructure.FailureProcessing;
+using Synthetic.Platform.Revit;
 using Synthetic.Modules.SharedCoordinates.Models;
 
 namespace Synthetic.Modules.SharedCoordinates.Adapters
@@ -153,7 +153,7 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
             using (var transactionGroup = new TransactionGroup(_doc, "Sync Shared Sites to Levels"))
             {
                 transactionGroup.Start();
-                var preprocessor = FailurePipelines.DeleteWarnings();
+                var preprocessor = FailurePipelines.DeleteAllWarningsRecorded();
                 int committedCount = 0;
 
                 try
@@ -431,7 +431,7 @@ namespace Synthetic.Modules.SharedCoordinates.Adapters
             using (var transactionGroup = new TransactionGroup(_doc, "Move Links to Shared Sites"))
             {
                 transactionGroup.Start();
-                var preprocessor = FailurePipelines.DeleteWarnings();
+                var preprocessor = FailurePipelines.DeleteAllWarningsRecorded();
                 int committedCount = 0;
 
                 try

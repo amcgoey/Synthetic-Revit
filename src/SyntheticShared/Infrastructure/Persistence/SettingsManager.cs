@@ -15,7 +15,7 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
-using Synthetic.Shared.RevitAPI;
+using Synthetic.Platform.Revit;
 namespace Synthetic.Infrastructure.Persistence{
     /// <summary>
     /// Manager class responsible for lazy-loading, caching, retrieving, and saving in-document settings modules.

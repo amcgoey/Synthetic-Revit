@@ -16,7 +16,7 @@ using Synthetic.Shared.UI;
 using Synthetic.Modules.MergeDuplicates.ViewModels;
 using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Shared.RevitAPI;
+using Synthetic.Platform.Revit;
 using Synthetic.Modules.MergeDuplicates.Services;
 
 namespace Synthetic.Modules.MergeDuplicates.Handlers

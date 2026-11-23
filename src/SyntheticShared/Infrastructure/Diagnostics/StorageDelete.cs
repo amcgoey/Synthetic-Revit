@@ -9,7 +9,7 @@ using Autodesk.Revit.DB.ExtensibleStorage;
 
 using Synthetic.Shared.UI;
 
-using Synthetic.Shared.RevitAPI;
+using Synthetic.Platform.Revit;
 using Synthetic.Infrastructure.IO;
 
 using Synthetic.Infrastructure.Diagnostics;

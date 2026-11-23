@@ -13,13 +13,12 @@ using System.IO;
 using Autodesk.Revit.DB.Events;
 
 using Synthetic.Shared.UI;
-using Synthetic.Platform.Host;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
-using Synthetic.Shared.RevitAPI;
+using Synthetic.Platform.Revit;
 
 namespace Synthetic.Modules.BatchPrint.Commands
 {
@@ -107,33 +106,28 @@ namespace Synthetic.Modules.BatchPrint.Commands
                         openOptions.SetOpenWorksetsConfiguration(configuration);
                         openOptions.AllowOpeningLocalByWrongUser = true;
 
-                        if (App.AppControlled != null)
+                        EventHandler<FailuresProcessingEventArgs> warningsHandler = ResolveWarnings;
+                        uiapp.Application.FailuresProcessing += warningsHandler;
+                        try
                         {
-                            App.AppControlled.ControlledApplication.FailuresProcessing += 
-                                 new EventHandler<Autodesk.Revit.DB.Events.FailuresProcessingEventArgs>
-                                 (ResolveWarnings);
+                            if (document.IsModelInCloud)
+                            {
+                                OpenFromCloudCallback cloudCallback = new OpenFromCloudCallback();
+                                currentDoc = uiapp.Application.OpenDocumentFile(document.GetCloudModelPath(), openOptions, cloudCallback);
+                            }
+                            else if (document.IsWorkshared)
+                            {
+                                openOptions.DetachFromCentralOption = DetachFromCentralOption.DetachAndPreserveWorksets;
+                                currentDoc = uiapp.Application.OpenDocumentFile(document.GetWorksharingCentralModelPath(), openOptions);
+                            }
+                            else
+                            {
+                                currentDoc = uiapp.Application.OpenDocumentFile(document.PathName);
+                            }
                         }
-
-                        if (document.IsModelInCloud)
+                        finally
                         {
-                            OpenFromCloudCallback cloudCallback = new OpenFromCloudCallback();
-                            currentDoc = uiapp.Application.OpenDocumentFile(document.GetCloudModelPath(), openOptions, cloudCallback);
-                        }
-                        else if (document.IsWorkshared)
-                        {
-                            openOptions.DetachFromCentralOption = DetachFromCentralOption.DetachAndPreserveWorksets;
-                            currentDoc = uiapp.Application.OpenDocumentFile(document.GetWorksharingCentralModelPath(), openOptions);
-                        }
-                        else
-                        {
-                            currentDoc = uiapp.Application.OpenDocumentFile(document.PathName);
-                        }
-
-                        if (App.AppControlled != null)
-                        {
-                            App.AppControlled.ControlledApplication.FailuresProcessing -=
-                                 new EventHandler<Autodesk.Revit.DB.Events.FailuresProcessingEventArgs>
-                                 (ResolveWarnings);
+                            uiapp.Application.FailuresProcessing -= warningsHandler;
                         }
                     }
 
@@ -188,26 +182,26 @@ namespace Synthetic.Modules.BatchPrint.Commands
         private void ResolveWarnings(object? sender, FailuresProcessingEventArgs e)
         {
             FailuresAccessor fa = e.GetFailuresAccessor();
-            IList<FailureMessageAccessor> failList = new List<FailureMessageAccessor>();
-            failList = fa.GetFailureMessages(); // Inside event handler, get all warnings
+            IList<FailureMessageAccessor> failList = fa.GetFailureMessages();
 
-            if (failList.Count == 0)
+            if (failList == null || failList.Count == 0)
             {
                 e.SetProcessingResult(FailureProcessingResult.Continue);
                 return;
             }
 
+            bool deletedAny = false;
             foreach (FailureMessageAccessor failure in failList)
             {
                 FailureDefinitionId failID = failure.GetFailureDefinitionId();
                 if (failID == BuiltInFailures.RoomFailures.RoomNotEnclosed)
                 {
                     fa.DeleteWarning(failure);
+                    deletedAny = true;
                 }
             }
-            e.SetProcessingResult(FailureProcessingResult.ProceedWithCommit);
 
-            return;
+            e.SetProcessingResult(deletedAny ? FailureProcessingResult.ProceedWithCommit : FailureProcessingResult.Continue);
         }
 
         internal string? selectFolderPath (IntPtr ownerHandle)

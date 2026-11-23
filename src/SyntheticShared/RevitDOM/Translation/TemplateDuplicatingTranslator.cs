@@ -30,7 +30,7 @@ namespace Synthetic.RevitDOM.Translation
             Type targetType = typeof(TRev);
             if (targetType == typeof(ElementType) && !string.IsNullOrEmpty(model.Class))
             {
-                var resolvedType = Synthetic.Shared.RevitAPI.Select.RevitClassByString(model.Class);
+                var resolvedType = Synthetic.Platform.Revit.Select.RevitClassByString(model.Class);
                 if (resolvedType != null)
                 {
                     targetType = resolvedType;

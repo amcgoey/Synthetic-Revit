@@ -16,7 +16,8 @@ using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
 using Synthetic.Infrastructure.Serialization;
 
-using Synthetic.Shared.RevitAPI;
+using Synthetic.Features.AutoTagger.Utilities;
+using Synthetic.Platform.Revit;
 using Synthetic.Infrastructure.IO;
 
 using Synthetic.Shared.UI;

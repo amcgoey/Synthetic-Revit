@@ -9,7 +9,7 @@ using Autodesk.Revit.UI;
 using Autodesk.Revit.UI.Events;
 using Color = Autodesk.Revit.DB.Color;
 using View = Autodesk.Revit.DB.View;
-using Synthetic.Infrastructure.FailureProcessing;
+using Synthetic.Platform.Revit;
 using Synthetic.Infrastructure.Persistence;
 using Synthetic.Modules.ShadowStudy.Models;
 using Synthetic.Modules.ShadowStudy.Services;

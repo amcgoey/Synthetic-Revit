@@ -6,7 +6,7 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Architecture;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
-using Synthetic.Shared.RevitAPI;
+using Synthetic.Platform.Revit;
 
 namespace Synthetic.RevitDOM.Operations
 {

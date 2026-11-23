@@ -15,8 +15,7 @@ using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
 using Synthetic.Modules.StandardsManagement.ViewModels;
-using Synthetic.Shared.RevitAPI;
-using Synthetic.Infrastructure.FailureProcessing;
+using Synthetic.Platform.Revit;
 
 namespace Synthetic.Modules.ViewManagement.Utilities
 {

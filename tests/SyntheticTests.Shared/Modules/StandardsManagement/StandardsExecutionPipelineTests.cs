@@ -5,7 +5,7 @@ using System.Linq;
 using System.Threading;
 using Autodesk.Revit.DB;
 using NUnit.Framework;
-using Synthetic.Infrastructure.FailureProcessing;
+using Synthetic.Platform.Revit;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
@@ -257,7 +257,7 @@ namespace SyntheticTests.Modules.StandardsManagement
         }
 
         [Test]
-        public void Execute_PassesDeleteWarningsPreprocessor_ToRevit()
+        public void Execute_PassesDeleteAllWarningsRecordedPreprocessor_ToRevit()
         {
             // Arrange
             var pipeline = new StandardsExecutionPipeline(_fakeEngine, _fakeExportService, _fakeFamilyEnforcer);

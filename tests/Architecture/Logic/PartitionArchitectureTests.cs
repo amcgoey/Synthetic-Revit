@@ -26,7 +26,11 @@ namespace SyntheticTests.Architecture
             string testsRoot = Path.Combine(projectRoot, "tests");
 
             Assert.IsTrue(Directory.Exists(Path.Combine(srcRoot, "Platform", "Host")), "Expected src/Platform/Host partition root.");
+            Assert.IsTrue(Directory.Exists(Path.Combine(srcRoot, "Platform", "Revit", "Core")), "Expected src/Platform/Revit/Core partition root.");
+            Assert.IsTrue(Directory.Exists(Path.Combine(srcRoot, "Platform", "Revit", "Addin")), "Expected src/Platform/Revit/Addin partition root.");
             Assert.IsTrue(Directory.Exists(Path.Combine(testsRoot, "Platform", "Host")), "Expected tests/Platform/Host partition root.");
+            Assert.IsTrue(Directory.Exists(Path.Combine(testsRoot, "Platform", "Revit", "Logic")), "Expected tests/Platform/Revit/Logic partition root.");
+            Assert.IsTrue(Directory.Exists(Path.Combine(testsRoot, "Platform", "Revit", "Revit")), "Expected tests/Platform/Revit/Revit partition root.");
             Assert.IsTrue(Directory.Exists(Path.Combine(testsRoot, "Architecture")), "Expected tests/Architecture partition root.");
 
             var sourceViolations = new List<string>();
@@ -175,6 +179,73 @@ namespace SyntheticTests.Architecture
                 .ToList();
 
             Assert.IsEmpty(xamlResources, "Synthetic.Core.dll must not embed WPF XAML/BAML resources.");
+        }
+
+        [Test]
+        public void PlatformRevitAddin_HasZeroFeatureRevitDomOrAppControlledDependencies()
+        {
+            string projectRoot = TestPathHelper.GetProjectRoot();
+            string addinDir = Path.Combine(projectRoot, "src", "Platform", "Revit", "Addin");
+            Assert.IsTrue(Directory.Exists(addinDir), $"Expected Platform/Revit/Addin directory at {addinDir}");
+
+            var violations = new List<string>();
+            foreach (string file in Directory.EnumerateFiles(addinDir, "*.cs", SearchOption.AllDirectories))
+            {
+                string rel = GetRelativeNormalizedPath(projectRoot, file);
+                string text = File.ReadAllText(file);
+
+                if (Regex.IsMatch(text, @"\bSynthetic\.(Features|Modules)\b"))
+                {
+                    violations.Add($"{rel} imports Synthetic.Features or Synthetic.Modules.");
+                }
+                if (Regex.IsMatch(text, @"\bSynthetic\.RevitDOM\b"))
+                {
+                    violations.Add($"{rel} imports Synthetic.RevitDOM.");
+                }
+                if (Regex.IsMatch(text, @"\bApp\.AppControlled\b"))
+                {
+                    violations.Add($"{rel} references App.AppControlled.");
+                }
+            }
+
+            Assert.IsEmpty(violations, string.Join(Environment.NewLine, violations));
+        }
+
+        [Test]
+        public void Repository_ContainsZeroRetiredFailureTestHelpersOrLegacyApis()
+        {
+            string projectRoot = TestPathHelper.GetProjectRoot();
+            string[] roots = { Path.Combine(projectRoot, "src"), Path.Combine(projectRoot, "tests") };
+            var violations = new List<string>();
+
+            foreach (string root in roots)
+            {
+                if (!Directory.Exists(root)) continue;
+                foreach (string file in Directory.EnumerateFiles(root, "*.*", SearchOption.AllDirectories))
+                {
+                    string ext = Path.GetExtension(file);
+                    if (!string.Equals(ext, ".cs", StringComparison.OrdinalIgnoreCase) &&
+                        !string.Equals(ext, ".csproj", StringComparison.OrdinalIgnoreCase))
+                    {
+                        continue;
+                    }
+
+                    string rel = GetRelativeNormalizedPath(projectRoot, file);
+                    string text = File.ReadAllText(file);
+                    string forbiddenMock = "Mock" + "FailureFactory";
+                    string forbiddenDeleteWarnings = "Delete" + "Warnings(";
+                    if (text.Contains(forbiddenMock))
+                    {
+                        violations.Add($"{rel} references {forbiddenMock}.");
+                    }
+                    if (text.Contains(forbiddenDeleteWarnings))
+                    {
+                        violations.Add($"{rel} references legacy {forbiddenDeleteWarnings}).");
+                    }
+                }
+            }
+
+            Assert.IsEmpty(violations, string.Join(Environment.NewLine, violations));
         }
 
         private static string GetRelativeNormalizedPath(string rootDir, string fullPath)

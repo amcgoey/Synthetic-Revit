@@ -11,12 +11,12 @@ using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
 using Synthetic.Infrastructure.Serialization;
 using Autodesk.Revit.DB;
-using Select = Synthetic.Shared.RevitAPI.Select;
+using Select = Synthetic.Platform.Revit.Select;
 
 using Synthetic.Shared.UI;
 using Synthetic.Modules.MergeDuplicates.Handlers;
 using Synthetic.Modules.StandardsManagement.Views;
-using Synthetic.Shared.RevitAPI;
+using Synthetic.Platform.Revit;
 namespace Synthetic.Modules.StandardsManagement.ViewModels
 {
     /// <summary>
