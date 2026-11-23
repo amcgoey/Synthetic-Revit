@@ -14,10 +14,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using Synthetic.Platform.IO;
 
-using Synthetic.RevitDOM.Models;
-using Synthetic.RevitDOM.Translation;
-using Synthetic.RevitDOM.Operations;
-using Synthetic.RevitDOM;
 using Synthetic.Platform.Settings;
 using Synthetic.Features.Worksets.Settings;
 

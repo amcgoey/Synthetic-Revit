@@ -11,10 +11,6 @@ using Autodesk.Revit.DB.Visual;
 using Newtonsoft.Json;
 
 using Synthetic.Features.Worksets.Utilities;
-using Synthetic.RevitDOM.Models;
-using Synthetic.RevitDOM.Translation;
-using Synthetic.RevitDOM.Operations;
-using Synthetic.RevitDOM;
 namespace Synthetic.Features.Worksets.Models
 {
     /// <summary>
