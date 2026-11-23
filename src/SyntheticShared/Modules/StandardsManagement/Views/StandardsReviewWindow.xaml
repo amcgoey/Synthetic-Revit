@@ -1,7 +1,7 @@
 <Window x:Class="Synthetic.Modules.StandardsManagement.Views.StandardsReviewWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:models="clr-namespace:Synthetic.RevitDOM.Operations.Merge"
+        xmlns:models="clr-namespace:Synthetic.RevitDOM.Models;assembly=Synthetic.Core"
         xmlns:ui="clr-namespace:Synthetic.Platform.UI;assembly=Synthetic.Core"
         xmlns:theme="clr-namespace:Synthetic.Platform.UI"
         Title="Enforce Standards - Review &amp; Analysis Window" Height="650" Width="1000" MinHeight="500" MinWidth="850"

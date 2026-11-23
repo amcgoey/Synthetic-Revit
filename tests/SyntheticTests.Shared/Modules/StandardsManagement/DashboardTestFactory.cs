@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using Autodesk.Revit.DB;
 using Synthetic.RevitDOM.Operations.Diffing;
-using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;

@@ -41,6 +41,8 @@
              Link="Architecture\Logic\%(RecursiveDir)%(Filename)%(Extension)" />
     <Compile Include="..\..\Platform\**\Logic\**\*.cs"
              Link="Platform\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="..\..\RevitDOM\Logic\**\*.cs"
+             Link="RevitDOM\%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
 </Project>

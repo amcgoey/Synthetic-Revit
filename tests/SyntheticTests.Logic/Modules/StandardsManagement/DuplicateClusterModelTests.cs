@@ -1,8 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using NUnit.Framework;
-using Autodesk.Revit.DB;
-using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.RevitDOM.Models;
 using Synthetic.Modules.MergeDuplicates.ViewModels;
 

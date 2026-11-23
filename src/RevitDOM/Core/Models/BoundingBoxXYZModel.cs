@@ -1,0 +1,40 @@
+using Newtonsoft.Json;
+
+namespace Synthetic.RevitDOM.Models
+{
+    /// <summary>
+    /// Pure state container for BoundingBoxXYZ data, completely free of Revit API dependencies.
+    /// </summary>
+    public class BoundingBoxXYZModel : ObjectModel
+    {
+        public XYZModel? Min { get; set; }
+        public XYZModel? Max { get; set; }
+        public TransformModel? Transform { get; set; }
+
+        public BoundingBoxXYZModel() : base() { }
+
+        public bool IsValid => Min != null && Max != null && Min.IsValid && Max.IsValid;
+
+        public XYZModel? GetSize()
+        {
+            if (!IsValid) return null;
+            return Max! - Min!;
+        }
+
+        public XYZModel? GetCenter()
+        {
+            if (!IsValid) return null;
+            return (Min! + Max!) * 0.5;
+        }
+
+        public static BoundingBoxXYZModel? ByJSON(string JSON)
+        {
+            return JsonConvert.DeserializeObject<BoundingBoxXYZModel>(JSON);
+        }
+
+        public static string ToJSON(BoundingBoxXYZModel model)
+        {
+            return JsonConvert.SerializeObject(model, Formatting.Indented);
+        }
+    }
+}

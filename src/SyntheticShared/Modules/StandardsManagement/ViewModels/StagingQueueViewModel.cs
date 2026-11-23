@@ -11,8 +11,6 @@ using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
 using Synthetic.RevitDOM.Operations.Standards;
 using Synthetic.Platform.UI;
-using Synthetic.RevitDOM.Operations.Merge;
-using Synthetic.RevitDOM.Operations.Standards;
 using Synthetic.RevitDOM.Operations.Diffing;
 using Autodesk.Revit.DB;
 

@@ -13,6 +13,7 @@ using Synthetic.Modules.MergeDuplicates.Handlers;
 using Synthetic.Modules.MergeDuplicates.ViewModels;
 using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.RevitDOM.Models;
+using Synthetic.RevitDOM.Translation;
 using SyntheticTests.Helpers;
 
 

@@ -60,6 +60,13 @@
     <InternalsVisibleTo Include="SyntheticTests2026" />
   </ItemGroup>
 
+  <ItemGroup Condition="'$(IsCoreProject)' == 'true'">
+    <InternalsVisibleTo Include="Synthetic2023" />
+    <InternalsVisibleTo Include="Synthetic2024" />
+    <InternalsVisibleTo Include="Synthetic2025" />
+    <InternalsVisibleTo Include="Synthetic2026" />
+  </ItemGroup>
+
   <ItemGroup Condition="'$(IsRevitPayloadProject)' == 'true' And '$(RevitVersion)' != ''">
     <Reference Include="eTransmitForRevitDB"
                Condition="Exists('C:\Program Files\Autodesk\eTransmit for Revit $(RevitVersion)\eTransmitForRevitDB.dll')">
