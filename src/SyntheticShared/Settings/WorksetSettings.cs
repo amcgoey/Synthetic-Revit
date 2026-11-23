@@ -10,7 +10,6 @@ using Synthetic.Infrastructure.IO;
 using RevitDoc = Autodesk.Revit.DB.Document;
 using Autodesk.Revit.DB;
 
-using Synthetic.Core;
 using Synthetic.Settings;
 using Synthetic.Modules.Worksets.Utilities;
 using Synthetic.RevitDOM.Models;

@@ -4,7 +4,7 @@ using System.Windows.Threading;
 
 using Synthetic.Shared.UI;
 
-using Synthetic.Core;
+using Synthetic.Platform.Host;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;

@@ -43,11 +43,11 @@ function Resize-Image {
 $srcDir = Join-Path $PSScriptRoot "highres"
 # Target Assets directory (robust to both pre- and post-restructuring layouts)
 $parentDir = Split-Path $PSScriptRoot -Parent
-if (Test-Path (Join-Path $parentDir "SyntheticShared\Assets")) {
-    $assetsDir = Join-Path $parentDir "SyntheticShared\Assets"
+if (Test-Path (Join-Path $parentDir "Assets")) {
+    $assetsDir = Join-Path $parentDir "Assets"
 } else {
     $repoRoot = Split-Path $parentDir -Parent
-    $assetsDir = Join-Path $repoRoot "src\SyntheticShared\Assets"
+    $assetsDir = Join-Path $repoRoot "src\Assets"
 }
 
 $icons = @(

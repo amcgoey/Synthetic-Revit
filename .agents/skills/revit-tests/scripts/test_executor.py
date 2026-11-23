@@ -395,11 +395,43 @@ def configure_dotnet_environment(env=None, sdk_roots=None):
     return best
 
 
+TYPED_CATEGORY_ATTRIBUTES = {
+    "UnitTest": "Unit",
+    "ArchitectureTest": "Architecture",
+    "RevitSmokeTest": "RevitSmoke",
+    "RevitAdapterTest": "RevitAdapter",
+    "RevitIsolatedDocTest": "RevitIsolatedDoc",
+    "QuarantineTest": "Quarantine",
+}
+
+
+def _map_projects_dir_key(dir_name):
+    if dir_name == "Synthetic.LogicTests":
+        return "Logic"
+    if dir_name == "Synthetic.LegacyMockTests":
+        return "LegacyMock"
+    if dir_name.startswith("Synthetic.RevitTests."):
+        return dir_name[len("Synthetic.RevitTests."):]
+    if dir_name.startswith("Synthetic.") and dir_name.endswith("Tests") and len(dir_name) > len("Synthetic.Tests"):
+        return dir_name[len("Synthetic."):-len("Tests")]
+    return dir_name
+
+
 def discover_test_projects(test_dir):
-    """Discover SyntheticTests* project directories dynamically, mapping version key -> csproj path."""
+    """Discover tests/Projects/* and legacy SyntheticTests* directories, mapping version key -> list of csproj paths."""
     test_projects = {}
     if not os.path.exists(test_dir):
         return test_projects
+
+    projects_dir = os.path.join(test_dir, "Projects")
+    if os.path.isdir(projects_dir):
+        for item in sorted(os.listdir(projects_dir)):
+            item_path = os.path.join(projects_dir, item)
+            if os.path.isdir(item_path):
+                csproj_files = sorted(glob.glob(os.path.join(item_path, "*.csproj")))
+                if csproj_files:
+                    ver = _map_projects_dir_key(item)
+                    test_projects.setdefault(ver, []).append(csproj_files[0])
 
     for item in sorted(os.listdir(test_dir)):
         item_path = os.path.join(test_dir, item)
@@ -409,9 +441,32 @@ def discover_test_projects(test_dir):
                 ver = ver[1:]
             csproj_files = sorted(glob.glob(os.path.join(item_path, "*.csproj")))
             if csproj_files:
-                test_projects[ver] = csproj_files[0]
+                test_projects.setdefault(ver, []).append(csproj_files[0])
 
     return test_projects
+
+
+def get_project_target_frameworks(csproj_path):
+    """Parse <TargetFrameworks> or <TargetFramework> from a .csproj, returning (tfms, is_multi_tfm)."""
+    try:
+        tree = ET.parse(csproj_path)
+        root = tree.getroot()
+    except (ET.ParseError, OSError):
+        return [""], False
+
+    for elem in root.iter():
+        tag = elem.tag.split("}")[-1]
+        if tag == "TargetFrameworks" and elem.text:
+            tfms = [t.strip() for t in elem.text.split(";") if t.strip()]
+            if tfms:
+                return tfms, True
+
+    for elem in root.iter():
+        tag = elem.tag.split("}")[-1]
+        if tag == "TargetFramework" and elem.text and elem.text.strip():
+            return [elem.text.strip()], False
+
+    return [""], False
 
 
 def _strip_comments_and_strings(line, in_block_comment):
@@ -488,12 +543,86 @@ def _count_braces(code_line):
     return opens, closes
 
 
-def find_tests_by_category(tests_dir, category, version=None):
-    """Scan C# test files under tests_dir for NUnit [Category] attributes at class or method level."""
-    if not category or not os.path.isdir(tests_dir):
-        return []
+def _strip_string_and_char_literals(code_line):
+    """Replace string and char literal contents with spaces to avoid false keyword/brace matches."""
+    out = []
+    in_string = False
+    in_char = False
+    i = 0
+    n = len(code_line)
+    while i < n:
+        ch = code_line[i]
+        if in_string:
+            if ch == "\\" and i + 1 < n:
+                out.append("  ")
+                i += 2
+                continue
+            if ch == '"':
+                in_string = False
+                out.append('"')
+            else:
+                out.append(" ")
+        elif in_char:
+            if ch == "\\" and i + 1 < n:
+                out.append("  ")
+                i += 2
+                continue
+            if ch == "'":
+                in_char = False
+                out.append("'")
+            else:
+                out.append(" ")
+        else:
+            if ch == '"':
+                in_string = True
+            elif ch == "'":
+                in_char = True
+            out.append(ch)
+        i += 1
+    return "".join(out)
 
-    target_cat = category.strip().casefold()
+
+def _extract_categories_from_line(code_line):
+    """Extract normalized category names from [Category(...)] and typed category attributes."""
+    cats = set()
+    for block in re.findall(r'\[([^\]]*)\]', code_line):
+        for cat_match in re.findall(r'\bCategory\s*\(\s*"([^"]+)"\s*\)', block):
+            cats.add(cat_match.strip().casefold())
+        for typed_match in re.findall(
+            r'\b(UnitTest|ArchitectureTest|RevitSmokeTest|RevitAdapterTest|RevitIsolatedDocTest|QuarantineTest)(?:Attribute)?\b',
+            block,
+        ):
+            cats.add(TYPED_CATEGORY_ATTRIBUTES[typed_match].casefold())
+    return cats
+
+
+def _parse_base_types(header_text):
+    """Extract base class/interface names from a class header segment up to '{'."""
+    no_brace = header_text.split("{", 1)[0]
+    if ":" not in no_brace:
+        return []
+    after_colon = no_brace.split(":", 1)[1]
+    after_colon = re.split(r'\bwhere\b', after_colon)[0]
+    # Strip generic type argument lists like Base<Foo, Bar>
+    cleaned = []
+    angle_depth = 0
+    for ch in after_colon:
+        if ch == "<":
+            angle_depth += 1
+        elif ch == ">":
+            angle_depth = max(0, angle_depth - 1)
+        elif angle_depth == 0:
+            cleaned.append(ch)
+    bases = []
+    for part in "".join(cleaned).split(","):
+        token = part.strip()
+        if token:
+            bases.append(token)
+    return bases
+
+
+def _collect_revit_test_cs_files(tests_dir, version=None):
+    """Collect C# files belonging to Revit tests and shared test fixtures under tests_dir."""
     source_dirs = []
     shared_dir = os.path.join(tests_dir, "SyntheticTests.Shared")
     if os.path.isdir(shared_dir):
@@ -503,31 +632,68 @@ def find_tests_by_category(tests_dir, category, version=None):
         ver_dir = os.path.join(tests_dir, f"SyntheticTests{version}")
         if os.path.isdir(ver_dir):
             source_dirs.append(ver_dir)
+        proj_ver_dir = os.path.join(tests_dir, "Projects", f"Synthetic.RevitTests.{version}")
+        if os.path.isdir(proj_ver_dir):
+            source_dirs.append(proj_ver_dir)
     else:
         for entry in sorted(os.listdir(tests_dir)):
             if entry.startswith("SyntheticTests") and entry not in ("SyntheticTests.Shared", "SyntheticTests.Logic"):
                 full_entry = os.path.join(tests_dir, entry)
                 if os.path.isdir(full_entry):
                     source_dirs.append(full_entry)
+        projects_dir = os.path.join(tests_dir, "Projects")
+        if os.path.isdir(projects_dir):
+            for entry in sorted(os.listdir(projects_dir)):
+                if entry.startswith("Synthetic.RevitTests."):
+                    full_entry = os.path.join(projects_dir, entry)
+                    if os.path.isdir(full_entry):
+                        source_dirs.append(full_entry)
+
+    for rel_sub in ("Fixtures", "Platform", "Features", "RevitDOM"):
+        sub_dir = os.path.join(tests_dir, rel_sub)
+        if os.path.isdir(sub_dir):
+            source_dirs.append(sub_dir)
 
     cs_files = []
+    seen_paths = set()
     excluded_sheet_index = os.path.normcase(os.path.join(shared_dir, "Modules", "SheetIndex"))
     for src_dir in source_dirs:
+        rel_root_name = os.path.basename(src_dir)
+        is_partition_root = rel_root_name in ("Platform", "Features", "RevitDOM")
         for root, dirs, files in os.walk(src_dir):
             dirs[:] = [d for d in dirs if d.lower() not in ("bin", "obj")]
-            if os.path.normcase(root).startswith(excluded_sheet_index):
+            norm_root = os.path.normcase(root)
+            if norm_root.startswith(excluded_sheet_index):
                 continue
+            if is_partition_root:
+                rel_parts = os.path.relpath(root, src_dir).split(os.sep)
+                if "Logic" in rel_parts:
+                    continue
             for fn in sorted(files):
                 if fn.endswith(".cs"):
-                    cs_files.append(os.path.join(root, fn))
+                    full_path = os.path.abspath(os.path.join(root, fn))
+                    if full_path not in seen_paths:
+                        seen_paths.add(full_path)
+                        cs_files.append(full_path)
+    return cs_files
 
-    matches = set()
-    cat_attr_re = re.compile(r'\bCategory\s*\(\s*"([^"]+)"\s*\)')
+
+def find_tests_by_category(tests_dir, category, version=None):
+    """Scan C# test files under tests_dir for NUnit [Category] and typed category attributes."""
+    if not category or not os.path.isdir(tests_dir):
+        return []
+
+    target_cat = category.strip().casefold()
+    cs_files = _collect_revit_test_cs_files(tests_dir, version=version)
+
+    ns_re = re.compile(r'^\s*namespace\s+([A-Za-z_][A-Za-z0-9_\.]*)\s*(;|\{)?')
     class_re = re.compile(r'\bclass\s+([A-Za-z_][A-Za-z0-9_]*)\b')
     method_re = re.compile(
         r'(?:public|internal|protected|private)\s+(?:static\s+|async\s+|virtual\s+|override\s+|new\s+|sealed\s+)*'
         r'[\w<>\[\],\.\?\s]+\s+([A-Za-z_][A-Za-z0-9_]*)\s*\('
     )
+
+    parsed_classes = []
 
     for cs_path in cs_files:
         try:
@@ -538,8 +704,11 @@ def find_tests_by_category(tests_dir, category, version=None):
 
         in_block_comment = False
         brace_depth = 0
+        namespace_stack = []
+        file_scoped_ns = None
+        pending_ns = None
         class_stack = []
-        pending_class = None
+        pending_class_header = None
         pending_categories = set()
 
         for raw_line in lines:
@@ -548,34 +717,160 @@ def find_tests_by_category(tests_dir, category, version=None):
             if not stripped:
                 continue
 
-            for cat_match in cat_attr_re.findall(stripped):
-                pending_categories.add(cat_match.strip().casefold())
+            sanitized = _strip_string_and_char_literals(stripped)
 
-            class_match = class_re.search(stripped)
+            if pending_class_header is not None:
+                pending_class_header["text"] += " " + sanitized
+                if "{" in sanitized:
+                    cls_info = pending_class_header
+                    pending_class_header = None
+                    bases = _parse_base_types(cls_info["text"])
+                    cls_record = {
+                        "fqn": cls_info["fqn"],
+                        "simple_name": cls_info["simple_name"],
+                        "is_abstract": cls_info["is_abstract"],
+                        "own_categories": set(cls_info["own_categories"]),
+                        "bases": bases,
+                        "methods": [],
+                    }
+                    parsed_classes.append(cls_record)
+                    opens, closes = _count_braces(sanitized)
+                    class_stack.append((cls_record, brace_depth + 1))
+                    brace_depth = max(0, brace_depth + opens - closes)
+                    while class_stack and brace_depth < class_stack[-1][1]:
+                        class_stack.pop()
+                    while namespace_stack and brace_depth < namespace_stack[-1][1]:
+                        namespace_stack.pop()
+                continue
+
+            pending_categories.update(_extract_categories_from_line(stripped))
+
+            ns_match = ns_re.match(sanitized)
+            if ns_match and not class_stack:
+                ns_name = ns_match.group(1)
+                delim = ns_match.group(2)
+                if delim == ";":
+                    file_scoped_ns = ns_name
+                elif delim == "{":
+                    opens, closes = _count_braces(sanitized)
+                    namespace_stack.append((ns_name, brace_depth + 1))
+                    brace_depth = max(0, brace_depth + opens - closes)
+                    while namespace_stack and brace_depth < namespace_stack[-1][1]:
+                        namespace_stack.pop()
+                    continue
+                else:
+                    pending_ns = ns_name
+                pending_categories.clear()
+                continue
+
+            if pending_ns is not None and "{" in sanitized:
+                opens, closes = _count_braces(sanitized)
+                namespace_stack.append((pending_ns, brace_depth + 1))
+                pending_ns = None
+                brace_depth = max(0, brace_depth + opens - closes)
+                while namespace_stack and brace_depth < namespace_stack[-1][1]:
+                    namespace_stack.pop()
+                continue
+
+            class_match = class_re.search(sanitized)
             if class_match:
                 cls_name = class_match.group(1)
-                if target_cat in pending_categories:
-                    matches.add(cls_name)
+                prefix = sanitized[:class_match.start()]
+                is_abstract = bool(re.search(r'\babstract\b', prefix))
+                ns_parts = [n for n, _ in namespace_stack]
+                if file_scoped_ns and not ns_parts:
+                    ns_parts = [file_scoped_ns]
+                ns_prefix = ".".join(ns_parts)
+                if class_stack:
+                    fqn = f"{class_stack[-1][0]['fqn']}+{cls_name}"
+                elif ns_prefix:
+                    fqn = f"{ns_prefix}.{cls_name}"
+                else:
+                    fqn = cls_name
+
+                header_rest = sanitized[class_match.start():]
+                own_cats = set(pending_categories)
                 pending_categories.clear()
-                pending_class = cls_name
-            elif class_stack and pending_categories and brace_depth == class_stack[-1][1]:
-                method_match = method_re.search(stripped)
+
+                if "{" in header_rest:
+                    bases = _parse_base_types(header_rest)
+                    cls_record = {
+                        "fqn": fqn,
+                        "simple_name": cls_name,
+                        "is_abstract": is_abstract,
+                        "own_categories": own_cats,
+                        "bases": bases,
+                        "methods": [],
+                    }
+                    parsed_classes.append(cls_record)
+                    opens, closes = _count_braces(sanitized)
+                    class_stack.append((cls_record, brace_depth + 1))
+                    brace_depth = max(0, brace_depth + opens - closes)
+                    while class_stack and brace_depth < class_stack[-1][1]:
+                        class_stack.pop()
+                    while namespace_stack and brace_depth < namespace_stack[-1][1]:
+                        namespace_stack.pop()
+                else:
+                    pending_class_header = {
+                        "fqn": fqn,
+                        "simple_name": cls_name,
+                        "is_abstract": is_abstract,
+                        "own_categories": own_cats,
+                        "text": header_rest,
+                    }
+                continue
+
+            if class_stack and pending_categories and brace_depth == class_stack[-1][1]:
+                method_match = method_re.search(sanitized)
                 if method_match:
                     method_name = method_match.group(1)
-                    if target_cat in pending_categories:
-                        matches.add(f"{class_stack[-1][0]}.{method_name}")
+                    class_stack[-1][0]["methods"].append((method_name, set(pending_categories)))
                     pending_categories.clear()
-                elif ";" in stripped and "[" not in stripped:
+                elif ";" in sanitized and "[" not in sanitized:
                     pending_categories.clear()
 
-            opens, closes = _count_braces(stripped)
-            if pending_class is not None and opens > 0:
-                class_stack.append((pending_class, brace_depth + 1))
-                pending_class = None
-
+            opens, closes = _count_braces(sanitized)
             brace_depth = max(0, brace_depth + opens - closes)
             while class_stack and brace_depth < class_stack[-1][1]:
                 class_stack.pop()
+            while namespace_stack and brace_depth < namespace_stack[-1][1]:
+                namespace_stack.pop()
+
+    by_fqn = {c["fqn"]: c for c in parsed_classes}
+    by_simple = {}
+    for c in parsed_classes:
+        by_simple.setdefault(c["simple_name"], []).append(c)
+
+    def resolve_effective_categories(cls_rec, visited=None):
+        if visited is None:
+            visited = set()
+        fqn = cls_rec["fqn"]
+        if fqn in visited:
+            return set()
+        visited.add(fqn)
+        cats = set(cls_rec["own_categories"])
+        for base_ref in cls_rec["bases"]:
+            base_candidates = []
+            if base_ref in by_fqn:
+                base_candidates.append(by_fqn[base_ref])
+            else:
+                simple_base = base_ref.split(".")[-1]
+                base_candidates.extend(by_simple.get(simple_base, ()))
+            for base_cls in base_candidates:
+                cats.update(resolve_effective_categories(base_cls, visited))
+        return cats
+
+    matches = set()
+    for cls_rec in parsed_classes:
+        if cls_rec["is_abstract"]:
+            continue
+        effective_cats = resolve_effective_categories(cls_rec)
+        if target_cat in effective_cats:
+            matches.add(cls_rec["fqn"])
+            continue
+        for method_name, method_cats in cls_rec["methods"]:
+            if target_cat in method_cats:
+                matches.add(f"{cls_rec['fqn']}.{method_name}")
 
     return sorted(matches)
 
@@ -798,7 +1093,19 @@ def execute_revit_test_process(
     return (proc.returncode if proc.returncode is not None else 1), timed_out
 
 
-def run_test_suite(target_class="", target_version="", category="", no_pool=False):
+def build_trx_filename(version_key, tfm="", is_multi_tfm=False):
+    if is_multi_tfm and tfm:
+        return f"results_{version_key}_{tfm}.trx"
+    return f"results_{version_key}.trx"
+
+
+def build_log_filename(version_key, tfm="", is_multi_tfm=False):
+    if is_multi_tfm and tfm:
+        return f"output_{version_key}_{tfm}.log"
+    return f"output_{version_key}.log"
+
+
+def run_test_suite(target_class="", target_version="", category="", no_pool=False, target_framework=""):
     workspace_path = os.getcwd()
     os.environ["SYNTHETIC_PROJECT_ROOT"] = workspace_path
     sdk_info = configure_dotnet_environment()
@@ -844,7 +1151,7 @@ def run_test_suite(target_class="", target_version="", category="", no_pool=Fals
     results_root = os.path.join(test_dir, "TestResults")
     run_results_dir = os.path.join(results_root, run_id)
 
-    has_revit_targets = any(ver.lower() != "logic" for ver in run_projects)
+    has_revit_targets = any(ver.lower() not in ("logic", "legacymock") for ver in run_projects)
     if has_revit_targets:
         _, _, pool_msg = resolve_worker_mode(no_pool, workspace_path)
         print(pool_msg)
@@ -857,105 +1164,124 @@ def run_test_suite(target_class="", target_version="", category="", no_pool=Fals
 
     executed_any = False
     had_execution_error = False
+    target_framework = (target_framework or "").strip()
 
-    for ver, csproj_path in run_projects.items():
-        is_logic = ver.lower() == "logic"
-        filter_expr, matched_zero = build_test_filter(
-            is_logic=is_logic,
-            target_class=target_class,
-            category=category,
-            tests_dir=test_dir,
-            version=None if is_logic else ver,
-        )
+    for ver, csproj_list in run_projects.items():
+        if isinstance(csproj_list, str):
+            csproj_list = [csproj_list]
+        is_logic = ver.lower() in ("logic", "legacymock")
 
-        if matched_zero:
-            print(f"[TESTS] 0 matching tests for {ver} (category: {category}).")
-            continue
+        for csproj_path in csproj_list:
+            proj_tfms, is_multi_tfm = get_project_target_frameworks(csproj_path)
+            if target_framework:
+                selected_tfms = [t for t in proj_tfms if t and t.casefold() == target_framework.casefold()]
+                if not selected_tfms:
+                    continue
+            else:
+                selected_tfms = proj_tfms
 
-        executed_any = True
-        os.makedirs(run_build_root, exist_ok=True)
-        os.makedirs(run_results_dir, exist_ok=True)
-
-        if is_logic:
-            print(f"[TESTS] Building logic test project with MSBuild ({run_id}): {msbuild_path}...")
-        else:
-            print(f"[TESTS] Building test project for Revit {ver} with MSBuild ({run_id}): {msbuild_path}...")
-
-        build_cmd = [
-            msbuild_path,
-            csproj_path,
-            "/t:Build",
-            "/restore",
-            "/p:Configuration=Debug",
-            "/p:Platform=x64",
-            f"/p:SyntheticIsolatedBuildRoot={run_build_root}",
-            f"/p:SyntheticRunId={run_id}",
-            "/v:minimal",
-            "/clp:ErrorsOnly;Summary",
-        ]
-        try:
-            subprocess.run(build_cmd, check=True)
-            print(f"[TESTS] Build succeeded for {ver}.")
-        except subprocess.CalledProcessError as e:
-            print(f"[ERROR] Build failed for {ver}: {e}")
-            print(f"[TESTS] Preserving failed isolated build root for inspection: {run_build_root}")
-            rotate_test_results(results_root)
-            sys.exit(1)
-
-        if is_logic:
-            print("[TESTS] Executing headless NUnit tests for logic...")
-        else:
-            print(f"[TESTS] Executing dotnet test for Revit {ver}...")
-
-        log_name = f"results_{ver}.trx"
-        cmd = [
-            dotnet_exe, "test", csproj_path,
-            "--no-build",
-            "--logger", f"trx;LogFileName={log_name}",
-            "--results-directory", run_results_dir,
-            "-p:Configuration=Debug",
-            "-p:Platform=x64",
-            f"-p:SyntheticIsolatedBuildRoot={run_build_root}",
-            f"-p:SyntheticRunId={run_id}",
-        ]
-        if filter_expr:
-            cmd.extend(["--filter", filter_expr])
-
-        out_file_path = os.path.join(run_results_dir, f"output_{ver}.log")
-        proc_returncode = 0
-        if is_logic:
-            with open(out_file_path, "w", encoding="utf-8") as out_f:
-                res = subprocess.run(cmd, stdout=out_f, stderr=out_f)
-                proc_returncode = res.returncode
-        else:
-            guid_whitelister.whitelist_existing_addins(ver)
-            snapshot_path = os.path.join(run_results_dir, f"known_journals_{ver}.json")
-            snapshot_known_journals(ver, snapshot_path)
-            worker_env = build_worker_env(workspace_path, run_id)
-            isolated_test_outdir = os.path.join(
-                run_build_root, "bin", f"{os.path.splitext(os.path.basename(csproj_path))[0]}_{run_id}"
+            filter_expr, matched_zero = build_test_filter(
+                is_logic=is_logic,
+                target_class=target_class,
+                category=category,
+                tests_dir=test_dir,
+                version=None if is_logic else ver,
             )
-            timeout = 660  # 11 min: matches 10m NUnit.Timeout + 60s Revit boot buffer
 
-            with open(out_file_path, "w", encoding="utf-8") as out_f:
-                with RicaunBundleLease(testadapter_search_dirs=[isolated_test_outdir]):
-                    print(f"[TESTS] Waiting for Revit {ver} test execution to complete (timeout: {timeout}s)...")
-                    proc_returncode, timed_out = execute_revit_test_process(
-                        cmd, out_f, worker_env, timeout=timeout
+            if matched_zero:
+                print(f"[TESTS] 0 matching tests for {ver} (category: {category}).")
+                continue
+
+            executed_any = True
+            os.makedirs(run_build_root, exist_ok=True)
+            os.makedirs(run_results_dir, exist_ok=True)
+
+            proj_name = os.path.splitext(os.path.basename(csproj_path))[0]
+            if is_logic:
+                print(f"[TESTS] Building {proj_name} ({ver}) with MSBuild ({run_id}): {msbuild_path}...")
+            else:
+                print(f"[TESTS] Building {proj_name} for Revit {ver} with MSBuild ({run_id}): {msbuild_path}...")
+
+            build_cmd = [
+                msbuild_path,
+                csproj_path,
+                "/t:Build",
+                "/restore",
+                "/p:Configuration=Debug",
+                "/p:Platform=x64",
+                f"/p:SyntheticIsolatedBuildRoot={run_build_root}",
+                f"/p:SyntheticRunId={run_id}",
+                "/v:minimal",
+                "/clp:ErrorsOnly;Summary",
+            ]
+            try:
+                subprocess.run(build_cmd, check=True)
+                print(f"[TESTS] Build succeeded for {proj_name}.")
+            except subprocess.CalledProcessError as e:
+                print(f"[ERROR] Build failed for {proj_name}: {e}")
+                print(f"[TESTS] Preserving failed isolated build root for inspection: {run_build_root}")
+                rotate_test_results(results_root)
+                sys.exit(1)
+
+            for tfm in selected_tfms:
+                log_name = build_trx_filename(ver, tfm=tfm, is_multi_tfm=is_multi_tfm)
+                out_file_path = os.path.join(run_results_dir, build_log_filename(ver, tfm=tfm, is_multi_tfm=is_multi_tfm))
+
+                if is_logic:
+                    tfm_label = f" [{tfm}]" if is_multi_tfm and tfm else ""
+                    print(f"[TESTS] Executing headless NUnit tests for {proj_name}{tfm_label}...")
+                else:
+                    print(f"[TESTS] Executing dotnet test for Revit {ver}...")
+
+                cmd = [
+                    dotnet_exe, "test", csproj_path,
+                    "--no-build",
+                    "--logger", f"trx;LogFileName={log_name}",
+                    "--results-directory", run_results_dir,
+                    "-p:Configuration=Debug",
+                    "-p:Platform=x64",
+                    f"-p:SyntheticIsolatedBuildRoot={run_build_root}",
+                    f"-p:SyntheticRunId={run_id}",
+                ]
+                if is_multi_tfm and tfm:
+                    cmd.extend(["--framework", tfm])
+                if filter_expr:
+                    cmd.extend(["--filter", filter_expr])
+
+                proc_returncode = 0
+                if is_logic:
+                    with open(out_file_path, "w", encoding="utf-8") as out_f:
+                        res = subprocess.run(cmd, stdout=out_f, stderr=out_f)
+                        proc_returncode = res.returncode
+                else:
+                    guid_whitelister.whitelist_existing_addins(ver)
+                    snapshot_path = os.path.join(run_results_dir, f"known_journals_{ver}.json")
+                    snapshot_known_journals(ver, snapshot_path)
+                    worker_env = build_worker_env(workspace_path, run_id)
+                    isolated_test_outdir = os.path.join(
+                        run_build_root, "bin", f"{proj_name}_{run_id}"
                     )
-                    if timed_out:
+                    timeout = 660  # 11 min: matches 10m NUnit.Timeout + 60s Revit boot buffer
+
+                    with open(out_file_path, "w", encoding="utf-8") as out_f:
+                        with RicaunBundleLease(testadapter_search_dirs=[isolated_test_outdir]):
+                            print(f"[TESTS] Waiting for Revit {ver} test execution to complete (timeout: {timeout}s)...")
+                            proc_returncode, timed_out = execute_revit_test_process(
+                                cmd, out_f, worker_env, timeout=timeout
+                            )
+                            if timed_out:
+                                had_execution_error = True
+
+                    is_clean, gate_output = run_journal_cleanliness_gate(ver, run_id, snapshot_path)
+                    if gate_output:
+                        print(gate_output)
+                    if not is_clean:
                         had_execution_error = True
+                        print(f"[ERROR] Revit {ver} failed post-run journal cleanliness gate (--assert-clean).")
 
-            is_clean, gate_output = run_journal_cleanliness_gate(ver, run_id, snapshot_path)
-            if gate_output:
-                print(gate_output)
-            if not is_clean:
-                had_execution_error = True
-                print(f"[ERROR] Revit {ver} failed post-run journal cleanliness gate (--assert-clean).")
-
-        if proc_returncode != 0 and not os.path.exists(os.path.join(run_results_dir, log_name)):
-            had_execution_error = True
-            print(f"[ERROR] Test runner exited with code {proc_returncode} without generating {log_name}. See {out_file_path}")
+                if proc_returncode != 0 and not os.path.exists(os.path.join(run_results_dir, log_name)):
+                    had_execution_error = True
+                    print(f"[ERROR] Test runner exited with code {proc_returncode} without generating {log_name}. See {out_file_path}")
 
     if not executed_any:
         print("0 matching tests")
@@ -1047,6 +1373,8 @@ if __name__ == "__main__":
                          help="Revit version to target (e.g. 2026 or Logic). Omit to run all.")
     _parser.add_argument("--category", dest="category", default="",
                          help="NUnit [Category] filter")
+    _parser.add_argument("--framework", dest="target_framework", default="",
+                         help="Target framework to execute for multi-TFM test projects (e.g. net48 or net8.0-windows8.0)")
     _parser.add_argument("--no-pool", dest="no_pool", action="store_true", default=False,
                          help="Bypass optional RevitWorkerPool and use isolated cold Revit workers")
     # Legacy positional support: test_executor.py [class] [version]
@@ -1057,10 +1385,17 @@ if __name__ == "__main__":
     target_class   = (_args.target_class   or _args.pos_class   or "").strip()
     target_version = (_args.target_version or _args.pos_version or "").strip()
     category       = (_args.category or "").strip()
+    target_framework = (_args.target_framework or "").strip()
 
     # Treat legacy sentinel value as blank
     if target_class == "DefaultAlignmentTests":
         target_class = ""
 
-    run_test_suite(target_class, target_version, category=category, no_pool=_args.no_pool)
+    run_test_suite(
+        target_class,
+        target_version,
+        category=category,
+        no_pool=_args.no_pool,
+        target_framework=target_framework,
+    )
 

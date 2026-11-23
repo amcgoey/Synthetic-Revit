@@ -85,7 +85,7 @@ namespace SyntheticTests.Infrastructure.Persistence
         public void AssemblyReflection_AllConcreteSettingModules_AreRegisteredInSyncedModulesConfigAndTemplate()
         {
             var settingModuleInterface = typeof(ISettingModule);
-            System.Reflection.Assembly assembly = typeof(Synthetic.Core.App).Assembly;
+            System.Reflection.Assembly assembly = typeof(Synthetic.Platform.Host.App).Assembly;
             Type?[] rawTypes;
             try
             {

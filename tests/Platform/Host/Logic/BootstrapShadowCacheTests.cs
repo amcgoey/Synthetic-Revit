@@ -5,9 +5,11 @@ using System.IO;
 using NUnit.Framework;
 using Synthetic.Bootstrap;
 
-namespace SyntheticTests.Bootstrap
+namespace SyntheticTests.Platform.Host
 {
     [TestFixture]
+    [UnitTest]
+    [NonParallelizable]
     public class BootstrapShadowCacheTests
     {
         private string _tempRoot = string.Empty;
@@ -47,6 +49,7 @@ namespace SyntheticTests.Bootstrap
         {
             Directory.CreateDirectory(_payloadDir);
             File.WriteAllText(Path.Combine(_payloadDir, "Synthetic2026.dll"), "payload-dll-bytes");
+            File.WriteAllText(Path.Combine(_payloadDir, "Synthetic.Core.dll"), "core-dll-bytes");
             File.WriteAllText(Path.Combine(_payloadDir, "Newtonsoft.Json.dll"), "newtonsoft-bytes");
             if (includeAssets)
             {
@@ -62,6 +65,15 @@ namespace SyntheticTests.Bootstrap
             return key => vars.TryGetValue(key, out string? val) ? val : null;
         }
 
+        private static object? GetAddinRootData()
+        {
+#if NETFRAMEWORK
+            return AppDomain.CurrentDomain.GetData("SYNTHETIC_ADDIN_ROOT");
+#else
+            return AppContext.GetData("SYNTHETIC_ADDIN_ROOT");
+#endif
+        }
+
         [Test]
         public void PrepareLaunch_TestWorkerBypass_ZeroCopyAndZeroScavenge()
         {
@@ -70,7 +82,7 @@ namespace SyntheticTests.Bootstrap
             Directory.CreateDirectory(deadSibling);
             File.WriteAllText(Path.Combine(deadSibling, "stale.txt"), "keep-me");
 
-            object? priorAppContext = AppContext.GetData("SYNTHETIC_ADDIN_ROOT");
+            object? priorAppContext = GetAddinRootData();
 
             LaunchPlan plan = ShadowCacheManager.PrepareLaunch(
                 _bootstrapDllPath,
@@ -91,14 +103,14 @@ namespace SyntheticTests.Bootstrap
             Assert.IsEmpty(plan.TargetAssemblyPath);
             Assert.IsTrue(Directory.Exists(deadSibling), "TestWorkerBypass must not scavenge sibling shadow directories.");
             Assert.IsFalse(Directory.Exists(Path.Combine(_localAppDataDir, "Synthetic", "ShadowCache", "2026", "4242_987654321")));
-            Assert.AreEqual(priorAppContext, AppContext.GetData("SYNTHETIC_ADDIN_ROOT"));
+            Assert.AreEqual(priorAppContext, GetAddinRootData());
         }
 
         [Test]
         public void PrepareLaunch_ShadowCopy_StagesPayloadRecursivelyIntoPidAndTicksDir()
         {
             SeedPayload(includeAssets: true);
-            object? priorAppContext = AppContext.GetData("SYNTHETIC_ADDIN_ROOT");
+            object? priorAppContext = GetAddinRootData();
 
             LaunchPlan plan = ShadowCacheManager.PrepareLaunch(
                 _bootstrapDllPath,
@@ -123,10 +135,11 @@ namespace SyntheticTests.Bootstrap
             Assert.AreEqual(expectedShadowDir, plan.ShadowDir);
             Assert.AreEqual(Path.Combine(expectedShadowDir, "Synthetic2026.dll"), plan.TargetAssemblyPath);
             Assert.IsTrue(File.Exists(plan.TargetAssemblyPath));
+            Assert.IsTrue(File.Exists(Path.Combine(expectedShadowDir, "Synthetic.Core.dll")));
             Assert.IsTrue(File.Exists(Path.Combine(expectedShadowDir, "Newtonsoft.Json.dll")));
             Assert.IsTrue(File.Exists(Path.Combine(expectedShadowDir, "Assets", "ribbon_config.json")));
             Assert.IsTrue(File.Exists(Path.Combine(expectedShadowDir, "Assets", "Icons", "icon.png")));
-            Assert.AreEqual(priorAppContext, AppContext.GetData("SYNTHETIC_ADDIN_ROOT"), "ShadowCacheManager must not mutate AppContext.");
+            Assert.AreEqual(priorAppContext, GetAddinRootData(), "ShadowCacheManager must not mutate AppContext.");
         }
 
         [Test]

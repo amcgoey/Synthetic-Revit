@@ -18,7 +18,7 @@ using Synthetic.Infrastructure.Persistence;
 using Synthetic.Shared.UI;
 using Application = Autodesk.Revit.ApplicationServices.Application;
 
-using Synthetic.Core;
+using Synthetic.Platform.Host;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;

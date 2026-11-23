@@ -1,23 +1,41 @@
 <Project>
-  <PropertyGroup Condition="'$(GenerateDocumentationFile)' == 'true' And '$(IsBootstrapProject)' != 'true'">
+  <PropertyGroup Condition="'$(GenerateDocumentationFile)' == 'true' And '$(IsRevitPayloadProject)' == 'true'">
     <DocumentationFile>$(OutputPath)$(AssemblyName).xml</DocumentationFile>
   </PropertyGroup>
 
-  <ItemGroup Condition="'$(GenerateDocumentationFile)' == 'true' And '$(IsBootstrapProject)' != 'true'">
+  <ItemGroup Condition="'$(GenerateDocumentationFile)' == 'true' And '$(IsRevitPayloadProject)' == 'true'">
     <DocFileItem Remove="@(DocFileItem)" />
     <DocFileItem Include="$(DocumentationFile)" />
     <FinalDocFile Remove="@(FinalDocFile)" />
     <FinalDocFile Include="@(DocFileItem->'$(OutDir)%(Filename)%(Extension)')" />
   </ItemGroup>
 
-  <ItemGroup Condition="'$(IsBootstrapProject)' != 'true'">
-    <Compile Include="$(MSBuildThisFileDirectory)SyntheticShared\**\*.cs"
+  <ItemGroup Condition="'$(IsCoreProject)' == 'true'">
+    <Compile Include="$(MSBuildThisFileDirectory)**\Core\**\*.cs"
+             Exclude="$(MSBuildThisFileDirectory)SyntheticShared\**;$(MSBuildThisFileDirectory)Synthetic*\**;$(MSBuildThisFileDirectory)**\packages\**;$(MSBuildThisFileDirectory)**\obj\**;$(MSBuildThisFileDirectory)**\bin\**"
              Link="%(RecursiveDir)%(Filename)%(Extension)" />
-    <Page Include="$(MSBuildThisFileDirectory)SyntheticShared\**\*.xaml"
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(IsRevitPayloadProject)' == 'true'">
+    <Compile Include="$(MSBuildThisFileDirectory)**\Addin\**\*.cs"
+             Exclude="$(MSBuildThisFileDirectory)SyntheticShared\**;$(MSBuildThisFileDirectory)Synthetic*\**;$(MSBuildThisFileDirectory)**\packages\**;$(MSBuildThisFileDirectory)**\obj\**;$(MSBuildThisFileDirectory)**\bin\**"
+             Link="%(RecursiveDir)%(Filename)%(Extension)" />
+    <Page Include="$(MSBuildThisFileDirectory)**\Addin\**\*.xaml"
+          Exclude="$(MSBuildThisFileDirectory)SyntheticShared\**;$(MSBuildThisFileDirectory)Synthetic*\**;$(MSBuildThisFileDirectory)**\packages\**;$(MSBuildThisFileDirectory)**\obj\**;$(MSBuildThisFileDirectory)**\bin\**"
           Link="%(RecursiveDir)%(Filename)%(Extension)"
           Generator="MSBuild:Compile"
           SubType="Designer" />
-    <Content Include="$(MSBuildThisFileDirectory)SyntheticShared\Assets\**\*.*"
+
+    <!-- Temporary legacy SyntheticShared globs during expand-contract migration -->
+    <Compile Include="$(MSBuildThisFileDirectory)SyntheticShared\**\*.cs"
+             Link="%(RecursiveDir)%(Filename)%(Extension)" />
+    <Page Include="$(MSBuildThisFileDirectory)SyntheticShared\**\*.xaml"
+          Exclude="$(MSBuildThisFileDirectory)SyntheticShared\Assets\**"
+          Link="%(RecursiveDir)%(Filename)%(Extension)"
+          Generator="MSBuild:Compile"
+          SubType="Designer" />
+
+    <Content Include="$(MSBuildThisFileDirectory)Assets\**\*.*"
              Link="Assets\%(RecursiveDir)%(Filename)%(Extension)"
              CopyToOutputDirectory="PreserveNewest" />
     <Content Include="$(MSBuildThisFileDirectory)SyntheticShared\SyntheticSettings.template.json"
@@ -32,7 +50,17 @@
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
-  <ItemGroup Condition="'$(IsBootstrapProject)' != 'true' And '$(RevitVersion)' != ''">
+  <ItemGroup Condition="'$(IsCoreProject)' == 'true' Or '$(IsRevitPayloadProject)' == 'true'">
+    <InternalsVisibleTo Include="Synthetic.LogicTests" />
+    <InternalsVisibleTo Include="SyntheticTests.Logic" />
+    <InternalsVisibleTo Include="SyntheticTests.Shared" />
+    <InternalsVisibleTo Include="SyntheticTests2023" />
+    <InternalsVisibleTo Include="SyntheticTests2024" />
+    <InternalsVisibleTo Include="SyntheticTests2025" />
+    <InternalsVisibleTo Include="SyntheticTests2026" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(IsRevitPayloadProject)' == 'true' And '$(RevitVersion)' != ''">
     <Reference Include="eTransmitForRevitDB"
                Condition="Exists('C:\Program Files\Autodesk\eTransmit for Revit $(RevitVersion)\eTransmitForRevitDB.dll')">
       <HintPath>C:\Program Files\Autodesk\eTransmit for Revit $(RevitVersion)\eTransmitForRevitDB.dll</HintPath>
@@ -45,15 +73,31 @@
     </Reference>
   </ItemGroup>
 
-  <ItemGroup Condition="'$(IsBootstrapProject)' != 'true' And '$(RevitVersion)' != '' And Exists('$(MSBuildThisFileDirectory)Synthetic.Bootstrap$(RevitVersion)\Synthetic.Bootstrap$(RevitVersion).csproj')">
+  <ItemGroup Condition="'$(IsRevitPayloadProject)' == 'true' And '$(RevitVersion)' != '' And Exists('$(MSBuildThisFileDirectory)Synthetic.Bootstrap$(RevitVersion)\Synthetic.Bootstrap$(RevitVersion).csproj')">
     <ProjectReference Include="$(MSBuildThisFileDirectory)Synthetic.Bootstrap$(RevitVersion)\Synthetic.Bootstrap$(RevitVersion).csproj"
                       ReferenceOutputAssembly="false"
                       SkipGetTargetFrameworkProperties="true" />
   </ItemGroup>
 
+  <Target Name="EmbedExcelInteropTypes"
+          AfterTargets="ResolvePackageAssets;ResolveAssemblyReferences"
+          BeforeTargets="CoreCompile;GetCopyToOutputDirectoryItems"
+          Condition="'$(IsCoreProject)' == 'true' Or '$(IsRevitPayloadProject)' == 'true'">
+    <ItemGroup>
+      <Reference Condition="'%(Reference.Filename)' == 'Microsoft.Office.Interop.Excel' Or '%(Reference.NuGetPackageId)' == 'Microsoft.Office.Interop.Excel'">
+        <EmbedInteropTypes>true</EmbedInteropTypes>
+      </Reference>
+      <ReferencePath Condition="'%(ReferencePath.Filename)' == 'Microsoft.Office.Interop.Excel' Or '%(ReferencePath.NuGetPackageId)' == 'Microsoft.Office.Interop.Excel'">
+        <EmbedInteropTypes>true</EmbedInteropTypes>
+      </ReferencePath>
+      <ReferenceCopyLocalPaths Remove="@(ReferenceCopyLocalPaths)"
+                               Condition="'%(ReferenceCopyLocalPaths.Filename)' == 'Microsoft.Office.Interop.Excel' Or '%(ReferenceCopyLocalPaths.NuGetPackageId)' == 'Microsoft.Office.Interop.Excel'" />
+    </ItemGroup>
+  </Target>
+
   <Target Name="CleanLegacyFlatOutputs"
           BeforeTargets="Build;Clean"
-          Condition="'$(SyntheticIsolatedBuildRoot)' == '' And '$(IsBootstrapProject)' != 'true'">
+          Condition="'$(SyntheticIsolatedBuildRoot)' == '' And '$(IsRevitPayloadProject)' == 'true'">
     <PropertyGroup>
       <_LegacySyntheticFlatDir>$(RepoOutputRoot)\Synthetic</_LegacySyntheticFlatDir>
     </PropertyGroup>
@@ -76,7 +120,7 @@
   <!-- Single-source .addin manifest generation and deployment for Debug and Release -->
   <Target Name="GenerateRevitAddinManifest"
           AfterTargets="Build"
-          Condition="'$(IsBootstrapProject)' != 'true' And '$(RevitVersion)' != ''">
+          Condition="'$(IsRevitPayloadProject)' == 'true' And '$(RevitVersion)' != ''">
     <PropertyGroup>
       <_BootstrapAssemblyName>Synthetic.Bootstrap$(RevitVersion).dll</_BootstrapAssemblyName>
       <_AddinAssemblyPath Condition="'$(Configuration)' == 'Debug'">$(RepoOutputRoot)\Synthetic\Bootstrap\v1\$(_BootstrapAssemblyName)</_AddinAssemblyPath>
@@ -129,14 +173,14 @@
           Condition="'$(SkipDeployAddin)' != 'true' And '$(Configuration)' != 'Debug'" />
   </Target>
 
-  <Target Name="AfterClean" Condition="'$(SkipDeployAddin)' != 'true' And '$(IsBootstrapProject)' != 'true' And '$(RevitVersion)' != ''">
+  <Target Name="AfterClean" Condition="'$(SkipDeployAddin)' != 'true' And '$(IsRevitPayloadProject)' == 'true' And '$(RevitVersion)' != ''">
     <Delete Files="$(AppData)\Autodesk\Revit\Addins\$(RevitVersion)\Synthetic$(RevitVersion).addin" />
   </Target>
 
   <Target Name="SignDebugBuild"
           AfterTargets="CoreCompile"
           BeforeTargets="CopyFilesToOutputDirectory"
-          Condition="'$(Configuration)' == 'Debug' And '$(DesignTimeBuild)' != 'true'"
+          Condition="'$(Configuration)' == 'Debug' And '$(DesignTimeBuild)' != 'true' And '$(IsCrossTargetingBuild)' != 'true'"
           Inputs="@(IntermediateAssembly)"
           Outputs="$(IntermediateOutputPath)$(AssemblyName).signed.stamp">
     <PropertyGroup>

@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <IsRevitPayloadProject>true</IsRevitPayloadProject>
     <TargetFramework>net48</TargetFramework>
     <LangVersion>9.0</LangVersion>
     <ImplicitUsings>disable</ImplicitUsings>
@@ -14,14 +15,23 @@
     <UseWindowsForms>true</UseWindowsForms>
     <UseWPF>true</UseWPF>
     <DefineConstants>$(DefineConstants);REVIT2024</DefineConstants>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <EnableDefaultPageItems>false</EnableDefaultPageItems>
+    <EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Office.Interop.Excel" Version="15.0.4795.1001" />
+    <PackageReference Include="Microsoft.Office.Interop.Excel" Version="15.0.4795.1001">
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </PackageReference>
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="Revit_All_Main_Versions_API_x64" Version="2024.2.0">
       <ExcludeAssets>runtime</ExcludeAssets>
     </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Synthetic.Core\Synthetic.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>

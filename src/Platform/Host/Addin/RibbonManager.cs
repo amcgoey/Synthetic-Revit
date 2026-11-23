@@ -6,7 +6,7 @@ using System.Reflection;
 using System.Windows.Media.Imaging;
 using Newtonsoft.Json;
 
-namespace Synthetic.Core
+namespace Synthetic.Platform.Host
 {
     /// <summary>
     /// Static class responsible for dynamically loading the JSON configuration
@@ -41,7 +41,7 @@ namespace Synthetic.Core
                 var filteredSubItems = new List<RibbonItemConfig>();
                 foreach (var subItem in item.SubItems)
                 {
-                    if (!ShouldIncludeItem(subItem, isDebug, activeVersion))
+                    if (!RibbonItemFilter.ShouldIncludeItem(subItem, isDebug, activeVersion))
                     {
                         continue;
                     }
@@ -91,7 +91,7 @@ namespace Synthetic.Core
                 {
                     foreach (var subItem in item.SubItems)
                     {
-                        if (!ShouldIncludeItem(subItem, isDebug, activeVersion))
+                        if (!RibbonItemFilter.ShouldIncludeItem(subItem, isDebug, activeVersion))
                         {
                             continue;
                         }
@@ -167,7 +167,7 @@ namespace Synthetic.Core
                         var filteredSlideout = new List<RibbonItemConfig>();
                         foreach (var item in panelConfig.SlideoutItems)
                         {
-                            if (!ShouldIncludeItem(item, isDebug, activeVersion))
+                            if (!RibbonItemFilter.ShouldIncludeItem(item, isDebug, activeVersion))
                             {
                                 continue;
                             }
@@ -184,33 +184,11 @@ namespace Synthetic.Core
             }
         }
 
-        public static bool ShouldIncludeItem(RibbonItemConfig item, bool isDebug, int activeVersion)
-        {
-            if (item.DebugOnly && !isDebug)
-            {
-                return false;
-            }
-            return IsVersionMatch(item, activeVersion);
-        }
-
-        public static bool IsVersionMatch(RibbonItemConfig item, int currentVersion)
-        {
-            if (item.MinVersion.HasValue && currentVersion < item.MinVersion.Value)
-            {
-                return false;
-            }
-            if (item.MaxVersion.HasValue && currentVersion > item.MaxVersion.Value)
-            {
-                return false;
-            }
-            return true;
-        }
-
         private static void AddItemsToPanel(RibbonPanel panel, List<RibbonItemConfig> items, string assemblyPath, string assetsDir, bool isDebug, int activeVersion)
         {
             foreach (var item in items)
             {
-                if (!ShouldIncludeItem(item, isDebug, activeVersion))
+                if (!RibbonItemFilter.ShouldIncludeItem(item, isDebug, activeVersion))
                 {
                     continue;
                 }
@@ -288,65 +266,5 @@ namespace Synthetic.Core
                 button.ToolTip = $"[WARNING] Command class not found: {classPath}";
             }
         }
-    }
-
-    public class RibbonConfig
-    {
-        [JsonProperty("tab_name")]
-        public string TabName { get; set; }
-
-        [JsonProperty("panels")]
-        public List<PanelConfig> Panels { get; set; }
-    }
-
-    public class PanelConfig
-    {
-        [JsonProperty("name")]
-        public string Name { get; set; }
-
-        [JsonProperty("items")]
-        public List<RibbonItemConfig> Items { get; set; }
-
-        [JsonProperty("slideout_items")]
-        public List<RibbonItemConfig> SlideoutItems { get; set; }
-    }
-
-    public class RibbonItemConfig
-    {
-        [JsonProperty("type")]
-        public string Type { get; set; }
-
-        [JsonProperty("name")]
-        public string Name { get; set; }
-
-        [JsonProperty("text")]
-        public string Text { get; set; }
-
-        [JsonProperty("class")]
-        public string Class { get; set; }
-
-        [JsonProperty("tooltip")]
-        public string Tooltip { get; set; }
-
-        [JsonProperty("large_image")]
-        public string LargeImage { get; set; }
-
-        [JsonProperty("image")]
-        public string Image { get; set; }
-
-        [JsonProperty("availability_class")]
-        public string AvailabilityClass { get; set; }
-
-        [JsonProperty("debugOnly")]
-        public bool DebugOnly { get; set; }
-
-        [JsonProperty("minVersion")]
-        public int? MinVersion { get; set; }
-
-        [JsonProperty("maxVersion")]
-        public int? MaxVersion { get; set; }
-
-        [JsonProperty("sub_items")]
-        public List<RibbonItemConfig> SubItems { get; set; }
     }
 }

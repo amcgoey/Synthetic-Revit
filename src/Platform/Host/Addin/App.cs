@@ -12,7 +12,6 @@ using Autodesk.Revit.DB.Events;
 
 using Synthetic.Shared.UI;
 using Synthetic.Shared.RevitAPI;
-using Synthetic.Core;
 using Synthetic.Settings;
 using Synthetic.Infrastructure.Persistence;
 using Synthetic.Modules.StandardsManagement.ViewModels;
@@ -25,7 +24,8 @@ using Synthetic.Modules.SettingsDashboard.Views;
 
 #endregion
 
-namespace Synthetic.Core{
+namespace Synthetic.Platform.Host
+{
     /// <summary>
     /// The main external application class for the Revit addon.
     /// Manages the application lifecycle, ribbon UI creation, and document events.

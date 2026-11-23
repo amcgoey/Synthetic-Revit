@@ -3,7 +3,7 @@ using System;
 using System.IO;
 using System.Collections.Generic;
 using Newtonsoft.Json.Linq;
-using Synthetic.Core;
+using Synthetic.Platform.Host;
 using SyntheticTests.Helpers;
 
 namespace SyntheticTests.Infrastructure.UI
@@ -12,32 +12,10 @@ namespace SyntheticTests.Infrastructure.UI
     public class RibbonTests
     {
         [Test]
-        public void RibbonConfig_ParsesWithoutErrors()
-        {
-            string projectRoot = TestPathHelper.GetProjectRoot();
-            string configPath = Path.Combine(projectRoot, "src", "SyntheticShared", "Assets", "ribbon_config.json");
-
-            if (!File.Exists(configPath))
-            {
-                string testBinDir = TestContext.CurrentContext.TestDirectory;
-                configPath = Path.Combine(testBinDir, "Assets", "ribbon_config.json");
-            }
-
-            Assert.IsTrue(File.Exists(configPath), $"Ribbon configuration file 'ribbon_config.json' not found at expected path: {configPath}");
-
-            string jsonContent = File.ReadAllText(configPath);
-            
-            Assert.DoesNotThrow(() => {
-                JObject ribbonConfig = JObject.Parse(jsonContent);
-                Assert.IsNotNull(ribbonConfig);
-            }, "Expected ribbon_config.json to parse without errors.");
-        }
-
-        [Test]
         public void RibbonConfig_AllCommandClasses_ShouldResolve()
         {
             string projectRoot = TestPathHelper.GetProjectRoot();
-            string configPath = Path.Combine(projectRoot, "src", "SyntheticShared", "Assets", "ribbon_config.json");
+            string configPath = Path.Combine(projectRoot, "src", "Assets", "ribbon_config.json");
 
             if (!File.Exists(configPath))
             {

@@ -2,7 +2,6 @@ using System;
 using System.Windows;
 
 using Synthetic.Shared.UI;
-using Synthetic.Core;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;

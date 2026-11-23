@@ -5,7 +5,6 @@ using System.Windows.Input;
 using System.Windows.Threading;
 
 using Synthetic.Shared.UI;
-using Synthetic.Core;
 
 using Synthetic.Modules.MergeDuplicates.ViewModels;
 using Synthetic.RevitDOM.Models;

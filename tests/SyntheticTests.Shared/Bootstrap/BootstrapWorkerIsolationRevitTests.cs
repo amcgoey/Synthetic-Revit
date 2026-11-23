@@ -3,7 +3,7 @@ using System.IO;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using NUnit.Framework;
-using Synthetic.Core;
+using Synthetic.Platform.Host;
 using Synthetic.Modules.StandardsManagement.Views;
 using Synthetic.Shared.RevitAPI;
 using SyntheticTests.Helpers;
@@ -23,6 +23,7 @@ namespace SyntheticTests.Bootstrap
         }
 
         [Test]
+        [RevitSmokeTest]
         public void TestWorker_BypassesHostStartup_AndLoadsUnshadowedTempPayload()
         {
             Assert.AreEqual(
@@ -50,6 +51,7 @@ namespace SyntheticTests.Bootstrap
         }
 
         [Test]
+        [RevitSmokeTest]
         public void TestWorker_ProjectStandardsDashboardWindow_InitializesXamlAndThemeCleanly()
         {
             Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
@@ -69,6 +71,7 @@ namespace SyntheticTests.Bootstrap
         }
 
         [Test]
+        [RevitIsolatedDocTest]
         public void TestWorker_DocumentUtilPurge_ResolvesETransmitWithoutHostStartup()
         {
             Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");

@@ -1,5 +1,9 @@
 <Project>
   <ItemGroup Condition="'$(IsRevitTestProject)' == 'true'">
+    <Compile Include="$(MSBuildThisFileDirectory)Fixtures\Shared\TestPathHelper.cs"
+             Link="Fixtures\TestPathHelper.cs" />
+    <Compile Include="$(MSBuildThisFileDirectory)Fixtures\Shared\TypedCategoryAttributes.cs"
+             Link="Fixtures\TypedCategoryAttributes.cs" />
     <Compile Include="$(MSBuildThisFileDirectory)SyntheticTests.Shared\**\*.cs"
              Exclude="$(MSBuildThisFileDirectory)SyntheticTests.Shared\Modules\SheetIndex\**\*.cs"
              Link="%(RecursiveDir)%(Filename)%(Extension)" />
@@ -51,7 +55,7 @@
 
   <Target Name="WriteSyntheticProjectRoot"
           AfterTargets="Build"
-          Condition="'$(IsTestProject)' == 'true'">
+          Condition="'$(IsTestProject)' == 'true' And '$(IsCrossTargetingBuild)' != 'true'">
     <WriteLinesToFile File="$(TargetDir)synthetic_project_root.txt"
                       Lines="$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..'))"
                       Overwrite="true"

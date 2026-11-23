@@ -15,7 +15,7 @@ using Synthetic.RevitDOM.Operations.Standards;
 using Synthetic.RevitDOM.Operations.Standards;
 using Synthetic.Shared.UI;
 using Synthetic.Infrastructure.Persistence;
-using Synthetic.Core;
+using Synthetic.Platform.Host;
 using Synthetic.Settings;
 
 namespace Synthetic.Modules.StandardsManagement.ViewModels

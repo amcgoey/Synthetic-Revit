@@ -33,6 +33,10 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Synthetic.Bootstrap2025", "
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Synthetic.Bootstrap2026", "Synthetic.Bootstrap2026\Synthetic.Bootstrap2026.csproj", "{7A3E1C04-2026-4A88-B104-100000002026}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Synthetic.Core", "Synthetic.Core\Synthetic.Core.csproj", "{8C0A1890-C04E-4B11-9001-000000000001}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Synthetic.LogicTests", "..\tests\Projects\Synthetic.LogicTests\Synthetic.LogicTests.csproj", "{8C0A1890-7E57-4B11-9002-000000000002}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -99,6 +103,14 @@ Global
 		{7A3E1C04-2026-4A88-B104-100000002026}.Debug|x64.Build.0 = Debug|x64
 		{7A3E1C04-2026-4A88-B104-100000002026}.Release|x64.ActiveCfg = Release|x64
 		{7A3E1C04-2026-4A88-B104-100000002026}.Release|x64.Build.0 = Release|x64
+		{8C0A1890-C04E-4B11-9001-000000000001}.Debug|x64.ActiveCfg = Debug|x64
+		{8C0A1890-C04E-4B11-9001-000000000001}.Debug|x64.Build.0 = Debug|x64
+		{8C0A1890-C04E-4B11-9001-000000000001}.Release|x64.ActiveCfg = Release|x64
+		{8C0A1890-C04E-4B11-9001-000000000001}.Release|x64.Build.0 = Release|x64
+		{8C0A1890-7E57-4B11-9002-000000000002}.Debug|x64.ActiveCfg = Debug|x64
+		{8C0A1890-7E57-4B11-9002-000000000002}.Debug|x64.Build.0 = Debug|x64
+		{8C0A1890-7E57-4B11-9002-000000000002}.Release|x64.ActiveCfg = Release|x64
+		{8C0A1890-7E57-4B11-9002-000000000002}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

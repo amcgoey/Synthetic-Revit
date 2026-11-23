@@ -9,7 +9,6 @@ using System;
 using System.IO;
 using Autodesk.Revit.DB;
 
-using Synthetic.Core;
 using Synthetic.Settings;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
