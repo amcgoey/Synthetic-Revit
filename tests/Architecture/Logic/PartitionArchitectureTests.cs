@@ -383,6 +383,50 @@ namespace SyntheticTests.Architecture
             Assert.IsFalse(File.Exists(emittedExcelDll), $"Did not expect Microsoft.Office.Interop.Excel.dll at '{emittedExcelDll}'.");
         }
 
+        [Test]
+        public void FeatureSliceCore_HasZeroSiblingFeatureImports_AndZeroLegacyModulesImports()
+        {
+            string projectRoot = TestPathHelper.GetProjectRoot();
+            string srcRoot = Path.Combine(projectRoot, "src");
+            string featuresRoot = Path.Combine(srcRoot, "Features");
+
+            Assert.IsTrue(Directory.Exists(Path.Combine(featuresRoot, "SheetIndex", "Core")), "Expected src/Features/SheetIndex/Core partition root.");
+            Assert.IsTrue(Directory.Exists(Path.Combine(featuresRoot, "SharedCoordinates", "Core")), "Expected src/Features/SharedCoordinates/Core partition root.");
+
+            var violations = new List<string>();
+            foreach (string sliceDir in Directory.EnumerateDirectories(featuresRoot))
+            {
+                string sliceName = Path.GetFileName(sliceDir);
+                string coreDir = Path.Combine(sliceDir, "Core");
+                if (!Directory.Exists(coreDir))
+                {
+                    continue;
+                }
+
+                foreach (string file in Directory.EnumerateFiles(coreDir, "*.cs", SearchOption.AllDirectories))
+                {
+                    string rel = GetRelativeNormalizedPath(projectRoot, file);
+                    string text = File.ReadAllText(file);
+
+                    if (Regex.IsMatch(text, @"\bSynthetic\.Modules\b"))
+                    {
+                        violations.Add($"{rel} references legacy Synthetic.Modules namespace.");
+                    }
+
+                    foreach (Match match in Regex.Matches(text, @"\bSynthetic\.Features\.([A-Za-z0-9_]+)\b"))
+                    {
+                        string referencedSlice = match.Groups[1].Value;
+                        if (!string.Equals(referencedSlice, sliceName, StringComparison.Ordinal))
+                        {
+                            violations.Add($"{rel} imports sibling feature slice Synthetic.Features.{referencedSlice}.");
+                        }
+                    }
+                }
+            }
+
+            Assert.IsEmpty(violations, string.Join(Environment.NewLine, violations));
+        }
+
         private static string GetRelativeNormalizedPath(string rootDir, string fullPath)
         {
             string normalizedRoot = Path.GetFullPath(rootDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
