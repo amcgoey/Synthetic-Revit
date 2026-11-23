@@ -6,13 +6,17 @@ using Autodesk.Revit.UI;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
-using Synthetic.Infrastructure.Persistence;
+using Synthetic.Features.MaterialManagement.Settings;
+using Synthetic.Features.SettingsDashboard.Handlers;
+using Synthetic.Features.StandardsManagement.Settings;
+using Synthetic.Features.ViewManagement.Settings;
+using Synthetic.Features.Worksets.Settings;
 using Synthetic.Modules.DetailItemFactory.Settings;
 using Synthetic.Modules.DetailItemFactory.ViewModels;
-using Synthetic.Modules.SettingsDashboard.Handlers;
 using Synthetic.Modules.ShadowStudy.Models;
 using Synthetic.Modules.ShadowStudy.Settings;
-using Synthetic.Settings;
+using Synthetic.Platform.Host;
+using Synthetic.Platform.Settings;
 using Synthetic.Platform.UI;
 using SyntheticTests.Helpers;
 
@@ -23,11 +27,13 @@ namespace SyntheticTests.Infrastructure.Persistence
     {
         private UIApplication? _uiapp;
         private bool _previousSuppressUi;
+        private bool _previousSuppressDiskFallback;
 
         [OneTimeSetUp]
         public void OneTimeSetup(UIApplication uiapp)
         {
             _uiapp = uiapp;
+            HostSettingsRegistrar.EnsureRegistered();
             TestWorkerJournalMarker.EnsureWritten(uiapp);
         }
 
@@ -35,7 +41,9 @@ namespace SyntheticTests.Infrastructure.Persistence
         public void SetUp()
         {
             _previousSuppressUi = ProgressCoordinator.SuppressUI;
+            _previousSuppressDiskFallback = SettingsRuntimeOptions.SuppressFirmwideDiskFallback;
             ProgressCoordinator.SuppressUI = true;
+            SettingsRuntimeOptions.SuppressFirmwideDiskFallback = true;
             SettingsManager.ClearCache();
         }
 
@@ -44,6 +52,7 @@ namespace SyntheticTests.Infrastructure.Persistence
         {
             SettingsManager.ClearCache();
             ProgressCoordinator.SuppressUI = _previousSuppressUi;
+            SettingsRuntimeOptions.SuppressFirmwideDiskFallback = _previousSuppressDiskFallback;
         }
 
         private Document CreateFreshProjectDocument()

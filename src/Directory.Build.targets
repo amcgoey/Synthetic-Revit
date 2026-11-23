@@ -38,11 +38,15 @@
     <Content Include="$(MSBuildThisFileDirectory)Assets\**\*.*"
              Link="Assets\%(RecursiveDir)%(Filename)%(Extension)"
              CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="$(MSBuildThisFileDirectory)SyntheticShared\SyntheticSettings.template.json"
+    <Content Include="$(MSBuildThisFileDirectory)Platform\Settings\Addin\Defaults\SyntheticSettings.template.json"
              Link="SyntheticSettings.template.json"
              CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="$(MSBuildThisFileDirectory)Platform\Settings\Addin\Defaults\SyntheticSettings.json"
+             Condition="Exists('$(MSBuildThisFileDirectory)Platform\Settings\Addin\Defaults\SyntheticSettings.json')"
+             Link="SyntheticSettings.json"
+             CopyToOutputDirectory="PreserveNewest" />
     <Content Include="$(MSBuildThisFileDirectory)SyntheticShared\SyntheticSettings.json"
-             Condition="Exists('$(MSBuildThisFileDirectory)SyntheticShared\SyntheticSettings.json')"
+             Condition="!Exists('$(MSBuildThisFileDirectory)Platform\Settings\Addin\Defaults\SyntheticSettings.json') And Exists('$(MSBuildThisFileDirectory)SyntheticShared\SyntheticSettings.json')"
              Link="SyntheticSettings.json"
              CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(MSBuildThisFileDirectory)SyntheticShared\SyntheticWorksets.xlsx"

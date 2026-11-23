@@ -10,8 +10,8 @@ using Synthetic.RevitDOM.Operations.Standards;
 using Synthetic.RevitDOM.Operations.Standards;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Platform.UI;
-using Synthetic.Settings;
-using Synthetic.Infrastructure.Persistence;
+using Synthetic.Platform.Settings;
+using Synthetic.Features.StandardsManagement.Settings;
 using SyntheticTests.Modules.RevitDOM;
 
 namespace SyntheticTests.Modules.StandardsManagement

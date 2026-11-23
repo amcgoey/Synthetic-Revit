@@ -5,11 +5,10 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Windows.Input;
-using Synthetic.Modules.SettingsDashboard.ViewModels;
 using Synthetic.Modules.ShadowStudy.Models;
 using Synthetic.Modules.ShadowStudy.Services;
 using Synthetic.Modules.ShadowStudy.Settings;
-using Synthetic.Settings;
+using Synthetic.Platform.Settings;
 using Synthetic.Platform.UI;
 
 namespace Synthetic.Modules.ShadowStudy.ViewModels

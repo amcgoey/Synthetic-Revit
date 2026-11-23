@@ -31,11 +31,16 @@ namespace SyntheticTests.Architecture
             Assert.IsTrue(Directory.Exists(Path.Combine(srcRoot, "Platform", "UI")), "Expected src/Platform/UI partition root.");
             Assert.IsTrue(Directory.Exists(Path.Combine(srcRoot, "Platform", "Revit", "Core")), "Expected src/Platform/Revit/Core partition root.");
             Assert.IsTrue(Directory.Exists(Path.Combine(srcRoot, "Platform", "Revit", "Addin")), "Expected src/Platform/Revit/Addin partition root.");
+            Assert.IsTrue(Directory.Exists(Path.Combine(srcRoot, "Platform", "Settings", "Core")), "Expected src/Platform/Settings/Core partition root.");
+            Assert.IsTrue(Directory.Exists(Path.Combine(srcRoot, "Platform", "Settings", "Addin")), "Expected src/Platform/Settings/Addin partition root.");
+            Assert.IsTrue(Directory.Exists(Path.Combine(srcRoot, "Features", "SettingsDashboard", "Addin")), "Expected src/Features/SettingsDashboard/Addin partition root.");
             Assert.IsTrue(Directory.Exists(Path.Combine(testsRoot, "Platform", "Host")), "Expected tests/Platform/Host partition root.");
             Assert.IsTrue(Directory.Exists(Path.Combine(testsRoot, "Platform", "IO", "Logic")), "Expected tests/Platform/IO/Logic partition root.");
             Assert.IsTrue(Directory.Exists(Path.Combine(testsRoot, "Platform", "UI")), "Expected tests/Platform/UI partition root.");
             Assert.IsTrue(Directory.Exists(Path.Combine(testsRoot, "Platform", "Revit", "Logic")), "Expected tests/Platform/Revit/Logic partition root.");
             Assert.IsTrue(Directory.Exists(Path.Combine(testsRoot, "Platform", "Revit", "Revit")), "Expected tests/Platform/Revit/Revit partition root.");
+            Assert.IsTrue(Directory.Exists(Path.Combine(testsRoot, "Platform", "Settings", "Logic")), "Expected tests/Platform/Settings/Logic partition root.");
+            Assert.IsTrue(Directory.Exists(Path.Combine(testsRoot, "Features", "SettingsDashboard", "Revit")), "Expected tests/Features/SettingsDashboard/Revit partition root.");
             Assert.IsTrue(Directory.Exists(Path.Combine(testsRoot, "Architecture")), "Expected tests/Architecture partition root.");
 
             var sourceViolations = new List<string>();
@@ -382,6 +387,188 @@ namespace SyntheticTests.Architecture
             Assert.IsFalse(string.IsNullOrEmpty(coreDir));
             string emittedExcelDll = Path.Combine(coreDir!, "Microsoft.Office.Interop.Excel.dll");
             Assert.IsFalse(File.Exists(emittedExcelDll), $"Did not expect Microsoft.Office.Interop.Excel.dll at '{emittedExcelDll}'.");
+        }
+
+        [Test]
+        public void PlatformSettings_CoreAndAddin_HaveZeroForbiddenDependencies()
+        {
+            string projectRoot = TestPathHelper.GetProjectRoot();
+            string settingsCoreDir = Path.Combine(projectRoot, "src", "Platform", "Settings", "Core");
+            string settingsAddinDir = Path.Combine(projectRoot, "src", "Platform", "Settings", "Addin");
+            Assert.IsTrue(Directory.Exists(settingsCoreDir), $"Expected Platform/Settings/Core directory at {settingsCoreDir}");
+            Assert.IsTrue(Directory.Exists(settingsAddinDir), $"Expected Platform/Settings/Addin directory at {settingsAddinDir}");
+
+            string[] forbiddenCorePatterns =
+            {
+                @"\bAutodesk\.Revit\b",
+                @"\bSynthetic\.Platform\.UI\b",
+                @"\bSynthetic\.Shared\.UI\b",
+                @"\bSynthetic\.Features\b",
+                @"\bSynthetic\.Modules\b",
+                @"\bSynthetic\.RevitDOM\b"
+            };
+
+            string[] forbiddenAddinPatterns =
+            {
+                @"\bSynthetic\.Platform\.UI\b",
+                @"\bSynthetic\.Shared\.UI\b",
+                @"\bSynthetic\.Features\b",
+                @"\bSynthetic\.Modules\b",
+                @"\bProgressCoordinator\b"
+            };
+
+            var violations = new List<string>();
+            foreach (string file in Directory.EnumerateFiles(settingsCoreDir, "*.cs", SearchOption.AllDirectories))
+            {
+                string rel = GetRelativeNormalizedPath(projectRoot, file);
+                string text = File.ReadAllText(file);
+                foreach (string pattern in forbiddenCorePatterns)
+                {
+                    if (Regex.IsMatch(text, pattern))
+                    {
+                        violations.Add($"{rel} matched forbidden Core pattern '{pattern}'.");
+                    }
+                }
+            }
+
+            foreach (string file in Directory.EnumerateFiles(settingsAddinDir, "*.cs", SearchOption.AllDirectories))
+            {
+                string rel = GetRelativeNormalizedPath(projectRoot, file);
+                string text = File.ReadAllText(file);
+                foreach (string pattern in forbiddenAddinPatterns)
+                {
+                    if (Regex.IsMatch(text, pattern))
+                    {
+                        violations.Add($"{rel} matched forbidden Addin pattern '{pattern}'.");
+                    }
+                }
+            }
+
+            Assert.IsEmpty(violations, string.Join(Environment.NewLine, violations));
+        }
+
+        [Test]
+        public void FeaturesSettingsDashboard_HasZeroSiblingFeatureImports_InCSharpAndXaml()
+        {
+            string projectRoot = TestPathHelper.GetProjectRoot();
+            string dashboardDir = Path.Combine(projectRoot, "src", "Features", "SettingsDashboard", "Addin");
+            Assert.IsTrue(Directory.Exists(dashboardDir), $"Expected Features/SettingsDashboard/Addin directory at {dashboardDir}");
+
+            var violations = new List<string>();
+            foreach (string file in Directory.EnumerateFiles(dashboardDir, "*.*", SearchOption.AllDirectories))
+            {
+                string ext = Path.GetExtension(file);
+                if (!string.Equals(ext, ".cs", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(ext, ".xaml", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                string rel = GetRelativeNormalizedPath(projectRoot, file);
+                string text = File.ReadAllText(file);
+
+                foreach (Match match in Regex.Matches(text, @"\bSynthetic\.Features\.([A-Za-z0-9_]+)"))
+                {
+                    string featureName = match.Groups[1].Value;
+                    if (!string.Equals(featureName, "SettingsDashboard", StringComparison.Ordinal))
+                    {
+                        violations.Add($"{rel} references sibling feature namespace Synthetic.Features.{featureName}.");
+                    }
+                }
+
+                if (Regex.IsMatch(text, @"\bSynthetic\.Modules\b"))
+                {
+                    violations.Add($"{rel} references legacy Synthetic.Modules namespace.");
+                }
+            }
+
+            Assert.IsEmpty(violations, string.Join(Environment.NewLine, violations));
+        }
+
+        [Test]
+        public void Repository_ContainsZeroRetiredSettingsGlobalsOrProjectConfigStubs()
+        {
+            string projectRoot = TestPathHelper.GetProjectRoot();
+            string[] roots = { Path.Combine(projectRoot, "src"), Path.Combine(projectRoot, "tests") };
+            var violations = new List<string>();
+
+            string forbiddenType = "Config" + "Collection";
+            string forbiddenAppProp = "App." + "Configurations";
+            string forbiddenReadProj = "Read" + "ProjectConfig(";
+            string forbiddenWriteProj = "Write" + "ProjectConfig(";
+
+            foreach (string root in roots)
+            {
+                if (!Directory.Exists(root)) continue;
+                foreach (string file in Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories))
+                {
+                    string rel = GetRelativeNormalizedPath(projectRoot, file);
+                    string text = File.ReadAllText(file);
+
+                    if (text.Contains(forbiddenType))
+                    {
+                        violations.Add($"{rel} references retired {forbiddenType}.");
+                    }
+                    if (text.Contains(forbiddenAppProp))
+                    {
+                        violations.Add($"{rel} references retired {forbiddenAppProp}.");
+                    }
+                    if (text.Contains(forbiddenReadProj))
+                    {
+                        violations.Add($"{rel} references retired {forbiddenReadProj}.");
+                    }
+                    if (text.Contains(forbiddenWriteProj))
+                    {
+                        violations.Add($"{rel} references retired {forbiddenWriteProj}.");
+                    }
+                }
+            }
+
+            Assert.IsEmpty(violations, string.Join(Environment.NewLine, violations));
+        }
+
+        [Test]
+        public void FeatureSliceCore_HasZeroSiblingFeatureImports_AndZeroLegacyModulesImports()
+        {
+            string projectRoot = TestPathHelper.GetProjectRoot();
+            string srcRoot = Path.Combine(projectRoot, "src");
+            string featuresRoot = Path.Combine(srcRoot, "Features");
+
+            Assert.IsTrue(Directory.Exists(Path.Combine(featuresRoot, "SheetIndex", "Core")), "Expected src/Features/SheetIndex/Core partition root.");
+            Assert.IsTrue(Directory.Exists(Path.Combine(featuresRoot, "SharedCoordinates", "Core")), "Expected src/Features/SharedCoordinates/Core partition root.");
+
+            var violations = new List<string>();
+            foreach (string sliceDir in Directory.EnumerateDirectories(featuresRoot))
+            {
+                string sliceName = Path.GetFileName(sliceDir);
+                string coreDir = Path.Combine(sliceDir, "Core");
+                if (!Directory.Exists(coreDir))
+                {
+                    continue;
+                }
+
+                foreach (string file in Directory.EnumerateFiles(coreDir, "*.cs", SearchOption.AllDirectories))
+                {
+                    string rel = GetRelativeNormalizedPath(projectRoot, file);
+                    string text = File.ReadAllText(file);
+
+                    if (Regex.IsMatch(text, @"\bSynthetic\.Modules\b"))
+                    {
+                        violations.Add($"{rel} references legacy Synthetic.Modules namespace.");
+                    }
+
+                    foreach (Match match in Regex.Matches(text, @"\bSynthetic\.Features\.([A-Za-z0-9_]+)\b"))
+                    {
+                        string referencedSlice = match.Groups[1].Value;
+                        if (!string.Equals(referencedSlice, sliceName, StringComparison.Ordinal))
+                        {
+                            violations.Add($"{rel} imports sibling feature slice Synthetic.Features.{referencedSlice}.");
+                        }
+                    }
+                }
+            }
+
+            Assert.IsEmpty(violations, string.Join(Environment.NewLine, violations));
         }
 
         [Test]

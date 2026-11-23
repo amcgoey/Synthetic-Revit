@@ -25,12 +25,19 @@
     <PackageReference Include="NUnit3TestAdapter" Version="4.5.0" />
   </ItemGroup>
 
+  <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="System.IO.Compression.FileSystem" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\..\..\src\Synthetic.Core\Synthetic.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <Compile Include="AssemblyAttributes.cs" />
+    <Compile Include="..\..\Fixtures\Shared\FakeSharedCoordinatesAdapter.cs"
+             Link="Fixtures\FakeSharedCoordinatesAdapter.cs" />
     <Compile Include="..\..\Fixtures\Shared\TestPathHelper.cs"
              Link="Fixtures\TestPathHelper.cs" />
     <Compile Include="..\..\Fixtures\Shared\TypedCategoryAttributes.cs"
@@ -39,6 +46,8 @@
              Link="Bootstrap\ShadowCacheManager.cs" />
     <Compile Include="..\..\Architecture\Logic\**\*.cs"
              Link="Architecture\Logic\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="..\..\Features\**\Logic\**\*.cs"
+             Link="Features\%(RecursiveDir)%(Filename)%(Extension)" />
     <Compile Include="..\..\Platform\**\Logic\**\*.cs"
              Link="Platform\%(RecursiveDir)%(Filename)%(Extension)" />
     <Compile Include="..\..\RevitDOM\Logic\**\*.cs"

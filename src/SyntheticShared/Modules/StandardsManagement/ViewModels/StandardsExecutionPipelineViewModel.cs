@@ -14,9 +14,8 @@ using Synthetic.RevitDOM.Operations.Standards;
 using Synthetic.RevitDOM.Operations.Standards;
 using Synthetic.RevitDOM.Operations.Standards;
 using Synthetic.Platform.UI;
-using Synthetic.Infrastructure.Persistence;
-using Synthetic.Platform.Host;
-using Synthetic.Settings;
+using Synthetic.Platform.Settings;
+using Synthetic.Features.StandardsManagement.Settings;
 
 namespace Synthetic.Modules.StandardsManagement.ViewModels
 {
@@ -411,10 +410,9 @@ namespace Synthetic.Modules.StandardsManagement.ViewModels
             }
         }
 
-        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
         private string? GetAppConfiguredPath()
         {
-            var appConfig = App.Configurations?.GetAppConfig();
+            var appConfig = Config.ReadAppConfig();
             if (appConfig != null && appConfig.Contains(StandardsSettings.Name))
             {
                 var appSettings = appConfig.GetSettings<StandardsSettings>(StandardsSettings.Name);

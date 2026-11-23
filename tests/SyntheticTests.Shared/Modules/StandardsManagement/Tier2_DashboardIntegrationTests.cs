@@ -12,7 +12,7 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
-using Synthetic.Settings;
+using Synthetic.Features.StandardsManagement.Settings;
 using Synthetic.RevitDOM.Operations.Standards;
 using SyntheticTests.Modules.StandardsManagement;
 using SyntheticTests.Helpers;

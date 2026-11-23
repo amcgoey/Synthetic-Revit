@@ -10,12 +10,12 @@ using Autodesk.Revit.UI;
 using NUnit.Framework;
 using Color = Autodesk.Revit.DB.Color;
 using View = Autodesk.Revit.DB.View;
-using Synthetic.Infrastructure.Persistence;
 using Synthetic.Modules.ShadowStudy.Adapters;
 using Synthetic.Modules.ShadowStudy.Models;
 using Synthetic.Modules.ShadowStudy.Services;
 using Synthetic.Modules.ShadowStudy.Settings;
 using Synthetic.Modules.ShadowStudy.ViewModels;
+using Synthetic.Platform.Settings;
 using Synthetic.Platform.UI;
 using SyntheticTests.Helpers;
 
@@ -33,6 +33,7 @@ namespace SyntheticTests.Modules.ShadowStudy
         private UIApplication? _uiapp;
         private string _tempDir = string.Empty;
         private bool _previousSuppressUi;
+        private bool _previousSuppressDiskFallback;
 
         [OneTimeSetUp]
         public void OneTimeSetUp(UIApplication uiapp)
@@ -45,7 +46,9 @@ namespace SyntheticTests.Modules.ShadowStudy
         public void SetUp()
         {
             _previousSuppressUi = ProgressCoordinator.SuppressUI;
+            _previousSuppressDiskFallback = SettingsRuntimeOptions.SuppressFirmwideDiskFallback;
             ProgressCoordinator.SuppressUI = true;
+            SettingsRuntimeOptions.SuppressFirmwideDiskFallback = true;
             SettingsManager.ClearCache();
             _tempDir = Path.Combine(
                 Path.GetTempPath(),
@@ -58,6 +61,7 @@ namespace SyntheticTests.Modules.ShadowStudy
         {
             SettingsManager.ClearCache();
             ProgressCoordinator.SuppressUI = _previousSuppressUi;
+            SettingsRuntimeOptions.SuppressFirmwideDiskFallback = _previousSuppressDiskFallback;
             if (Directory.Exists(_tempDir))
             {
                 try

@@ -3,7 +3,8 @@ using System.IO;
 using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
-using Synthetic.Settings;
+using Synthetic.Features.StandardsManagement.Settings;
+using Synthetic.Platform.Settings;
 using Synthetic.Platform.UI;
 using SyntheticTests.Modules.StandardsManagement;
 

@@ -14,8 +14,7 @@ using Autodesk.Revit.DB;
 using View = Autodesk.Revit.DB.View;
 
 using Synthetic.Platform.UI;
-using Synthetic.Settings;
-using Synthetic.Infrastructure.Persistence;
+using Synthetic.Platform.Settings;
 
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;

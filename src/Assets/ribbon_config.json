@@ -140,18 +140,18 @@
           "sub_items": [
             {
               "type": "PushButton",
-              "name": "Synthetic.Modules.SharedCoordinates.Commands.CmdSyncSharedSites",
+              "name": "Synthetic.Features.SharedCoordinates.Commands.CmdSyncSharedSites",
               "text": "Sync Sites\nto Levels",
-              "class": "Synthetic.Modules.SharedCoordinates.Commands.CmdSyncSharedSites",
+              "class": "Synthetic.Features.SharedCoordinates.Commands.CmdSyncSharedSites",
               "tooltip": "Create or update Level-Based Shared Sites from a loaded linked host model in the active unit model.",
               "large_image": "scopebox_32.png",
               "image": "scopebox_16.png"
             },
             {
               "type": "PushButton",
-              "name": "Synthetic.Modules.SharedCoordinates.Commands.CmdMoveLinksToSharedSites",
+              "name": "Synthetic.Features.SharedCoordinates.Commands.CmdMoveLinksToSharedSites",
               "text": "Move Links\nto Sites",
-              "class": "Synthetic.Modules.SharedCoordinates.Commands.CmdMoveLinksToSharedSites",
+              "class": "Synthetic.Features.SharedCoordinates.Commands.CmdMoveLinksToSharedSites",
               "tooltip": "Reposition linked unit model instances to match their assigned Shared Sites in full 3D coordinates.",
               "large_image": "scopebox_32.png",
               "image": "scopebox_16.png"
@@ -269,9 +269,9 @@
         },
         {
           "type": "PushButton",
-          "name": "Synthetic.Modules.SheetIndex.Commands.CmdExportSheetIndex",
+          "name": "Synthetic.Features.SheetIndex.Commands.CmdExportSheetIndex",
           "text": " Export Dot\n Sheet Index ",
-          "class": "Synthetic.Modules.SheetIndex.Commands.CmdExportSheetIndex",
+          "class": "Synthetic.Features.SheetIndex.Commands.CmdExportSheetIndex",
           "tooltip": "Export Dot Sheet Index matrix spreadsheet to Excel.",
           "large_image": "print_32.png",
           "image": "print_16.png"
@@ -292,9 +292,9 @@
       "items": [
         {
           "type": "PushButton",
-          "name": "Synthetic.Modules.SettingsDashboard.Commands.SettingsDashboardCommand",
+          "name": "Synthetic.Features.SettingsDashboard.Commands.SettingsDashboardCommand",
           "text": "Settings Dashboard",
-          "class": "Synthetic.Modules.SettingsDashboard.Commands.SettingsDashboardCommand",
+          "class": "Synthetic.Features.SettingsDashboard.Commands.SettingsDashboardCommand",
           "tooltip": "Opens the Settings Dashboard to view and edit project configuration overrides.",
           "large_image": "settings_32.png",
           "image": "settings_16.png"

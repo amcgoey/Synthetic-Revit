@@ -10,7 +10,7 @@ using Autodesk.Revit.UI.Events;
 using Color = Autodesk.Revit.DB.Color;
 using View = Autodesk.Revit.DB.View;
 using Synthetic.Platform.Revit;
-using Synthetic.Infrastructure.Persistence;
+using Synthetic.Platform.Settings;
 using Synthetic.Modules.ShadowStudy.Models;
 using Synthetic.Modules.ShadowStudy.Services;
 using Synthetic.Modules.ShadowStudy.Settings;
