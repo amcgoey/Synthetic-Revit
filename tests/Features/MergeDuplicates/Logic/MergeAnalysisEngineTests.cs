@@ -33,7 +33,7 @@ namespace SyntheticTests.Features.MergeDuplicates
             string? dir = testDir;
             while (dir != null)
             {
-                string candidate = Path.Combine(dir, "tests", "SyntheticTests.Shared", "Assets", fileName);
+                string candidate = Path.Combine(dir, "tests", "Assets", fileName);
                 if (File.Exists(candidate)) return candidate;
                 dir = Path.GetDirectoryName(dir);
             }
@@ -42,7 +42,7 @@ namespace SyntheticTests.Features.MergeDuplicates
             try
             {
                 string projectRoot = TestPathHelper.GetProjectRoot();
-                string candidate = Path.Combine(projectRoot, "tests", "SyntheticTests.Shared", "Assets", fileName);
+                string candidate = Path.Combine(projectRoot, "tests", "Assets", fileName);
                 if (File.Exists(candidate)) return candidate;
             }
             catch { }

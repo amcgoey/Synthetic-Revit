@@ -7,7 +7,7 @@ namespace Synthetic.RevitDOM.Operations
     /// <summary>
     /// Specifies the valid document contexts where a Revit standard can be enforced or diffed.
     /// </summary>
-    internal enum DocumentScope
+    public enum DocumentScope
     {
         Universal,
         ProjectOnly,
@@ -17,9 +17,8 @@ namespace Synthetic.RevitDOM.Operations
     /// <summary>
     /// Encapsulates the pure architectural metadata governing a Revit standard type
     /// (bucket name, topological tier, document scope, POCO type, composite keys, aliases, and Source Pane taxonomy).
-    /// Internal strictly to RevitDOM operations; never exposed on public interfaces.
     /// </summary>
-    internal sealed class StandardTypeDescriptor
+    public sealed class StandardTypeDescriptor
     {
         public string BucketName { get; }
         public string DefaultClass { get; }
@@ -89,7 +88,7 @@ namespace Synthetic.RevitDOM.Operations
     /// Pure headless registry defining all 26 canonical Revit standard buckets, their topological dependency tiers,
     /// document scopes, POCO bindings, composite keys, legacy aliases, and Source Pane taxonomy mappings.
     /// </summary>
-    internal static class StandardTypeMetadataRegistry
+    public static class StandardTypeMetadataRegistry
     {
         private static readonly List<StandardTypeDescriptor> _canonicalDescriptors;
         private static readonly Dictionary<string, StandardTypeDescriptor> _byBucket;
@@ -105,14 +104,14 @@ namespace Synthetic.RevitDOM.Operations
             return n;
         }
 
-        internal static string FamilyNameKeySelector(ObjectModel m)
+        public static string FamilyNameKeySelector(ObjectModel m)
         {
             return (m is ElementTypeModel et)
                 ? FormatCompositeKey(et.FamilyName, et.Name)
                 : FormatCompositeKey(null, (m as ElementModel)?.Name);
         }
 
-        internal static string FormatFamilySymbolKey(ObjectModel m)
+        public static string FormatFamilySymbolKey(ObjectModel m)
         {
             if (m is not ElementModel em) return string.Empty;
 
@@ -127,7 +126,7 @@ namespace Synthetic.RevitDOM.Operations
             return FormatCompositeKey(null, em.Name);
         }
 
-        internal static string FormatViewFamilyTypeKey(ObjectModel m)
+        public static string FormatViewFamilyTypeKey(ObjectModel m)
         {
             if (m is ElementTypeModel et)
             {
@@ -142,7 +141,7 @@ namespace Synthetic.RevitDOM.Operations
         /// <summary>
         /// Yields Revit namespace alias candidates for a class name (Architecture &lt;-&gt; DB, and bare short-name qualification).
         /// </summary>
-        internal static IEnumerable<string> GetNamespaceAliasCandidates(string? typeName)
+        public static IEnumerable<string> GetNamespaceAliasCandidates(string? typeName)
         {
             if (string.IsNullOrEmpty(typeName)) yield break;
 
@@ -603,7 +602,7 @@ namespace Synthetic.RevitDOM.Operations
         /// Resolves the DocumentScope for a given ObjectModel.
         /// Unregistered or unknown fallback classes are treated as DocumentScope.ProjectOnly.
         /// </summary>
-        internal static DocumentScope GetDocumentScope(ObjectModel? model)
+        public static DocumentScope GetDocumentScope(ObjectModel? model)
         {
             if (model == null) return DocumentScope.ProjectOnly;
 
@@ -619,7 +618,7 @@ namespace Synthetic.RevitDOM.Operations
         /// <summary>
         /// Determines whether an ObjectModel is within scope for the given document context (family or project).
         /// </summary>
-        internal static bool IsInDocumentScope(ObjectModel? model, bool isFamilyDocument)
+        public static bool IsInDocumentScope(ObjectModel? model, bool isFamilyDocument)
         {
             var scope = GetDocumentScope(model);
             if (isFamilyDocument)

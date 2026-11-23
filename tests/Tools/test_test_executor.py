@@ -97,12 +97,12 @@ class TestCategoryAndFilterComposition(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.tests_dir = os.path.join(self.tmp.name, "tests")
-        os.makedirs(os.path.join(self.tests_dir, "SyntheticTests.Shared", "Modules", "Smoke"), exist_ok=True)
-        os.makedirs(os.path.join(self.tests_dir, "SyntheticTests.Shared", "Modules", "SheetIndex"), exist_ok=True)
-        os.makedirs(os.path.join(self.tests_dir, "SyntheticTests2026"), exist_ok=True)
+        os.makedirs(os.path.join(self.tests_dir, "Platform", "Host", "Revit"), exist_ok=True)
+        os.makedirs(os.path.join(self.tests_dir, "Features", "SheetIndex", "Logic"), exist_ok=True)
+        os.makedirs(os.path.join(self.tests_dir, "Projects", "Synthetic.RevitTests.2026"), exist_ok=True)
 
         with open(
-            os.path.join(self.tests_dir, "SyntheticTests.Shared", "Modules", "Smoke", "ClassLevelTests.cs"),
+            os.path.join(self.tests_dir, "Platform", "Host", "Revit", "ClassLevelTests.cs"),
             "w",
             encoding="utf-8",
         ) as f:
@@ -110,7 +110,7 @@ class TestCategoryAndFilterComposition(unittest.TestCase):
                 """
 using NUnit.Framework;
 
-namespace SyntheticTests.Modules.Smoke
+namespace SyntheticTests.Platform.Host
 {
     [TestFixture]
     [Category("Smoke")]
@@ -124,7 +124,7 @@ namespace SyntheticTests.Modules.Smoke
             )
 
         with open(
-            os.path.join(self.tests_dir, "SyntheticTests2026", "MethodLevelTests.cs"),
+            os.path.join(self.tests_dir, "Projects", "Synthetic.RevitTests.2026", "MethodLevelTests.cs"),
             "w",
             encoding="utf-8",
         ) as f:
@@ -147,9 +147,9 @@ namespace SyntheticTests
 """
             )
 
-        # Excluded from Revit builds per tests/Directory.Build.targets
+        # Excluded from Revit builds because it lives under Logic/
         with open(
-            os.path.join(self.tests_dir, "SyntheticTests.Shared", "Modules", "SheetIndex", "ExcludedTests.cs"),
+            os.path.join(self.tests_dir, "Features", "SheetIndex", "Logic", "ExcludedTests.cs"),
             "w",
             encoding="utf-8",
         ) as f:
@@ -194,11 +194,11 @@ public class ExcludedSheetIndexTests {}
         self.assertFalse(zero2)
         self.assertEqual(
             expr_cat,
-            "(FullyQualifiedName~SyntheticTests.BetaRevitTests.FastCheck|FullyQualifiedName~SyntheticTests.Modules.Smoke.AlphaSmokeTests)",
+            "(FullyQualifiedName~SyntheticTests.BetaRevitTests.FastCheck|FullyQualifiedName~SyntheticTests.Platform.Host.AlphaSmokeTests)",
         )
         self.assertEqual(
             expr_both,
-            "(FullyQualifiedName~SyntheticTests.BetaRevitTests.FastCheck|FullyQualifiedName~SyntheticTests.Modules.Smoke.AlphaSmokeTests)&(FullyQualifiedName~Smoke)",
+            "(FullyQualifiedName~SyntheticTests.BetaRevitTests.FastCheck|FullyQualifiedName~SyntheticTests.Platform.Host.AlphaSmokeTests)&(FullyQualifiedName~Smoke)",
         )
 
     def test_revit_zero_match_category_short_circuits_cleanly(self):
@@ -221,7 +221,7 @@ public class ExcludedSheetIndexTests {}
         self.assertEqual(res.returncode, 0, msg=res.stdout + res.stderr)
         self.assertIn("0 matching tests", res.stdout)
 
-    def test_discover_test_projects_discovers_projects_dir_and_legacy_dirs(self):
+    def test_discover_test_projects_discovers_projects_dir_only_and_selects_targets_without_double_run(self):
         with tempfile.TemporaryDirectory() as tmp:
             tdir = os.path.join(tmp, "tests")
             for rel, csproj_name in (
@@ -241,10 +241,7 @@ public class ExcludedSheetIndexTests {}
 
             self.assertEqual(
                 discovered["Logic"],
-                [
-                    os.path.join(tdir, "Projects", "Synthetic.LogicTests", "Synthetic.LogicTests.csproj"),
-                    os.path.join(tdir, "SyntheticTests.Logic", "SyntheticTests.Logic.csproj"),
-                ],
+                [os.path.join(tdir, "Projects", "Synthetic.LogicTests", "Synthetic.LogicTests.csproj")],
             )
             self.assertEqual(
                 discovered["LegacyMock"],
@@ -252,12 +249,28 @@ public class ExcludedSheetIndexTests {}
             )
             self.assertEqual(
                 discovered["2026"],
-                [
-                    os.path.join(tdir, "Projects", "Synthetic.RevitTests.2026", "Synthetic.RevitTests.2026.csproj"),
-                    os.path.join(tdir, "SyntheticTests2026", "SyntheticTests2026.csproj"),
-                ],
+                [os.path.join(tdir, "Projects", "Synthetic.RevitTests.2026", "Synthetic.RevitTests.2026.csproj")],
             )
             self.assertNotIn("Shared", discovered)
+
+            # --version Logic bundles LegacyMock once
+            logic_selected = te.select_run_projects(discovered, target_version="Logic")
+            self.assertEqual(list(logic_selected.keys()), ["Logic", "LegacyMock"])
+
+            # --version LegacyMock selects only LegacyMock
+            mock_selected = te.select_run_projects(discovered, target_version="LegacyMock")
+            self.assertEqual(list(mock_selected.keys()), ["LegacyMock"])
+
+            # Omitting --version selects every project once (never double-runs LegacyMock)
+            all_selected = te.select_run_projects(discovered, target_version="")
+            self.assertEqual(list(all_selected.keys()), ["Logic", "LegacyMock", "2026"])
+            self.assertEqual(len(all_selected["LegacyMock"]), 1)
+
+            # --framework net48 skips single-TFM net8.0-windows8.0 LegacyMockTests
+            with open(discovered["LegacyMock"][0], "w", encoding="utf-8") as f:
+                f.write("<Project><PropertyGroup><TargetFramework>net8.0-windows8.0</TargetFramework></PropertyGroup></Project>")
+            mock_tfms, _ = te.get_project_target_frameworks(discovered["LegacyMock"][0])
+            self.assertEqual([t for t in mock_tfms if t.casefold() == "net48"], [])
 
     def test_multi_tfm_target_framework_parsing_and_trx_isolation(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -663,9 +676,9 @@ class TestRicaunBundleLeaseAndWorkerHardening(unittest.TestCase):
 
         # Verify %TEMP%/RevitTest/*<run_id>* cleanup only targets matching run_id
         revit_temp = os.path.join(self.root, "RevitTest")
-        os.makedirs(os.path.join(revit_temp, "SyntheticTests2026_run_123_abc"), exist_ok=True)
-        zip_match = os.path.join(revit_temp, "SyntheticTests2026_run_123.zip")
-        zip_other = os.path.join(revit_temp, "SyntheticTests2026_other_999.zip")
+        os.makedirs(os.path.join(revit_temp, "Synthetic.RevitTests.2026_run_123_abc"), exist_ok=True)
+        zip_match = os.path.join(revit_temp, "Synthetic.RevitTests.2026_run_123.zip")
+        zip_other = os.path.join(revit_temp, "Synthetic.RevitTests.2026_other_999.zip")
         with open(zip_match, "w", encoding="utf-8") as f:
             f.write("x")
         with open(zip_other, "w", encoding="utf-8") as f:
@@ -674,7 +687,7 @@ class TestRicaunBundleLeaseAndWorkerHardening(unittest.TestCase):
         removed = te.cleanup_revit_test_temp("run_123", temp_dir=self.root)
         self.assertEqual(len(removed), 2)
         self.assertFalse(os.path.exists(zip_match))
-        self.assertFalse(os.path.exists(os.path.join(revit_temp, "SyntheticTests2026_run_123_abc")))
+        self.assertFalse(os.path.exists(os.path.join(revit_temp, "Synthetic.RevitTests.2026_run_123_abc")))
         self.assertTrue(os.path.isfile(zip_other))
 
     def test_snapshot_and_post_run_assert_clean_gate_invocation_and_failure_propagation(self):

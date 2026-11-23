@@ -1,24 +1,21 @@
 <Project>
-  <ItemGroup Condition="'$(IsRevitTestProject)' == 'true'">
-    <Compile Include="$(MSBuildThisFileDirectory)Fixtures\Shared\FakeFolderDialogService.cs"
-             Link="Fixtures\FakeFolderDialogService.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Fixtures\Shared\FakeShadowStudyAdapter.cs"
-             Link="Fixtures\FakeShadowStudyAdapter.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Fixtures\Shared\FakeSharedCoordinatesAdapter.cs"
-             Link="Fixtures\FakeSharedCoordinatesAdapter.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Fixtures\Shared\TestPathHelper.cs"
-             Link="Fixtures\TestPathHelper.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Fixtures\Shared\TypedCategoryAttributes.cs"
-             Link="Fixtures\TypedCategoryAttributes.cs" />
-    <Compile Include="$(MSBuildThisFileDirectory)Features\**\Revit\**\*.cs"
-             Link="Features\%(RecursiveDir)%(Filename)%(Extension)" />
-    <Compile Include="$(MSBuildThisFileDirectory)Platform\**\Revit\**\*.cs"
-             Link="Platform\%(RecursiveDir)%(Filename)%(Extension)" />
-    <Compile Include="$(MSBuildThisFileDirectory)SyntheticTests.Shared\**\*.cs"
-             Link="%(RecursiveDir)%(Filename)%(Extension)" />
-    <None Include="$(MSBuildThisFileDirectory)SyntheticTests.Shared\Assets\**\*.json"
+  <ItemGroup Condition="'$(IsTestProject)' == 'true'">
+    <None Include="$(MSBuildThisFileDirectory)Assets\**\*.json"
           Link="Assets\%(RecursiveDir)%(Filename)%(Extension)"
           CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(IsRevitTestProject)' == 'true'">
+    <Compile Include="$(MSBuildThisFileDirectory)Fixtures\Shared\**\*.cs"
+             Link="Fixtures\Shared\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="$(MSBuildThisFileDirectory)Fixtures\Revit\**\*.cs"
+             Link="Fixtures\Revit\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="$(MSBuildThisFileDirectory)Features\**\Revit\**\*.cs"
+             Link="Features\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="$(MSBuildThisFileDirectory)RevitDOM\Revit\**\*.cs"
+             Link="RevitDOM\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="$(MSBuildThisFileDirectory)Platform\**\Revit\**\*.cs"
+             Link="Platform\%(RecursiveDir)%(Filename)%(Extension)" />
     <AssemblyMetadata Include="NUnit.Open" Value="true" />
     <AssemblyMetadata Include="NUnit.Close" Value="true" />
     <AssemblyMetadata Include="NUnit.Timeout" Value="10" />

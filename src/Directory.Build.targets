@@ -41,21 +41,18 @@
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
-  <ItemGroup Condition="'$(IsCoreProject)' == 'true' Or '$(IsRevitPayloadProject)' == 'true'">
+  <ItemGroup Condition="'$(IsCoreProject)' == 'true'">
     <InternalsVisibleTo Include="Synthetic.LogicTests" />
-    <InternalsVisibleTo Include="SyntheticTests.Logic" />
-    <InternalsVisibleTo Include="SyntheticTests.Shared" />
-    <InternalsVisibleTo Include="SyntheticTests2023" />
-    <InternalsVisibleTo Include="SyntheticTests2024" />
-    <InternalsVisibleTo Include="SyntheticTests2025" />
-    <InternalsVisibleTo Include="SyntheticTests2026" />
+    <InternalsVisibleTo Include="Synthetic.LegacyMockTests" />
+    <InternalsVisibleTo Include="Synthetic.RevitTests.2023" />
+    <InternalsVisibleTo Include="Synthetic.RevitTests.2024" />
+    <InternalsVisibleTo Include="Synthetic.RevitTests.2025" />
+    <InternalsVisibleTo Include="Synthetic.RevitTests.2026" />
   </ItemGroup>
 
-  <ItemGroup Condition="'$(IsCoreProject)' == 'true'">
-    <InternalsVisibleTo Include="Synthetic2023" />
-    <InternalsVisibleTo Include="Synthetic2024" />
-    <InternalsVisibleTo Include="Synthetic2025" />
-    <InternalsVisibleTo Include="Synthetic2026" />
+  <ItemGroup Condition="'$(IsRevitPayloadProject)' == 'true' And '$(RevitVersion)' != ''">
+    <InternalsVisibleTo Include="Synthetic.RevitTests.$(RevitVersion)" />
+    <InternalsVisibleTo Include="Synthetic.LegacyMockTests" Condition="'$(RevitVersion)' == '2026'" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(IsRevitPayloadProject)' == 'true' And '$(RevitVersion)' != ''">

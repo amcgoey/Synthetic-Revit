@@ -52,7 +52,7 @@ python .agents/skills/revit-tests/scripts/test_executor.py --version 2026 --no-p
 | :--- | :--- | :--- |
 | `--version <Target>` | All discovered targets | Targets `Logic` or a specific Revit year (e.g. `2026`). |
 | `--filter <Fragment>` | None | Applies `FullyQualifiedName~<Fragment>` (combines with `--category` using `&`). |
-| `--category <Name>` | None | Filters by NUnit `[Category("<Name>")]` (`TestCategory=<Name>` for `Logic`; scans `SyntheticTests.Shared` and target version sources for Revit projects, exiting `0` with `0 matching tests` if none match). |
+| `--category <Name>` | None | Filters by NUnit `[Category("<Name>")]` (`TestCategory=<Name>` for `Logic`/`LegacyMock`; scans `tests/{Features, RevitDOM, Platform, Fixtures}` `Revit/` partitions and target version project heads for Revit projects, exiting `0` with `0 matching tests` if none match). |
 | `--no-pool` | `False` | Skips optional `RevitWorkerPool` probing (`SYNTHETIC_WORKER_POOL_CMD` or `tools/RevitWorkerPool`) and forces isolated cold Revit workers. |
 
 ## 3. Isolated Concurrent Worker Architecture
@@ -80,7 +80,7 @@ python .agents/skills/revit-tests/scripts/test_executor.py --version 2026 --no-p
 ## 5. Post-Run Journal Cleanliness Gate
 
 - Before starting each Revit worker, `test_executor.py` snapshots existing `journal*.txt` files to `tests/TestResults/<RunId>/known_journals_<ver>.json`.
-- Inside Revit, `BootstrapApp` and [TestWorkerJournalMarker.cs](../../../tests/SyntheticTests.Shared/Helpers/TestWorkerJournalMarker.cs) (`TestWorkerJournalMarker.EnsureWritten(uiapp)`) emit `SYNTHETIC_TEST_RUN:<RunId>` once per worker process into the active Revit Journal.
+- Inside Revit, `BootstrapApp` and [TestWorkerJournalMarker.cs](../../../tests/Fixtures/Revit/TestWorkerJournalMarker.cs) (`TestWorkerJournalMarker.EnsureWritten(uiapp)`) emit `SYNTHETIC_TEST_RUN:<RunId>` once per worker process into the active Revit Journal.
 - Immediately after each Revit run finishes, `test_executor.py` invokes [revit_journal_tool.py](../revit-journal-telemetry/scripts/revit_journal_tool.py):
   ```powershell
   python .agents/skills/revit-journal-telemetry/scripts/revit_journal_tool.py --version <ver> --run-id <run_id> --known-journals-file <snapshot_path> --assert-clean

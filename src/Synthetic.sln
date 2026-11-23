@@ -11,15 +11,15 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Synthetic2023", "Synthetic2
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Synthetic2026", "Synthetic2026\Synthetic2026.csproj", "{24DC9B67-FEAE-4934-B92E-B77BC09D15EE}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SyntheticTests2023", "..\tests\SyntheticTests2023\SyntheticTests2023.csproj", "{D77A7548-393E-43F0-B698-68E04CFAB535}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Synthetic.RevitTests.2023", "..\tests\Projects\Synthetic.RevitTests.2023\Synthetic.RevitTests.2023.csproj", "{D77A7548-393E-43F0-B698-68E04CFAB535}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SyntheticTests2024", "..\tests\SyntheticTests2024\SyntheticTests2024.csproj", "{4F35384D-B5D8-415C-B0F1-77C59EDDBF97}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Synthetic.RevitTests.2024", "..\tests\Projects\Synthetic.RevitTests.2024\Synthetic.RevitTests.2024.csproj", "{4F35384D-B5D8-415C-B0F1-77C59EDDBF97}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SyntheticTests2025", "..\tests\SyntheticTests2025\SyntheticTests2025.csproj", "{0B2B6882-9146-48F7-B265-3537C382833E}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Synthetic.RevitTests.2025", "..\tests\Projects\Synthetic.RevitTests.2025\Synthetic.RevitTests.2025.csproj", "{0B2B6882-9146-48F7-B265-3537C382833E}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SyntheticTests2026", "..\tests\SyntheticTests2026\SyntheticTests2026.csproj", "{C026651B-DBE1-4829-83E3-75BFD5CAF0D3}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Synthetic.RevitTests.2026", "..\tests\Projects\Synthetic.RevitTests.2026\Synthetic.RevitTests.2026.csproj", "{C026651B-DBE1-4829-83E3-75BFD5CAF0D3}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SyntheticTests.Logic", "..\tests\SyntheticTests.Logic\SyntheticTests.Logic.csproj", "{E3372552-EDFE-4F03-994F-6B8A0C7E779C}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Synthetic.LegacyMockTests", "..\tests\Projects\Synthetic.LegacyMockTests\Synthetic.LegacyMockTests.csproj", "{E3372552-EDFE-4F03-994F-6B8A0C7E779C}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RevitAPIUIMock", "..\tests\RevitAPIUIMock\RevitAPIUIMock.csproj", "{467F837A-6A87-4786-8B5B-E400B1448A30}"
 EndProject
