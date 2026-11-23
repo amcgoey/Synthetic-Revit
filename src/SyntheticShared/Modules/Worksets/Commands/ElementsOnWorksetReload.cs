@@ -16,10 +16,9 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
-using Synthetic.Infrastructure.Serialization;
+using Synthetic.Platform.IO;
 
 using Synthetic.Platform.Revit;
-using Synthetic.Infrastructure.IO;
 using Newtonsoft.Json;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 

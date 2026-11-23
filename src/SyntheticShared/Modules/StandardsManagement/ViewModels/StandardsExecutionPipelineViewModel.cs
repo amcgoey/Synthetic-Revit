@@ -13,7 +13,7 @@ using Synthetic.RevitDOM;
 using Synthetic.RevitDOM.Operations.Standards;
 using Synthetic.RevitDOM.Operations.Standards;
 using Synthetic.RevitDOM.Operations.Standards;
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 using Synthetic.Infrastructure.Persistence;
 using Synthetic.Platform.Host;
 using Synthetic.Settings;

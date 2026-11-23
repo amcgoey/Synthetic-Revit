@@ -79,17 +79,29 @@
                       SkipGetTargetFrameworkProperties="true" />
   </ItemGroup>
 
-  <Target Name="EmbedExcelInteropTypes"
-          AfterTargets="ResolvePackageAssets;ResolveAssemblyReferences"
-          BeforeTargets="CoreCompile;GetCopyToOutputDirectoryItems"
+  <Target Name="PrepareEmbedExcelInteropTypes"
+          AfterTargets="ResolvePackageAssets;ResolveLockFileReferences"
+          BeforeTargets="ResolveAssemblyReferences"
           Condition="'$(IsCoreProject)' == 'true' Or '$(IsRevitPayloadProject)' == 'true'">
     <ItemGroup>
       <Reference Condition="'%(Reference.Filename)' == 'Microsoft.Office.Interop.Excel' Or '%(Reference.NuGetPackageId)' == 'Microsoft.Office.Interop.Excel'">
         <EmbedInteropTypes>true</EmbedInteropTypes>
+        <Private>false</Private>
       </Reference>
+    </ItemGroup>
+  </Target>
+
+  <Target Name="EmbedExcelInteropTypes"
+          AfterTargets="ResolveAssemblyReferences;FindReferenceAssembliesForReferences"
+          BeforeTargets="CoreCompile;GetCopyToOutputDirectoryItems"
+          Condition="'$(IsCoreProject)' == 'true' Or '$(IsRevitPayloadProject)' == 'true'">
+    <ItemGroup>
       <ReferencePath Condition="'%(ReferencePath.Filename)' == 'Microsoft.Office.Interop.Excel' Or '%(ReferencePath.NuGetPackageId)' == 'Microsoft.Office.Interop.Excel'">
         <EmbedInteropTypes>true</EmbedInteropTypes>
       </ReferencePath>
+      <ReferencePathWithRefAssemblies Condition="'%(ReferencePathWithRefAssemblies.Filename)' == 'Microsoft.Office.Interop.Excel' Or '%(ReferencePathWithRefAssemblies.NuGetPackageId)' == 'Microsoft.Office.Interop.Excel'">
+        <EmbedInteropTypes>true</EmbedInteropTypes>
+      </ReferencePathWithRefAssemblies>
       <ReferenceCopyLocalPaths Remove="@(ReferenceCopyLocalPaths)"
                                Condition="'%(ReferenceCopyLocalPaths.Filename)' == 'Microsoft.Office.Interop.Excel' Or '%(ReferenceCopyLocalPaths.NuGetPackageId)' == 'Microsoft.Office.Interop.Excel'" />
     </ItemGroup>

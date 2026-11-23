@@ -16,7 +16,7 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 using Synthetic.Platform.Revit;
 using Synthetic.Modules.FamilyManagement.Handlers;
 
@@ -90,7 +90,7 @@ namespace Synthetic.Modules.FamilyManagement.Commands
             int totalFamilies = families.Count;
 
             // Initialize Progress Coordinator (modeless progress window)
-            Synthetic.Shared.UI.ProgressCoordinator.Initialize("Audit & Purge Families", "Purging loaded families...", totalFamilies);
+            Synthetic.Platform.UI.ProgressCoordinator.Initialize("Audit & Purge Families", "Purging loaded families...", totalFamilies);
 
             // Register and raise the external event
             _eventHandler = new Handlers.AuditPurgeEventHandler
@@ -103,7 +103,7 @@ namespace Synthetic.Modules.FamilyManagement.Commands
             _externalEvent = ExternalEvent.Create(_eventHandler);
             if (_externalEvent == null)
             {
-                Synthetic.Shared.UI.ProgressCoordinator.Close();
+                Synthetic.Platform.UI.ProgressCoordinator.Close();
                 Autodesk.Revit.UI.TaskDialog.Show("Audit & Purge Families", "Failed to create the external event handler.");
                 return Result.Failed;
             }

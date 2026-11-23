@@ -665,11 +665,11 @@ namespace SyntheticTests
                         Assert.IsInstanceOf<ViewScheduleModel>(scheduleModel, "Extracted schedule must be ViewScheduleModel.");
 
                         // 3. Serialize to JSON and check for graphical properties absence
-                        var sheetJson = Synthetic.Infrastructure.Serialization.Json.Encode(sheetModel);
+                        var sheetJson = Synthetic.Platform.IO.Json.Encode(sheetModel);
                         Assert.IsFalse(sheetJson.Contains("\"Scale\""));
                         Assert.IsFalse(sheetJson.Contains("\"DisplayStyle\""));
 
-                        var scheduleJson = Synthetic.Infrastructure.Serialization.Json.Encode(scheduleModel);
+                        var scheduleJson = Synthetic.Platform.IO.Json.Encode(scheduleModel);
                         Assert.IsFalse(scheduleJson.Contains("\"Scale\""));
                         Assert.IsFalse(scheduleJson.Contains("\"DisplayStyle\""));
 

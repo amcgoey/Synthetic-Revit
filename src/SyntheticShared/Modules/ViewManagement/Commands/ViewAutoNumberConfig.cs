@@ -4,10 +4,10 @@ using Autodesk.Revit.UI;
 using Synthetic.Settings;
 using Synthetic.Infrastructure.Persistence;
 
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 
 using Synthetic.Platform.Revit;
-using Synthetic.Infrastructure.IO;
+using Synthetic.Platform.IO;
 using Synthetic.Modules.ViewManagement.Commands;
 using Synthetic.Modules.ViewManagement.Models;
 using Synthetic.Modules.ViewManagement.Utilities;

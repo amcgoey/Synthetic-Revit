@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-using Synthetic.Infrastructure.Serialization;
+using Synthetic.Platform.IO;
 using Synthetic.Modules.MergeDuplicates.Handlers;
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.Platform.Revit;

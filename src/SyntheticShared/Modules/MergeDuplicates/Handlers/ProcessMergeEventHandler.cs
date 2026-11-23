@@ -11,8 +11,8 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
-using Synthetic.Infrastructure.Serialization;
-using Synthetic.Shared.UI;
+using Synthetic.Platform.IO;
+using Synthetic.Platform.UI;
 using Synthetic.Modules.MergeDuplicates.ViewModels;
 using Synthetic.RevitDOM.Operations.Merge;
 using Synthetic.Modules.StandardsManagement.ViewModels;
@@ -677,11 +677,7 @@ namespace Synthetic.Modules.MergeDuplicates.Handlers
 
         internal static string GetStep6ResultsLogPath(string? localAppDataOverride)
         {
-            string localAppData = !string.IsNullOrWhiteSpace(localAppDataOverride)
-                ? localAppDataOverride!
-                : Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            string logsDir = Path.Combine(localAppData, "Synthetic", "Logs");
-            return Path.Combine(logsDir, "MergeDuplicates_Step6_ExecutionResult.json");
+            return DiagnosticLogPaths.GetStep6ResultsLogPath(localAppDataOverride);
         }
 
         private string? ExportStep6ResultsSummary(List<MergeExecutionReport> summaries)

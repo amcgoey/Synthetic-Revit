@@ -12,9 +12,9 @@ using Autodesk.Revit.UI.Selection;
 
 using Synthetic.Features.AutoTagger.Utilities;
 using Synthetic.Platform.Revit;
-using Synthetic.Infrastructure.IO;
+using Synthetic.Platform.IO;
 
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 
 using Synthetic.Modules.StandardsManagement.ViewModels;
 using Synthetic.RevitDOM.Models;

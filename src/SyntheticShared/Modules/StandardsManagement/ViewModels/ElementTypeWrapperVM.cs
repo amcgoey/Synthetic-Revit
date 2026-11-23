@@ -10,9 +10,9 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
-using Synthetic.Infrastructure.Serialization;
+using Synthetic.Platform.IO;
 
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 using Synthetic.Modules.MergeDuplicates.Handlers;
 using Synthetic.Platform.Revit;
 namespace Synthetic.Modules.StandardsManagement.ViewModels

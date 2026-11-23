@@ -5,6 +5,7 @@ using System.IO;
 using System.Reflection;
 using System.Windows.Media.Imaging;
 using Newtonsoft.Json;
+using Synthetic.Platform.UI;
 
 namespace Synthetic.Platform.Host
 {
@@ -240,16 +241,7 @@ namespace Synthetic.Platform.Host
 
         internal static BitmapImage LoadBitmapImage(string path)
         {
-            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-            {
-                var bitmap = new BitmapImage();
-                bitmap.BeginInit();
-                bitmap.CacheOption = BitmapCacheOption.OnLoad;
-                bitmap.StreamSource = stream;
-                bitmap.EndInit();
-                bitmap.Freeze();
-                return bitmap;
-            }
+            return BitmapImageLoader.Load(path);
         }
 
         private static void ValidateCommandClass(PushButton? button, string classPath)

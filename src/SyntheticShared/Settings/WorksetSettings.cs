@@ -3,8 +3,7 @@ using System.IO;
 using System.Collections.Generic;
 using System.Text;
 using Newtonsoft.Json;
-using Synthetic.Infrastructure.Serialization;
-using Synthetic.Infrastructure.IO;
+using Synthetic.Platform.IO;
 
 //Aliases for Revit Classes
 using RevitDoc = Autodesk.Revit.DB.Document;

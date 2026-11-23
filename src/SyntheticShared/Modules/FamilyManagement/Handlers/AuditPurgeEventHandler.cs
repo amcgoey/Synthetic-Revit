@@ -7,7 +7,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 using Synthetic;
 
 using Synthetic.Modules.StandardsManagement.ViewModels;

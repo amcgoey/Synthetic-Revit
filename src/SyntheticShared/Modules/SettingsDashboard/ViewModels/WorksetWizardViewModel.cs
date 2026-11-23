@@ -6,12 +6,11 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
 using Microsoft.Win32;
-using Synthetic.Infrastructure.Serialization;
-using Synthetic.Infrastructure.IO;
+using Synthetic.Platform.IO;
 using Synthetic.Settings;
 using Synthetic.Infrastructure.Persistence;
 
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;

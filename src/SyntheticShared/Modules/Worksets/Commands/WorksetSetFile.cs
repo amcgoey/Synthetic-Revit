@@ -10,12 +10,11 @@ using System;
 using System.IO;
 using System.Collections.Generic;
 using System.Linq;
-using Synthetic.Infrastructure.Serialization;
-using Synthetic.Infrastructure.IO;
+using Synthetic.Platform.IO;
 using Synthetic.Settings;
 using Synthetic.Infrastructure.Persistence;
 
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 using Application = Autodesk.Revit.ApplicationServices.Application;
 
 using Synthetic.Platform.Host;

@@ -9,7 +9,7 @@ using Synthetic.Modules.SheetIndex.Models;
 using Synthetic.Modules.SheetIndex.Services;
 using Synthetic.Modules.SheetIndex.ViewModels;
 using Synthetic.Modules.SheetIndex.Views;
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 
 namespace Synthetic.Modules.SheetIndex.Commands
 {

@@ -15,7 +15,7 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 using Synthetic.Platform.Revit;
 
 namespace Synthetic.Modules.ViewManagement.Models
@@ -110,19 +110,19 @@ namespace Synthetic.Modules.ViewManagement.Models
 
                 List<ElementId> viewportIds = (List<ElementId>)sheet.GetAllViewports();
 
-                Synthetic.Shared.UI.ProgressCoordinator.Initialize("Auto-Numbering Views", "Renumbering views on sheet...", viewportIds.Count);
+                Synthetic.Platform.UI.ProgressCoordinator.Initialize("Auto-Numbering Views", "Renumbering views on sheet...", viewportIds.Count);
 
                 try
                 {
                     viewports = _tempRenumberViewports(viewportIds, this.Document);
-                    if (!Synthetic.Shared.UI.ProgressCoordinator.IsCancelled())
+                    if (!Synthetic.Platform.UI.ProgressCoordinator.IsCancelled())
                     {
                         viewports = _renumberViewports(viewports, this.XSpacing, this.YSpacing, originPoint.X, originPoint.Y);
                     }
                 }
                 finally
                 {
-                    Synthetic.Shared.UI.ProgressCoordinator.Close();
+                    Synthetic.Platform.UI.ProgressCoordinator.Close();
                 }
             }
             return viewports;
@@ -144,7 +144,7 @@ namespace Synthetic.Modules.ViewManagement.Models
 
             foreach (ElementId id in viewPortIds)
             {
-                if (Synthetic.Shared.UI.ProgressCoordinator.IsCancelled())
+                if (Synthetic.Platform.UI.ProgressCoordinator.IsCancelled())
                 {
                     break;
                 }
@@ -187,7 +187,7 @@ namespace Synthetic.Modules.ViewManagement.Models
         {
             foreach (Viewport vp in viewports)
             {
-                if (Synthetic.Shared.UI.ProgressCoordinator.IsCancelled())
+                if (Synthetic.Platform.UI.ProgressCoordinator.IsCancelled())
                 {
                     break;
                 }
@@ -201,7 +201,7 @@ namespace Synthetic.Modules.ViewManagement.Models
                 if (param != null) param.Set(viewNumber);
 
                 View v = (View)vp.Document.GetElement(vp.ViewId);
-                Synthetic.Shared.UI.ProgressCoordinator.UpdateProgress(v.Name ?? $"Detail: {viewNumber}");
+                Synthetic.Platform.UI.ProgressCoordinator.UpdateProgress(v.Name ?? $"Detail: {viewNumber}");
             }
 
             return viewports;

@@ -9,11 +9,11 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
-using Synthetic.Infrastructure.Serialization;
+using Synthetic.Platform.IO;
 using Autodesk.Revit.DB;
 using Select = Synthetic.Platform.Revit.Select;
 
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 using Synthetic.Modules.MergeDuplicates.Handlers;
 using Synthetic.Modules.StandardsManagement.Views;
 using Synthetic.Platform.Revit;

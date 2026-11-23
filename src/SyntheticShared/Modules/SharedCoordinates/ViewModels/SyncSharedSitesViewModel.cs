@@ -6,7 +6,7 @@ using System.Linq;
 using System.Windows.Input;
 using Synthetic.Modules.SharedCoordinates.Adapters;
 using Synthetic.Modules.SharedCoordinates.Models;
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 
 namespace Synthetic.Modules.SharedCoordinates.ViewModels
 {

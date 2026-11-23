@@ -117,7 +117,7 @@ namespace SyntheticTests
             }
         }
 
-        private class FakeFileDialogService : Synthetic.Shared.UI.IFileDialogService
+        private class FakeFileDialogService : Synthetic.Platform.UI.IFileDialogService
         {
             public string? OpenFileDialog(string filter, string title, string defaultName) => null;
             public string? SaveFileDialog(string filter, string title, string defaultName) => null;

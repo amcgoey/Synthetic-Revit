@@ -13,12 +13,11 @@ using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
 using Synthetic.RevitDOM;
-using Synthetic.Infrastructure.Serialization;
+using Synthetic.Platform.IO;
 
 using Synthetic.Platform.Revit;
-using Synthetic.Infrastructure.IO;
 
-using Synthetic.Shared.UI;
+using Synthetic.Platform.UI;
 using Synthetic.Modules.MergeDuplicates.Handlers;
 
 using Synthetic.RevitDOM.Operations.Merge;
@@ -304,7 +303,7 @@ namespace Synthetic.Modules.MergeDuplicates.ViewModels
                 IsSorted = true
             };
 
-            var itemSelectView = new Synthetic.Shared.UI.DropdownSelectionView(MainWindowHandle)
+            var itemSelectView = new Synthetic.Platform.UI.DropdownSelectionView(MainWindowHandle)
             {
                 DataContext = itemSelectVM
             };
@@ -336,7 +335,7 @@ namespace Synthetic.Modules.MergeDuplicates.ViewModels
                 IsSorted = true
             };
 
-            var clusterSelectView = new Synthetic.Shared.UI.DropdownSelectionView(MainWindowHandle)
+            var clusterSelectView = new Synthetic.Platform.UI.DropdownSelectionView(MainWindowHandle)
             {
                 DataContext = clusterSelectVM
             };
@@ -489,7 +488,7 @@ namespace Synthetic.Modules.MergeDuplicates.ViewModels
                 };
                 listVM.SetItems(candidateList);
 
-                var listWindow = new Synthetic.Shared.UI.ListByCheckboxView(MainWindowHandle)
+                var listWindow = new Synthetic.Platform.UI.ListByCheckboxView(MainWindowHandle)
                 {
                     DataContext = listVM
                 };
