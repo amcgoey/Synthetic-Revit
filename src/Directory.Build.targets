@@ -12,25 +12,16 @@
 
   <ItemGroup Condition="'$(IsCoreProject)' == 'true'">
     <Compile Include="$(MSBuildThisFileDirectory)**\Core\**\*.cs"
-             Exclude="$(MSBuildThisFileDirectory)SyntheticShared\**;$(MSBuildThisFileDirectory)Synthetic*\**;$(MSBuildThisFileDirectory)**\packages\**;$(MSBuildThisFileDirectory)**\obj\**;$(MSBuildThisFileDirectory)**\bin\**"
+             Exclude="$(MSBuildThisFileDirectory)Synthetic*\**;$(MSBuildThisFileDirectory)**\packages\**;$(MSBuildThisFileDirectory)**\obj\**;$(MSBuildThisFileDirectory)**\bin\**"
              Link="%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(IsRevitPayloadProject)' == 'true'">
     <Compile Include="$(MSBuildThisFileDirectory)**\Addin\**\*.cs"
-             Exclude="$(MSBuildThisFileDirectory)SyntheticShared\**;$(MSBuildThisFileDirectory)Synthetic*\**;$(MSBuildThisFileDirectory)**\packages\**;$(MSBuildThisFileDirectory)**\obj\**;$(MSBuildThisFileDirectory)**\bin\**"
+             Exclude="$(MSBuildThisFileDirectory)Synthetic*\**;$(MSBuildThisFileDirectory)**\packages\**;$(MSBuildThisFileDirectory)**\obj\**;$(MSBuildThisFileDirectory)**\bin\**"
              Link="%(RecursiveDir)%(Filename)%(Extension)" />
     <Page Include="$(MSBuildThisFileDirectory)**\Addin\**\*.xaml"
-          Exclude="$(MSBuildThisFileDirectory)SyntheticShared\**;$(MSBuildThisFileDirectory)Synthetic*\**;$(MSBuildThisFileDirectory)**\packages\**;$(MSBuildThisFileDirectory)**\obj\**;$(MSBuildThisFileDirectory)**\bin\**"
-          Link="%(RecursiveDir)%(Filename)%(Extension)"
-          Generator="MSBuild:Compile"
-          SubType="Designer" />
-
-    <!-- Temporary legacy SyntheticShared globs during expand-contract migration -->
-    <Compile Include="$(MSBuildThisFileDirectory)SyntheticShared\**\*.cs"
-             Link="%(RecursiveDir)%(Filename)%(Extension)" />
-    <Page Include="$(MSBuildThisFileDirectory)SyntheticShared\**\*.xaml"
-          Exclude="$(MSBuildThisFileDirectory)SyntheticShared\Assets\**"
+          Exclude="$(MSBuildThisFileDirectory)Synthetic*\**;$(MSBuildThisFileDirectory)**\packages\**;$(MSBuildThisFileDirectory)**\obj\**;$(MSBuildThisFileDirectory)**\bin\**"
           Link="%(RecursiveDir)%(Filename)%(Extension)"
           Generator="MSBuild:Compile"
           SubType="Designer" />
@@ -45,11 +36,7 @@
              Condition="Exists('$(MSBuildThisFileDirectory)Platform\Settings\Addin\Defaults\SyntheticSettings.json')"
              Link="SyntheticSettings.json"
              CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="$(MSBuildThisFileDirectory)SyntheticShared\SyntheticSettings.json"
-             Condition="!Exists('$(MSBuildThisFileDirectory)Platform\Settings\Addin\Defaults\SyntheticSettings.json') And Exists('$(MSBuildThisFileDirectory)SyntheticShared\SyntheticSettings.json')"
-             Link="SyntheticSettings.json"
-             CopyToOutputDirectory="PreserveNewest" />
-    <None Include="$(MSBuildThisFileDirectory)SyntheticShared\SyntheticWorksets.xlsx"
+    <None Include="$(MSBuildThisFileDirectory)Features\Worksets\Addin\Defaults\SyntheticWorksets.xlsx"
           Link="SyntheticWorksets.xlsx"
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

@@ -3,7 +3,7 @@ using System.Runtime.Serialization;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
 using Synthetic.Platform.Revit;
-using Synthetic.Modules.FamilyManagement.Handlers;
+using Synthetic.Features.FamilyManagement.Handlers;
 
 namespace SyntheticTests.Modules.FailureProcessing
 {

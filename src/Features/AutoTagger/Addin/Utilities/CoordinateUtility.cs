@@ -1,5 +1,5 @@
 using Autodesk.Revit.DB;
-using Synthetic.Modules.AutoTagger.Models;
+using Synthetic.Features.AutoTagger.Models;
 
 namespace Synthetic.Features.AutoTagger.Utilities
 {

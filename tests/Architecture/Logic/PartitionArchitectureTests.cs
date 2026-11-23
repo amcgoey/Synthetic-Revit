@@ -541,8 +541,35 @@ namespace SyntheticTests.Architecture
             Assert.IsTrue(Directory.Exists(Path.Combine(projectRoot, "tests", "Features", "ShadowStudy", "Logic")), "Expected tests/Features/ShadowStudy/Logic partition root.");
             Assert.IsTrue(Directory.Exists(Path.Combine(featuresRoot, "MergeDuplicates", "Core")), "Expected src/Features/MergeDuplicates/Core partition root.");
             Assert.IsTrue(Directory.Exists(Path.Combine(featuresRoot, "StandardsManagement", "Core")), "Expected src/Features/StandardsManagement/Core partition root.");
-            Assert.IsFalse(Directory.Exists(Path.Combine(srcRoot, "SyntheticShared", "Modules", "MergeDuplicates")), "Legacy src/SyntheticShared/Modules/MergeDuplicates must be removed.");
-            Assert.IsFalse(Directory.Exists(Path.Combine(srcRoot, "SyntheticShared", "Modules", "StandardsManagement")), "Legacy src/SyntheticShared/Modules/StandardsManagement must be removed.");
+
+            string[] allFourteenFeatureSlices =
+            {
+                "AutoTagger",
+                "BatchPrint",
+                "DetailItemFactory",
+                "Diagnostics",
+                "FamilyManagement",
+                "MaterialManagement",
+                "MergeDuplicates",
+                "SettingsDashboard",
+                "ShadowStudy",
+                "SharedCoordinates",
+                "SheetIndex",
+                "StandardsManagement",
+                "ViewManagement",
+                "Worksets"
+            };
+
+            foreach (string slice in allFourteenFeatureSlices)
+            {
+                Assert.IsTrue(
+                    Directory.Exists(Path.Combine(featuresRoot, slice, "Addin")),
+                    $"Expected src/Features/{slice}/Addin partition root.");
+            }
+
+            Assert.IsTrue(
+                File.Exists(Path.Combine(featuresRoot, "Worksets", "Addin", "Defaults", "SyntheticWorksets.xlsx")),
+                "Expected src/Features/Worksets/Addin/Defaults/SyntheticWorksets.xlsx.");
 
             var violations = new List<string>();
             foreach (string sliceDir in Directory.EnumerateDirectories(featuresRoot))
@@ -653,6 +680,105 @@ namespace SyntheticTests.Architecture
             Assert.IsEmpty(testRevitRefs, "Synthetic.LogicTests.dll must not reference Revit API or RevitAPIMock assemblies.");
 
             Assert.IsEmpty(violations, string.Join(Environment.NewLine, violations));
+        }
+
+        [Test]
+        public void SourceTree_ContainsZeroSyntheticSharedLegacyClutterOrAssemblyInfo_AndConforms100PercentToThreeRootPartition()
+        {
+            string projectRoot = TestPathHelper.GetProjectRoot();
+            string srcRoot = Path.Combine(projectRoot, "src");
+
+            Assert.IsFalse(Directory.Exists(Path.Combine(srcRoot, "SyntheticShared")), "Legacy src/SyntheticShared directory must be completely removed.");
+            Assert.IsFalse(Directory.Exists(Path.Combine(srcRoot, "Synthetic2022")), "Retired src/Synthetic2022 directory must not exist.");
+            Assert.IsFalse(Directory.Exists(Path.Combine(srcRoot, "packages")), "Legacy src/packages directory must not exist.");
+            Assert.IsFalse(File.Exists(Path.Combine(srcRoot, "msbuild.log")), "Stray src/msbuild.log file must not exist.");
+
+            string targetsPath = Path.Combine(srcRoot, "Directory.Build.targets");
+            Assert.IsTrue(File.Exists(targetsPath), "Expected src/Directory.Build.targets.");
+            string targetsText = File.ReadAllText(targetsPath);
+            StringAssert.DoesNotContain("SyntheticShared", targetsText, "src/Directory.Build.targets must not reference retired SyntheticShared.");
+
+            var wpfTmpViolations = Directory.EnumerateFiles(projectRoot, "*_wpftmp.csproj", SearchOption.AllDirectories)
+                .Where(f => f.IndexOf("\\obj\\", StringComparison.OrdinalIgnoreCase) < 0 &&
+                            f.IndexOf("\\bin\\", StringComparison.OrdinalIgnoreCase) < 0)
+                .Select(f => GetRelativeNormalizedPath(projectRoot, f))
+                .ToList();
+            Assert.IsEmpty(wpfTmpViolations, "Temporary *_wpftmp.csproj files must not exist outside obj/: " + string.Join(", ", wpfTmpViolations));
+
+            var assemblyInfoViolations = new List<string>();
+            var layoutViolations = new List<string>();
+            var legacyNamespaceViolations = new List<string>();
+
+            foreach (string file in Directory.EnumerateFiles(srcRoot, "*.*", SearchOption.AllDirectories))
+            {
+                if (file.IndexOf("\\obj\\", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    file.IndexOf("\\bin\\", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    continue;
+                }
+
+                string fileName = Path.GetFileName(file);
+                string rel = GetRelativeNormalizedPath(srcRoot, file);
+                if (fileName.StartsWith("AssemblyInfo", StringComparison.OrdinalIgnoreCase) &&
+                    file.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+                {
+                    assemblyInfoViolations.Add($"src/{rel}");
+                }
+
+                string ext = Path.GetExtension(file);
+                if (!string.Equals(ext, ".cs", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(ext, ".xaml", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                string[] segments = rel.Split('/');
+                string topFolder = segments[0];
+
+                bool isProjectHeadFolder =
+                    string.Equals(topFolder, "Synthetic.Core", StringComparison.Ordinal) ||
+                    topFolder.StartsWith("Synthetic.Bootstrap", StringComparison.Ordinal) ||
+                    Regex.IsMatch(topFolder, @"^Synthetic202[3-6]$", RegexOptions.CultureInvariant);
+
+                if (!isProjectHeadFolder)
+                {
+                    if (!PartitionedSourceRoots.Contains(topFolder, StringComparer.Ordinal))
+                    {
+                        layoutViolations.Add($"src/{rel} must live under Features/, RevitDOM/, Platform/, or a project head folder.");
+                    }
+                    else
+                    {
+                        bool inCore = segments.Contains("Core", StringComparer.Ordinal);
+                        bool inAddin = segments.Contains("Addin", StringComparer.Ordinal);
+                        if (!inCore && !inAddin)
+                        {
+                            layoutViolations.Add($"src/{rel} must live under a Core/ or Addin/ partition folder.");
+                        }
+                        else if (inCore && string.Equals(ext, ".xaml", StringComparison.OrdinalIgnoreCase))
+                        {
+                            layoutViolations.Add($"src/{rel} is a XAML file inside Core/ (XAML must live in Addin/).");
+                        }
+                    }
+                }
+
+                string text = File.ReadAllText(file);
+                if (Regex.IsMatch(text, @"\bSynthetic\.Modules\b"))
+                {
+                    legacyNamespaceViolations.Add($"src/{rel} references legacy Synthetic.Modules namespace.");
+                }
+                if (Regex.IsMatch(text, @"\bSynthetic\.Infrastructure\.Diagnostics\b"))
+                {
+                    legacyNamespaceViolations.Add($"src/{rel} references legacy Synthetic.Infrastructure.Diagnostics namespace.");
+                }
+                if (Regex.IsMatch(text, @"\bSynthetic\.Shared\b"))
+                {
+                    legacyNamespaceViolations.Add($"src/{rel} references legacy Synthetic.Shared namespace.");
+                }
+            }
+
+            Assert.IsEmpty(assemblyInfoViolations, "Zero AssemblyInfo*.cs files may remain in src/: " + string.Join(", ", assemblyInfoViolations));
+            Assert.IsEmpty(layoutViolations, string.Join(Environment.NewLine, layoutViolations));
+            Assert.IsEmpty(legacyNamespaceViolations, string.Join(Environment.NewLine, legacyNamespaceViolations));
         }
 
         private static string StripCommentsAndStringLiterals(string source)
