@@ -418,7 +418,7 @@ def _map_projects_dir_key(dir_name):
 
 
 def discover_test_projects(test_dir):
-    """Discover tests/Projects/* and legacy SyntheticTests* directories, mapping version key -> list of csproj paths."""
+    """Discover tests/Projects/* heads, mapping target key -> list of csproj paths."""
     test_projects = {}
     if not os.path.exists(test_dir):
         return test_projects
@@ -433,17 +433,37 @@ def discover_test_projects(test_dir):
                     ver = _map_projects_dir_key(item)
                     test_projects.setdefault(ver, []).append(csproj_files[0])
 
-    for item in sorted(os.listdir(test_dir)):
-        item_path = os.path.join(test_dir, item)
-        if os.path.isdir(item_path) and item.startswith("SyntheticTests") and not item.endswith(".Shared"):
-            ver = item.replace("SyntheticTests", "")
-            if ver.startswith("."):
-                ver = ver[1:]
-            csproj_files = sorted(glob.glob(os.path.join(item_path, "*.csproj")))
-            if csproj_files:
-                test_projects.setdefault(ver, []).append(csproj_files[0])
-
     return test_projects
+
+
+def select_run_projects(test_projects, target_version=""):
+    """Select target test projects for --version, bundling LegacyMock once under --version Logic."""
+    if not target_version:
+        ordered = {}
+        for key in ("Logic", "LegacyMock"):
+            if key in test_projects:
+                ordered[key] = test_projects[key]
+        for key in sorted(test_projects.keys()):
+            if key not in ordered:
+                ordered[key] = test_projects[key]
+        return ordered
+
+    matched_key = None
+    if target_version in test_projects:
+        matched_key = target_version
+    else:
+        for key in test_projects:
+            if key.casefold() == target_version.casefold():
+                matched_key = key
+                break
+
+    if not matched_key:
+        return {}
+
+    selected = {matched_key: test_projects[matched_key]}
+    if matched_key.casefold() == "logic" and "LegacyMock" in test_projects:
+        selected["LegacyMock"] = test_projects["LegacyMock"]
+    return selected
 
 
 def get_project_target_frameworks(csproj_path):
@@ -622,25 +642,14 @@ def _parse_base_types(header_text):
 
 
 def _collect_revit_test_cs_files(tests_dir, version=None):
-    """Collect C# files belonging to Revit tests and shared test fixtures under tests_dir."""
+    """Collect C# files belonging to Revit tests and shared/Revit fixtures under tests_dir."""
     source_dirs = []
-    shared_dir = os.path.join(tests_dir, "SyntheticTests.Shared")
-    if os.path.isdir(shared_dir):
-        source_dirs.append(shared_dir)
 
     if version:
-        ver_dir = os.path.join(tests_dir, f"SyntheticTests{version}")
-        if os.path.isdir(ver_dir):
-            source_dirs.append(ver_dir)
         proj_ver_dir = os.path.join(tests_dir, "Projects", f"Synthetic.RevitTests.{version}")
         if os.path.isdir(proj_ver_dir):
             source_dirs.append(proj_ver_dir)
     else:
-        for entry in sorted(os.listdir(tests_dir)):
-            if entry.startswith("SyntheticTests") and entry not in ("SyntheticTests.Shared", "SyntheticTests.Logic"):
-                full_entry = os.path.join(tests_dir, entry)
-                if os.path.isdir(full_entry):
-                    source_dirs.append(full_entry)
         projects_dir = os.path.join(tests_dir, "Projects")
         if os.path.isdir(projects_dir):
             for entry in sorted(os.listdir(projects_dir)):
@@ -656,18 +665,14 @@ def _collect_revit_test_cs_files(tests_dir, version=None):
 
     cs_files = []
     seen_paths = set()
-    excluded_sheet_index = os.path.normcase(os.path.join(shared_dir, "Modules", "SheetIndex"))
     for src_dir in source_dirs:
         rel_root_name = os.path.basename(src_dir)
         is_partition_root = rel_root_name in ("Platform", "Features", "RevitDOM")
         for root, dirs, files in os.walk(src_dir):
             dirs[:] = [d for d in dirs if d.lower() not in ("bin", "obj")]
-            norm_root = os.path.normcase(root)
-            if norm_root.startswith(excluded_sheet_index):
-                continue
             if is_partition_root:
                 rel_parts = os.path.relpath(root, src_dir).split(os.sep)
-                if "Logic" in rel_parts:
+                if "Revit" not in rel_parts:
                     continue
             for fn in sorted(files):
                 if fn.endswith(".cs"):
@@ -1123,23 +1128,10 @@ def run_test_suite(target_class="", target_version="", category="", no_pool=Fals
             pass
 
     # Filter by version if specified (case-insensitive fallback)
-    run_projects = {}
-    if target_version:
-        matched_key = None
-        if target_version in test_projects:
-            matched_key = target_version
-        else:
-            for key in test_projects:
-                if key.casefold() == target_version.casefold():
-                    matched_key = key
-                    break
-        if matched_key:
-            run_projects[matched_key] = test_projects[matched_key]
-        else:
-            print(f"[ERROR] Target version '{target_version}' test project not found in {list(test_projects.keys())}")
-            sys.exit(1)
-    else:
-        run_projects = test_projects
+    run_projects = select_run_projects(test_projects, target_version=target_version)
+    if target_version and not run_projects:
+        print(f"[ERROR] Target version '{target_version}' test project not found in {list(test_projects.keys())}")
+        sys.exit(1)
 
     if not run_projects:
         print("[WARN] No test projects discovered to execute.")
@@ -1169,7 +1161,7 @@ def run_test_suite(target_class="", target_version="", category="", no_pool=Fals
     for ver, csproj_list in run_projects.items():
         if isinstance(csproj_list, str):
             csproj_list = [csproj_list]
-        is_logic = ver.lower() in ("logic", "legacymock")
+        is_headless = ver.lower() in ("logic", "legacymock")
 
         for csproj_path in csproj_list:
             proj_tfms, is_multi_tfm = get_project_target_frameworks(csproj_path)
@@ -1181,11 +1173,11 @@ def run_test_suite(target_class="", target_version="", category="", no_pool=Fals
                 selected_tfms = proj_tfms
 
             filter_expr, matched_zero = build_test_filter(
-                is_logic=is_logic,
+                is_logic=is_headless,
                 target_class=target_class,
                 category=category,
                 tests_dir=test_dir,
-                version=None if is_logic else ver,
+                version=None if is_headless else ver,
             )
 
             if matched_zero:
@@ -1197,7 +1189,7 @@ def run_test_suite(target_class="", target_version="", category="", no_pool=Fals
             os.makedirs(run_results_dir, exist_ok=True)
 
             proj_name = os.path.splitext(os.path.basename(csproj_path))[0]
-            if is_logic:
+            if is_headless:
                 print(f"[TESTS] Building {proj_name} ({ver}) with MSBuild ({run_id}): {msbuild_path}...")
             else:
                 print(f"[TESTS] Building {proj_name} for Revit {ver} with MSBuild ({run_id}): {msbuild_path}...")
@@ -1227,7 +1219,7 @@ def run_test_suite(target_class="", target_version="", category="", no_pool=Fals
                 log_name = build_trx_filename(ver, tfm=tfm, is_multi_tfm=is_multi_tfm)
                 out_file_path = os.path.join(run_results_dir, build_log_filename(ver, tfm=tfm, is_multi_tfm=is_multi_tfm))
 
-                if is_logic:
+                if is_headless:
                     tfm_label = f" [{tfm}]" if is_multi_tfm and tfm else ""
                     print(f"[TESTS] Executing headless NUnit tests for {proj_name}{tfm_label}...")
                 else:
@@ -1249,7 +1241,7 @@ def run_test_suite(target_class="", target_version="", category="", no_pool=Fals
                     cmd.extend(["--filter", filter_expr])
 
                 proc_returncode = 0
-                if is_logic:
+                if is_headless:
                     with open(out_file_path, "w", encoding="utf-8") as out_f:
                         res = subprocess.run(cmd, stdout=out_f, stderr=out_f)
                         proc_returncode = res.returncode

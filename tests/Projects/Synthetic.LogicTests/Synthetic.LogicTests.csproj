@@ -36,16 +36,8 @@
 
   <ItemGroup>
     <Compile Include="AssemblyAttributes.cs" />
-    <Compile Include="..\..\Fixtures\Shared\FakeFolderDialogService.cs"
-             Link="Fixtures\FakeFolderDialogService.cs" />
-    <Compile Include="..\..\Fixtures\Shared\FakeShadowStudyAdapter.cs"
-             Link="Fixtures\FakeShadowStudyAdapter.cs" />
-    <Compile Include="..\..\Fixtures\Shared\FakeSharedCoordinatesAdapter.cs"
-             Link="Fixtures\FakeSharedCoordinatesAdapter.cs" />
-    <Compile Include="..\..\Fixtures\Shared\TestPathHelper.cs"
-             Link="Fixtures\TestPathHelper.cs" />
-    <Compile Include="..\..\Fixtures\Shared\TypedCategoryAttributes.cs"
-             Link="Fixtures\TypedCategoryAttributes.cs" />
+    <Compile Include="..\..\Fixtures\Shared\**\*.cs"
+             Link="Fixtures\%(RecursiveDir)%(Filename)%(Extension)" />
     <Compile Include="..\..\..\src\Synthetic.Bootstrap\ShadowCacheManager.cs"
              Link="Bootstrap\ShadowCacheManager.cs" />
     <Compile Include="..\..\Architecture\Logic\**\*.cs"

@@ -781,6 +781,153 @@ namespace SyntheticTests.Architecture
             Assert.IsEmpty(legacyNamespaceViolations, string.Join(Environment.NewLine, legacyNamespaceViolations));
         }
 
+        [Test]
+        public void TestTree_ContainsZeroRetiredSyntheticTestsOrLegacyModelDirs_AndConforms100PercentToIsomorphicMirror()
+        {
+            string projectRoot = TestPathHelper.GetProjectRoot();
+            string testsRoot = Path.Combine(projectRoot, "tests");
+            string srcRoot = Path.Combine(projectRoot, "src");
+
+            var retiredTestDirs = Directory.EnumerateDirectories(testsRoot, "SyntheticTests*", SearchOption.TopDirectoryOnly)
+                .Select(d => GetRelativeNormalizedPath(projectRoot, d))
+                .ToList();
+            Assert.IsEmpty(retiredTestDirs, "Retired tests/SyntheticTests* directories must not exist: " + string.Join(", ", retiredTestDirs));
+            Assert.IsFalse(Directory.Exists(Path.Combine(testsRoot, "test_models")), "Legacy tests/test_models directory must not exist.");
+
+            var legacyScripts = Directory.EnumerateFiles(projectRoot, "run_integration_test.py", SearchOption.AllDirectories)
+                .Select(f => GetRelativeNormalizedPath(projectRoot, f))
+                .ToList();
+            Assert.IsEmpty(legacyScripts, "Retired run_integration_test.py must not exist: " + string.Join(", ", legacyScripts));
+
+            Assert.IsTrue(File.Exists(Path.Combine(testsRoot, "Assets", "test_duplicate_families.json")), "Expected tests/Assets/test_duplicate_families.json.");
+            Assert.IsTrue(File.Exists(Path.Combine(testsRoot, "Assets", "test_duplicate_groups.json")), "Expected tests/Assets/test_duplicate_groups.json.");
+            foreach (string year in new[] { "2023", "2024", "2025", "2026" })
+            {
+                Assert.IsTrue(
+                    File.Exists(Path.Combine(testsRoot, "Assets", "test_models", $"TestTemplate{year}.rvt")),
+                    $"Expected tests/Assets/test_models/TestTemplate{year}.rvt.");
+                Assert.IsTrue(
+                    File.Exists(Path.Combine(testsRoot, "Projects", $"Synthetic.RevitTests.{year}", $"Synthetic.RevitTests.{year}.csproj")),
+                    $"Expected tests/Projects/Synthetic.RevitTests.{year}/Synthetic.RevitTests.{year}.csproj.");
+            }
+
+            string logicCsprojPath = Path.Combine(testsRoot, "Projects", "Synthetic.LogicTests", "Synthetic.LogicTests.csproj");
+            string legacyMockCsprojPath = Path.Combine(testsRoot, "Projects", "Synthetic.LegacyMockTests", "Synthetic.LegacyMockTests.csproj");
+            Assert.IsTrue(File.Exists(logicCsprojPath), "Expected tests/Projects/Synthetic.LogicTests/Synthetic.LogicTests.csproj.");
+            Assert.IsTrue(File.Exists(legacyMockCsprojPath), "Expected tests/Projects/Synthetic.LegacyMockTests/Synthetic.LegacyMockTests.csproj.");
+
+            string logicCsprojText = File.ReadAllText(logicCsprojPath);
+            StringAssert.DoesNotContain("RevitAPIMock", logicCsprojText, "Synthetic.LogicTests.csproj must not reference RevitAPIMock.");
+            StringAssert.DoesNotContain("RevitAPIUIMock", logicCsprojText, "Synthetic.LogicTests.csproj must not reference RevitAPIUIMock.");
+            StringAssert.DoesNotContain("Synthetic202", logicCsprojText, "Synthetic.LogicTests.csproj must not reference Synthetic202* payload heads.");
+
+            string srcTargetsText = File.ReadAllText(Path.Combine(srcRoot, "Directory.Build.targets"));
+            StringAssert.DoesNotContain("SyntheticTests", srcTargetsText, "src/Directory.Build.targets must not retain legacy SyntheticTests* InternalsVisibleTo entries.");
+            StringAssert.DoesNotContain("<InternalsVisibleTo Include=\"Synthetic202", srcTargetsText, "src/Directory.Build.targets must not grant InternalsVisibleTo to Synthetic202* payload assemblies.");
+
+            var testLayoutViolations = new List<string>();
+            var logicRevitApiViolations = new List<string>();
+
+            foreach (string file in Directory.EnumerateFiles(testsRoot, "*.*", SearchOption.AllDirectories))
+            {
+                if (file.IndexOf("\\obj\\", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    file.IndexOf("\\bin\\", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    file.IndexOf("\\TestResults\\", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    continue;
+                }
+
+                string ext = Path.GetExtension(file);
+                if (!string.Equals(ext, ".cs", StringComparison.OrdinalIgnoreCase) &&
+                    !string.Equals(ext, ".csproj", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                string rel = GetRelativeNormalizedPath(testsRoot, file);
+                string[] segments = rel.Split('/');
+                string topFolder = segments[0];
+
+                if (string.Equals(ext, ".csproj", StringComparison.OrdinalIgnoreCase))
+                {
+                    bool allowedProj =
+                        (string.Equals(topFolder, "Projects", StringComparison.Ordinal) &&
+                         segments.Length == 3 &&
+                         Regex.IsMatch(segments[1], @"^Synthetic\.(LogicTests|LegacyMockTests|RevitTests\.202[3-6])$", RegexOptions.CultureInvariant)) ||
+                        ((string.Equals(topFolder, "RevitAPIMock", StringComparison.Ordinal) ||
+                          string.Equals(topFolder, "RevitAPIUIMock", StringComparison.Ordinal)) &&
+                         segments.Length == 2);
+
+                    if (!allowedProj)
+                    {
+                        testLayoutViolations.Add($"tests/{rel} is outside tests/Projects/ or RevitAPI*Mock/.");
+                    }
+                    continue;
+                }
+
+                if (string.Equals(topFolder, "RevitAPIMock", StringComparison.Ordinal) ||
+                    string.Equals(topFolder, "RevitAPIUIMock", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (string.Equals(topFolder, "Projects", StringComparison.Ordinal))
+                {
+                    bool allowedProjectCode =
+                        segments.Length >= 3 &&
+                        Regex.IsMatch(segments[1], @"^Synthetic\.(LogicTests|LegacyMockTests|RevitTests\.202[3-6])$", RegexOptions.CultureInvariant);
+                    if (!allowedProjectCode)
+                    {
+                        testLayoutViolations.Add($"tests/{rel} must live under a valid tests/Projects/Synthetic.* head.");
+                    }
+                    continue;
+                }
+
+                if (string.Equals(topFolder, "Fixtures", StringComparison.Ordinal))
+                {
+                    if (segments.Length < 3 ||
+                        (!string.Equals(segments[1], "Shared", StringComparison.Ordinal) &&
+                         !string.Equals(segments[1], "Revit", StringComparison.Ordinal)))
+                    {
+                        testLayoutViolations.Add($"tests/{rel} must live under tests/Fixtures/Shared/ or tests/Fixtures/Revit/.");
+                    }
+                    else if (string.Equals(segments[1], "Shared", StringComparison.Ordinal))
+                    {
+                        string codeOnly = StripCommentsAndStringLiterals(File.ReadAllText(file));
+                        if (Regex.IsMatch(codeOnly, @"\bAutodesk\.Revit\b"))
+                        {
+                            logicRevitApiViolations.Add($"tests/{rel} imports Autodesk.Revit inside Fixtures/Shared/.");
+                        }
+                    }
+                    continue;
+                }
+
+                if (!PartitionedTestRoots.Contains(topFolder, StringComparer.Ordinal))
+                {
+                    testLayoutViolations.Add($"tests/{rel} must live under Features/, RevitDOM/, Platform/, Architecture/, Fixtures/, or Projects/.");
+                    continue;
+                }
+
+                bool inLogic = segments.Contains("Logic", StringComparer.Ordinal);
+                bool inRevit = segments.Contains("Revit", StringComparer.Ordinal);
+                if (!inLogic && !inRevit)
+                {
+                    testLayoutViolations.Add($"tests/{rel} must live under a Logic/ or Revit/ partition folder.");
+                }
+                else if (inLogic)
+                {
+                    string codeOnly = StripCommentsAndStringLiterals(File.ReadAllText(file));
+                    if (Regex.IsMatch(codeOnly, @"\bAutodesk\.Revit\b"))
+                    {
+                        logicRevitApiViolations.Add($"tests/{rel} imports Autodesk.Revit inside Logic/.");
+                    }
+                }
+            }
+
+            Assert.IsEmpty(testLayoutViolations, string.Join(Environment.NewLine, testLayoutViolations));
+            Assert.IsEmpty(logicRevitApiViolations, string.Join(Environment.NewLine, logicRevitApiViolations));
+        }
+
         private static string StripCommentsAndStringLiterals(string source)
         {
             // Strip verbatim strings, normal strings, single-line comments, and block comments

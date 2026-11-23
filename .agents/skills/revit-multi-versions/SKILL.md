@@ -1,17 +1,16 @@
 ---
 name: revit-multi-versions
-description: Enforce inverted preprocessor directive hierarchy and manage Revit version increments. Use when writing code targeting multiple Revit versions.
+description: Enforce inverted preprocessor directives and manage Revit version and .NET TFM targets. Use when writing multi-version C# across Addin, Core, or Bootstrap, or auditing/adding a Revit version target.
 ---
 
 # Revit Multi-Version Playbook (`revit-multi-versions`)
 
-This playbook governs how to write and refactor C# code to support multiple Revit versions (2023–2027+) and their respective .NET frameworks (.NET Framework 4.8, .NET 8, .NET 10+).
+Govern cross-version C# preprocessor directives, `.NET` target frameworks (TFMs), and per-year project heads across **Revit Versions** (baseline defined by `CURRENT_LATEST_VERSION` in [`docs/agents/revit-config.md`](../../../docs/agents/revit-config.md)).
 
-## 1. Inverted Preprocessor Hierarchy
+## 1. Inverted Preprocessor Hierarchy (`Addin/` & `Revit/` Tests)
 
-Isolate legacy Revit API branches so dropping an older version deletes only its guarded block. Place the newest supported Revit version (defined by `CURRENT_LATEST_VERSION` in [`docs/agents/revit-config.md`](../../../docs/agents/revit-config.md)) in the unconditioned `#else` baseline, and quarantine older versions inside `#if` or `#elif` blocks.
+Quarantine legacy Revit API branches inside `#if` / `#elif` blocks and keep the newest **Revit Version** (`CURRENT_LATEST_VERSION`) in the unconditioned `#else` baseline, so retiring an older release deletes only its guarded block.
 
-### Example:
 ```csharp
 #if REVIT2023
     // Legacy: ParameterType was removed in Revit 2024
@@ -20,23 +19,38 @@ Isolate legacy Revit API branches so dropping an older version deletes only its 
     // Transitionary: GetDataType() replaces ParameterType on .NET Framework 4.8
     ForgeTypeId dataType = definition.GetDataType();
 #else
-    // Default baseline: Revit 2025+ (includes 2026, 2027+)
+    // Default baseline: Revit 2025+
     ForgeTypeId dataType = definition.GetDataType();
 #endif
 ```
 
-## 2. Framework Dividers (.NET Framework vs. .NET Core/Modern)
+## 2. Framework Dividers by Assembly Partition
 
-Apply the same inverted preprocessor hierarchy when bridging .NET Framework 4.8, .NET 8, and .NET 10+:
-* Keep the newest framework version (.NET 10+) as the unconditioned `#else` baseline.
-* Quarantine older framework code (e.g., .NET Framework 4.8 or .NET 8) inside explicit Revit version checks (e.g., `#if REVIT2023 || REVIT2024`).
+Keep the newest `.NET` runtime (`net8.0+` / `.NET 10+`) in the unconditioned `#else` baseline and select the preprocessor symbol by compilation boundary:
 
-## 3. Version Upgrade Protocol
+| Partition / Project | Framework Guard | Rationale & Reference |
+| :--- | :--- | :--- |
+| `Core/` & `Logic/` (`Synthetic.Core`, `Synthetic.LogicTests`) | `#if NETFRAMEWORK` / `#else` | Multi-targets `<TargetFrameworks>` with pure BCL/WPF and zero `REVIT202*` symbols (enforced by [`PartitionArchitectureTests.cs`](../../../tests/Architecture/Logic/PartitionArchitectureTests.cs)); see [`Config.cs`](../../../src/Platform/Settings/Core/Config.cs). |
+| **Add-In Bootstrap** (`src/Synthetic.Bootstrap/`) | `#if NETFRAMEWORK` / `#else` (or `#if !NETFRAMEWORK` for modern-only `using`s) | Shared source compiled per year (`AppDomain` vs `AssemblyLoadContext`); reserve `#if REVIT<Year>` strictly for version-string fallbacks; see [`BootstrapApp.cs`](../../../src/Synthetic.Bootstrap/BootstrapApp.cs). |
+| `Addin/` & `Revit/` (`Synthetic<Year>`, `Synthetic.RevitTests.<Year>`) | `#if REVIT2023 \|\| REVIT2024` / `#else` (or `#if NETFRAMEWORK` for pure BCL/loader APIs) | Quarantines legacy `net48` **Revit Versions** behind explicit `REVIT<Year>` checks while keeping the newest `.NET` and **Revit Version** in `#else`. |
 
-Audit version targets whenever a new `.csproj` compilation target is added to the repository or when requested by the user. Keep existing source files untouched until the user approves the baseline upgrade.
+## 3. `Synthetic.Core` + `Synthetic.LogicTests` Multi-TFM Checklist
 
-1. **Audit:** Scan all `.csproj` files in the repository and compare the highest version suffix against `CURRENT_LATEST_VERSION` in [`docs/agents/revit-config.md`](../../../docs/agents/revit-config.md).
+[`src/Synthetic.Core/Synthetic.Core.csproj`](../../../src/Synthetic.Core/Synthetic.Core.csproj) and [`tests/Projects/Synthetic.LogicTests/Synthetic.LogicTests.csproj`](../../../tests/Projects/Synthetic.LogicTests/Synthetic.LogicTests.csproj) multi-target `<TargetFrameworks>net48;net8.0-windows8.0</TargetFrameworks>`:
+
+* **Same `.NET` TFM (`net48` or `net8.0-windows8.0`):** Make **`0` `Core` edits** when a new **Revit Version** shares an existing `.NET` TFM—leave `Synthetic.Core.csproj`, `Core/` sources, and `Synthetic.LogicTests.csproj` `<TargetFrameworks>` untouched.
+* **Upgraded `.NET` TFM (new major `.NET` release):** Append `;netX.0-windows8.0` (e.g., `;net10.0-windows8.0`) to `<TargetFrameworks>` in both [`src/Synthetic.Core/Synthetic.Core.csproj`](../../../src/Synthetic.Core/Synthetic.Core.csproj) and [`tests/Projects/Synthetic.LogicTests/Synthetic.LogicTests.csproj`](../../../tests/Projects/Synthetic.LogicTests/Synthetic.LogicTests.csproj), then run [`revit-tests`](../revit-tests/SKILL.md) (`--version Logic`) to verify every TFM compiles and passes.
+
+## 4. Version Target Audit & Upgrade Protocol
+
+Audit version targets whenever a new `.csproj` compilation target is added or when requested by the user. Keep existing source files untouched until the user approves the baseline upgrade.
+
+1. **Audit Project Heads & Registration:** Scan `.csproj` targets across `src/` and `tests/` and compare the highest version suffix against `CURRENT_LATEST_VERSION` in [`docs/agents/revit-config.md`](../../../docs/agents/revit-config.md). Every supported **Revit Version** (`<Year>`) registers three project heads plus shared wiring:
+   * **Payload:** `src/Synthetic<Year>/Synthetic<Year>.csproj` (`<IsRevitPayloadProject>true</IsRevitPayloadProject>`, `<RevitVersion><Year></RevitVersion>`, `REVIT<Year>`)
+   * **Add-In Bootstrap:** `src/Synthetic.Bootstrap<Year>/Synthetic.Bootstrap<Year>.csproj` (`<IsBootstrapProject>true</IsBootstrapProject>`, `<RevitVersion><Year></RevitVersion>`, `REVIT<Year>`)
+   * **Revit Test Head:** `tests/Projects/Synthetic.RevitTests.<Year>/Synthetic.RevitTests.<Year>.csproj` (`<IsRevitTestProject>true</IsRevitTestProject>`, `REVIT<Year>`, `<AssemblyMetadata Include="NUnit.Version" Value="<Year>" />`; [`tests/Directory.Build.targets`](../../../tests/Directory.Build.targets) auto-wires shared test globs, NUnit metadata, and Debug signing)
+   * **Solution & Targets Wiring:** Register heads in [`src/Synthetic.sln`](../../../src/Synthetic.sln), add `<InternalsVisibleTo Include="Synthetic.RevitTests.<Year>" />` under `Condition="'$(IsCoreProject)' == 'true'"` in [`src/Directory.Build.targets`](../../../src/Directory.Build.targets) (payload `InternalsVisibleTo` derives `Synthetic.RevitTests.$(RevitVersion)` dynamically), and update the `Synthetic202*` head-folder pattern in [`PartitionArchitectureTests.cs`](../../../tests/Architecture/Logic/PartitionArchitectureTests.cs).
 2. **Flag:** If a higher-version project target exists (e.g., `Synthetic2027.csproj` when `CURRENT_LATEST_VERSION` is `2026`), halt execution and prompt the user:
    * *"Detected new compilation target: Synthetic2027.csproj. Would you like to update CURRENT_LATEST_VERSION to 2027?"*
-3. **Refactor Gate:** Once approved, update `docs/agents/revit-config.md` and ask explicit permission before refactoring source files:
+3. **Refactor Gate:** Once approved, update [`docs/agents/revit-config.md`](../../../docs/agents/revit-config.md) and ask explicit permission before refactoring source files:
    * *"Updating baseline to 2027. Would you like me to refactor our current unconditioned code paths into an explicit #elif REVIT2026 branch to clear the default block for the new 2027 API?"*

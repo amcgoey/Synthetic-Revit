@@ -1,0 +1,71 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UseWPF>true</UseWPF>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <AssemblyName>Synthetic.LegacyMockTests</AssemblyName>
+    <RootNamespace>SyntheticTests</RootNamespace>
+    <IsTestProject>true</IsTestProject>
+    <DefineConstants>$(DefineConstants);SYNTHETIC_LOGIC_TESTS</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <PackageReference Include="NUnit" Version="3.14.0" />
+    <PackageReference Include="NUnit3TestAdapter" Version="4.5.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\src\Synthetic2026\Synthetic2026.csproj" />
+    <ProjectReference Include="..\..\..\src\Synthetic.Core\Synthetic.Core.csproj" />
+    <ProjectReference Include="..\..\RevitAPIMock\RevitAPIMock.csproj" />
+    <ProjectReference Include="..\..\RevitAPIUIMock\RevitAPIUIMock.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\Fixtures\Shared\FakeFileDialogService.cs" Link="Fixtures\Shared\FakeFileDialogService.cs" />
+    <Compile Include="..\..\Fixtures\Shared\FakeFolderDialogService.cs" Link="Fixtures\Shared\FakeFolderDialogService.cs" />
+    <Compile Include="..\..\Fixtures\Shared\FakeGuardrailPromptService.cs" Link="Fixtures\Shared\FakeGuardrailPromptService.cs" />
+    <Compile Include="..\..\Fixtures\Shared\FakeShadowStudyAdapter.cs" Link="Fixtures\Shared\FakeShadowStudyAdapter.cs" />
+    <Compile Include="..\..\Fixtures\Shared\FakeSharedCoordinatesAdapter.cs" Link="Fixtures\Shared\FakeSharedCoordinatesAdapter.cs" />
+    <Compile Include="..\..\Fixtures\Shared\FakeSummaryDisplayService.cs" Link="Fixtures\Shared\FakeSummaryDisplayService.cs" />
+    <Compile Include="..\..\Fixtures\Shared\FakeUserPromptService.cs" Link="Fixtures\Shared\FakeUserPromptService.cs" />
+    <Compile Include="..\..\Fixtures\Shared\TestPathHelper.cs" Link="Fixtures\Shared\TestPathHelper.cs" />
+    <Compile Include="..\..\Fixtures\Shared\TypedCategoryAttributes.cs" Link="Fixtures\Shared\TypedCategoryAttributes.cs" />
+    <Compile Include="..\..\Fixtures\Revit\DashboardTestFactory.cs" Link="Fixtures\Revit\DashboardTestFactory.cs" />
+    <Compile Include="..\..\Fixtures\Revit\FakeFamilyEnforcer.cs" Link="Fixtures\Revit\FakeFamilyEnforcer.cs" />
+    <Compile Include="..\..\Fixtures\Revit\FakeIdentityService.cs" Link="Fixtures\Revit\FakeIdentityService.cs" />
+    <None Include="..\..\..\src\Platform\UI\Addin\SyntheticTheme.xaml" Link="SyntheticTheme.xaml" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- Swap NuGet RevitAPI with RevitAPIMock for quarantined legacy mock tests -->
+  <Target Name="SwapRevitApiWithMock" AfterTargets="ResolveAssemblyReferences">
+    <ItemGroup>
+      <ReferencePath Remove="@(ReferencePath)" Condition="'%(FileName)' == 'RevitAPI' and '%(ReferencePath.NuGetPackageId)' == 'Revit_All_Main_Versions_API_x64'" />
+      <ReferencePath Remove="@(ReferencePath)" Condition="'%(FileName)' == 'RevitAPIUI' and '%(ReferencePath.NuGetPackageId)' == 'Revit_All_Main_Versions_API_x64'" />
+    </ItemGroup>
+  </Target>
+
+  <!-- Compile mock RevitAPI and RevitAPIUI projects and copy them to output directory post-build -->
+  <Target Name="CopyMockRevitAPI" AfterTargets="Build">
+    <MSBuild Projects="..\..\RevitAPIMock\RevitAPIMock.csproj"
+             Targets="Build"
+             Properties="Configuration=$(Configuration);Platform=$(Platform);SyntheticIsolatedBuildRoot=$(SyntheticIsolatedBuildRoot);SyntheticRunId=$(SyntheticRunId)">
+      <Output TaskParameter="TargetOutputs" ItemName="MockRevitApiOutputs" />
+    </MSBuild>
+    <MSBuild Projects="..\..\RevitAPIUIMock\RevitAPIUIMock.csproj"
+             Targets="Build"
+             Properties="Configuration=$(Configuration);Platform=$(Platform);SyntheticIsolatedBuildRoot=$(SyntheticIsolatedBuildRoot);SyntheticRunId=$(SyntheticRunId)">
+      <Output TaskParameter="TargetOutputs" ItemName="MockRevitApiUiOutputs" />
+    </MSBuild>
+    <Copy SourceFiles="@(MockRevitApiOutputs);@(MockRevitApiUiOutputs)"
+          DestinationFolder="$(TargetDir)"
+          OverwriteReadOnlyFiles="true"
+          SkipUnchangedFiles="false" />
+  </Target>
+
+</Project>
