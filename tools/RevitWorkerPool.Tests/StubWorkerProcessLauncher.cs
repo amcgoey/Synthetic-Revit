@@ -17,14 +17,19 @@ public sealed class StubWorkerProcessLauncher : IWorkerProcessLauncher, IDisposa
     private static int _nextPid = 50000;
 
     private readonly Action<InProcessPipeTestServer, WorkerLaunchRequest>? _configureServer;
+    private readonly bool _usesCleanShim;
     private readonly ConcurrentQueue<WorkerLaunchRequest> _requests = new();
     private readonly ConcurrentBag<StubWorkerRecord> _records = new();
 
     public StubWorkerProcessLauncher(
-        Action<InProcessPipeTestServer, WorkerLaunchRequest>? configureServer = null)
+        Action<InProcessPipeTestServer, WorkerLaunchRequest>? configureServer = null,
+        bool usesCleanShim = false)
     {
         _configureServer = configureServer;
+        _usesCleanShim = usesCleanShim;
     }
+
+    public bool UsesCleanShim => _usesCleanShim;
 
     public IReadOnlyCollection<WorkerLaunchRequest> LaunchedRequests => _requests.ToArray();
 

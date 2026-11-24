@@ -306,7 +306,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                 options.RevitVersion,
                 fullTrxPath,
                 Array.Empty<string>(),
-                _options.ShimEnabled,
+                EffectiveShimEnabled,
                 $"Test assembly not found: '{options.AssemblyPath}'.");
         }
 
@@ -318,7 +318,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                 options.RevitVersion,
                 fullTrxPath,
                 Array.Empty<string>(),
-                _options.ShimEnabled,
+                EffectiveShimEnabled,
                 $"Autodesk Revit {options.RevitVersion} installation was not found.");
         }
 
@@ -335,7 +335,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                     options.RevitVersion,
                     fullTrxPath,
                     Array.Empty<string>(),
-                    _options.ShimEnabled,
+                    EffectiveShimEnabled,
                     "Worker pool supervisor is draining.");
             }
 
@@ -349,7 +349,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                     options.RevitVersion,
                     fullTrxPath,
                     Array.Empty<string>(),
-                    _options.ShimEnabled,
+                    EffectiveShimEnabled,
                     ex.Message);
             }
 
@@ -385,7 +385,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                 fullTrxPath,
                 options.Filters,
                 options.ExecutionTimeout,
-                _options.ShimEnabled,
+                EffectiveShimEnabled,
                 _diagnosticLogger,
                 runExecutionCts.Token).ConfigureAwait(false);
 
@@ -400,7 +400,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                 options.RevitVersion,
                 fullTrxPath,
                 workerIds,
-                _options.ShimEnabled,
+                EffectiveShimEnabled,
                 ex.Message);
         }
         finally
@@ -1539,7 +1539,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
             Running = !_draining && !_disposed,
             SupervisorPid = Environment.ProcessId,
             PipeName = _options.PipeName,
-            ShimEnabled = _options.ShimEnabled,
+            ShimEnabled = EffectiveShimEnabled,
             Draining = _draining,
             Booting = booting,
             ReadyStandby = readyStandby,
@@ -1551,6 +1551,8 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
             Versions = versionDtos
         };
     }
+
+    private bool EffectiveShimEnabled => _launcher.UsesCleanShim || _options.ShimEnabled;
 
     private void TrackBackgroundTask(Task task)
     {

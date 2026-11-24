@@ -19,13 +19,26 @@ namespace RevitWorkerPool;
 /// </summary>
 public static class Program
 {
-    public static async Task<int> Main(string[] args)
+    public static Task<int> Main(string[] args)
     {
+        return RunCliAsync(args);
+    }
+
+    internal static async Task<int> RunCliAsync(
+        string[] args,
+        Func<OneShotRunOptions, IWorkerProcessLauncher>? launcherFactory = null,
+        RevitInstallationDiscovery? discoveryOverride = null,
+        TextWriter? stdout = null,
+        TextWriter? stderr = null)
+    {
+        TextWriter outWriter = stdout ?? Console.Out;
+        TextWriter errWriter = stderr ?? Console.Error;
+
         if (args.Length == 0 ||
             string.Equals(args[0], "--help", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(args[0], "-h", StringComparison.OrdinalIgnoreCase))
         {
-            PrintUsage();
+            PrintUsage(errWriter);
             return 0;
         }
 
@@ -34,65 +47,120 @@ public static class Program
 
         if (string.Equals(command, "--supervisor", StringComparison.OrdinalIgnoreCase))
         {
-            return await ExecuteSupervisorCommandAsync(args[1..]).ConfigureAwait(false);
+            return await ExecuteSupervisorCommandAsync(args[1..], errWriter).ConfigureAwait(false);
         }
 
         if (string.Equals(command, "warm", StringComparison.OrdinalIgnoreCase))
         {
-            return await ExecuteWarmCommandAsync(args[1..], wantsJson).ConfigureAwait(false);
+            return await ExecuteWarmCommandAsync(args[1..], wantsJson, outWriter, errWriter).ConfigureAwait(false);
         }
 
         if (string.Equals(command, "run", StringComparison.OrdinalIgnoreCase))
         {
-            return await ExecuteRunCommandAsync(args[1..], wantsJson).ConfigureAwait(false);
+            return await ExecuteRunCommandAsync(
+                args[1..],
+                wantsJson,
+                launcherFactory,
+                discoveryOverride,
+                outWriter,
+                errWriter).ConfigureAwait(false);
         }
 
         if (string.Equals(command, "status", StringComparison.OrdinalIgnoreCase))
         {
-            return await ExecuteStatusCommandAsync(args[1..], wantsJson).ConfigureAwait(false);
+            return await ExecuteStatusCommandAsync(args[1..], wantsJson, outWriter, errWriter).ConfigureAwait(false);
         }
 
         if (string.Equals(command, "drain", StringComparison.OrdinalIgnoreCase))
         {
-            return await ExecuteDrainCommandAsync(args[1..], wantsJson).ConfigureAwait(false);
+            return await ExecuteDrainCommandAsync(args[1..], wantsJson, outWriter, errWriter).ConfigureAwait(false);
         }
 
         string unknownErr = $"Unknown command '{command}'.";
         if (wantsJson)
         {
-            Console.WriteLine(JsonConvert.SerializeObject(
+            outWriter.WriteLine(JsonConvert.SerializeObject(
                 new { success = false, exitCode = 2, error = unknownErr },
                 Formatting.None));
         }
         else
         {
-            Console.Error.WriteLine(unknownErr);
-            PrintUsage();
+            errWriter.WriteLine(unknownErr);
+            PrintUsage(errWriter);
         }
 
         return 2;
     }
 
-    private static async Task<int> ExecuteSupervisorCommandAsync(string[] args)
+    internal static bool ShouldUseCleanShim(
+        bool noShimFlag,
+        Func<string, string?>? getEnvironmentVariable = null)
+    {
+        if (noShimFlag)
+        {
+            return false;
+        }
+
+        Func<string, string?> envLookup = getEnvironmentVariable ?? Environment.GetEnvironmentVariable;
+        string? rawValue = envLookup("SYNTHETIC_CLEAN_SHIM");
+        if (!string.IsNullOrWhiteSpace(rawValue) &&
+            string.Equals(rawValue.Trim(), "0", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    internal static IWorkerProcessLauncher CreateWorkerLauncher(
+        bool noShimFlag,
+        Func<string, string?>? getEnvironmentVariable = null,
+        string? shimDllPath = null,
+        string? launcherDllPath = null)
+    {
+        if (!ShouldUseCleanShim(noShimFlag, getEnvironmentVariable))
+        {
+            return new StandardProcessLauncher();
+        }
+
+        if (!OperatingSystem.IsWindows())
+        {
+            throw new CleanShimLaunchException("CleanDetoursProcessLauncher requires Windows.");
+        }
+
+        return new CleanDetoursProcessLauncher(shimDllPath, launcherDllPath);
+    }
+
+    private static async Task<int> ExecuteSupervisorCommandAsync(string[] args, TextWriter errWriter)
     {
         if (!TryParseSupervisorArguments(args, out SupervisorCliOptions? cliOptions, out string? parseError))
         {
-            Console.Error.WriteLine($"[error] {parseError}");
+            errWriter.WriteLine($"[error] {parseError}");
             return 2;
         }
 
         Action<string>? logger = cliOptions!.Diagnostics
-            ? msg => Console.Error.WriteLine(msg)
+            ? msg => errWriter.WriteLine(msg)
             : null;
 
+        IWorkerProcessLauncher launcher;
+        try
+        {
+            launcher = CreateWorkerLauncher(cliOptions.NoShim);
+        }
+        catch (CleanShimLaunchException ex)
+        {
+            errWriter.WriteLine($"[RevitWorkerPool] Clean-launch shim failed closed: {ex.Message}");
+            return 2;
+        }
+
         var discovery = new RevitInstallationDiscovery();
-        var launcher = new StandardProcessLauncher();
         var clientFactory = new DiagnosticPipeClientFactory(logger);
         var supervisorOptions = new SupervisorOptions
         {
             PipeName = cliOptions.PipeName,
             IdleTimeout = TimeSpan.FromMinutes(cliOptions.IdleTtlMinutes),
-            ShimEnabled = false,
+            ShimEnabled = launcher.UsesCleanShim,
             ProjectRoot = cliOptions.ProjectRoot,
             Diagnostics = cliOptions.Diagnostics
         };
@@ -138,11 +206,15 @@ public static class Program
         }
     }
 
-    private static async Task<int> ExecuteWarmCommandAsync(string[] args, bool wantsJson)
+    private static async Task<int> ExecuteWarmCommandAsync(
+        string[] args,
+        bool wantsJson,
+        TextWriter outWriter,
+        TextWriter errWriter)
     {
         if (!TryParseWarmArguments(args, out WarmCliOptions? options, out string? parseError))
         {
-            EmitCliError(parseError!, wantsJson, () => new WarmResult
+            EmitCliError(parseError!, wantsJson, outWriter, errWriter, () => new WarmResult
             {
                 Success = false,
                 ExitCode = 2,
@@ -151,17 +223,18 @@ public static class Program
             return 2;
         }
 
-        Action<string>? logger = options!.Diagnostics ? msg => Console.Error.WriteLine(msg) : null;
+        Action<string>? logger = options!.Diagnostics ? msg => errWriter.WriteLine(msg) : null;
         using var cancelScope = new CancelKeyPressScope();
         CancellationToken cancellationToken = cancelScope.Token;
 
         try
         {
+            bool noShimEffective = !ShouldUseCleanShim(options.NoShim);
             var launchOptions = new SupervisorClientLaunchOptions
             {
                 PipeName = options.PipeName,
                 IdleTtlMinutes = options.IdleTtlMinutes,
-                NoShim = options.NoShim,
+                NoShim = noShimEffective,
                 ProjectRoot = options.ProjectRoot ?? RevitInstallationDiscovery.FindRepositoryRoot(),
                 Diagnostics = options.Diagnostics
             };
@@ -194,25 +267,25 @@ public static class Program
 
             if (options.JsonOutput)
             {
-                Console.WriteLine(JsonConvert.SerializeObject(warmResult, Formatting.None));
+                outWriter.WriteLine(JsonConvert.SerializeObject(warmResult, Formatting.None));
             }
             else if (warmResult.Success)
             {
-                Console.WriteLine(
+                outWriter.WriteLine(
                     $"[RevitWorkerPool] Warmed Revit {warmResult.Version}: " +
                     $"readyStandby={warmResult.ReadyCount}, target={warmResult.TargetCount}, " +
                     $"totalResident={warmResult.Status?.TotalResident ?? warmResult.ReadyCount}/{warmResult.Status?.ActiveCap ?? SupervisorOptions.DefaultMaxActiveWorkers}");
             }
             else
             {
-                Console.Error.WriteLine($"[RevitWorkerPool] Warm failed: {warmResult.Error}");
+                errWriter.WriteLine($"[RevitWorkerPool] Warm failed: {warmResult.Error}");
             }
 
             return warmResult.ExitCode;
         }
         catch (Exception ex)
         {
-            EmitCliError(ex.Message, options.JsonOutput, () => new WarmResult
+            EmitCliError(ex.Message, options.JsonOutput, outWriter, errWriter, () => new WarmResult
             {
                 Success = false,
                 ExitCode = 2,
@@ -224,11 +297,17 @@ public static class Program
         }
     }
 
-    private static async Task<int> ExecuteRunCommandAsync(string[] args, bool wantsJson)
+    private static async Task<int> ExecuteRunCommandAsync(
+        string[] args,
+        bool wantsJson,
+        Func<OneShotRunOptions, IWorkerProcessLauncher>? launcherFactory,
+        RevitInstallationDiscovery? discoveryOverride,
+        TextWriter outWriter,
+        TextWriter errWriter)
     {
         if (!TryParseRunArguments(args, out OneShotRunOptions? options, out string? parseError))
         {
-            EmitCliError(parseError!, wantsJson, () => new OneShotRunResult
+            EmitCliError(parseError!, wantsJson, outWriter, errWriter, () => new OneShotRunResult
             {
                 Success = false,
                 ExitCode = 2,
@@ -237,29 +316,57 @@ public static class Program
             return 2;
         }
 
-        Action<string>? logger = options!.Diagnostics ? msg => Console.Error.WriteLine(msg) : null;
+        Action<string>? logger = options!.Diagnostics ? msg => errWriter.WriteLine(msg) : null;
         using var cancelScope = new CancelKeyPressScope();
         CancellationToken cancellationToken = cancelScope.Token;
 
-        if (options.OneShot)
+        if (options.OneShot || launcherFactory is not null || discoveryOverride is not null)
         {
-            var discovery = new RevitInstallationDiscovery();
-            var launcher = new StandardProcessLauncher();
-            var clientFactory = new DiagnosticPipeClientFactory(logger);
-            var runner = new OneShotTestRunner(
-                discovery,
-                launcher,
-                clientFactory,
-                diagnosticLogger: logger);
+            RevitInstallationDiscovery discovery = discoveryOverride ?? new RevitInstallationDiscovery();
+            IWorkerProcessLauncher? launcher = null;
+            try
+            {
+                launcher = launcherFactory is not null
+                    ? launcherFactory(options)
+                    : CreateWorkerLauncher(options.NoShim);
 
-            OneShotRunResult oneShotResult = await runner.RunAsync(options, cancellationToken).ConfigureAwait(false);
-            WriteRunOutput(oneShotResult, options.JsonOutput);
-            return oneShotResult.ExitCode;
+                var clientFactory = new DiagnosticPipeClientFactory(logger);
+                var runner = new OneShotTestRunner(
+                    discovery,
+                    launcher,
+                    clientFactory,
+                    diagnosticLogger: logger);
+
+                OneShotRunResult oneShotResult = await runner.RunAsync(options, cancellationToken).ConfigureAwait(false);
+                WriteRunOutput(oneShotResult, options.JsonOutput, outWriter, errWriter);
+                return oneShotResult.ExitCode;
+            }
+            catch (CleanShimLaunchException ex)
+            {
+                bool shimEnabled = launcher?.UsesCleanShim ?? ShouldUseCleanShim(options.NoShim);
+                if (options.JsonOutput)
+                {
+                    OneShotRunResult errorResult = TestExecutionHelper.InfrastructureFailureResult(
+                        options.RevitVersion,
+                        options.TrxPath,
+                        Array.Empty<string>(),
+                        shimEnabled,
+                        ex.Message);
+                    outWriter.WriteLine(JsonConvert.SerializeObject(errorResult, Formatting.None));
+                }
+                else
+                {
+                    errWriter.WriteLine($"[RevitWorkerPool] Clean-launch shim failed closed: {ex.Message}");
+                }
+
+                return 2;
+            }
         }
 
         string fullAssemblyPath = Path.GetFullPath(options.AssemblyPath);
         string fullTrxPath = Path.GetFullPath(options.TrxPath);
         string resolvedProjectRoot = TestExecutionHelper.ResolveProjectRoot(options.ProjectRoot, fullAssemblyPath);
+        bool expectedShim = ShouldUseCleanShim(options.NoShim);
 
         try
         {
@@ -267,7 +374,7 @@ public static class Program
             {
                 PipeName = options.PipeName,
                 IdleTtlMinutes = options.IdleTtlMinutes,
-                NoShim = options.NoShim,
+                NoShim = !expectedShim,
                 ProjectRoot = resolvedProjectRoot,
                 Diagnostics = options.Diagnostics
             };
@@ -302,10 +409,10 @@ public static class Program
                 options.RevitVersion,
                 fullTrxPath,
                 Array.Empty<string>(),
-                shimEnabled: false,
+                expectedShim,
                 response.Error ?? "Supervisor did not return a run result.");
 
-            WriteRunOutput(result, options.JsonOutput);
+            WriteRunOutput(result, options.JsonOutput, outWriter, errWriter);
             return result.ExitCode;
         }
         catch (Exception ex)
@@ -314,18 +421,22 @@ public static class Program
                 options.RevitVersion,
                 fullTrxPath,
                 Array.Empty<string>(),
-                shimEnabled: false,
+                expectedShim,
                 ex.Message);
-            WriteRunOutput(errorResult, options.JsonOutput);
+            WriteRunOutput(errorResult, options.JsonOutput, outWriter, errWriter);
             return errorResult.ExitCode;
         }
     }
 
-    private static async Task<int> ExecuteStatusCommandAsync(string[] args, bool wantsJson)
+    private static async Task<int> ExecuteStatusCommandAsync(
+        string[] args,
+        bool wantsJson,
+        TextWriter outWriter,
+        TextWriter errWriter)
     {
         if (!TryParsePipeControlArguments(args, "status", out PipeControlCliOptions? options, out string? parseError))
         {
-            EmitCliError(parseError!, wantsJson, () => new { success = false, exitCode = 2, error = parseError });
+            EmitCliError(parseError!, wantsJson, outWriter, errWriter, () => new { success = false, exitCode = 2, error = parseError });
             return 2;
         }
 
@@ -376,24 +487,24 @@ public static class Program
 
             if (options.JsonOutput)
             {
-                Console.WriteLine(JsonConvert.SerializeObject(snapshot, Formatting.None));
+                outWriter.WriteLine(JsonConvert.SerializeObject(snapshot, Formatting.None));
             }
             else if (!snapshot.Running)
             {
-                Console.WriteLine(
+                outWriter.WriteLine(
                     $"[RevitWorkerPool] Supervisor not running (pipe='{snapshot.PipeName}', " +
                     $"booting=0, readyStandby=0, active=0, totalResident=0, activeCap={snapshot.ActiveCap}).");
             }
             else
             {
-                Console.WriteLine(
+                outWriter.WriteLine(
                     $"[RevitWorkerPool] Supervisor PID={snapshot.SupervisorPid} pipe='{snapshot.PipeName}': " +
                     $"booting={snapshot.Booting}, readyStandby={snapshot.ReadyStandby}, active={snapshot.Active}, " +
                     $"totalResident={snapshot.TotalResident}/{snapshot.ActiveCap}, queued={snapshot.QueuedRuns}, " +
                     $"lastActivityUtc={snapshot.LastActivityUtc:O}");
                 foreach ((int ver, VersionWorkerStatus vs) in snapshot.Versions)
                 {
-                    Console.WriteLine(
+                    outWriter.WriteLine(
                         $"  Revit {ver}: target={vs.StandbyTarget}, booting={vs.Booting}, " +
                         $"readyStandby={vs.ReadyStandby}, active={vs.Active}, totalResident={vs.TotalResident}");
                 }
@@ -403,16 +514,20 @@ public static class Program
         }
         catch (Exception ex)
         {
-            EmitCliError(ex.Message, options!.JsonOutput, () => new { success = false, exitCode = 2, error = ex.Message });
+            EmitCliError(ex.Message, options!.JsonOutput, outWriter, errWriter, () => new { success = false, exitCode = 2, error = ex.Message });
             return 2;
         }
     }
 
-    private static async Task<int> ExecuteDrainCommandAsync(string[] args, bool wantsJson)
+    private static async Task<int> ExecuteDrainCommandAsync(
+        string[] args,
+        bool wantsJson,
+        TextWriter outWriter,
+        TextWriter errWriter)
     {
         if (!TryParsePipeControlArguments(args, "drain", out PipeControlCliOptions? options, out string? parseError))
         {
-            EmitCliError(parseError!, wantsJson, () => new DrainResult
+            EmitCliError(parseError!, wantsJson, outWriter, errWriter, () => new DrainResult
             {
                 Success = false,
                 ExitCode = 2,
@@ -466,24 +581,24 @@ public static class Program
 
             if (options.JsonOutput)
             {
-                Console.WriteLine(JsonConvert.SerializeObject(drainResult, Formatting.None));
+                outWriter.WriteLine(JsonConvert.SerializeObject(drainResult, Formatting.None));
             }
             else if (drainResult.Success)
             {
-                Console.WriteLine(
+                outWriter.WriteLine(
                     $"[RevitWorkerPool] Drained supervisor (pipe='{options.PipeName}', " +
                     $"terminatedWorkers={drainResult.TerminatedWorkers}, totalResident=0).");
             }
             else
             {
-                Console.Error.WriteLine($"[RevitWorkerPool] Drain failed: {drainResult.Error}");
+                errWriter.WriteLine($"[RevitWorkerPool] Drain failed: {drainResult.Error}");
             }
 
             return drainResult.ExitCode;
         }
         catch (Exception ex)
         {
-            EmitCliError(ex.Message, options!.JsonOutput, () => new DrainResult
+            EmitCliError(ex.Message, options!.JsonOutput, outWriter, errWriter, () => new DrainResult
             {
                 Success = false,
                 ExitCode = 2,
@@ -952,6 +1067,87 @@ public static class Program
         return true;
     }
 
+    private static void WriteRunOutput(
+        OneShotRunResult result,
+        bool jsonOutput,
+        TextWriter outWriter,
+        TextWriter errWriter)
+    {
+        if (jsonOutput)
+        {
+            outWriter.WriteLine(JsonConvert.SerializeObject(result, Formatting.None));
+        }
+        else if (result.Success)
+        {
+            outWriter.WriteLine(
+                $"[RevitWorkerPool] Revit {result.Version} run completed: " +
+                $"Total={result.TotalTests}, Passed={result.PassedTests}, Failed={result.FailedTests}, " +
+                $"Skipped={result.SkippedTests}, WorkerId={string.Join(",", result.WorkerIds)}, TRX='{result.TrxPath}'");
+        }
+        else
+        {
+            errWriter.WriteLine(
+                $"[RevitWorkerPool] Revit {result.Version} run failed: {result.Error ?? $"{result.FailedTests} test(s) failed"}");
+        }
+    }
+
+    private static void EmitCliError(
+        string errorMessage,
+        bool wantsJson,
+        TextWriter outWriter,
+        TextWriter errWriter,
+        Func<object> jsonPayloadFactory)
+    {
+        if (wantsJson)
+        {
+            outWriter.WriteLine(JsonConvert.SerializeObject(jsonPayloadFactory(), Formatting.None));
+        }
+        else
+        {
+            errWriter.WriteLine($"[error] {errorMessage}");
+        }
+    }
+
+    private static void PrintUsage(TextWriter? stderr = null)
+    {
+        TextWriter writer = stderr ?? Console.Error;
+        writer.WriteLine("Usage:");
+        writer.WriteLine(
+            "  RevitWorkerPool warm [--version <Year>] [--count <N>] [--boot-timeout-seconds <Sec>] " +
+            "[--pipe-name <Name>] [--idle-ttl-minutes <20-30>] [--no-shim] [--project-root <Path>] [--json] [--diagnostics]");
+        writer.WriteLine(
+            "  RevitWorkerPool run --version <Year> --assembly <DllPath> --trx <TrxPath> " +
+            "[--filter <Fragment>] [--timeout-seconds <Sec>] [--boot-timeout-seconds <Sec>] " +
+            "[--worker-id <Id>] [--project-root <Path>] [--pipe-name <Name>] [--idle-ttl-minutes <20-30>] [--no-shim] [--one-shot] [--json] [--diagnostics]");
+        writer.WriteLine(
+            "  RevitWorkerPool status [--pipe-name <Name>] [--json] [--diagnostics]");
+        writer.WriteLine(
+            "  RevitWorkerPool drain [--pipe-name <Name>] [--json] [--diagnostics]");
+    }
+
+    internal sealed record WarmCliOptions(
+        int? RevitVersion,
+        int Count,
+        double BootTimeoutSeconds,
+        string PipeName,
+        int IdleTtlMinutes,
+        bool NoShim,
+        string? ProjectRoot,
+        bool JsonOutput,
+        bool Diagnostics);
+
+    internal sealed record SupervisorCliOptions(
+        string PipeName,
+        int IdleTtlMinutes,
+        bool NoShim,
+        string? ProjectRoot,
+        bool Diagnostics);
+
+    internal sealed record PipeControlCliOptions(
+        string PipeName,
+        bool JsonOutput,
+        bool Diagnostics);
+
     private sealed class CancelKeyPressScope : IDisposable
     {
         private readonly CancellationTokenSource _cts = new();
@@ -981,77 +1177,6 @@ public static class Program
             _cts.Dispose();
         }
     }
-
-    private static void WriteRunOutput(OneShotRunResult result, bool jsonOutput)
-    {
-        if (jsonOutput)
-        {
-            Console.WriteLine(JsonConvert.SerializeObject(result, Formatting.None));
-        }
-        else if (result.Success)
-        {
-            Console.WriteLine(
-                $"[RevitWorkerPool] Revit {result.Version} run completed: " +
-                $"Total={result.TotalTests}, Passed={result.PassedTests}, Failed={result.FailedTests}, " +
-                $"Skipped={result.SkippedTests}, WorkerId={string.Join(",", result.WorkerIds)}, TRX='{result.TrxPath}'");
-        }
-        else
-        {
-            Console.Error.WriteLine(
-                $"[RevitWorkerPool] Revit {result.Version} run failed: {result.Error ?? $"{result.FailedTests} test(s) failed"}");
-        }
-    }
-
-    private static void EmitCliError(string errorMessage, bool wantsJson, Func<object> jsonPayloadFactory)
-    {
-        if (wantsJson)
-        {
-            Console.WriteLine(JsonConvert.SerializeObject(jsonPayloadFactory(), Formatting.None));
-        }
-        else
-        {
-            Console.Error.WriteLine($"[error] {errorMessage}");
-        }
-    }
-
-    private static void PrintUsage()
-    {
-        Console.Error.WriteLine("Usage:");
-        Console.Error.WriteLine(
-            "  RevitWorkerPool warm [--version <Year>] [--count <N>] [--boot-timeout-seconds <Sec>] " +
-            "[--pipe-name <Name>] [--idle-ttl-minutes <20-30>] [--no-shim] [--project-root <Path>] [--json] [--diagnostics]");
-        Console.Error.WriteLine(
-            "  RevitWorkerPool run --version <Year> --assembly <DllPath> --trx <TrxPath> " +
-            "[--filter <Fragment>] [--timeout-seconds <Sec>] [--boot-timeout-seconds <Sec>] " +
-            "[--worker-id <Id>] [--project-root <Path>] [--pipe-name <Name>] [--idle-ttl-minutes <20-30>] [--no-shim] [--one-shot] [--json] [--diagnostics]");
-        Console.Error.WriteLine(
-            "  RevitWorkerPool status [--pipe-name <Name>] [--json] [--diagnostics]");
-        Console.Error.WriteLine(
-            "  RevitWorkerPool drain [--pipe-name <Name>] [--json] [--diagnostics]");
-    }
-
-    internal sealed record WarmCliOptions(
-        int? RevitVersion,
-        int Count,
-        double BootTimeoutSeconds,
-        string PipeName,
-        int IdleTtlMinutes,
-        bool NoShim,
-        string? ProjectRoot,
-        bool JsonOutput,
-        bool Diagnostics);
-
-    internal sealed record SupervisorCliOptions(
-        string PipeName,
-        int IdleTtlMinutes,
-        bool NoShim,
-        string? ProjectRoot,
-        bool Diagnostics);
-
-    internal sealed record PipeControlCliOptions(
-        string PipeName,
-        bool JsonOutput,
-        bool Diagnostics);
 
     private sealed class DiagnosticPipeClientFactory : IPipeTestClientFactory
     {

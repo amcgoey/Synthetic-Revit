@@ -719,27 +719,71 @@ public class SupervisorLifecycleTests
     public async Task Cli_StatusAndDrain_WhenSupervisorStopped_ReturnZeroWithoutAutoStart()
     {
         string unusedPipe = CreateUniquePipeName();
-        TextWriter originalOut = Console.Out;
         using var capture = new StringWriter();
-        Console.SetOut(capture);
-        int statusCode;
-        int drainCode;
-        try
-        {
-            statusCode = await Program.Main(new[] { "status", "--pipe-name", unusedPipe, "--json" });
-            drainCode = await Program.Main(new[] { "drain", "--pipe-name", unusedPipe, "--json" });
-        }
-        finally
-        {
-            Console.SetOut(originalOut);
-        }
+        using var errCapture = new StringWriter();
+
+        int statusCode = await Program.RunCliAsync(
+            new[] { "status", "--pipe-name", unusedPipe, "--json" },
+            stdout: capture,
+            stderr: errCapture);
+        int drainCode = await Program.RunCliAsync(
+            new[] { "drain", "--pipe-name", unusedPipe, "--json" },
+            stdout: capture,
+            stderr: errCapture);
 
         string output = capture.ToString();
         Assert.That(statusCode, Is.EqualTo(0));
         Assert.That(drainCode, Is.EqualTo(0));
+        Assert.That(errCapture.ToString(), Is.Empty);
         Assert.That(output, Does.Contain("\"running\":false"));
         Assert.That(output, Does.Contain("\"terminatedWorkers\":0"));
         Assert.That(await SupervisorIpcClient.TryPingAsync(unusedPipe, TimeSpan.FromMilliseconds(50)), Is.Null);
+    }
+
+    [Test]
+    public async Task Supervisor_PropagatesUsesCleanShim_AndFailsClosedWithExitCode2OnShimError()
+    {
+        string pipe1 = CreateUniquePipeName();
+        using var shimmedStub = new StubWorkerProcessLauncher((server, _) =>
+        {
+            server.InitialIsBusy = false;
+            server.ExecutionHandler = CreateDefaultPassingHandler();
+        }, usesCleanShim: true);
+
+        await using (var sup = CreateSupervisor(pipe1, shimmedStub, currentLatestVersion: 2026))
+        {
+            WarmResult warm = await sup.WarmAsync(2026, 1);
+            Assert.That(warm.Success, Is.True);
+            Assert.That(warm.Status!.ShimEnabled, Is.True);
+
+            OneShotRunResult run = await sup.RunAsync(new OneShotRunOptions
+            {
+                RevitVersion = 2026,
+                AssemblyPath = _fakeAssemblyPath,
+                TrxPath = Path.Combine(_tempRoot, "out", "shim_sup.trx")
+            });
+            Assert.That(run.Success, Is.True);
+            Assert.That(run.ShimEnabled, Is.True);
+        }
+
+        string pipe2 = CreateUniquePipeName();
+        var missingShimLauncher = new CleanDetoursProcessLauncher(
+            shimDllPath: Path.Combine(_tempRoot, "MissingShim.dll"),
+            launcherDllPath: Path.Combine(_tempRoot, "MissingLauncher.dll"));
+
+        await using (var supFail = CreateSupervisor(pipe2, missingShimLauncher, currentLatestVersion: 2026))
+        {
+            OneShotRunResult failRun = await supFail.RunAsync(new OneShotRunOptions
+            {
+                RevitVersion = 2026,
+                AssemblyPath = _fakeAssemblyPath,
+                TrxPath = Path.Combine(_tempRoot, "out", "shim_fail.trx")
+            });
+            Assert.That(failRun.Success, Is.False);
+            Assert.That(failRun.ExitCode, Is.EqualTo(2));
+            Assert.That(failRun.ShimEnabled, Is.True);
+            Assert.That(failRun.Error, Does.Contain("MissingShim.dll"));
+        }
     }
 
     private WorkerPoolSupervisor CreateSupervisor(
@@ -920,6 +964,8 @@ public class SupervisorLifecycleTests
 
     private sealed class ThrowingWorkerProcessLauncher : IWorkerProcessLauncher
     {
+        public bool UsesCleanShim => false;
+
         public Task<LaunchedWorkerProcess> LaunchAsync(
             WorkerLaunchRequest request,
             CancellationToken cancellationToken = default)

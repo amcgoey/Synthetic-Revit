@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using RevitWorkerPool.Containment;
@@ -50,7 +49,8 @@ public sealed class OneShotTestRunner
                 options.RevitVersion,
                 fullTrxPath,
                 Array.Empty<string>(),
-                $"Test assembly not found: '{options.AssemblyPath}'.");
+                $"Test assembly not found: '{options.AssemblyPath}'.",
+                shimEnabled: _launcher.UsesCleanShim);
         }
 
         string fullAssemblyPath = Path.GetFullPath(options.AssemblyPath);
@@ -61,7 +61,8 @@ public sealed class OneShotTestRunner
                 options.RevitVersion,
                 fullTrxPath,
                 Array.Empty<string>(),
-                $"Autodesk Revit {options.RevitVersion} installation was not found.");
+                $"Autodesk Revit {options.RevitVersion} installation was not found.",
+                shimEnabled: _launcher.UsesCleanShim);
         }
 
         string workerId = string.IsNullOrWhiteSpace(options.WorkerId)
@@ -106,9 +107,18 @@ public sealed class OneShotTestRunner
                 fullTrxPath,
                 options.Filters,
                 options.ExecutionTimeout,
-                shimEnabled: false,
+                _launcher.UsesCleanShim,
                 _diagnosticLogger,
                 cancellationToken).ConfigureAwait(false);
+        }
+        catch (CleanShimLaunchException ex)
+        {
+            return FailureResult(
+                options.RevitVersion,
+                fullTrxPath,
+                worker is not null ? new[] { worker.WorkerId } : new[] { workerId },
+                ex.Message,
+                shimEnabled: _launcher.UsesCleanShim);
         }
         catch (Exception ex)
         {
@@ -116,7 +126,8 @@ public sealed class OneShotTestRunner
                 options.RevitVersion,
                 fullTrxPath,
                 worker is not null ? new[] { worker.WorkerId } : new[] { workerId },
-                ex.Message);
+                ex.Message,
+                shimEnabled: _launcher.UsesCleanShim);
         }
         finally
         {
@@ -171,13 +182,14 @@ public sealed class OneShotTestRunner
         int version,
         string trxPath,
         IReadOnlyList<string> workerIds,
-        string error)
+        string error,
+        bool shimEnabled = false)
     {
         return TestExecutionHelper.InfrastructureFailureResult(
             version,
             trxPath,
             workerIds,
-            shimEnabled: false,
+            shimEnabled,
             error);
     }
 
