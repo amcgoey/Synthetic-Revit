@@ -212,14 +212,52 @@ namespace Synthetic.RevitDOM.Operations
         /// <summary>
         /// Resolves the ElementIdModel reference and applies the resolved element's Id to the parameter.
         /// </summary>
-        private static bool ModifyElementIdParameter(Parameter param, ElementIdModel valModel, Document doc, IIdentityService identityService)
+        private static bool ModifyElementIdParameter(Parameter param, ElementIdModel? valModel, Document doc, IIdentityService identityService)
         {
-            if (valModel == null || 
-                string.IsNullOrEmpty(valModel.Name) || 
-                valModel.Name == "<None>" || 
-                valModel.Name == "<By Category>" || 
-                valModel.Name == "Solid")
+            if (valModel == null ||
+                valModel.Name == "<None>" ||
+                valModel.Name == "<By Category>")
             {
+                return param.Set(ElementId.InvalidElementId);
+            }
+
+            if (string.Equals(valModel.Name, "Solid", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    if (param.Set(LinePatternElement.GetSolidPatternId()))
+                    {
+                        return true;
+                    }
+                }
+                catch
+                {
+                    // Fallback to InvalidElementId if the parameter represents solid/default via -1
+                }
+                return param.Set(ElementId.InvalidElementId);
+            }
+
+            if (string.IsNullOrEmpty(valModel.Name))
+            {
+                if (valModel.Id < -1)
+                {
+#if REVIT2023
+                    ElementId builtInSentinelId = new ElementId((int)valModel.Id);
+#else
+                    ElementId builtInSentinelId = new ElementId(valModel.Id);
+#endif
+                    try
+                    {
+                        if (param.Set(builtInSentinelId))
+                        {
+                            return true;
+                        }
+                    }
+                    catch
+                    {
+                        // Fallback to InvalidElementId if this parameter rejects the negative sentinel ID
+                    }
+                }
                 return param.Set(ElementId.InvalidElementId);
             }
 
@@ -232,7 +270,7 @@ namespace Synthetic.RevitDOM.Operations
             return false;
         }
 
-        private static bool ModifyElementIdParameter(Parameter param, ElementIdModel valModel, Document doc)
+        private static bool ModifyElementIdParameter(Parameter param, ElementIdModel? valModel, Document doc)
         {
             return ModifyElementIdParameter(param, valModel, doc, new RevitIdentityService());
         }

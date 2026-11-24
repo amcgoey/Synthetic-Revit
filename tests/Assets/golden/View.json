@@ -1,0 +1,379 @@
+{
+  "ViewTemplates": {
+    "Golden_Plan_Template": {
+      "ViewRange": {
+        "TopOffset": 7.5,
+        "TopLevelId": {
+          "Class": "",
+          "Category": "",
+          "Name": "",
+          "Aliases": null,
+          "Id": -1,
+          "UniqueId": null
+        },
+        "CutPlaneOffset": 4.0,
+        "CutPlaneLevelId": {
+          "Class": "",
+          "Category": "",
+          "Name": "",
+          "Aliases": null,
+          "Id": -1,
+          "UniqueId": null
+        },
+        "BottomOffset": 0.0,
+        "BottomLevelId": {
+          "Class": "",
+          "Category": "",
+          "Name": "",
+          "Aliases": null,
+          "Id": -1,
+          "UniqueId": null
+        },
+        "ViewDepthOffset": 0.0,
+        "ViewDepthLevelId": {
+          "Class": "",
+          "Category": "",
+          "Name": "",
+          "Aliases": null,
+          "Id": -1,
+          "UniqueId": null
+        }
+      },
+      "UnderlayId": {
+        "Class": "",
+        "Category": "",
+        "Name": "",
+        "Aliases": null,
+        "Id": -1,
+        "UniqueId": null
+      },
+      "UnderlayOrientation": 0,
+      "IsTemplate": true,
+      "NonControlledParameterIds": [
+        -1006905
+      ],
+      "DisplayStyle": {
+        "Type": "Autodesk.Revit.DB.DisplayStyle",
+        "Value": "HLR"
+      },
+      "ShadowIntensity": 50,
+      "SunlightIntensity": 50,
+      "Scale": 100,
+      "DetailLevel": {
+        "Type": "Autodesk.Revit.DB.ViewDetailLevel",
+        "Value": "Medium"
+      },
+      "Discipline": {
+        "Type": "Autodesk.Revit.DB.ViewDiscipline",
+        "Value": "Architectural"
+      },
+      "Phase": null,
+      "PhaseFilter": null,
+      "LevelId": null,
+      "ViewFamilyTypeId": {
+        "Class": "Autodesk.Revit.DB.ViewFamilyType",
+        "Category": "",
+        "Name": "Floor Plan",
+        "Aliases": null,
+        "Id": 0,
+        "UniqueId": null
+      },
+      "ScopeBoxId": null,
+      "PartsVisibility": {
+        "Type": "Autodesk.Revit.DB.PartsVisibility",
+        "Value": "ShowPartsOnly"
+      },
+      "Class": "Autodesk.Revit.DB.ViewPlan",
+      "Category": "Views",
+      "Name": "Golden_Plan_Template",
+      "Aliases": null,
+      "Parameters": [],
+      "InstanceCount": 0,
+      "Location": null,
+      "BoundingBox": null,
+      "NestedTypes": []
+    }
+  },
+  "Views": {
+    "Golden_Floor_Plan": {
+      "ViewRange": {
+        "TopOffset": 7.5,
+        "TopLevelId": {
+          "Class": "Autodesk.Revit.DB.Level",
+          "Category": "Levels",
+          "Name": "Level 1",
+          "Aliases": null,
+          "Id": 0,
+          "UniqueId": null
+        },
+        "CutPlaneOffset": 4.0,
+        "CutPlaneLevelId": {
+          "Class": "Autodesk.Revit.DB.Level",
+          "Category": "Levels",
+          "Name": "Level 1",
+          "Aliases": null,
+          "Id": 0,
+          "UniqueId": null
+        },
+        "BottomOffset": 0.0,
+        "BottomLevelId": {
+          "Class": "Autodesk.Revit.DB.Level",
+          "Category": "Levels",
+          "Name": "Level 1",
+          "Aliases": null,
+          "Id": 0,
+          "UniqueId": null
+        },
+        "ViewDepthOffset": 0.0,
+        "ViewDepthLevelId": {
+          "Class": "Autodesk.Revit.DB.Level",
+          "Category": "Levels",
+          "Name": "Level 1",
+          "Aliases": null,
+          "Id": 0,
+          "UniqueId": null
+        }
+      },
+      "UnderlayId": {
+        "Class": "",
+        "Category": "",
+        "Name": "",
+        "Aliases": null,
+        "Id": -1,
+        "UniqueId": null
+      },
+      "UnderlayOrientation": 0,
+      "IsTemplate": false,
+      "NonControlledParameterIds": [],
+      "DisplayStyle": {
+        "Type": "Autodesk.Revit.DB.DisplayStyle",
+        "Value": "ShadingWithEdges"
+      },
+      "ShadowIntensity": 50,
+      "SunlightIntensity": 50,
+      "Scale": 100,
+      "DetailLevel": {
+        "Type": "Autodesk.Revit.DB.ViewDetailLevel",
+        "Value": "Fine"
+      },
+      "Discipline": {
+        "Type": "Autodesk.Revit.DB.ViewDiscipline",
+        "Value": "Architectural"
+      },
+      "Phase": {
+        "Class": "Autodesk.Revit.DB.Phase",
+        "Category": "Phases",
+        "Name": "New Construction",
+        "Aliases": null,
+        "Id": 0,
+        "UniqueId": null
+      },
+      "PhaseFilter": {
+        "Class": "Autodesk.Revit.DB.PhaseFilter",
+        "Category": "",
+        "Name": "Show Complete",
+        "Aliases": null,
+        "Id": 0,
+        "UniqueId": null
+      },
+      "ViewFilterOverrides": [
+        {
+          "FilterId": {
+            "Class": "Autodesk.Revit.DB.ParameterFilterElement",
+            "Category": "Filters",
+            "Name": "Golden_Wall_Comment_Filter",
+            "Aliases": null,
+            "Id": 0,
+            "UniqueId": null
+          },
+          "IsVisible": true,
+          "IsSurfaceBackgroundPatternVisible": true,
+          "SurfaceBackgroundPatternColor": {
+            "Blue": 0,
+            "Green": 0,
+            "Red": 0,
+            "IsValid": false
+          },
+          "SurfaceBackgroundPatternId": {
+            "Class": "",
+            "Category": "",
+            "Name": "",
+            "Aliases": null,
+            "Id": -1,
+            "UniqueId": null
+          },
+          "IsSurfaceForegroundPatternVisible": true,
+          "SurfaceForegroundPatternColor": {
+            "Blue": 120,
+            "Green": 110,
+            "Red": 100,
+            "IsValid": true
+          },
+          "SurfaceForegroundPatternId": {
+            "Class": "Autodesk.Revit.DB.FillPatternElement",
+            "Category": "",
+            "Name": "Golden_Diagonal_Crosshatch",
+            "Aliases": null,
+            "Id": 0,
+            "UniqueId": null
+          },
+          "ProjectionLineColor": {
+            "Blue": 0,
+            "Green": 0,
+            "Red": 0,
+            "IsValid": false
+          },
+          "ProjectionLinePatternId": {
+            "Class": "Autodesk.Revit.DB.LinePatternElement",
+            "Category": "",
+            "Name": "Solid",
+            "Aliases": null,
+            "Id": -3000010,
+            "UniqueId": null
+          },
+          "ProjectionLineWeight": -1,
+          "IsCutBackgroundPatternVisible": true,
+          "CutBackgroundPatternColor": {
+            "Blue": 0,
+            "Green": 0,
+            "Red": 0,
+            "IsValid": false
+          },
+          "CutBackgroundPatternId": {
+            "Class": "",
+            "Category": "",
+            "Name": "",
+            "Aliases": null,
+            "Id": -1,
+            "UniqueId": null
+          },
+          "IsCutForegroundPatternVisible": true,
+          "CutForegroundPatternColor": {
+            "Blue": 0,
+            "Green": 0,
+            "Red": 0,
+            "IsValid": false
+          },
+          "CutForegroundPatternId": {
+            "Class": "",
+            "Category": "",
+            "Name": "",
+            "Aliases": null,
+            "Id": -1,
+            "UniqueId": null
+          },
+          "CutLineColor": {
+            "Blue": 0,
+            "Green": 0,
+            "Red": 0,
+            "IsValid": false
+          },
+          "CutLinePatternId": {
+            "Class": "Autodesk.Revit.DB.LinePatternElement",
+            "Category": "",
+            "Name": "Solid",
+            "Aliases": null,
+            "Id": -3000010,
+            "UniqueId": null
+          },
+          "CutLineWeight": -1,
+          "Transparency": 0,
+          "Halftone": false,
+          "DetailLevel": {
+            "Type": "Autodesk.Revit.DB.ViewDetailLevel",
+            "Value": "Undefined"
+          }
+        }
+      ],
+      "CategoryGraphicOverrides": [
+        {
+          "Category": {
+            "Name": "Walls",
+            "Id": -2000011
+          },
+          "ParentCategory": null,
+          "IsHidden": false,
+          "GraphicOverride": null
+        }
+      ],
+      "LevelId": {
+        "Class": "Autodesk.Revit.DB.Level",
+        "Category": "Levels",
+        "Name": "Level 1",
+        "Aliases": null,
+        "Id": 0,
+        "UniqueId": null
+      },
+      "ViewFamilyTypeId": {
+        "Class": "Autodesk.Revit.DB.ViewFamilyType",
+        "Category": "",
+        "Name": "Floor Plan",
+        "Aliases": null,
+        "Id": 0,
+        "UniqueId": null
+      },
+      "CropBox": {
+        "Min": {
+          "X": -50.0,
+          "Y": -50.0,
+          "Z": -10.0,
+          "IsValid": true
+        },
+        "Max": {
+          "X": 50.0,
+          "Y": 50.0,
+          "Z": 10.0,
+          "IsValid": true
+        },
+        "Transform": {
+          "Origin": {
+            "X": 0.0,
+            "Y": 0.0,
+            "Z": 0.0,
+            "IsValid": true
+          },
+          "BasisX": {
+            "X": 1.0,
+            "Y": 0.0,
+            "Z": 0.0,
+            "IsValid": true
+          },
+          "BasisY": {
+            "X": 0.0,
+            "Y": 1.0,
+            "Z": 0.0,
+            "IsValid": true
+          },
+          "BasisZ": {
+            "X": 0.0,
+            "Y": 0.0,
+            "Z": 1.0,
+            "IsValid": true
+          }
+        },
+        "IsValid": true
+      },
+      "ScopeBoxId": null,
+      "CropBoxActive": true,
+      "CropBoxVisible": true,
+      "AnnotationCropActive": false,
+      "FarClipSettings": 0,
+      "FarClipOffset": 10.0,
+      "PartsVisibility": {
+        "Type": "Autodesk.Revit.DB.PartsVisibility",
+        "Value": "ShowPartsOnly"
+      },
+      "Class": "Autodesk.Revit.DB.ViewPlan",
+      "Category": "Views",
+      "Name": "Golden_Floor_Plan",
+      "Aliases": null,
+      "Id": 0,
+      "UniqueId": null,
+      "Parameters": [],
+      "InstanceCount": 0,
+      "Location": null,
+      "BoundingBox": null,
+      "NestedTypes": []
+    }
+  }
+}
