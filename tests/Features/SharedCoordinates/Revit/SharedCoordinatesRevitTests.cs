@@ -541,19 +541,38 @@ namespace SyntheticTests.Features.SharedCoordinates
             ElementId linkTypeId = ElementId.InvalidElementId;
             RevitLinkInstance inst1 = null!;
 
-            // 1. Place Instance 1, acquire coordinates (GEO_LOCATION -> singleSiteName), and displace it in-memory.
-            hostDoc.ExecuteTransaction("Acquire Coordinates And Displace Instance 1", FailurePipelines.DeleteAllWarningsRecorded(), () =>
+            // 1. Place Instance 1 at origin and acquire coordinates (GEO_LOCATION -> singleSiteName) without modifying the link in-memory.
+            hostDoc.ExecuteTransaction("Acquire Coordinates For Instance 1", FailurePipelines.ObserveOnly(), () =>
             {
                 linkTypeId = LoadLinkType(hostDoc, unitPath);
                 inst1 = RevitLinkInstance.Create(hostDoc, linkTypeId);
                 hostDoc.AcquireCoordinates(inst1.Id);
-                ElementTransformUtils.MoveElement(hostDoc, inst1.Id, new XYZ(10.0, 0.0, 0.0));
             });
 
-            // Reload without saving back in-memory link-site changes so inst1 stays displaced at (10,0,0) with GEO_LOCATION assigned.
+            // Per ADR 023: updating the link's site on disk and reloading leaves inst1 at its prior placement -> OutOfSync with GEO_LOCATION assigned.
             RevitLinkType? linkType = hostDoc.GetElement(linkTypeId) as RevitLinkType;
             Assert.IsNotNull(linkType);
             linkType!.Unload(null);
+
+            Document modifiedUnitDoc = App.OpenDocumentFile(unitPath);
+            try
+            {
+                modifiedUnitDoc.ExecuteTransaction("Shift Unit Shared Site On Disk", FailurePipelines.ObserveOnly(), () =>
+                {
+                    modifiedUnitDoc.ActiveProjectLocation.SetProjectPosition(
+                        XYZ.Zero,
+                        CreateProjectPosition(modifiedUnitDoc, 100.0, 200.0, 50.0, 0.0));
+                });
+                modifiedUnitDoc.Save();
+            }
+            finally
+            {
+                if (modifiedUnitDoc.IsValidObject)
+                {
+                    modifiedUnitDoc.Close(false);
+                }
+            }
+
             LinkLoadResult reloadResult = linkType.Reload();
             Assert.AreEqual(LinkLoadResultType.LinkLoaded, reloadResult.LoadResult);
 
