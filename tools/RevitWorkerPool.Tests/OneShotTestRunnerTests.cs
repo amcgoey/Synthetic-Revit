@@ -18,6 +18,31 @@ public class OneShotTestRunnerTests
     private string _tempRoot = string.Empty;
     private string _fakeAssemblyPath = string.Empty;
     private RevitInstallationDiscovery _discovery = null!;
+    private static readonly byte[] CompiledRunnerTestDllBytes = TestAssemblyCompiler.CompileToBytes(
+        "Synthetic.RevitTests.2026",
+        """
+        using NUnit.Framework;
+
+        namespace SyntheticTests.Platform.Host
+        {
+            [TestFixture]
+            public class BootstrapWorkerIsolationRevitTests
+            {
+                [Test]
+                public void SmokeTest() { }
+            }
+        }
+
+        namespace Ns
+        {
+            [TestFixture]
+            public class FailingFixture
+            {
+                [Test]
+                public void Boom() { }
+            }
+        }
+        """);
 
     [SetUp]
     public void SetUp()
@@ -31,7 +56,7 @@ public class OneShotTestRunnerTests
         File.WriteAllText(Path.Combine(revit2026Dir, "Revit.exe"), string.Empty);
 
         _fakeAssemblyPath = Path.Combine(_tempRoot, "Synthetic.RevitTests.2026.dll");
-        File.WriteAllText(_fakeAssemblyPath, string.Empty);
+        File.WriteAllBytes(_fakeAssemblyPath, CompiledRunnerTestDllBytes);
 
         _discovery = new RevitInstallationDiscovery(
             () => new[] { Path.Combine(_tempRoot, "Autodesk") },
@@ -119,7 +144,9 @@ public class OneShotTestRunnerTests
 
         var workerRecord = launcher.Workers.Single();
         Assert.That(workerRecord.IsTerminated, Is.True, "Worker must be terminated immediately upon run completion.");
-        Assert.That(workerRecord.Server.ReceivedRequests.Single().TestFilters, Is.EqualTo(new[] { "*BootstrapWorkerIsolationRevitTests*" }));
+        Assert.That(
+            workerRecord.Server.ReceivedRequests.Single().TestFilters,
+            Is.EqualTo(new[] { "SyntheticTests.Platform.Host.BootstrapWorkerIsolationRevitTests.SmokeTest.*" }));
     }
 
     [Test]
@@ -205,7 +232,10 @@ public class OneShotTestRunnerTests
         Assert.That(zeroResult.ExitCode, Is.EqualTo(0));
         Assert.That(zeroResult.ZeroMatches, Is.True);
         Assert.That(zeroResult.TotalTests, Is.EqualTo(0));
-        Assert.That(zeroLauncher.Workers.Single().IsTerminated, Is.True);
+        Assert.That(zeroResult.WorkerIds, Is.Empty);
+        Assert.That(zeroResult.ShardCount, Is.EqualTo(0));
+        Assert.That(File.Exists(zeroTrx), Is.True);
+        Assert.That(zeroLauncher.Workers, Is.Empty, "Zero-match pre-discovery must short-circuit without launching a worker.");
 
         using var failLauncher = new StubWorkerProcessLauncher((server, _) =>
         {

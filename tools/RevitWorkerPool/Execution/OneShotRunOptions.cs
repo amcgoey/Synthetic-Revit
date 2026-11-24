@@ -16,6 +16,8 @@ public sealed class OneShotRunOptions
 
     public IReadOnlyList<string> Filters { get; init; } = Array.Empty<string>();
 
+    public string? Category { get; init; }
+
     public TimeSpan BootTimeout { get; init; } = TimeSpan.FromSeconds(120);
 
     public TimeSpan ExecutionTimeout { get; init; } = TimeSpan.FromSeconds(600);

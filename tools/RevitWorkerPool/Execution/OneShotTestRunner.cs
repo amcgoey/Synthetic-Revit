@@ -77,14 +77,80 @@ public sealed class OneShotTestRunner
             : options.WorkerId.Trim();
 
         string projectRoot = ResolveProjectRoot(options.ProjectRoot, fullAssemblyPath);
-        string[] normalizedFilters = NormalizeTestFilters(options.Filters);
+        DateTimeOffset runStart = DateTimeOffset.UtcNow;
+
+        bool hasFilter = options.Filters.Any(f => !string.IsNullOrWhiteSpace(f));
+        bool hasCategory = !string.IsNullOrWhiteSpace(options.Category);
+        string[] resolvedFilters;
+
+        if (hasFilter || hasCategory)
+        {
+            TestDiscoveryResult discoveryResult;
+            try
+            {
+                discoveryResult = Ecma335TestDiscovery.DiscoverAndFilter(
+                    fullAssemblyPath,
+                    options.Filters,
+                    options.Category);
+            }
+            catch (Exception ex)
+            {
+                return FailureResult(
+                    options.RevitVersion,
+                    fullTrxPath,
+                    Array.Empty<string>(),
+                    $"Failed to inspect test assembly metadata '{fullAssemblyPath}': {ex.Message}",
+                    shimEnabled: _launcher.UsesCleanShim);
+            }
+
+            if (!discoveryResult.HasMatches)
+            {
+                TrxSummary emptySummary = TrxWriter.Write(
+                    fullTrxPath,
+                    fullAssemblyPath,
+                    assemblyModel: null,
+                    streamedTests: null,
+                    startTime: runStart,
+                    finishTime: DateTimeOffset.UtcNow);
+
+                Log(
+                    $"[runner] 0 matching tests discovered in '{fullAssemblyPath}' " +
+                    $"(category='{options.Category ?? string.Empty}', filters={options.Filters.Count}); " +
+                    $"skipping worker launch and wrote empty TRX '{emptySummary.TrxPath}'.");
+
+                return new OneShotRunResult
+                {
+                    Success = true,
+                    ExitCode = 0,
+                    Version = options.RevitVersion,
+                    TrxPath = emptySummary.TrxPath,
+                    WorkerIds = Array.Empty<string>(),
+                    ShardCount = 0,
+                    TotalTests = 0,
+                    PassedTests = 0,
+                    FailedTests = 0,
+                    SkippedTests = 0,
+                    ZeroMatches = true,
+                    ShimEnabled = false,
+                    Error = null
+                };
+            }
+
+            resolvedFilters = discoveryResult.RicaunTestFilters.ToArray();
+            Log(
+                $"[runner] ECMA-335 discovery matched {discoveryResult.TestFullNames.Count} test(s) " +
+                $"across {discoveryResult.Fixtures.Count} fixture(s).");
+        }
+        else
+        {
+            resolvedFilters = Array.Empty<string>();
+        }
 
         Log($"[runner] Starting one-shot run: version={options.RevitVersion}, workerId={workerId}, exe='{installation.ExecutablePath}'");
 
         IDisposable? bundleLease = null;
         LaunchedWorkerProcess? worker = null;
         IPipeTestClient? pipeClient = null;
-        DateTimeOffset runStart = DateTimeOffset.UtcNow;
 
         try
         {
@@ -133,7 +199,7 @@ public sealed class OneShotTestRunner
             var testRequest = new TestRequest
             {
                 TestPathFile = fullAssemblyPath,
-                TestFilters = normalizedFilters,
+                TestFilters = resolvedFilters,
                 Info = $"WorkerId={worker.WorkerId}"
             };
 
