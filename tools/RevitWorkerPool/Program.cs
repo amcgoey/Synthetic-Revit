@@ -9,6 +9,7 @@ using RevitWorkerPool.Discovery;
 using RevitWorkerPool.Execution;
 using RevitWorkerPool.Launching;
 using RevitWorkerPool.Pipe;
+using RevitWorkerPool.Windowing;
 
 namespace RevitWorkerPool;
 
@@ -75,7 +76,8 @@ public static class Program
             : null;
 
         RevitInstallationDiscovery discovery = discoveryOverride ?? new RevitInstallationDiscovery();
-        IWorkerProcessLauncher? launcher = null;
+        IWorkerProcessLauncher? baseLauncher = null;
+        OffScreenWindowingLauncher? windowingLauncher = null;
 
         using var cts = new CancellationTokenSource();
         ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
@@ -87,14 +89,21 @@ public static class Program
 
         try
         {
-            launcher = launcherFactory is not null
+            baseLauncher = launcherFactory is not null
                 ? launcherFactory(options)
                 : CreateWorkerLauncher(options.NoShim);
+
+            IWorkerProcessLauncher effectiveLauncher = baseLauncher;
+            if (OperatingSystem.IsWindows() && baseLauncher is not OffScreenWindowingLauncher)
+            {
+                windowingLauncher = new OffScreenWindowingLauncher(baseLauncher, logger);
+                effectiveLauncher = windowingLauncher;
+            }
 
             var clientFactory = new DiagnosticPipeClientFactory(logger);
             var runner = new OneShotTestRunner(
                 discovery,
-                launcher,
+                effectiveLauncher,
                 clientFactory,
                 diagnosticLogger: logger);
 
@@ -129,7 +138,7 @@ public static class Program
                     ExitCode = 2,
                     Version = options.RevitVersion,
                     TrxPath = options.TrxPath,
-                    ShimEnabled = launcher?.UsesCleanShim ?? ShouldUseCleanShim(options.NoShim),
+                    ShimEnabled = baseLauncher?.UsesCleanShim ?? ShouldUseCleanShim(options.NoShim),
                     Error = ex.Message
                 };
                 outWriter.WriteLine(JsonConvert.SerializeObject(errorResult, Formatting.None));
@@ -144,6 +153,7 @@ public static class Program
         finally
         {
             Console.CancelKeyPress -= cancelHandler;
+            windowingLauncher?.Dispose();
         }
     }
 

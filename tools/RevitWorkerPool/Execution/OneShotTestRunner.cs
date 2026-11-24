@@ -9,6 +9,8 @@ using RevitWorkerPool.Discovery;
 using RevitWorkerPool.Launching;
 using RevitWorkerPool.Pipe;
 using RevitWorkerPool.Reporting;
+using RevitWorkerPool.Startup;
+using RevitWorkerPool.Windowing;
 
 namespace RevitWorkerPool.Execution;
 
@@ -23,19 +25,22 @@ public sealed class OneShotTestRunner
     private readonly IPipeTestClientFactory _pipeClientFactory;
     private readonly Func<string, IDisposable> _bundleLeaseFactory;
     private readonly Action<string>? _diagnosticLogger;
+    private readonly StartupBootProtector? _startupProtector;
 
     public OneShotTestRunner(
         RevitInstallationDiscovery discovery,
         IWorkerProcessLauncher launcher,
         IPipeTestClientFactory pipeClientFactory,
         Func<string, IDisposable>? bundleLeaseFactory = null,
-        Action<string>? diagnosticLogger = null)
+        Action<string>? diagnosticLogger = null,
+        StartupBootProtector? startupProtector = null)
     {
         _discovery = discovery ?? throw new ArgumentNullException(nameof(discovery));
         _launcher = launcher ?? throw new ArgumentNullException(nameof(launcher));
         _pipeClientFactory = pipeClientFactory ?? throw new ArgumentNullException(nameof(pipeClientFactory));
         _bundleLeaseFactory = bundleLeaseFactory ?? DefaultAcquireBundleLease;
         _diagnosticLogger = diagnosticLogger;
+        _startupProtector = startupProtector;
     }
 
     public async Task<OneShotRunResult> RunAsync(
@@ -95,13 +100,35 @@ public sealed class OneShotTestRunner
                 ProjectRoot = projectRoot
             };
 
-            worker = await _launcher.LaunchAsync(launchRequest, cancellationToken).ConfigureAwait(false);
-            Log($"[runner] Launched worker PID={worker.ProcessId}, pipe='{worker.PipeName}'.");
+            StartupBootProtector? protector = ResolveStartupBootProtector();
+            if (protector is not null && OperatingSystem.IsWindows())
+            {
+                ProtectedWorkerBootOptions bootOptions = protector.DefaultOptions with
+                {
+                    BootTimeout = options.BootTimeout
+                };
 
-            pipeClient = _pipeClientFactory.CreateClient(worker);
-            await pipeClient.ConnectAndWaitForReadyAsync(worker, options.BootTimeout, cancellationToken)
-                .ConfigureAwait(false);
-            Log($"[runner] Worker PID={worker.ProcessId} reported IsBusy=false (ready).");
+                ProtectedWorkerBootResult bootResult = await protector.BootWorkerWithStartupProtectionAsync(
+                    _launcher,
+                    _pipeClientFactory,
+                    launchRequest,
+                    bootOptions,
+                    cancellationToken).ConfigureAwait(false);
+
+                worker = bootResult.Worker;
+                pipeClient = bootResult.PipeClient;
+                Log($"[runner] Worker PID={worker.ProcessId} reported IsBusy=false (ready, attempts={bootResult.AttemptsUsed}).");
+            }
+            else
+            {
+                worker = await _launcher.LaunchAsync(launchRequest, cancellationToken).ConfigureAwait(false);
+                Log($"[runner] Launched worker PID={worker.ProcessId}, pipe='{worker.PipeName}'.");
+
+                pipeClient = _pipeClientFactory.CreateClient(worker);
+                await pipeClient.ConnectAndWaitForReadyAsync(worker, options.BootTimeout, cancellationToken)
+                    .ConfigureAwait(false);
+                Log($"[runner] Worker PID={worker.ProcessId} reported IsBusy=false (ready).");
+            }
 
             var testRequest = new TestRequest
             {
@@ -160,6 +187,15 @@ public sealed class OneShotTestRunner
                 ex.Message,
                 shimEnabled: _launcher.UsesCleanShim,
                 exitCode: 2);
+        }
+        catch (StartupModalDetectedException ex)
+        {
+            return FailureResult(
+                options.RevitVersion,
+                fullTrxPath,
+                ex.AbortedWorkerIds.Count > 0 ? ex.AbortedWorkerIds : new[] { workerId },
+                ex.Message,
+                shimEnabled: _launcher.UsesCleanShim);
         }
         catch (Exception ex)
         {
@@ -275,6 +311,32 @@ public sealed class OneShotTestRunner
             ShimEnabled = shimEnabled,
             Error = error
         };
+    }
+
+    private StartupBootProtector? ResolveStartupBootProtector()
+    {
+        if (_startupProtector is not null)
+        {
+            return _startupProtector;
+        }
+
+        if (OperatingSystem.IsWindows() && IsUnshimmedProductionLauncher(_launcher))
+        {
+            return new StartupBootProtector(diagnosticLogger: _diagnosticLogger);
+        }
+
+        return null;
+    }
+
+    private static bool IsUnshimmedProductionLauncher(IWorkerProcessLauncher launcher)
+    {
+        IWorkerProcessLauncher current = launcher;
+        while (OperatingSystem.IsWindows() && current is OffScreenWindowingLauncher windowing)
+        {
+            current = windowing.InnerLauncher;
+        }
+
+        return current is StandardProcessLauncher;
     }
 
     private void Log(string message)
