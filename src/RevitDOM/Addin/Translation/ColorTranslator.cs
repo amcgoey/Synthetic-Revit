@@ -4,7 +4,6 @@ using Color = Autodesk.Revit.DB.Color;
 
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
-using Synthetic.RevitDOM.Operations;
 
 namespace Synthetic.RevitDOM.Translation
 {
