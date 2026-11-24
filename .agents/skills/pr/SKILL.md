@@ -63,21 +63,19 @@ ExecuteCommand
 - Show UI structure as a component tree, including state and module boundaries that matter:
 
 ```text
-<MainWindowView> (SyntheticShared/UI/Views/MainWindowView.xaml)
-  DataContext: MainWindowViewModel
+<ExampleWindow> (src/Features/Example/Addin/Views/ExampleWindow.xaml)
+  DataContext: ExampleViewModel
   <DockPanel>
-    <RibbonControl>
-      <AsyncRelayCommandButton Content="Run Analysis" />
-    <DataGrid ItemsSource="{Binding ElementItems}" />
+    <Button Content="Run Analysis" Command="{Binding RunCommand}" />
+    <DataGrid ItemsSource="{Binding Items}" />
 ```
 
 - Show file responsibility or a broad refactor as a shallow file tree:
 
 ```text
-SyntheticShared/
-├── Commands/       # owns Revit ExternalCommand entrypoints
-├── Logic/          # owns headless domain logic & RevitDOM POCOs
-└── UI/             # owns WPF Views and MVVM ViewModels
+src/Features/Example/
+├── Core/             # pure ViewModels, models, services, and IExampleAdapter
+└── Addin/            # commands, RevitExampleAdapter, and WPF .xaml views
 ```
 
 - Show component interaction, control flow, or data flow with Mermaid:
@@ -90,7 +88,7 @@ sequenceDiagram
     participant Doc as Revit DB Document
     User->>Ribbon: click command button
     Ribbon->>Handler: raise ExternalEvent
-    Handler->>Doc: execute inside Transaction
+    Handler->>Doc: ExecuteTransaction with FailurePipelines
     Doc-->>Handler: commit changes
     Handler-->>Ribbon: update ViewModel status
 ```
@@ -100,25 +98,27 @@ sequenceDiagram
 For a component change:
 
 ```diff
- <MainWindowView>
+ <ExampleWindow>
    <DockPanel>
-     <RibbonControl>
-+      <AsyncRelayCommandButton Content="Export Data" />
-     <DataGrid ItemsSource="{Binding ElementItems}">
+     <StackPanel>
++      <Button Content="Export Data" />
+     <DataGrid ItemsSource="{Binding Items}">
 +      <DataGridTextColumn Header="Category" Binding="{Binding CategoryName}" />
 ```
 
 For a file-layout change:
 
 ```diff
- SyntheticShared/
- ├── Commands/
-+│   └── ExportParametersCommand.cs
- ├── Logic/
+ src/Features/Example/
+ ├── Core/
++│   └── Services/
++│       └── ExportEngine.cs
 -└── OldExportService.cs
-+└── Export/
-+    ├── IExportEngine.cs
-+    └── CsvExportEngine.cs
+ └── Addin/
+     ├── Commands/
++    │   └── CmdExportExample.cs
+     └── Adapters/
++        └── RevitExampleAdapter.cs
 ```
 
 For a call-tree or call-stack change:
@@ -166,10 +166,10 @@ Concrete evidence that the change works. Show a before and after.
 
 Screenshots are S-tier when the environment is set up for it and the change is visual (WPF windows, ribbon controls, themes).
 
-Execution-based evidence is A-tier: test results from `python .agents/skills/revit-tests/scripts/test_executor.py` (`--version Logic` or across multi-version runs `--version 2022 2023 2024 2025 2026 Logic`), or console/telemetry output. Show the exact test that now fails and passes.
+Execution-based evidence is A-tier: test results from `python .agents/skills/revit-tests/scripts/test_executor.py` (`--version Logic`, `--version 2026`, or omitting `--version` to run `Logic` plus all supported **Revit Versions** `2023–2026`), or `--assert-clean` journal telemetry output. Show the exact test that now fails and passes.
 
 ### Merge Danger
 
 Describe whether it's a one-way or two-way door. You can walk back through two-way doors, but not one-way doors. A PR that is cheap to roll back is lower risk. Changes that involve destructive actions, hard-to-reverse decisions, or Extensible Storage schema modifications (persisted schemas in `.rvt` project files cannot be undone easily) are one-way doors.
 
-The blast radius is the potential impact or scope of the changes introduced by this PR. Consider all possibilities: multi-version compatibility across Revit 2022–2026, preprocessor divergence (`#if REVIT_2024_OR_GREATER`), breaking changes in shared assemblies (`SyntheticShared`), or UI theme shifts.
+The blast radius is the potential impact or scope of the changes introduced by this PR. Consider all possibilities: multi-version compatibility across Revit `2023–2026` (`#if REVIT2023` / `#elif REVIT2024` vs. `CURRENT_LATEST_VERSION` in `#else`), `net48` vs. `net8.0-windows8.0` compatibility in `Synthetic.Core`, breaking changes across `Core/`/`Addin/` seams or **RevitDOM**, or `SyntheticThemeDictionary` UI theme shifts.

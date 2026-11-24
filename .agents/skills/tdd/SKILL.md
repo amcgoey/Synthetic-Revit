@@ -7,7 +7,7 @@ description: Test-driven development. Use when the user wants to build features 
 
 TDD is the red → green loop. This skill is the reference that makes that loop produce tests worth keeping: what a good test is, where tests go, the anti-patterns, and the rules of the loop. Every section applies on every cycle: consult them before and during the loop, not after.
 
-When exploring the codebase, read [`GLOSSARY.md`](../../../GLOSSARY.md) (if it exists) so test names and interface vocabulary match the project's domain language, and respect ADRs in `docs/adrs/` in the area you're touching.
+When exploring the codebase, read [`GLOSSARY.md`](../../../GLOSSARY.md) so test names and interface vocabulary match the project's domain language, and respect ADRs in [`docs/adrs/`](../../../docs/adrs/) and rules in [`CODING_STANDARDS.md`](../../../CODING_STANDARDS.md).
 
 ## What a good test is
 
@@ -29,15 +29,15 @@ When the shape of that interface is itself in question (how deep the module is, 
 
 In this Revit Add-in, execute tests in the 3-step sequence defined in [`revit-tests`](../revit-tests/SKILL.md):
 
-1. **Step 1 (Headless Logic Loop):** Fast red-green loop running NUnit tests headlessly against `RevitDOM` POCOs without launching Revit. Iterate until green.
+1. **Step 1 (Headless Logic Loop):** Fast red-green loop running **Logic Tests** ([`Synthetic.LogicTests`](../../../tests/Projects/Synthetic.LogicTests/Synthetic.LogicTests.csproj) across `net48` and `net8.0-windows8.0` plus quarantined `Synthetic.LegacyMockTests`) against `Core/` modules, `Fake<Slice>Adapter` doubles, **RevitDOM** POCOs, and **Architecture Fitness Tests**. Iterate until green.
    ```powershell
    python .agents/skills/revit-tests/scripts/test_executor.py --version Logic
    ```
-2. **Step 2 (Latest Revit Loop):** Verify Revit database operations and translators against real `Document` fixtures in the active latest version (`CURRENT_LATEST_VERSION` in `docs/agents/revit-config.md`, e.g. 2026). Iterate until green.
+2. **Step 2 (Latest Revit Loop):** Verify `Revit<Slice>Adapter` implementations, transactions, and **RevitDOM** translators against live `Document` fixtures in `CURRENT_LATEST_VERSION` ([`revit-config.md`](../../../docs/agents/revit-config.md), e.g. `2026`). Iterate until green.
    ```powershell
    python .agents/skills/revit-tests/scripts/test_executor.py --version 2026
    ```
-3. **Step 3 (Multi-Version Validation):** Once the feature or fix is complete, run tests across all supported Revit versions (2022–2026) to catch cross-version API discrepancies (`revit-multi-versions`).
+3. **Step 3 (Multi-Version Validation):** Once the feature or fix is complete, omit `--version` to execute `Logic` plus all supported **Revit Versions** (`2023–2026`) with automatic `--assert-clean` journal gating ([`revit-multi-versions`](../revit-multi-versions/SKILL.md)).
    ```powershell
    python .agents/skills/revit-tests/scripts/test_executor.py
    ```

@@ -11,8 +11,8 @@ A prototype is **throwaway code that answers a question**. The question decides 
 
 Identify which question is being answered, using the user's prompt, the surrounding code, or by asking if the user is around:
 
-- **"Does this logic / state model feel right?"** → [LOGIC.md](LOGIC.md). Build a single shareable HTML file (free-play buttons plus tabbed guided walkthroughs) that pushes the state machine through cases that are hard to reason about on paper, or a tiny C# console / headless NUnit harness when the prototype must call existing `RevitDOM` C# types directly.
-- **"What should this look like?"** → [UI.md](UI.md). Generate several radically different UI variations: either rapid HTML/CSS/JS mockups switchable via a `?variant=` param and floating bar, or WPF/XAML variant views adhering to `docs/Synthetic_UI_Theme_Specification.md`.
+- **"Does this logic / state model feel right?"** → [LOGIC.md](LOGIC.md). Build a single shareable HTML file (free-play buttons plus tabbed guided walkthroughs) that pushes the state machine through cases that are hard to reason about on paper, or a tiny headless NUnit harness in `Synthetic.LogicTests` when the prototype must call existing `Core/` or **RevitDOM** C# types directly.
+- **"What should this look like?"** → [UI.md](UI.md). Generate several radically different UI variations: either rapid HTML/CSS/JS mockups switchable via a `?variant=` param and floating bar, or WPF/XAML variant views in `Addin/Views/` adhering to [`docs/Synthetic_UI_Theme_Specification.md`](../../../docs/Synthetic_UI_Theme_Specification.md).
 
 The two branches produce very different artifacts, so getting this wrong wastes the whole prototype. If the question is genuinely ambiguous and the user isn't reachable, default to whichever branch better matches the surrounding code (a backend/logic module → logic; a WPF window or component → UI) and state the assumption at the top of the prototype.
 

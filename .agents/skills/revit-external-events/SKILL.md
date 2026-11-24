@@ -5,52 +5,48 @@ description: Modeless context patterns for external events. Use when writing cod
 
 # Revit Modeless External Events Playbook (`revit-external-events`)
 
-Use this playbook to safely execute Revit API modifications from a modeless context (such as WPF windows, async tasks, or background threads) without triggering cross-thread exceptions.
+Safely execute Revit API modifications from modeless WPF windows and toast notifications under the current window-scoped single-instance `ExternalEvent` contract ([CODING_STANDARDS.md](../../../CODING_STANDARDS.md), [ADR 0027](../../../docs/adrs/0027-tiered-vertical-slice-architecture-and-seam-cqs.md); `ICoalescedRevitDispatcher<TAdapter>` replaces direct handler injection in Spec 5).
 
-## 1. The Dedicated Handler Pattern
+## 1. Window-Scoped Single-Instance `ExternalEvent` Contract
 
-All modeless Revit interactions must use dedicated, feature-specific implementations of `IExternalEventHandler` and `ExternalEvent`:
+Enforced by `FitnessRule.ExternalEventAndDialogPurity` ([ADR 0029](../../../docs/adrs/0029-isomorphic-test-mirror-and-architecture-fitness-guardrails.md)): keep `ExternalEvent.Create(handler)` at the `IExternalCommand.Execute` (or [`App.OnDocumentOpen`](../../../src/Platform/Host/Addin/App.cs)) entry point—never inside `ViewModels/` and never as a `static ExternalEvent` field.
 
-* **Single-Instance Lifetime:** Instantiate the `ExternalEvent` exactly once (e.g. during the WPF View Model's initialization) using `ExternalEvent.Create(handler)`. Keep the event instance alive as a private class field, and dispose of it when the UI window closes.
-* **Thread-Safe Data Handoff:** Transfer inputs from the UI thread to the handler by updating public properties on the handler class before calling `.Raise()`.
+* **Command-Owned Session Lifecycle:** As exemplified in [`CmdProjectStandards.cs`](../../../src/Features/StandardsManagement/Addin/Commands/CmdProjectStandards.cs), `IExternalCommand.Execute` tracks one `_windowInstance` (`Focus()` if `IsLoaded`, cleared on `Closed`), instantiates one `IExternalEventHandler` + `ExternalEvent.Create(handler)` per session, injects both into the window/ViewModel, and disposes the `ExternalEvent` when the session ends.
+* **Modal Alternative:** For modal workflows (`ShowDialog()`), run synchronously inside `IExternalCommand.Execute` with [`ProgressCoordinator`](../../../src/Platform/UI/Addin/ProgressCoordinator.cs) instead of creating an `ExternalEvent`.
 
 ## 2. Gating and UI Synchronization
 
-To prevent duplicate runs, race conditions, or Revit UI lockups from multiple rapid user clicks:
-
-1. **Disable UI:** Immediately disable the triggering buttons/controls in the WPF UI before calling `externalEvent.Raise()`.
-2. **Execution Gating:** The handler must check an internal `IsRunning` boolean flag at the start of `Execute()` to immediately discard duplicate event dispatches.
-3. **Completion Dispatch Callback:** Ensure that a `finally` block in the handler dispatches a notification back to the UI thread (via the WPF Dispatcher) to clear the busy state and re-enable the UI controls:
+1. **Mark Busy & Check `Raise()` Result:** Set UI busy state before calling `externalEvent.Raise()`, and clear busy state immediately if `Raise()` returns `ExternalEventRequest.Denied` or `ExternalEventRequest.TimedOut`.
+2. **Execution Gating:** Guard `Execute(UIApplication app)` with an `IsRunning` flag to drop duplicate turns.
+3. **Dispatcher Callback & Zero Handler Dialogs:** Marshal completion back via WPF `Dispatcher.Invoke` in `finally`, returning **Typed Outcome Objects** rather than calling `TaskDialog.Show` or `MessageBox.Show` inside handlers or ViewModels (`FitnessRule.ExternalEventAndDialogPurity`):
 
 ```csharp
 public void Execute(UIApplication app)
 {
-    if (IsRunning) return;
-    IsRunning = true;
+    if (_isRunning) return;
+    _isRunning = true;
 
     try
     {
-        // Revit API operations...
-    }
-    catch (Exception ex)
-    {
-        LogException(ex);
+        Document? doc = app.ActiveUIDocument?.Document;
+        if (doc == null) return;
+
+        doc.ExecuteTransaction(
+            "Apply Modeless Update",
+            FailurePipelines.ObserveOnly(),
+            () => ApplyUpdate(doc));
     }
     finally
     {
-        IsRunning = false;
-        // Dispatch UI update back to the main WPF thread
-        System.Windows.Application.Current.Dispatcher.Invoke(() =>
+        _isRunning = false;
+        System.Windows.Application.Current?.Dispatcher.Invoke(() =>
         {
-            _viewModel.OnExecutionCompleted();
+            _onCompleted();
         });
     }
 }
 ```
 
-## 3. Explicit Transaction Handling
+## 3. Managed Transactions & Failure Handling
 
-Revit does **not** wrap external event executions in automatic transactions. You must explicitly instantiate and manage transactions inside the handler's `Execute` method:
-
-* Wrap database changes in a `Transaction` or `TransactionGroup` using standard `using` blocks.
-* Follow the transaction playbooks for error logging, rollback safety, and transaction group assimilation.
+Revit does **not** wrap external event callbacks in automatic transactions. Route every database write inside `IExternalEventHandler.Execute` through [`DocumentTransactionExtensions`](../../../src/Platform/Revit/Addin/DocumentTransactionExtensions.cs) (`ExecuteTransaction`, `ExecuteCommittedBatchGroup`, `ExecuteRolledBackGroup`) with an explicit [`FailurePipelines`](../../../src/Platform/Revit/Addin/FailurePipelines.cs) preprocessor per [`revit-transactions`](../revit-transactions/SKILL.md) and [`revit-failure-handling`](../revit-failure-handling/SKILL.md).
