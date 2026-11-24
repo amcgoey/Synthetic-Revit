@@ -8,6 +8,7 @@ using NUnit.Framework;
 using Synthetic.Features.SharedCoordinates.Adapters;
 using Synthetic.Features.SharedCoordinates.Models;
 using Synthetic.Features.SharedCoordinates.ViewModels;
+using Synthetic.Platform.Revit;
 using SyntheticTests.Fixtures;
 
 namespace SyntheticTests.Features.SharedCoordinates
@@ -220,6 +221,440 @@ namespace SyntheticTests.Features.SharedCoordinates
             Assert.AreEqual(expected.BasisX.Y, actual.BasisX.Y, 1e-3, "BasisX.Y mismatch");
             Assert.AreEqual(expected.BasisY.X, actual.BasisY.X, 1e-3, "BasisY.X mismatch");
             Assert.AreEqual(expected.BasisY.Y, actual.BasisY.Y, 1e-3, "BasisY.Y mismatch");
+        }
+
+        [Test]
+        public void RevitSharedCoordinates_GetLoadedLinkedModels_GroupsByTypeIdAndOmitsUnloaded()
+        {
+            string archPath = CreateSavedUnitModel("ArchModel.rvt");
+            string structPath = CreateSavedUnitModel("StructModel.rvt");
+            string unloadedPath = CreateSavedUnitModel("UnloadedModel.rvt");
+
+            Document hostDoc = NewTrackedProjectDocument(UnitSystem.Imperial);
+            RevitLinkType? unloadedType = null;
+
+            hostDoc.ExecuteTransaction("Load Multiple Link Types", FailurePipelines.ObserveOnly(), () =>
+            {
+                ElementId archTypeId = LoadLinkType(hostDoc, archPath);
+                RevitLinkInstance.Create(hostDoc, archTypeId);
+                RevitLinkInstance.Create(hostDoc, archTypeId);
+
+                ElementId structTypeId = LoadLinkType(hostDoc, structPath);
+                RevitLinkInstance.Create(hostDoc, structTypeId);
+
+                ElementId unloadedTypeId = LoadLinkType(hostDoc, unloadedPath);
+                RevitLinkInstance.Create(hostDoc, unloadedTypeId);
+                unloadedType = hostDoc.GetElement(unloadedTypeId) as RevitLinkType;
+            });
+
+            Assert.IsNotNull(unloadedType);
+            unloadedType!.Unload(null);
+
+            var adapter = new RevitSharedCoordinatesAdapter(hostDoc, null);
+            var loaded = adapter.GetLoadedLinkedModels();
+
+            Assert.AreEqual(2, loaded.Count, "Loaded models must group multiple instances per type and omit unloaded links.");
+            Assert.IsTrue(loaded.Any(m => m.Name.IndexOf("ArchModel", StringComparison.OrdinalIgnoreCase) >= 0));
+            Assert.IsTrue(loaded.Any(m => m.Name.IndexOf("StructModel", StringComparison.OrdinalIgnoreCase) >= 0));
+            Assert.IsFalse(loaded.Any(m => m.Name.IndexOf("UnloadedModel", StringComparison.OrdinalIgnoreCase) >= 0));
+        }
+
+        [Test]
+        public void RevitSharedCoordinates_GetLinkedModelLevels_CalculatesInternalAndSharedElevationsAccurately()
+        {
+            string unitPath = CreateSavedUnitModel(
+                "SharedLevelsUnit.rvt",
+                unitDoc =>
+                {
+                    unitDoc.ExecuteTransaction("Configure Shared Elevation And Levels", FailurePipelines.ObserveOnly(), () =>
+                    {
+                        ProjectLocation activeLoc = unitDoc.ActiveProjectLocation;
+                        activeLoc.SetProjectPosition(XYZ.Zero, CreateProjectPosition(unitDoc, 10.0, 20.0, 50.0, 0.0));
+
+                        Level firstLevel = new FilteredElementCollector(unitDoc)
+                            .OfClass(typeof(Level))
+                            .Cast<Level>()
+                            .OrderBy(l => l.Elevation)
+                            .First();
+                        firstLevel.Elevation = 0.0;
+                        firstLevel.Name = "Unit_Lvl_0";
+
+                        Level lvl15 = Level.Create(unitDoc, 15.0);
+                        lvl15.Name = "Unit_Lvl_15";
+                    });
+                });
+
+            Document hostDoc = NewTrackedProjectDocument(UnitSystem.Imperial);
+            RevitLinkInstance linkInst = null!;
+            hostDoc.ExecuteTransaction("Link Shared Levels Model", FailurePipelines.ObserveOnly(), () =>
+            {
+                ElementId linkTypeId = LoadLinkType(hostDoc, unitPath);
+                linkInst = RevitLinkInstance.Create(hostDoc, linkTypeId);
+            });
+
+            var adapter = new RevitSharedCoordinatesAdapter(hostDoc, null);
+            var levels = adapter.GetLinkedModelLevels(linkInst.Id.ToString());
+
+            LevelItem? lvl0 = levels.FirstOrDefault(l => l.Name == "Unit_Lvl_0");
+            LevelItem? lvl15 = levels.FirstOrDefault(l => l.Name == "Unit_Lvl_15");
+            Assert.IsNotNull(lvl0);
+            Assert.IsNotNull(lvl15);
+            Assert.AreEqual(0.0, lvl0!.Elevation, 1e-6);
+            Assert.AreEqual(50.0, lvl0.SharedElevation, 1e-6);
+            Assert.AreEqual(15.0, lvl15!.Elevation, 1e-6);
+            Assert.AreEqual(65.0, lvl15.SharedElevation, 1e-6);
+        }
+
+        [Test]
+        public void RevitSharedCoordinates_GetLinkRepositionGroups_DetectsOutOfSyncAndUnassignedInstances()
+        {
+            string unitPath = CreateSavedUnitModel(
+                "GroupCheckUnit.rvt",
+                unitDoc =>
+                {
+                    unitDoc.ExecuteTransaction("Add Shared Site", FailurePipelines.ObserveOnly(), () =>
+                    {
+                        ProjectLocation site = unitDoc.ActiveProjectLocation.Duplicate("SharedSite1");
+                        site.SetProjectPosition(XYZ.Zero, CreateProjectPosition(unitDoc, 50.0, 50.0, 10.0, 0.0));
+                    });
+                });
+
+            Document hostDoc = NewTrackedProjectDocument(UnitSystem.Imperial);
+            hostDoc.ExecuteTransaction("Place Assigned And Unassigned Instances", FailurePipelines.ObserveOnly(), () =>
+            {
+                ElementId linkTypeId = LoadLinkType(hostDoc, unitPath);
+
+                RevitLinkInstance assignedDisplaced = RevitLinkInstance.Create(hostDoc, linkTypeId);
+                SetLinkInstanceMark(assignedDisplaced, "1 : location SharedSite1");
+
+                RevitLinkInstance unassigned = RevitLinkInstance.Create(hostDoc, linkTypeId);
+                SetLinkInstanceMark(unassigned, "2");
+            });
+
+            var adapter = new RevitSharedCoordinatesAdapter(hostDoc, null);
+            var groups = adapter.GetLinkRepositionGroups();
+
+            Assert.AreEqual(1, groups.Count);
+            Assert.AreEqual(2, groups[0].TotalInstanceCount);
+            Assert.AreEqual(1, groups[0].OutOfSyncCount);
+            Assert.AreEqual(1, groups[0].UnassignedCount);
+        }
+
+        [Test]
+        public void RevitSharedCoordinates_RepositionLinks_CombinedRotationAndTranslation_ReReadsPostRotationOriginAndRestoresPinned()
+        {
+            const double trueNorthAngle = Math.PI / 3.0;
+            string unitPath = CreateSavedUnitModel(
+                "CombinedTransformUnit.rvt",
+                unitDoc =>
+                {
+                    unitDoc.ExecuteTransaction("Add Rotated And Offset Site", FailurePipelines.ObserveOnly(), () =>
+                    {
+                        ProjectLocation targetLoc = unitDoc.ActiveProjectLocation.Duplicate("Rotated_Site");
+                        targetLoc.SetProjectPosition(XYZ.Zero, CreateProjectPosition(unitDoc, 10.0, 20.0, 5.0, trueNorthAngle));
+                    });
+                });
+
+            Document hostDoc = NewTrackedProjectDocument(UnitSystem.Imperial);
+            RevitLinkInstance linkInstance = null!;
+            hostDoc.ExecuteTransaction("Place Rotated And Displaced Link", FailurePipelines.ObserveOnly(), () =>
+            {
+                hostDoc.ActiveProjectLocation.SetProjectPosition(XYZ.Zero, CreateProjectPosition(hostDoc, 0.0, 0.0, 0.0, 0.0));
+
+                ElementId linkTypeId = LoadLinkType(hostDoc, unitPath);
+                linkInstance = RevitLinkInstance.Create(hostDoc, linkTypeId);
+                SetLinkInstanceMark(linkInstance, "1 : location Rotated_Site");
+
+                ElementTransformUtils.RotateElement(
+                    hostDoc,
+                    linkInstance.Id,
+                    Line.CreateBound(XYZ.Zero, XYZ.BasisZ),
+                    -0.25);
+                ElementTransformUtils.MoveElement(hostDoc, linkInstance.Id, new XYZ(15.0, -10.0, 2.0));
+                linkInstance.Pinned = true;
+            });
+
+            var adapter = new RevitSharedCoordinatesAdapter(hostDoc, null);
+            var request = new RepositionLinksRequest
+            {
+                SelectedTypeIds = new List<string> { linkInstance.GetTypeId().ToString() }
+            };
+
+            var summary = adapter.RepositionLinks(request);
+
+            Assert.IsEmpty(summary.ErrorMessages, $"RepositionLinks errors: {string.Join("; ", summary.ErrorMessages)}");
+            Assert.AreEqual(1, summary.RepositionedCount);
+            Assert.IsTrue(linkInstance.Pinned, "Pinned state must be restored to true.");
+
+            Document? linkedDoc = linkInstance.GetLinkDocument();
+            Assert.IsNotNull(linkedDoc);
+            ProjectLocation linkLoc = new FilteredElementCollector(linkedDoc)
+                .OfClass(typeof(ProjectLocation))
+                .Cast<ProjectLocation>()
+                .First(loc => string.Equals(loc.Name, "Rotated_Site", StringComparison.OrdinalIgnoreCase));
+
+            RigidTransform3D expected = SharedCoordinatesMath.ComputeExpectedTransform(
+                ToRigidTransform3D(hostDoc.ActiveProjectLocation.GetTotalTransform()),
+                ToRigidTransform3D(linkLoc.GetTotalTransform()));
+            Transform actual = linkInstance.GetTransform();
+
+            Assert.AreEqual(expected.Origin.X, actual.Origin.X, 1e-3, "Origin.X mismatch");
+            Assert.AreEqual(expected.Origin.Y, actual.Origin.Y, 1e-3, "Origin.Y mismatch");
+            Assert.AreEqual(expected.Origin.Z, actual.Origin.Z, 1e-3, "Origin.Z mismatch");
+            Assert.AreEqual(expected.BasisX.X, actual.BasisX.X, 1e-3, "BasisX.X mismatch");
+            Assert.AreEqual(expected.BasisX.Y, actual.BasisX.Y, 1e-3, "BasisX.Y mismatch");
+            Assert.AreEqual(expected.BasisY.X, actual.BasisY.X, 1e-3, "BasisY.X mismatch");
+            Assert.AreEqual(expected.BasisY.Y, actual.BasisY.Y, 1e-3, "BasisY.Y mismatch");
+
+            var secondSummary = adapter.RepositionLinks(request);
+            Assert.AreEqual(0, secondSummary.RepositionedCount);
+            Assert.AreEqual(1, secondSummary.AlreadyAlignedCount);
+        }
+
+        [Test]
+        public void RevitSharedCoordinates_RepositionLinks_SubShortCurveToleranceOffset_SkipsMoveElementAndRestoresPinned()
+        {
+            string unitPath = CreateSavedUnitModel(
+                "SubToleranceUnit.rvt",
+                unitDoc =>
+                {
+                    unitDoc.ExecuteTransaction("Add SubTolerance Site", FailurePipelines.ObserveOnly(), () =>
+                    {
+                        ProjectLocation targetLoc = unitDoc.ActiveProjectLocation.Duplicate("SubTolerance_Site");
+                        targetLoc.SetProjectPosition(XYZ.Zero, CreateProjectPosition(unitDoc, 0.0, 0.0, 0.0, 0.0));
+                    });
+                });
+
+            Document hostDoc = NewTrackedProjectDocument(UnitSystem.Imperial);
+            RevitLinkInstance linkInstance = null!;
+            hostDoc.ExecuteTransaction("Place Link With Sub-ShortCurveTolerance Offset", FailurePipelines.ObserveOnly(), () =>
+            {
+                hostDoc.ActiveProjectLocation.SetProjectPosition(XYZ.Zero, CreateProjectPosition(hostDoc, 0.0, 0.0, 0.0, 0.0));
+
+                ElementId linkTypeId = LoadLinkType(hostDoc, unitPath);
+                linkInstance = RevitLinkInstance.Create(hostDoc, linkTypeId);
+                SetLinkInstanceMark(linkInstance, "1 : location SubTolerance_Site");
+
+                // 0.001 ft > SharedCoordinatesMath.Tolerance (1e-5), yet < Application.ShortCurveTolerance (~0.0026 ft)
+                ElementTransformUtils.MoveElement(hostDoc, linkInstance.Id, new XYZ(0.001, 0.0, 0.0));
+                linkInstance.Pinned = true;
+            });
+
+            var adapter = new RevitSharedCoordinatesAdapter(hostDoc, null);
+            var groups = adapter.GetLinkRepositionGroups();
+            Assert.AreEqual(1, groups.Count);
+            Assert.AreEqual(1, groups[0].OutOfSyncCount);
+
+            var summary = adapter.RepositionLinks(new RepositionLinksRequest
+            {
+                SelectedTypeIds = new List<string> { linkInstance.GetTypeId().ToString() }
+            });
+
+            Assert.IsEmpty(summary.ErrorMessages, $"Sub-ShortCurveTolerance offset must not fail MoveElement: {string.Join("; ", summary.ErrorMessages)}");
+            Assert.AreEqual(1, summary.RepositionedCount);
+            Assert.IsTrue(linkInstance.Pinned, "Pinned state must be restored to true.");
+        }
+
+        [Test]
+        public void RevitSharedCoordinates_EndToEnd_SyncSharedSitesAndRepositionLinks_MovesInstanceToPositiveSharedElevation()
+        {
+            string unitPath = GetTempFilePath($"E2E_UnitModel_{Guid.NewGuid():N}.rvt");
+
+            // 1. Sync Level 3 (+50.0 shared elevation) inside unit model
+            Document unitDoc = NewTrackedProjectDocument(UnitSystem.Imperial);
+            unitDoc.SaveAs(unitPath);
+
+            var unitAdapter = new RevitSharedCoordinatesAdapter(unitDoc, null);
+            var activeUnitLevels = unitAdapter.GetActiveModelLevels();
+            LevelItem datumLevel = activeUnitLevels.First();
+
+            var syncSummary = unitAdapter.SyncSharedSites(new SyncSharedSitesRequest
+            {
+                ReferenceDatumLevel = datumLevel,
+                TargetSites = new List<SharedSiteSyncTarget>
+                {
+                    new SharedSiteSyncTarget
+                    {
+                        LevelName = "Level 3",
+                        SharedElevation = datumLevel.Elevation + 50.0,
+                        IsChecked = true
+                    }
+                }
+            });
+
+            Assert.IsEmpty(syncSummary.ErrorMessages);
+            Assert.AreEqual(1, syncSummary.CreatedCount);
+            unitDoc.Save();
+            unitDoc.Close(false);
+
+            // 2. Link unit model into host at origin (0, 0, 0) and reposition to "Level 3"
+            Document hostDoc = NewTrackedProjectDocument(UnitSystem.Imperial);
+            RevitLinkInstance linkInst = null!;
+            hostDoc.ExecuteTransaction("Link Unit At Origin", FailurePipelines.ObserveOnly(), () =>
+            {
+                hostDoc.ActiveProjectLocation.SetProjectPosition(XYZ.Zero, CreateProjectPosition(hostDoc, 0.0, 0.0, 0.0, 0.0));
+                ElementId linkTypeId = LoadLinkType(hostDoc, unitPath);
+                linkInst = RevitLinkInstance.Create(hostDoc, linkTypeId);
+                SetLinkInstanceMark(linkInst, "1 : location Level 3");
+                linkInst.Pinned = true;
+            });
+
+            var hostAdapter = new RevitSharedCoordinatesAdapter(hostDoc, null);
+            var groups = hostAdapter.GetLinkRepositionGroups();
+            Assert.AreEqual(1, groups.Count);
+            Assert.AreEqual(1, groups[0].OutOfSyncCount);
+
+            var repoSummary = hostAdapter.RepositionLinks(new RepositionLinksRequest
+            {
+                SelectedTypeIds = new List<string> { linkInst.GetTypeId().ToString() }
+            });
+
+            Assert.IsEmpty(repoSummary.ErrorMessages);
+            Assert.AreEqual(1, repoSummary.RepositionedCount);
+            Assert.IsTrue(linkInst.Pinned);
+
+            Transform actual = linkInst.GetTransform();
+            Assert.AreEqual(0.0, actual.Origin.X, 1e-3);
+            Assert.AreEqual(0.0, actual.Origin.Y, 1e-3);
+            Assert.AreEqual(50.0, actual.Origin.Z, 1e-3, "Link instance must move to +50.0 Z (not -50.0 Z).");
+        }
+
+        [Test]
+        public void RevitSharedCoordinates_GetLinkRepositionGroups_MultiStepResolution_CorrectlyClassifiesInstances()
+        {
+            string singleSiteName = "Internal";
+            string unitPath = CreateSavedUnitModel(
+                "MultiStepUnit.rvt",
+                unitDoc =>
+                {
+                    unitDoc.ExecuteTransaction("Configure Single Unit Site", FailurePipelines.ObserveOnly(), () =>
+                    {
+                        ProjectLocation activeLoc = unitDoc.ActiveProjectLocation;
+                        Assert.IsNotNull(activeLoc);
+                        activeLoc.SetProjectPosition(XYZ.Zero, CreateProjectPosition(unitDoc, 25.0, 15.0, 5.0, 0.0));
+                        singleSiteName = activeLoc.Name;
+                    });
+                    Assert.AreEqual(1, unitDoc.ProjectLocations.Size, "AcquireCoordinates requires a single ProjectLocation.");
+                });
+
+            Document hostDoc = NewTrackedProjectDocument(UnitSystem.Imperial);
+            ElementId linkTypeId = ElementId.InvalidElementId;
+            RevitLinkInstance inst1 = null!;
+
+            // 1. Place Instance 1 at origin and acquire coordinates (Step 1: BuiltInParameter.GEO_LOCATION -> singleSiteName, Aligned).
+            hostDoc.ExecuteTransaction("Acquire Coordinates For Instance 1", FailurePipelines.ObserveOnly(), () =>
+            {
+                linkTypeId = LoadLinkType(hostDoc, unitPath);
+                inst1 = RevitLinkInstance.Create(hostDoc, linkTypeId);
+                hostDoc.AcquireCoordinates(inst1.Id);
+            });
+
+            // 2. Place Instance 2 (Step 2 fallback " : location ") displaced from hostTotal * linkTotal^-1 (OutOfSync),
+            //    and Instance 3 with plain mark and unshared GEO_LOCATION (Unassigned).
+            RevitLinkInstance inst2 = null!;
+            RevitLinkInstance inst3 = null!;
+            hostDoc.ExecuteTransaction("Place Fallback OutOfSync And Unassigned Instances", FailurePipelines.ObserveOnly(), () =>
+            {
+                inst2 = RevitLinkInstance.Create(hostDoc, linkTypeId);
+                SetLinkInstanceMark(inst2, $"2 : location {singleSiteName}");
+
+                Document? linkDoc2 = inst2.GetLinkDocument();
+                Assert.IsNotNull(linkDoc2);
+                ProjectLocation linkLoc2 = new FilteredElementCollector(linkDoc2)
+                    .OfClass(typeof(ProjectLocation))
+                    .Cast<ProjectLocation>()
+                    .First(loc => string.Equals(loc.Name, singleSiteName, StringComparison.OrdinalIgnoreCase));
+
+                RigidTransform3D expected2 = SharedCoordinatesMath.ComputeExpectedTransform(
+                    ToRigidTransform3D(hostDoc.ActiveProjectLocation.GetTotalTransform()),
+                    ToRigidTransform3D(linkLoc2.GetTotalTransform()));
+                XYZ displacedOrigin2 = new XYZ(expected2.Origin.X + 10.0, expected2.Origin.Y, expected2.Origin.Z);
+                XYZ delta2 = displacedOrigin2 - inst2.GetTransform().Origin;
+                if (delta2.GetLength() > hostDoc.Application.ShortCurveTolerance)
+                {
+                    ElementTransformUtils.MoveElement(hostDoc, inst2.Id, delta2);
+                }
+
+                inst3 = RevitLinkInstance.Create(hostDoc, linkTypeId);
+                SetLinkInstanceMark(inst3, "3");
+            });
+
+            var adapter = new RevitSharedCoordinatesAdapter(hostDoc, null);
+            var groups = adapter.GetLinkRepositionGroups();
+
+            Assert.AreEqual(1, groups.Count);
+            var group = groups[0];
+            Assert.AreEqual(3, group.TotalInstanceCount);
+            Assert.AreEqual(1, group.OutOfSyncCount);
+            Assert.AreEqual(1, group.UnassignedCount);
+
+            var item1 = group.Instances.First(i => i.InstanceId == inst1.Id.ToString());
+            var item2 = group.Instances.First(i => i.InstanceId == inst2.Id.ToString());
+            var item3 = group.Instances.First(i => i.InstanceId == inst3.Id.ToString());
+            Assert.IsTrue(item1.IsAssigned, "Instance 1 must resolve via Step 1 BuiltInParameter.GEO_LOCATION.");
+            Assert.AreEqual(singleSiteName, item1.AssignedSiteName);
+            Assert.IsFalse(item1.IsOutOfSync);
+            Assert.IsTrue(item2.IsAssigned, "Instance 2 must resolve via Step 2 ' : location ' fallback.");
+            Assert.AreEqual(singleSiteName, item2.AssignedSiteName);
+            Assert.IsTrue(item2.IsOutOfSync);
+            Assert.IsFalse(item3.IsAssigned, "Instance 3 must remain unassigned.");
+
+            var summary = adapter.RepositionLinks(new RepositionLinksRequest
+            {
+                SelectedTypeIds = new List<string> { linkTypeId.ToString() }
+            });
+
+            Assert.IsEmpty(
+                summary.ErrorMessages,
+                $"Unexpected RepositionLinks error(s): {string.Join("; ", summary.ErrorMessages)}");
+            Assert.AreEqual(1, summary.RepositionedCount);
+            Assert.AreEqual(1, summary.AlreadyAlignedCount);
+            Assert.AreEqual(1, summary.SkippedCount);
+            CollectionAssert.Contains(summary.RepositionedInstanceNames, inst2.Name);
+            CollectionAssert.Contains(summary.SkippedInstanceNames, inst3.Name);
+        }
+
+        private string CreateSavedUnitModel(string fileNamePrefix, Action<Document>? configure = null)
+        {
+            string tempPath = GetTempFilePath($"{Path.GetFileNameWithoutExtension(fileNamePrefix)}_{Guid.NewGuid():N}.rvt");
+            Document unitDoc = NewTrackedProjectDocument(UnitSystem.Imperial);
+            unitDoc.SaveAs(tempPath);
+            if (configure != null)
+            {
+                configure(unitDoc);
+                unitDoc.Save();
+            }
+            unitDoc.Close(false);
+            return tempPath;
+        }
+
+        private static ElementId LoadLinkType(Document hostDoc, string unitPath)
+        {
+            ModelPath modelPath = ModelPathUtils.ConvertUserVisiblePathToModelPath(unitPath);
+            var loadResult = RevitLinkType.Create(hostDoc, modelPath, new RevitLinkOptions(false));
+            return loadResult.ElementId;
+        }
+
+        private static void SetLinkInstanceMark(RevitLinkInstance linkInstance, string value)
+        {
+            Parameter? nameParam = linkInstance.get_Parameter(BuiltInParameter.RVT_LINK_INSTANCE_NAME);
+            Assert.IsNotNull(nameParam, "Expected BuiltInParameter.RVT_LINK_INSTANCE_NAME.");
+            Assert.IsFalse(nameParam!.IsReadOnly, "Expected RVT_LINK_INSTANCE_NAME to be writable.");
+            nameParam.Set(value);
+        }
+
+        private static ProjectPosition CreateProjectPosition(
+            Document doc,
+            double eastWest,
+            double northSouth,
+            double elevation,
+            double angleRadians)
+        {
+#if REVIT2023
+            return doc.Application.Create.NewProjectPosition(eastWest, northSouth, elevation, angleRadians);
+#else
+            return new ProjectPosition(eastWest, northSouth, elevation, angleRadians);
+#endif
         }
 
         private static RigidTransform3D ToRigidTransform3D(Transform transform)
