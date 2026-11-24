@@ -542,7 +542,7 @@ namespace SyntheticTests.Features.SharedCoordinates
             RevitLinkInstance inst1 = null!;
 
             // 1. Place Instance 1, acquire coordinates (GEO_LOCATION -> singleSiteName), and displace it in-memory.
-            hostDoc.ExecuteTransaction("Acquire Coordinates And Displace Instance 1", FailurePipelines.DeleteAllWarnings(), () =>
+            hostDoc.ExecuteTransaction("Acquire Coordinates And Displace Instance 1", FailurePipelines.DeleteAllWarningsRecorded(), () =>
             {
                 linkTypeId = LoadLinkType(hostDoc, unitPath);
                 inst1 = RevitLinkInstance.Create(hostDoc, linkTypeId);
