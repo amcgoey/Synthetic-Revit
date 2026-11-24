@@ -36,11 +36,8 @@ namespace Synthetic.Bootstrap
             string? testWorker = Environment.GetEnvironmentVariable("SYNTHETIC_TEST_WORKER");
             if (string.Equals(testWorker?.Trim(), "1", StringComparison.Ordinal))
             {
-                string? runId = Environment.GetEnvironmentVariable("SYNTHETIC_TEST_RUN_ID");
-                if (!string.IsNullOrWhiteSpace(runId))
-                {
-                    TryWriteJournalComment(appControlled, $"SYNTHETIC_TEST_RUN:{runId.Trim()}");
-                }
+                TryWriteEnvVarJournalComment(appControlled, "SYNTHETIC_TEST_RUN_ID", "SYNTHETIC_TEST_RUN");
+                TryWriteEnvVarJournalComment(appControlled, "SYNTHETIC_WORKER_ID", "SYNTHETIC_WORKER_ID");
 
                 return Result.Succeeded;
             }
@@ -295,6 +292,18 @@ namespace Synthetic.Bootstrap
             catch (ReflectionTypeLoadException ex)
             {
                 return ex.Types.Where(t => t != null)!;
+            }
+        }
+
+        private static void TryWriteEnvVarJournalComment(
+            UIControlledApplication? appControlled,
+            string envVarName,
+            string markerPrefix)
+        {
+            string? value = Environment.GetEnvironmentVariable(envVarName);
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                TryWriteJournalComment(appControlled, $"{markerPrefix}:{value!.Trim()}");
             }
         }
 
