@@ -238,7 +238,7 @@ if (-not $SkipNative) {
     $detoursLib = Join-Path $detoursObjDir 'detours.lib'
     Write-Host "[build] Compiling Detours static library (x64 /MT)..."
     & cl.exe /nologo /W4 /WX /we4777 /we4800 /O2 /MT /Gy /DWIN32_LEAN_AND_MEAN /D_WIN32_WINNT=0x0601 /DDETOUR_DEBUG=0 `
-        "/I$detoursSrcDir" "/Fo$detoursObjDir\" /c `
+        "/I$detoursSrcDir" "/Fo$detoursObjDir/" /c `
         (Join-Path $detoursSrcDir 'detours.cpp') `
         (Join-Path $detoursSrcDir 'disasm.cpp') `
         (Join-Path $detoursSrcDir 'modules.cpp') `
@@ -262,7 +262,7 @@ if (-not $SkipNative) {
     $shimDefPath = Join-Path $nativeProjectDir 'RevitCleanShim.def'
     Write-Host "[build] Compiling RevitCleanShim.dll (x64 /O2 /MT /EHsc /LD)..."
     & cl.exe /nologo /O2 /MT /EHsc /LD /std:c++17 /W4 /WX /DUNICODE /D_UNICODE /DWIN32_LEAN_AND_MEAN /D_WIN32_WINNT=0x0601 `
-        "/I$detoursSrcDir" "/I$nativeProjectDir" "/Fo$shimObjDir\" `
+        "/I$detoursSrcDir" "/I$nativeProjectDir" "/Fo$shimObjDir/" `
         (Join-Path $nativeProjectDir 'PathFilter.cpp') `
         (Join-Path $nativeProjectDir 'RevitCleanShim.cpp') `
         /link "/DEF:$shimDefPath" "/OUT:$shimDllOut" "/IMPLIB:$(Join-Path $shimObjDir 'RevitCleanShim.lib')" "/PDB:$(Join-Path $shimObjDir 'RevitCleanShim.pdb')" `
@@ -274,7 +274,7 @@ if (-not $SkipNative) {
     $launcherDllOut = Join-Path $poolOutDir 'RevitCleanLauncher.dll'
     Write-Host "[build] Compiling RevitCleanLauncher.dll (x64 /O2 /MT /EHsc /LD)..."
     & cl.exe /nologo /O2 /MT /EHsc /LD /std:c++17 /W4 /WX /DUNICODE /D_UNICODE /DWIN32_LEAN_AND_MEAN /D_WIN32_WINNT=0x0601 `
-        "/I$detoursSrcDir" "/Fo$launcherObjDir\" `
+        "/I$detoursSrcDir" "/Fo$launcherObjDir/" `
         (Join-Path $nativeProjectDir 'RevitCleanLauncher.cpp') `
         /link "/OUT:$launcherDllOut" "/IMPLIB:$(Join-Path $launcherObjDir 'RevitCleanLauncher.lib')" "/PDB:$(Join-Path $launcherObjDir 'RevitCleanLauncher.pdb')" `
         $detoursLib kernel32.lib
@@ -287,6 +287,11 @@ if (-not $SkipNative) {
     Invoke-AuthenticodeSign -SignToolExe $signToolExe -FilePath $shimDllOut
     Invoke-AuthenticodeSign -SignToolExe $signToolExe -FilePath $launcherDllOut
     Invoke-AuthenticodeSign -SignToolExe $signToolExe -FilePath $poolExe
+
+    $testsBinDir = Join-Path $toolsDir "RevitWorkerPool.Tests\bin\$Configuration\net8.0-windows"
+    if (Test-Path -LiteralPath $testsBinDir -PathType Container) {
+        Copy-Item -LiteralPath $shimDllOut, $launcherDllOut -Destination $testsBinDir -Force
+    }
 }
 else {
     Write-Host "[build] -SkipNative specified; skipping native shim build and signing."
