@@ -398,6 +398,27 @@ class TestPoolFallbackAndResultRotation(unittest.TestCase):
         detected = te.probe_worker_pool(self.root, env={})
         self.assertEqual(detected, pool_exe)
 
+    def test_probe_worker_pool_prioritizes_tools_bin_over_fallback_and_respects_env_override(self):
+        fallback_dir = os.path.join(self.root, "tools", "RevitWorkerPool")
+        bin_dir = os.path.join(self.root, "tools", "bin", "RevitWorkerPool")
+        os.makedirs(fallback_dir, exist_ok=True)
+        os.makedirs(bin_dir, exist_ok=True)
+        fallback_exe = os.path.join(fallback_dir, "RevitWorkerPool.exe")
+        bin_exe = os.path.join(bin_dir, "RevitWorkerPool.exe")
+        with open(fallback_exe, "w", encoding="utf-8") as f:
+            f.write("")
+        with open(bin_exe, "w", encoding="utf-8") as f:
+            f.write("")
+
+        detected = te.probe_worker_pool(self.root, env={})
+        self.assertEqual(detected, bin_exe)
+
+        env_detected = te.probe_worker_pool(
+            self.root,
+            env={"SYNTHETIC_WORKER_POOL_CMD": "override-pool.exe"},
+        )
+        self.assertEqual(env_detected, "override-pool.exe")
+
     def test_rotate_test_results_keeps_latest_10_and_skips_non_run_entries(self):
         results_root = os.path.join(self.root, "TestResults")
         os.makedirs(results_root, exist_ok=True)
@@ -1535,6 +1556,729 @@ class TestStartupModalWatchdogAndRetry(unittest.TestCase):
         )
         self.assertEqual((rc, timed_out, eff_id, modal_aborted), (0, False, "run_clean_after_stale", False))
         self.assertEqual(killed, [])
+
+
+class TestWorkerPoolRoutingAndShardedJournalGating(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = self.tmp.name
+        self.tests_dir = os.path.join(self.root, "tests")
+        self.journals_dir = os.path.join(self.root, "Journals")
+        os.makedirs(self.journals_dir, exist_ok=True)
+
+        # Create minimal projects for Logic, 2024 (net48), 2026 (net8.0-windows8.0)
+        for rel_dir, proj_name, tfm in (
+            ("Synthetic.LogicTests", "Synthetic.LogicTests", "net8.0-windows8.0"),
+            ("Synthetic.RevitTests.2024", "Synthetic.RevitTests.2024", "net48"),
+            ("Synthetic.RevitTests.2026", "Synthetic.RevitTests.2026", "net8.0-windows8.0"),
+        ):
+            pdir = os.path.join(self.tests_dir, "Projects", rel_dir)
+            os.makedirs(pdir, exist_ok=True)
+            with open(os.path.join(pdir, f"{proj_name}.csproj"), "w", encoding="utf-8") as f:
+                f.write(
+                    f"<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup>"
+                    f"<TargetFramework>{tfm}</TargetFramework></PropertyGroup></Project>"
+                )
+
+        # Create one RevitSmoke test class so category pre-check finds a match
+        smoke_dir = os.path.join(self.tests_dir, "Platform", "Host", "Revit")
+        os.makedirs(smoke_dir, exist_ok=True)
+        with open(os.path.join(smoke_dir, "SmokeRevitTests.cs"), "w", encoding="utf-8") as f:
+            f.write(
+                """
+using NUnit.Framework;
+namespace SyntheticTests.Platform.Host
+{
+    [TestFixture]
+    [RevitSmokeTest]
+    public class SmokeRevitTests
+    {
+        [Test]
+        public void Smoke() {}
+    }
+}
+"""
+            )
+
+        # Built RevitWorkerPool.exe at standard tools/bin/RevitWorkerPool/RevitWorkerPool.exe
+        pool_bin_dir = os.path.join(self.root, "tools", "bin", "RevitWorkerPool")
+        os.makedirs(pool_bin_dir, exist_ok=True)
+        self.pool_exe = os.path.join(pool_bin_dir, "RevitWorkerPool.exe")
+        with open(self.pool_exe, "w", encoding="utf-8") as f:
+            f.write("")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    @staticmethod
+    def _write_trx(trx_path, passed_names=(), failed_tests=()):
+        os.makedirs(os.path.dirname(trx_path), exist_ok=True)
+        total = len(passed_names) + len(failed_tests)
+        passed = len(passed_names)
+        failed = len(failed_tests)
+        results_xml = []
+        for idx, name in enumerate(passed_names):
+            results_xml.append(
+                f'<UnitTestResult executionId="00000000-0000-0000-0000-0000000000{idx:02d}" '
+                f'testId="10000000-0000-0000-0000-0000000000{idx:02d}" '
+                f'testName="{name}" outcome="Passed" />'
+            )
+        for idx, (name, msg, stack) in enumerate(failed_tests):
+            results_xml.append(
+                f'<UnitTestResult executionId="20000000-0000-0000-0000-0000000000{idx:02d}" '
+                f'testId="30000000-0000-0000-0000-0000000000{idx:02d}" '
+                f'testName="{name}" outcome="Failed">'
+                f"<Output><ErrorInfo><Message>{msg}</Message><StackTrace>{stack}</StackTrace></ErrorInfo></Output>"
+                f"</UnitTestResult>"
+            )
+
+        xml = (
+            '<?xml version="1.0" encoding="utf-8"?>\n'
+            '<TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">\n'
+            f"  <Results>{''.join(results_xml)}</Results>\n"
+            "  <ResultSummary>\n"
+            f'    <Counters total="{total}" executed="{total}" passed="{passed}" failed="{failed}" />\n'
+            "  </ResultSummary>\n"
+            "</TestRun>\n"
+        )
+        with open(trx_path, "w", encoding="utf-8") as f:
+            f.write(xml)
+
+    def test_cli_parses_no_pool_no_shim_shards_and_rejects_invalid_shards(self):
+        parsed_default = te.parse_cli_args([])
+        self.assertFalse(parsed_default.no_pool)
+        self.assertFalse(parsed_default.no_shim)
+        self.assertIsNone(parsed_default.shards)
+
+        parsed_flags = te.parse_cli_args(
+            ["--version", "2026", "--filter", "Smoke", "--category", "RevitSmoke", "--no-pool", "--no-shim", "--shards", "3"]
+        )
+        self.assertEqual(parsed_flags.target_version, "2026")
+        self.assertEqual(parsed_flags.target_class, "Smoke")
+        self.assertEqual(parsed_flags.category, "RevitSmoke")
+        self.assertTrue(parsed_flags.no_pool)
+        self.assertTrue(parsed_flags.no_shim)
+        self.assertEqual(parsed_flags.shards, 3)
+
+        for bad_shards in ("0", "-2"):
+            res = subprocess.run(
+                [sys.executable, SCRIPT_PATH, "--shards", bad_shards],
+                cwd=REPO_ROOT,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(res.returncode, 0, msg=f"Expected failure for --shards {bad_shards}")
+            self.assertIn("--shards", res.stderr + res.stdout)
+
+    def test_build_worker_pool_run_command_for_exe_and_py(self):
+        exe_cmd = te.build_worker_pool_run_command(
+            pool_cmd=r"C:\repo\tools\bin\RevitWorkerPool\RevitWorkerPool.exe",
+            version="2024",
+            assembly_path=r"C:\tmp\Synthetic.RevitTests.2024.dll",
+            trx_path=r"C:\tmp\results_2024.trx",
+            project_root=r"C:\repo",
+            target_class="SmokeRevitTests",
+            category="RevitSmoke",
+            shards=4,
+            no_shim=True,
+            next_version="2026",
+        )
+        self.assertEqual(
+            exe_cmd,
+            [
+                r"C:\repo\tools\bin\RevitWorkerPool\RevitWorkerPool.exe",
+                "run",
+                "--version", "2024",
+                "--assembly", r"C:\tmp\Synthetic.RevitTests.2024.dll",
+                "--trx", r"C:\tmp\results_2024.trx",
+                "--project-root", r"C:\repo",
+                "--json",
+                "--diagnostics",
+                "--filter", "SmokeRevitTests",
+                "--category", "RevitSmoke",
+                "--shards", "4",
+                "--no-shim",
+                "--next-version", "2026",
+            ],
+        )
+
+        py_cmd = te.build_worker_pool_run_command(
+            pool_cmd=r"C:\repo\tools\RevitWorkerPool.py",
+            version="2026",
+            assembly_path=r"C:\tmp\Synthetic.RevitTests.2026.dll",
+            trx_path=r"C:\tmp\results_2026.trx",
+            project_root=r"C:\repo",
+        )
+        self.assertEqual(py_cmd[0], sys.executable)
+        self.assertEqual(py_cmd[1], r"C:\repo\tools\RevitWorkerPool.py")
+        self.assertNotIn("--no-shim", py_cmd)
+        self.assertNotIn("--shards", py_cmd)
+        self.assertNotIn("--next-version", py_cmd)
+        self.assertNotIn("--filter", py_cmd)
+        self.assertNotIn("--category", py_cmd)
+
+    def test_worker_journal_cleanliness_gate_invocation_and_real_worker_id_gating(self):
+        captured_cmds = []
+
+        def fake_runner(cmd, **kwargs):
+            captured_cmds.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0, stdout="Cleanliness Gate Result: CLEAN", stderr="")
+
+        ok, out = te.run_worker_journal_cleanliness_gate("2026", "w_shard_1", runner=fake_runner)
+        self.assertTrue(ok)
+        self.assertIn("CLEAN", out)
+        self.assertEqual(
+            captured_cmds[0][1:],
+            [
+                te.get_journal_tool_path(),
+                "--version",
+                "2026",
+                "--worker-id",
+                "w_shard_1",
+                "--assert-clean",
+            ],
+        )
+
+        clean_j = os.path.join(self.journals_dir, "journal.0001.txt")
+        with open(clean_j, "w", encoding="utf-8") as f:
+            f.write("' 0:< SYNTHETIC_WORKER_ID:w_ok\n' 0:< ricaun.RevitTest: Execute Total: 00:00:01.0\n")
+
+        dirty_j = os.path.join(self.journals_dir, "journal.0002.txt")
+        with open(dirty_j, "w", encoding="utf-8") as f:
+            f.write("' 0:< SYNTHETIC_WORKER_ID:w_leaked\n'inTransaction APITransactionIdentity_1:-1 LeakedTx\n")
+
+        def run_with_dir(cmd, **kwargs):
+            return subprocess.run([*cmd, "--journals-dir", self.journals_dir], **kwargs)
+
+        ok_clean, out_clean = te.run_worker_journal_cleanliness_gate("2026", "w_ok", runner=run_with_dir)
+        self.assertTrue(ok_clean)
+        self.assertIn("Cleanliness Gate Result: CLEAN", out_clean)
+
+        ok_dirty, out_dirty = te.run_worker_journal_cleanliness_gate("2026", "w_leaked", runner=run_with_dir)
+        self.assertFalse(ok_dirty)
+        self.assertIn("Cleanliness Gate Result: DIRTY", out_dirty)
+
+    def test_pool_mode_routes_sequential_sweep_with_next_version_shards_raw_filters_and_keeps_logic_unchanged(self):
+        import contextlib
+        from unittest import mock
+
+        pool_calls = []
+        dotnet_calls = []
+        msbuild_calls = []
+        gated_workers = []
+        whitelisted = []
+        legacy_checks = []
+        temp_build_root = os.path.join(self.root, "temp_root")
+        os.makedirs(temp_build_root, exist_ok=True)
+
+        def fake_subproc_run(cmd, **kwargs):
+            exe_name = os.path.basename(cmd[0]).lower()
+            if cmd[0] == self.pool_exe:
+                pool_calls.append(list(cmd))
+                ver = cmd[cmd.index("--version") + 1]
+                trx_path = cmd[cmd.index("--trx") + 1]
+                self._write_trx(trx_path, passed_names=[f"Smoke_{ver}"])
+                payload = {
+                    "success": True,
+                    "exitCode": 0,
+                    "version": int(ver),
+                    "trxPath": trx_path,
+                    "workerIds": [f"w_{ver}_1", f"w_{ver}_2"],
+                    "shardCount": 2,
+                    "totalTests": 1,
+                    "passedTests": 1,
+                    "failedTests": 0,
+                    "skippedTests": 0,
+                    "zeroMatches": False,
+                    "shimEnabled": True,
+                    "error": None,
+                }
+                return subprocess.CompletedProcess(
+                    cmd,
+                    0,
+                    stdout=f"banner line\n{json.dumps(payload)}\n",
+                    stderr=f"[diag] ran Revit {ver}\n",
+                )
+            if "msbuild" in exe_name:
+                msbuild_calls.append(list(cmd))
+                return subprocess.CompletedProcess(cmd, 0)
+            if "dotnet" in exe_name:
+                dotnet_calls.append(list(cmd))
+                res_dir = cmd[cmd.index("--results-directory") + 1]
+                logger_arg = cmd[cmd.index("--logger") + 1]
+                trx_name = logger_arg.split("LogFileName=", 1)[1]
+                self._write_trx(os.path.join(res_dir, trx_name), passed_names=["LogicTest"])
+                return subprocess.CompletedProcess(cmd, 0)
+            raise AssertionError(f"Unexpected subprocess call: {cmd}")
+
+        def fake_gate(version, worker_id, **kwargs):
+            gated_workers.append((str(version), worker_id))
+            return True, f"[GATE] {version} {worker_id}: CLEAN"
+
+        stdout_buf = io.StringIO()
+        with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root}, clear=False), \
+             mock.patch("os.getcwd", return_value=self.root), \
+             mock.patch.object(te.tempfile, "gettempdir", return_value=temp_build_root), \
+             mock.patch.object(te, "find_msbuild", return_value="msbuild.exe"), \
+             mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
+             mock.patch.object(te.guid_whitelister, "whitelist_existing_addins", side_effect=lambda v: whitelisted.append(v)), \
+             mock.patch.object(te, "check_legacy_programdata_manifest", side_effect=lambda v: legacy_checks.append(v)), \
+             mock.patch.object(te, "run_worker_journal_cleanliness_gate", side_effect=fake_gate), \
+             mock.patch.object(te.subprocess, "run", side_effect=fake_subproc_run), \
+             contextlib.redirect_stdout(stdout_buf):
+            with self.assertRaises(SystemExit) as exit_ctx:
+                te.run_test_suite(
+                    target_class="SmokeRevitTests",
+                    target_version="",
+                    category="RevitSmoke",
+                    no_pool=False,
+                    no_shim=False,
+                    shards=3,
+                )
+
+        self.assertEqual(exit_ctx.exception.code, 0, msg=stdout_buf.getvalue())
+        out_text = stdout_buf.getvalue()
+        self.assertIn("Total: 3", out_text)
+        self.assertIn("[PASS]", out_text)
+
+        # Logic ran via dotnet test unchanged; Revit targets did NOT run dotnet test
+        self.assertEqual(len(dotnet_calls), 1)
+        self.assertIn("Synthetic.LogicTests.csproj", dotnet_calls[0][2])
+
+        # Pool ran for 2024 and 2026 in order
+        self.assertEqual(len(pool_calls), 2)
+        call_2024, call_2026 = pool_calls[0], pool_calls[1]
+
+        self.assertIn("--next-version", call_2024)
+        self.assertEqual(call_2024[call_2024.index("--next-version") + 1], "2026")
+        self.assertNotIn("--next-version", call_2026)
+
+        for call, ver in ((call_2024, "2024"), (call_2026, "2026")):
+            self.assertEqual(call[call.index("--version") + 1], ver)
+            self.assertEqual(call[call.index("--filter") + 1], "SmokeRevitTests")
+            self.assertEqual(call[call.index("--category") + 1], "RevitSmoke")
+            self.assertEqual(call[call.index("--shards") + 1], "3")
+            self.assertNotIn("--no-shim", call)
+            self.assertNotIn("FullyQualifiedName~", " ".join(call))
+            asm = call[call.index("--assembly") + 1]
+            self.assertTrue(asm.endswith(f"Synthetic.RevitTests.{ver}.dll"), msg=asm)
+
+        # Whitelist called for both; legacy ProgramData check NOT called when shimmed
+        self.assertEqual(whitelisted, ["2024", "2026"])
+        self.assertEqual(legacy_checks, [])
+
+        # Per-shard --worker-id gates ran for every consumed worker ID
+        self.assertEqual(
+            gated_workers,
+            [("2024", "w_2024_1"), ("2024", "w_2024_2"), ("2026", "w_2026_1"), ("2026", "w_2026_2")],
+        )
+
+        # Isolated build root cleaned on pass; diagnostics written to output_<ver>.log
+        builds_dir = os.path.join(temp_build_root, "SyntheticBuilds")
+        self.assertFalse(os.path.exists(builds_dir) and os.listdir(builds_dir))
+        results_dirs = [
+            d for d in os.listdir(os.path.join(self.tests_dir, "TestResults"))
+            if te.RUN_DIR_PATTERN.match(d)
+        ]
+        self.assertEqual(len(results_dirs), 1)
+        log_2024 = os.path.join(self.tests_dir, "TestResults", results_dirs[0], "output_2024.log")
+        with open(log_2024, "r", encoding="utf-8") as f:
+            log_content = f.read()
+        self.assertIn("[diag] ran Revit 2024", log_content)
+
+    def test_pool_mode_zero_matches_and_fail_closed_shim_error_never_falls_back(self):
+        import contextlib
+        from unittest import mock
+
+        temp_build_root = os.path.join(self.root, "temp_root")
+        os.makedirs(temp_build_root, exist_ok=True)
+
+        # Part A: zeroMatches == True on single Revit target exits 0 with "0 matching tests"
+        gated_a = []
+
+        def run_zero(cmd, **kwargs):
+            if cmd[0] == self.pool_exe:
+                trx_path = cmd[cmd.index("--trx") + 1]
+                self._write_trx(trx_path, passed_names=())
+                payload = {
+                    "success": True,
+                    "exitCode": 0,
+                    "version": 2026,
+                    "trxPath": trx_path,
+                    "workerIds": [],
+                    "shardCount": 0,
+                    "totalTests": 0,
+                    "passedTests": 0,
+                    "failedTests": 0,
+                    "skippedTests": 0,
+                    "zeroMatches": True,
+                    "shimEnabled": False,
+                    "error": None,
+                }
+                return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(payload), stderr="")
+            return subprocess.CompletedProcess(cmd, 0)
+
+        out_zero = io.StringIO()
+        with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root}, clear=False), \
+             mock.patch("os.getcwd", return_value=self.root), \
+             mock.patch.object(te.tempfile, "gettempdir", return_value=temp_build_root), \
+             mock.patch.object(te, "find_msbuild", return_value="msbuild.exe"), \
+             mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
+             mock.patch.object(te.guid_whitelister, "whitelist_existing_addins"), \
+             mock.patch.object(te, "run_worker_journal_cleanliness_gate", side_effect=lambda v, w: gated_a.append(w)), \
+             mock.patch.object(te.subprocess, "run", side_effect=run_zero), \
+             contextlib.redirect_stdout(out_zero):
+            with self.assertRaises(SystemExit) as ctx_zero:
+                te.run_test_suite(target_class="NoSuchTest", target_version="2026")
+
+        self.assertEqual(ctx_zero.exception.code, 0)
+        self.assertIn("0 matching tests", out_zero.getvalue())
+        self.assertEqual(gated_a, [])
+
+        # Part B: fail-closed shim error (exitCode == 2) fails immediately with zero retry/downgrade
+        pool_invocations = []
+        cold_invocations = []
+
+        def run_fail_closed(cmd, **kwargs):
+            if cmd[0] == self.pool_exe:
+                pool_invocations.append(list(cmd))
+                trx_path = cmd[cmd.index("--trx") + 1]
+                payload = {
+                    "success": False,
+                    "exitCode": 2,
+                    "version": 2026,
+                    "trxPath": trx_path,
+                    "workerIds": [],
+                    "shardCount": 1,
+                    "totalTests": 0,
+                    "passedTests": 0,
+                    "failedTests": 0,
+                    "skippedTests": 0,
+                    "zeroMatches": False,
+                    "shimEnabled": True,
+                    "error": "CleanShimLaunchException: RevitCleanShim.dll signature invalid",
+                }
+                return subprocess.CompletedProcess(cmd, 2, stdout=json.dumps(payload), stderr="[shim] fatal\n")
+            if os.path.basename(cmd[0]).lower().startswith("dotnet"):
+                cold_invocations.append(list(cmd))
+            return subprocess.CompletedProcess(cmd, 0)
+
+        out_fail = io.StringIO()
+        with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root}, clear=False), \
+             mock.patch("os.getcwd", return_value=self.root), \
+             mock.patch.object(te.tempfile, "gettempdir", return_value=temp_build_root), \
+             mock.patch.object(te, "find_msbuild", return_value="msbuild.exe"), \
+             mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
+             mock.patch.object(te.guid_whitelister, "whitelist_existing_addins"), \
+             mock.patch.object(te, "execute_revit_test_with_startup_gate", side_effect=AssertionError("Must not downgrade to cold worker!")), \
+             mock.patch.object(te.subprocess, "run", side_effect=run_fail_closed), \
+             contextlib.redirect_stdout(out_fail):
+            with self.assertRaises(SystemExit) as ctx_fail:
+                te.run_test_suite(target_version="2026")
+
+        self.assertEqual(ctx_fail.exception.code, 1)
+        self.assertEqual(len(pool_invocations), 1)
+        self.assertNotIn("--no-shim", pool_invocations[0])
+        self.assertEqual(cold_invocations, [])
+        self.assertIn("[ERROR]", out_fail.getvalue())
+        self.assertIn("RevitCleanShim.dll signature invalid", out_fail.getvalue())
+
+    def test_pool_mode_multi_shard_journal_gating_dirty_shard_and_missing_worker_ids(self):
+        import contextlib
+        from unittest import mock
+
+        temp_build_root = os.path.join(self.root, "temp_root")
+        os.makedirs(temp_build_root, exist_ok=True)
+
+        def make_pool_runner(worker_ids, total_tests=3):
+            def _run(cmd, **kwargs):
+                if cmd[0] == self.pool_exe:
+                    trx_path = cmd[cmd.index("--trx") + 1]
+                    self._write_trx(trx_path, passed_names=[f"T{i}" for i in range(total_tests)])
+                    payload = {
+                        "success": True,
+                        "exitCode": 0,
+                        "version": 2026,
+                        "trxPath": trx_path,
+                        "workerIds": worker_ids,
+                        "shardCount": len(worker_ids),
+                        "totalTests": total_tests,
+                        "passedTests": total_tests,
+                        "failedTests": 0,
+                        "skippedTests": 0,
+                        "zeroMatches": False,
+                        "shimEnabled": True,
+                        "error": None,
+                    }
+                    return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(payload), stderr="")
+                return subprocess.CompletedProcess(cmd, 0)
+            return _run
+
+        # 1. Multi-shard all-clean pass across ["w_1", "w_2", "w_3"]
+        checked_clean = []
+
+        def all_clean_gate(ver, wid, **kwargs):
+            checked_clean.append(wid)
+            return True, f"Worker {wid}: CLEAN"
+
+        out_clean = io.StringIO()
+        with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root}, clear=False), \
+             mock.patch("os.getcwd", return_value=self.root), \
+             mock.patch.object(te.tempfile, "gettempdir", return_value=temp_build_root), \
+             mock.patch.object(te, "find_msbuild", return_value="msbuild.exe"), \
+             mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
+             mock.patch.object(te.guid_whitelister, "whitelist_existing_addins"), \
+             mock.patch.object(te, "run_worker_journal_cleanliness_gate", side_effect=all_clean_gate), \
+             mock.patch.object(te.subprocess, "run", side_effect=make_pool_runner(["w_1", "w_2", "w_3"])), \
+             contextlib.redirect_stdout(out_clean):
+            with self.assertRaises(SystemExit) as ctx_clean:
+                te.run_test_suite(target_version="2026", shards=3)
+
+        self.assertEqual(ctx_clean.exception.code, 0)
+        self.assertEqual(checked_clean, ["w_1", "w_2", "w_3"])
+
+        # 2. Multi-shard 1-dirty-shard failure across ["w_1", "w_2", "w_3"] (must still check all 3 and fail)
+        checked_dirty = []
+
+        def one_dirty_gate(ver, wid, **kwargs):
+            checked_dirty.append(wid)
+            if wid == "w_2":
+                return False, "Worker w_2: Cleanliness Gate Result: DIRTY"
+            return True, f"Worker {wid}: CLEAN"
+
+        out_dirty = io.StringIO()
+        with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root}, clear=False), \
+             mock.patch("os.getcwd", return_value=self.root), \
+             mock.patch.object(te.tempfile, "gettempdir", return_value=temp_build_root), \
+             mock.patch.object(te, "find_msbuild", return_value="msbuild.exe"), \
+             mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
+             mock.patch.object(te.guid_whitelister, "whitelist_existing_addins"), \
+             mock.patch.object(te, "run_worker_journal_cleanliness_gate", side_effect=one_dirty_gate), \
+             mock.patch.object(te.subprocess, "run", side_effect=make_pool_runner(["w_1", "w_2", "w_3"])), \
+             contextlib.redirect_stdout(out_dirty):
+            with self.assertRaises(SystemExit) as ctx_dirty:
+                te.run_test_suite(target_version="2026", shards=3)
+
+        self.assertEqual(ctx_dirty.exception.code, 1)
+        self.assertEqual(checked_dirty, ["w_1", "w_2", "w_3"])
+        self.assertIn("DIRTY", out_dirty.getvalue())
+        self.assertIn("w_2", out_dirty.getvalue())
+
+        # 3. Missing workerIds when tests ran -> fails closed
+        out_missing = io.StringIO()
+        with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root}, clear=False), \
+             mock.patch("os.getcwd", return_value=self.root), \
+             mock.patch.object(te.tempfile, "gettempdir", return_value=temp_build_root), \
+             mock.patch.object(te, "find_msbuild", return_value="msbuild.exe"), \
+             mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
+             mock.patch.object(te.guid_whitelister, "whitelist_existing_addins"), \
+             mock.patch.object(te.subprocess, "run", side_effect=make_pool_runner([], total_tests=2)), \
+             contextlib.redirect_stdout(out_missing):
+            with self.assertRaises(SystemExit) as ctx_missing:
+                te.run_test_suite(target_version="2026")
+
+        self.assertEqual(ctx_missing.exception.code, 1)
+        self.assertIn("[ERROR]", out_missing.getvalue())
+        self.assertIn("workerIds", out_missing.getvalue())
+
+    def test_pool_mode_no_shim_invokes_check_legacy_programdata_manifest(self):
+        import contextlib
+        from unittest import mock
+
+        temp_build_root = os.path.join(self.root, "temp_root")
+        os.makedirs(temp_build_root, exist_ok=True)
+        pool_cmds = []
+        legacy_checked = []
+
+        def run_no_shim(cmd, **kwargs):
+            if cmd[0] == self.pool_exe:
+                pool_cmds.append(list(cmd))
+                trx_path = cmd[cmd.index("--trx") + 1]
+                self._write_trx(trx_path, passed_names=["Smoke"])
+                payload = {
+                    "success": True,
+                    "exitCode": 0,
+                    "version": 2026,
+                    "trxPath": trx_path,
+                    "workerIds": ["w_unshimmed_1"],
+                    "shardCount": 1,
+                    "totalTests": 1,
+                    "passedTests": 1,
+                    "failedTests": 0,
+                    "skippedTests": 0,
+                    "zeroMatches": False,
+                    "shimEnabled": False,
+                    "error": None,
+                }
+                return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(payload), stderr="")
+            return subprocess.CompletedProcess(cmd, 0)
+
+        out_buf = io.StringIO()
+        with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root}, clear=False), \
+             mock.patch("os.getcwd", return_value=self.root), \
+             mock.patch.object(te.tempfile, "gettempdir", return_value=temp_build_root), \
+             mock.patch.object(te, "find_msbuild", return_value="msbuild.exe"), \
+             mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
+             mock.patch.object(te.guid_whitelister, "whitelist_existing_addins"), \
+             mock.patch.object(te, "check_legacy_programdata_manifest", side_effect=lambda v: legacy_checked.append(v)), \
+             mock.patch.object(te, "run_worker_journal_cleanliness_gate", return_value=(True, "CLEAN")), \
+             mock.patch.object(te.subprocess, "run", side_effect=run_no_shim), \
+             contextlib.redirect_stdout(out_buf):
+            with self.assertRaises(SystemExit) as exit_ctx:
+                te.run_test_suite(target_version="2026", no_shim=True)
+
+        self.assertEqual(exit_ctx.exception.code, 0)
+        self.assertEqual(legacy_checked, ["2026"])
+        self.assertIn("--no-shim", pool_cmds[0])
+
+    def test_pool_mode_delegates_custom_category_without_regex_preskip(self):
+        import contextlib
+        from unittest import mock
+
+        temp_build_root = os.path.join(self.root, "temp_root")
+        os.makedirs(temp_build_root, exist_ok=True)
+        pool_cmds = []
+
+        def run_custom_cat(cmd, **kwargs):
+            if cmd[0] == self.pool_exe:
+                pool_cmds.append(list(cmd))
+                trx_path = cmd[cmd.index("--trx") + 1]
+                self._write_trx(trx_path, passed_names=())
+                payload = {
+                    "success": True,
+                    "exitCode": 0,
+                    "version": 2026,
+                    "trxPath": trx_path,
+                    "workerIds": [],
+                    "shardCount": 0,
+                    "totalTests": 0,
+                    "passedTests": 0,
+                    "failedTests": 0,
+                    "skippedTests": 0,
+                    "zeroMatches": True,
+                    "shimEnabled": False,
+                    "error": None,
+                }
+                return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(payload), stderr="")
+            return subprocess.CompletedProcess(cmd, 0)
+
+        out_buf = io.StringIO()
+        with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root}, clear=False), \
+             mock.patch("os.getcwd", return_value=self.root), \
+             mock.patch.object(te.tempfile, "gettempdir", return_value=temp_build_root), \
+             mock.patch.object(te, "find_msbuild", return_value="msbuild.exe"), \
+             mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
+             mock.patch.object(te, "build_test_filter", side_effect=AssertionError("Pool mode must not regex pre-skip categories!")), \
+             mock.patch.object(te.guid_whitelister, "whitelist_existing_addins"), \
+             mock.patch.object(te.subprocess, "run", side_effect=run_custom_cat), \
+             contextlib.redirect_stdout(out_buf):
+            with self.assertRaises(SystemExit) as exit_ctx:
+                te.run_test_suite(target_version="2026", category="CustomMetadataOnlyCategory")
+
+        self.assertEqual(exit_ctx.exception.code, 0)
+        self.assertEqual(len(pool_cmds), 1)
+        self.assertEqual(pool_cmds[0][pool_cmds[0].index("--category") + 1], "CustomMetadataOnlyCategory")
+        self.assertIn("0 matching tests", out_buf.getvalue())
+
+    def test_pool_mode_env_clean_shim_zero_triggers_programdata_warning(self):
+        import contextlib
+        from unittest import mock
+
+        temp_build_root = os.path.join(self.root, "temp_root")
+        os.makedirs(temp_build_root, exist_ok=True)
+        pool_cmds = []
+        legacy_checked = []
+
+        def run_env_no_shim(cmd, **kwargs):
+            if cmd[0] == self.pool_exe:
+                pool_cmds.append(list(cmd))
+                trx_path = cmd[cmd.index("--trx") + 1]
+                self._write_trx(trx_path, passed_names=["Smoke"])
+                payload = {
+                    "success": True,
+                    "exitCode": 0,
+                    "version": 2026,
+                    "trxPath": trx_path,
+                    "workerIds": ["w_env_unshimmed"],
+                    "shardCount": 1,
+                    "totalTests": 1,
+                    "passedTests": 1,
+                    "failedTests": 0,
+                    "skippedTests": 0,
+                    "zeroMatches": False,
+                    "shimEnabled": False,
+                    "error": None,
+                }
+                return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(payload), stderr="")
+            return subprocess.CompletedProcess(cmd, 0)
+
+        out_buf = io.StringIO()
+        with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root, "SYNTHETIC_CLEAN_SHIM": "0"}, clear=False), \
+             mock.patch("os.getcwd", return_value=self.root), \
+             mock.patch.object(te.tempfile, "gettempdir", return_value=temp_build_root), \
+             mock.patch.object(te, "find_msbuild", return_value="msbuild.exe"), \
+             mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
+             mock.patch.object(te.guid_whitelister, "whitelist_existing_addins"), \
+             mock.patch.object(te, "check_legacy_programdata_manifest", side_effect=lambda v: legacy_checked.append(v)), \
+             mock.patch.object(te, "run_worker_journal_cleanliness_gate", return_value=(True, "CLEAN")), \
+             mock.patch.object(te.subprocess, "run", side_effect=run_env_no_shim), \
+             contextlib.redirect_stdout(out_buf):
+            with self.assertRaises(SystemExit) as exit_ctx:
+                te.run_test_suite(target_version="2026", no_shim=False)
+
+        self.assertEqual(exit_ctx.exception.code, 0)
+        self.assertEqual(legacy_checked, ["2026"])
+        self.assertEqual(len(pool_cmds), 1)
+        self.assertIn("[no-shim]", out_buf.getvalue())
+
+    def test_pool_mode_fails_closed_when_shim_disabled_unexpectedly(self):
+        import contextlib
+        from unittest import mock
+
+        temp_build_root = os.path.join(self.root, "temp_root")
+        os.makedirs(temp_build_root, exist_ok=True)
+        cold_calls = []
+
+        def run_unexpected_unshimmed(cmd, **kwargs):
+            if cmd[0] == self.pool_exe:
+                trx_path = cmd[cmd.index("--trx") + 1]
+                self._write_trx(trx_path, passed_names=["Smoke"])
+                payload = {
+                    "success": True,
+                    "exitCode": 0,
+                    "version": 2026,
+                    "trxPath": trx_path,
+                    "workerIds": ["w_unshimmed_leak"],
+                    "shardCount": 1,
+                    "totalTests": 1,
+                    "passedTests": 1,
+                    "failedTests": 0,
+                    "skippedTests": 0,
+                    "zeroMatches": False,
+                    "shimEnabled": False,
+                    "error": None,
+                }
+                return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(payload), stderr="")
+            if os.path.basename(cmd[0]).lower().startswith("dotnet"):
+                cold_calls.append(list(cmd))
+            return subprocess.CompletedProcess(cmd, 0)
+
+        out_buf = io.StringIO()
+        with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root}, clear=False), \
+             mock.patch("os.getcwd", return_value=self.root), \
+             mock.patch.object(te.tempfile, "gettempdir", return_value=temp_build_root), \
+             mock.patch.object(te, "find_msbuild", return_value="msbuild.exe"), \
+             mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
+             mock.patch.object(te.guid_whitelister, "whitelist_existing_addins"), \
+             mock.patch.object(te, "run_worker_journal_cleanliness_gate", return_value=(True, "CLEAN")), \
+             mock.patch.object(te.subprocess, "run", side_effect=run_unexpected_unshimmed), \
+             contextlib.redirect_stdout(out_buf):
+            with self.assertRaises(SystemExit) as exit_ctx:
+                te.run_test_suite(target_version="2026", no_shim=False)
+
+        self.assertEqual(exit_ctx.exception.code, 1)
+        self.assertEqual(cold_calls, [])
+        self.assertIn("shimEnabled=false", out_buf.getvalue())
 
 
 if __name__ == "__main__":
