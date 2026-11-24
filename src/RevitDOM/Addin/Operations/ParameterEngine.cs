@@ -212,27 +212,51 @@ namespace Synthetic.RevitDOM.Operations
         /// <summary>
         /// Resolves the ElementIdModel reference and applies the resolved element's Id to the parameter.
         /// </summary>
-        private static bool ModifyElementIdParameter(Parameter param, ElementIdModel valModel, Document doc, IIdentityService identityService)
+        private static bool ModifyElementIdParameter(Parameter param, ElementIdModel? valModel, Document doc, IIdentityService identityService)
         {
-            if (valModel == null || 
-                string.IsNullOrEmpty(valModel.Name) || 
-                valModel.Name == "<None>" || 
-                valModel.Name == "<By Category>" || 
-                valModel.Name == "Solid")
+            if (valModel == null ||
+                valModel.Name == "<None>" ||
+                valModel.Name == "<By Category>")
             {
                 return param.Set(ElementId.InvalidElementId);
             }
 
-            Element elem = identityService.ResolveElement(valModel, doc);
-            if (elem != null)
+            ElementId targetId = identityService.ResolveElementId(valModel, doc);
+            if (targetId != ElementId.InvalidElementId)
             {
-                return param.Set(elem.Id);
+                try
+                {
+                    if (param.Set(targetId))
+                    {
+                        return true;
+                    }
+                }
+                catch (Exception ex) when (ex is Autodesk.Revit.Exceptions.ApplicationException ||
+                                           ex is ArgumentException ||
+                                           ex is InvalidOperationException)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[ParameterEngine] Parameter '{param.Definition?.Name}' rejected ElementId {targetId}: {ex.Message}");
+                }
+
+                if (RevitIdentityService.IsSolidLinePatternReference(valModel) ||
+                    (string.IsNullOrEmpty(valModel.Name) && valModel.Id < -1))
+                {
+                    return param.Set(ElementId.InvalidElementId);
+                }
+
+                return false;
+            }
+
+            if (string.IsNullOrEmpty(valModel.Name))
+            {
+                return param.Set(ElementId.InvalidElementId);
             }
 
             return false;
         }
 
-        private static bool ModifyElementIdParameter(Parameter param, ElementIdModel valModel, Document doc)
+        private static bool ModifyElementIdParameter(Parameter param, ElementIdModel? valModel, Document doc)
         {
             return ModifyElementIdParameter(param, valModel, doc, new RevitIdentityService());
         }

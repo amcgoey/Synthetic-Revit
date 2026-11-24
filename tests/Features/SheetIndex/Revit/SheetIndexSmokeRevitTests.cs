@@ -96,16 +96,8 @@ namespace SyntheticTests.Features.SheetIndex
                     new SheetIndexScheduleModel("sch-1", "Drawing Index", sheets)
                 };
 
-                var vm = new ExportSheetIndexViewModel(
-                    sheets,
-                    revisions,
-                    new[] { "Permit Submittal" },
-                    new[] { "Drawing Index" },
-                    new Dictionary<string, List<string>> { { "Permit Submittal", new List<string> { "s-101" } } },
-                    new Dictionary<string, List<string>> { { "Drawing Index", new List<string> { "s-101" } } },
-                    schedules,
-                    printSets,
-                    new SheetIndexSessionState());
+                var snapshot = new SheetIndexSnapshot(sheets, revisions, printSets, schedules);
+                var vm = new ExportSheetIndexViewModel(snapshot, new SheetIndexSessionState());
 
                 var window = new ExportSheetIndexWindow(vm, ownerHandle);
                 WpfBindingSmokeHarness.ExerciseWindow(window);

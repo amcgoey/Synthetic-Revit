@@ -13,8 +13,6 @@ using System.Linq;
 using View = Autodesk.Revit.DB.View;
 using TaskDialog = Autodesk.Revit.UI.TaskDialog;
 
-using Synthetic.Platform.IO;
-
 using Synthetic.Platform.UI;
 using Synthetic.Features.DetailItemFactory.Models;
 

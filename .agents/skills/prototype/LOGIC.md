@@ -4,7 +4,7 @@ A throwaway harness that lets anyone drive a state model and observe the outcome
 
 In this repository, choose between two execution formats based on dependencies:
 - **Shareable HTML Demo (Preferred for zero setup)**: A single self-contained HTML file that lets anyone (developer, PM, domain expert) push buttons and watch state change without compiling or installing tools.
-- **Headless C# / NUnit Harness**: A lightweight NUnit test fixture or scratch console harness in `SyntheticLogic.Tests` when the prototype must call existing `RevitDOM` C# types directly.
+- **Headless C# / NUnit Harness**: A lightweight `[UnitTest]` NUnit fixture under `tests/Features/<Slice>/Logic/` (compiled by [`Synthetic.LogicTests`](../../../tests/Projects/Synthetic.LogicTests/Synthetic.LogicTests.csproj)) when the prototype must call existing `Core/` or **RevitDOM** C# types directly.
 
 ## When this is the right shape
 
@@ -41,13 +41,13 @@ One file, plain HTML/CSS/JS: no framework, no bundler, no server, double-clickab
 
 ---
 
-## Process: Headless C# Harness (RevitDOM)
+## Process: Headless C# Harness (`Synthetic.Core` / `RevitDOM`)
 
-When the logic must directly exercise existing C# domain classes (`Synthetic.Core`, `RevitDOM` POCO models):
+When the logic must directly exercise existing C# domain classes (`Synthetic.Core`, **RevitDOM** POCO models):
 
-1. **Create a scratch fixture**: Add a single `[TestFixture]` class in `SyntheticLogic.Tests/Scratch/` (e.g. `Prototype_ParameterResolution_Harness.cs`).
-2. **Isolate domain state**: Keep tests completely headless — interact only with `RevitDOM` POCO models and services, avoiding `Autodesk.Revit.DB` dependencies.
-3. **Print state transitions**: Use `TestContext.WriteLine` or console output to dump the state after each transition so the execution trace is visible.
+1. **Create a temporary `[UnitTest]` fixture**: Add a single `[TestFixture]` `[UnitTest]` class in `tests/Features/<Slice>/Logic/` (e.g. `Prototype_ParameterResolution_Tests.cs`) so partition rules stay green while experimenting, then lift or move it onto `prototype/<name>` when done.
+2. **Isolate domain state**: Keep tests completely headless—interact only with `Core/` modules and **RevitDOM** POCOs with zero `Autodesk.Revit.DB` dependencies.
+3. **Print state transitions**: Use `TestContext.WriteLine` to dump the state after each transition so the execution trace is visible.
 4. **Run quickly**: Execute with `python .agents/skills/revit-tests/scripts/test_executor.py --version Logic --filter <FixtureName>`.
 
 ---
@@ -59,6 +59,6 @@ When the logic must directly exercise existing C# domain classes (`Synthetic.Cor
 
 ## Anti-patterns
 
-- **Don't wire to live Revit API**: Keep logic prototypes headless. If a live Revit `Document` is needed, that is an integration test, not a quick logic prototype.
-- **Don't add production polish**: No comprehensive error hierarchies, logging frameworks, or complex abstractions.
-- **Don't blur logic and presentation**: In HTML, keep the logic module distinct from UI buttons. In C#, keep logic distinct from WPF views.
+- **Keep logic prototypes headless**: Exercise pure `Core/` models without Revit `Document` fixtures; live `Document` workflows belong in **Revit Tests**.
+- **Skip production ceremony**: Omit exhaustive error hierarchies, logging frameworks, or speculative abstractions.
+- **Separate logic from presentation**: Keep the HTML logic module distinct from UI buttons, and keep C# `Core/` logic distinct from `Addin/Views/` WPF XAML.

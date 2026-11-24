@@ -7,10 +7,7 @@ using Synthetic.Features.AutoTagger.Repositories;
 using System;
 using Autodesk.Revit.DB;
 
-using Synthetic.Platform.IO;
-
 using Synthetic.Platform.UI;
-using Synthetic.Platform.Revit;
 namespace Synthetic.Features.AutoTagger.ViewModels
 {
     /// <summary>

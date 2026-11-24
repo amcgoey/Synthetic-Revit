@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Synthetic.Platform.Revit;
 
 namespace Synthetic.Features.SharedCoordinates.Models
 {
@@ -36,5 +37,10 @@ namespace Synthetic.Features.SharedCoordinates.Models
         /// Gets or sets any error messages encountered during execution.
         /// </summary>
         public IReadOnlyList<string> ErrorMessages { get; set; } = new List<string>();
+
+        /// <summary>
+        /// Gets or sets the structured failure processing report captured during execution.
+        /// </summary>
+        public FailureProcessingReport FailureReport { get; set; } = new FailureProcessingReport();
     }
 }

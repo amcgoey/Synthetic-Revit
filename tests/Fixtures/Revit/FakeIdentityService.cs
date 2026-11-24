@@ -79,7 +79,7 @@ namespace SyntheticTests.Modules.RevitDOM
         {
             if (model == null) return ElementId.InvalidElementId;
 
-            if (_uniqueIdToModel.TryGetValue(model.UniqueId, out var mappedModel))
+            if (!string.IsNullOrEmpty(model.UniqueId) && _uniqueIdToModel.TryGetValue(model.UniqueId, out var mappedModel))
             {
 #if REVIT2023
                 return new ElementId((int)mappedModel.Id);

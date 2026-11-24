@@ -14,7 +14,7 @@ The tickets are not a list of steps. They are a **task graph** with blocking rel
 
 Start every subagent with a fresh context window.
 
-Communication to and from subagents should be sparse. Communicate primarily through **context pointers**: to the spec, tickets, [`GLOSSARY.md`](../../../GLOSSARY.md), [`docs/agents/domain.md`](../../../docs/agents/domain.md), relevant `revit-*` skills, research notes, and previous commits. Don't duplicate information already available via pointers.
+Communication to and from subagents should be sparse. Communicate primarily through **context pointers**: to the spec, tickets, [`CODING_STANDARDS.md`](../../../CODING_STANDARDS.md), [`GLOSSARY.md`](../../../GLOSSARY.md), [`docs/agents/domain.md`](../../../docs/agents/domain.md), relevant `revit-*` skills, research notes, and previous commits. Don't duplicate information already available via pointers.
 
 - **Exploration subagents**: `codebase-researcher`.
 - **Implementer subagents**: `senior-coder` by default (delegating mechanical or routine subtasks to `coder`), or `coder` directly for well-specified, routine frontier tickets (escalating to `senior-coder` when architecture, contract, or deep debugging issues arise). Run in the background where possible for maximum concurrency.
@@ -41,7 +41,7 @@ Git worktrees (`Workspace: "share"`) isolate source files, and [`test_executor.p
 
 4. Dispatch **implementer subagents** for each ready frontier ticket, each in its own worktree (`Workspace: "share"`) on its own branch (`ticket-<number>`). Claim each ticket on the tracker (`gh issue edit <n> --add-assignee @me`) before starting. Each implementer subagent:
    - confirms its worktree is based on the integration branch before starting, and resets onto it if not;
-   - consults [`GLOSSARY.md`](../../../GLOSSARY.md) and applicable `revit-*` skills (`revit-multi-versions`, `revit-transactions`, `revit-wpf-mvvm`, `revit-data-retrieval`, `revit-extensible-storage`, `revit-failure-handling`);
+   - consults [`CODING_STANDARDS.md`](../../../CODING_STANDARDS.md), [`GLOSSARY.md`](../../../GLOSSARY.md), and applicable `revit-*` skills (`revit-multi-versions`, `revit-transactions`, `revit-wpf-mvvm`, `revit-data-retrieval`, `revit-extensible-storage`, `revit-external-events`, `revit-failure-handling`, `revit-ui-ribbon`);
    - runs the [`tdd`](../tdd/SKILL.md) skill paired with [`revit-tests`](../revit-tests/SKILL.md) (Step 1 `--version Logic` → Step 2 `--version <CURRENT_LATEST_VERSION>` → Step 3 multi-version validation via [`test_executor.py`](../revit-tests/scripts/test_executor.py)) until all targeted tests pass and post-run `--assert-clean` journal verification succeeds;
    - posts a brief walkthrough comment to its ticket (`gh issue comment <n> --body "..."`, redacting any secrets or local paths);
    - merges the integration branch tip into its own branch before reporting done.

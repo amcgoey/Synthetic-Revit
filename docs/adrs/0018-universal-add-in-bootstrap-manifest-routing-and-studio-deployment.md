@@ -1,0 +1,44 @@
+# ADR 0018 - Universal Add-In Bootstrap, Manifest Routing, and Studio Deployment
+
+Status: Accepted
+
+## Context
+Deploying and loading a multi-version Revit add-in across **Revit Versions** 2023–2026 (with forward routing for `2027+`) introduces competing operational constraints across developer builds, automated test workers, and studio workstations:
+1. Writing `.addin` manifests to `C:\ProgramData\Autodesk\Revit\Addins\<Year>\` requires administrative elevation, blocking unprivileged local `Debug` builds.
+2. Loading `Synthetic<Year>.dll` directly from `output/` or `ProgramData` locks active binaries while Revit is open, preventing developer rebuilds and daytime studio Release updates.
+3. Automated test workers run concurrently with interactive Revit sessions and require isolated build directories plus an add-in startup bypass that still records run attribution in the **Revit Journal**.
+4. Revit 2025+ migrated from `.NET Framework 4.8` to `.NET 8+`, Revit 2026+ introduced `<ManifestSettings><UseRevitContext>True</UseRevitContext></ManifestSettings>`, and Revit 2027+ shifts machine-wide add-ins to `Program Files`.
+5. Shadow-copying the payload moves `Assembly.Location` into an ephemeral per-process cache directory, whereas studio settings and templates must resolve against the persistent source `Payload/<Year>/` directory.
+
+## Decision
+We separate startup loading from the versioned payload using a universal **Add-In Bootstrap**, single-source `.addin` manifest generation, and staged UNC/workstation deployment:
+
+1. **Universal Add-In Bootstrap & Per-Process Shadow Cache:**
+   - [src/Directory.Build.props](../../src/Directory.Build.props) targets `x64` across the solution and splits outputs into `output/Synthetic/Bootstrap/v1/` (`Synthetic.Bootstrap<Year>.dll`) and `output/Synthetic/Payload/<Year>/` (`Synthetic<Year>.dll`, dependencies, assets, and settings templates).
+   - On startup, [ShadowCacheManager.cs](../../src/Synthetic.Bootstrap/ShadowCacheManager.cs) (`ShadowCacheManager.PrepareLaunch`) resolves `Payload/<Year>/` relative to `Bootstrap/v1/` (`..\..\Payload\<Year>`), scavenges exited or PID-reused sibling folders under `%LOCALAPPDATA%\Synthetic\ShadowCache\<Year>\`, and copies the payload into `%LOCALAPPDATA%\Synthetic\ShadowCache\<Year>\<PID>_<UtcStartTicks>\`.
+   - Sibling scavenging verifies live process `StartTime.ToUniversalTime().Ticks`: exited PIDs (`ArgumentException` / `InvalidOperationException`) and reused PIDs with mismatched start ticks are deleted best-effort, while `AccessDenied` (`Win32Exception` native error `5`), `UnauthorizedAccessException`, and other `Win32Exception` errors conservatively preserve the sibling directory.
+   - Bootstrap failures write diagnostic logs to `%LOCALAPPDATA%\Synthetic\Logs\Synthetic_Bootstrap_<Year>_<TimestampUtc>_<PID>.log` and emit `SYNTHETIC_BOOTSTRAP_ERROR:` comments to the **Revit Journal**.
+
+2. **Dynamic Host Discovery & Default Context Loading:**
+   - [BootstrapApp.cs](../../src/Synthetic.Bootstrap/BootstrapApp.cs) (`BootstrapApp`) implements `IExternalApplication` and discovers the payload entry type in strict order: `Synthetic.Platform.Host.App`, then `Synthetic.Core.App`, then the first exported non-abstract `IExternalApplication`.
+   - The payload loads into the default runtime context so host and add-in assemblies share identity:
+     - `.NET Framework 4.8` (**Revit Version** `2023–2024`, `NETFRAMEWORK`): registers `AppDomain.CurrentDomain.AssemblyResolve` (returning already-loaded assemblies by simple name or probing `_activeTargetDir`) and loads via `Assembly.LoadFrom`.
+     - `.NET 8+` (**Revit Version** `2025+`, `!NETFRAMEWORK`): initializes `AssemblyDependencyResolver`, registers `AssemblyLoadContext.Default.Resolving` (probing `alc.Assemblies`, `AssemblyDependencyResolver.ResolveAssemblyToPath`, and `_activeTargetDir`), and loads via `AssemblyLoadContext.Default.LoadFromAssemblyPath`.
+
+3. **Runtime Seams & Environment Variables:**
+   - `SYNTHETIC_TEST_WORKER=1`: short-circuits payload staging and loading inside automated test workers (`LaunchMode.TestWorkerBypass`), logging `SYNTHETIC_TEST_RUN:<RunId>` to the **Revit Journal** when `SYNTHETIC_TEST_RUN_ID` is set.
+   - `SYNTHETIC_DISABLE_SHADOW_COPY=1`: bypasses shadow copying (`LaunchMode.DirectInPlace`) and loads `Payload/<Year>/Synthetic<Year>.dll` directly in place for interactive debugger attachment.
+   - `SYNTHETIC_ADDIN_ROOT`: set by `BootstrapApp` via `AppDomain.CurrentDomain.SetData` (`NETFRAMEWORK`) or `AppContext.SetData` (`.NET 8+`) to the source `Payload/<Year>/` directory (`plan.SourcePayloadDir`). [Config.cs](../../src/Platform/Settings/Core/Config.cs) (`Config.ResolveAddinRoot()`) resolves studio settings and templates in order (`SYNTHETIC_ADDIN_ROOT` env var -> `AppDomain`/`AppContext` data -> executing assembly directory) rather than using the ephemeral shadow cache folder.
+
+4. **Single-Source `.addin` Manifest Generation & Routing:**
+   - `GenerateRevitAddinManifest` in [src/Directory.Build.targets](../../src/Directory.Build.targets) generates `Synthetic<Year>.addin` with unified `ClientId` (`4fd5b26e-1325-460f-97b1-878804070868`), `FullClassName` (`Synthetic.Bootstrap.BootstrapApp`), `VendorId` (`net.amcgoey`), and `<ManifestSettings><UseRevitContext>True</UseRevitContext></ManifestSettings>` for `2026+` only.
+   - **Debug Manifest & Local Deployment:** `Debug` builds point `<Assembly>` at `$(RepoOutputRoot)\Synthetic\Bootstrap\v1\Synthetic.Bootstrap<Year>.dll`, sign intermediate assemblies via `SignDebugBuild` (`signtool.exe` SHA256 using the local self-signed `"Synthetic"` certificate), and deploy `Synthetic<Year>.addin` to `%APPDATA%\Autodesk\Revit\Addins\<Year>\` (**Local Deployment**). Setting `$(SyntheticIsolatedBuildRoot)` automatically sets `SkipDeployAddin=true` and isolates `obj/` and `bin/` (keyed by `$(SyntheticRunId)`), leaving user **Local Deployment** and `output/` untouched during headless test runs; non-isolated builds run `CleanLegacyFlatOutputs` to clear legacy flat `output\Synthetic\` files.
+   - **Release Builds:** `Release` builds are intentionally unsigned locally (Authenticode signing of `Release` builds is excluded because deploying custom self-signed root certificates across office workstations is impractical). `Release` manifests point `<Assembly>` at `C:\ProgramData\Autodesk\Revit\Addins\Synthetic\Bootstrap\v1\Synthetic.Bootstrap<Year>.dll` for `2023–2026` (`< 2027`) and `C:\Program Files\Autodesk\Revit\Addins\Synthetic\Bootstrap\v1\Synthetic.Bootstrap<Year>.dll` for `2027+` (`>= 2027`), and are staged to `output\Manifest for Deploy\`.
+
+5. **Studio UNC Staging & Elevated PDQ Workstation Pipeline:**
+   - [Deploy-To-INC-Server.template.bat](../../build/Deploy-To-INC-Server.template.bat) mirrors `Bootstrap/v1` and `Payload/<Year>` to `%UNC_SERVER_PATH%\Synthetic` (`/MIR /XF *.addin`), copies `Release` `.addin` manifests to `%UNC_SERVER_PATH%\Manifest for Deploy`, and overlays `%LOCAL_OUTPUT_PATH%\INC Settings` into every 4-digit `Payload/<Year>` folder using `/E` (without `/MIR`) so per-year binaries are preserved.
+   - [Install-Synthetic-Workstation.template.bat](../../build/Install-Synthetic-Workstation.template.bat) runs elevated on workstations (such as via PDQ Deploy) using bounded `robocopy /R:3 /W:2 /NP` (`0..7` = success, `>= 8` = immediate non-zero exit). It purges retired `2022` manifests (`Synthetic2022.addin`) and legacy flat `ProgramData\...\Synthetic\` root artifacts while preserving `Bootstrap\` and `Payload\`, routes installed **Revit Versions** (`< 2027` to `%PROGRAMDATA_ROOT%\Autodesk\Revit\Addins`, `>= 2027` to `%PROGRAMFILES_ROOT%\Autodesk\Revit\Addins`), copies `Synthetic<Year>.addin`, seeds `Bootstrap/v1/` with `/XC /XN /XO` (skip-existing so locked live session binaries never fail), and mirrors `Payload/<Year>/` (`/MIR`) for `Stage-While-Open, Activate-on-Next-Restart` daytime updates.
+
+## Consequences
+* **Pros:** Eliminates admin elevation for local `Debug` workflows via `%APPDATA%` **Local Deployment**; prevents Windows file locks during both developer rebuilds and daytime studio Release rollouts; isolates automated test builds (`SyntheticIsolatedBuildRoot`) and test worker startup (`SYNTHETIC_TEST_WORKER=1`); centralizes `.addin` manifest emission, `2026+` `<UseRevitContext>`, and `2027+` `Program Files` routing in one MSBuild target; and keeps studio settings anchored to `Payload/<Year>/`.
+* **Cons:** Updating `Synthetic.Bootstrap<Year>.dll` itself while Revit is open is deferred by `/XC /XN /XO` until Revit closes; `Release` builds remain unsigned locally while `Debug` signing requires Windows SDK `signtool.exe` and a local `"Synthetic"` certificate; and active sessions retain a copy of `Payload/<Year>/` under `%LOCALAPPDATA%\Synthetic\ShadowCache\` until a subsequent launch scavenges exited session folders.

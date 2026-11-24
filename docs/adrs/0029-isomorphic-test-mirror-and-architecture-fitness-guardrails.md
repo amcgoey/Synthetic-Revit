@@ -1,0 +1,58 @@
+# ADR 0029 - Isomorphic Test Mirror and Architecture Fitness Guardrails
+
+Status: Accepted
+
+## Context
+Before Spec 2/Spec 3, `Synthetic` mixed fast POCO tests, WPF view tests, and `RevitAPIMock` tests in one project while relying on regex/XML `PartitionArchitectureTests` (using opaque `ARCH001`–`ARCH010` codes) and running live integration tests via `ricaun.NUnit 1.5.0`. That arrangement created four verification failures:
+
+1. **Silent `Autodesk.Revit.*` & `net48` Drift:** Compiling tests against `RevitAPIMock` hid real Revit API differences and left `.NET Framework 4.8` (`net48`) runtime incompatibilities untested offline.
+2. **Runner Category Mismatch:** `ricaun.NUnit 1.5.0` (bundled in `ricaun.RevitTest.TestAdapter 1.11.1`) ignores VSTest `TestCategory=...` filters, making category-scoped live runs impossible without a test-runner bridge.
+3. **Regex Blind Spots:** Text/regex architecture checks hardcoded `202[3-6]`, ignored `#if`-disabled code blocks, missed aliased/`global::`/C# 9 `new(...)` instantiations, and self-matched literal strings inside test files.
+4. **Unchecked Technical Debt:** Without type-level ratchets, legacy slices could re-introduce static `ExternalEvent`s, unguarded `Transaction`s, or Revit imports into ViewModels without failing CI.
+
+## Decision
+We enforce a **host-partitioned isomorphic test mirror**, an **expand–contract `RevitAPIMock` quarantine**, a **`ricaun.RevitTest` `FullyQualifiedName` category bridge**, and a **single-parse Roslyn 12-rule `FitnessRule` suite with bi-directional ratchets**:
+
+1. **Isomorphic Test Mirror (`Logic/` + `Revit/`) & Subject-First Fixtures:**
+   - `tests/` mirrors `src/`'s partitioned layout across `tests/Features/<Slice>/`, `tests/RevitDOM/`, and `tests/Platform/<Slice>/` using `Logic/` (headless **Logic Tests**) and `Revit/` (live **Revit Tests**), alongside [`tests/Architecture/Logic/`](../../tests/Architecture/Logic/).
+   - Shared test helpers split by purity: Revit-free test doubles, path helpers, and category attributes live in [`tests/Fixtures/Shared/`](../../tests/Fixtures/Shared/), while Revit-coupled base fixtures and journal markers live in [`tests/Fixtures/Revit/`](../../tests/Fixtures/Revit/) ([ADR 0001](0001-hybrid-state-management-for-revit-tests.md)).
+   - Test project heads live under `tests/Projects/`:
+     - [`Synthetic.LogicTests.csproj`](../../tests/Projects/Synthetic.LogicTests/Synthetic.LogicTests.csproj) (`net48;net8.0-windows8.0`, `<EnableDefaultCompileItems>false</EnableDefaultCompileItems>`, `Microsoft.CodeAnalysis.CSharp 4.14.0`, `CsCheck 2.14.1`, `net48` binding redirects) compiles `Fixtures/Shared/**`, `Architecture/Logic/**`, `Features/**/Logic/**`, `Platform/**/Logic/**`, `RevitDOM/Logic/**`, plus `ShadowCacheManager.cs` with zero `Autodesk.Revit.*` or mock references.
+     - `Synthetic.RevitTests.<Year>.csproj` (`2023`..`CURRENT_LATEST_VERSION`) compiles `Fixtures/Shared/**`, `Fixtures/Revit/**`, `Features/**/Revit/**`, `RevitDOM/Revit/**`, and `Platform/*/Revit/**` (using the explicit non-recursive `Platform\*\Revit\**\*.cs` glob in [tests/Directory.Build.targets](../../tests/Directory.Build.targets) so `Platform/Revit/Logic/*.cs` never leaks into Revit test heads).
+   - Fixtures use subject-first naming (`<Subject>Tests` in `Logic/`, `<Subject>RevitTests` in `Revit/`), and **Revit Tests** verify clean **Revit Journals** (`--assert-clean`, [ADR 0026](0026-revit-journal-telemetry-strategy.md)).
+
+2. **`RevitAPIMock` Expand–Contract Quarantine (`Synthetic.LegacyMockTests`):**
+   - [`Synthetic.LegacyMockTests.csproj`](../../tests/Projects/Synthetic.LegacyMockTests/Synthetic.LegacyMockTests.csproj) (`net8.0-windows8.0`, `SwapRevitApiWithMock` target substituting [`RevitAPIMock`](../../tests/RevitAPIMock/RevitAPIMock.csproj) and [`RevitAPIUIMock`](../../tests/RevitAPIUIMock/RevitAPIUIMock.csproj)) isolates legacy mock tests while slices migrate incrementally onto `Core/` **Logic Tests** and live **Revit Tests**.
+   - `FitnessRule.TestCategoryAndLegacyMockRatchet` locks [`ArchitectureFitnessRules.ExpectedLegacyMockTestFileCount`](../../tests/Architecture/Logic/ArchitectureFitnessRules.cs) at **`25`** (down from `28` after retiring `SharedCoordinatesMathTests`, `RevitSharedCoordinatesAdapterTests`, and `RibbonTests` in Spec 3), failing if files are added or removed without ratcheting the ceiling down until final retirement in Spec 7.
+
+3. **Canonical Typed `[Category]` Attributes & `ricaun.RevitTest` `FullyQualifiedName` Bridge:**
+   - Every non-abstract test-containing class must carry (or inherit from a base fixture carrying) one of the `6` typed attributes in [`TypedCategoryAttributes.cs`](../../tests/Fixtures/Shared/TypedCategoryAttributes.cs) (`[UnitTest]`, `[ArchitectureTest]`, `[RevitSmokeTest]`, `[RevitAdapterTest]`, `[RevitIsolatedDocTest]`, `[QuarantineTest]`) **or** decorate every test method with one (such as [`BootstrapWorkerIsolationRevitTests`](../../tests/Platform/Host/Revit/BootstrapWorkerIsolationRevitTests.cs)).
+   - For **Logic Tests**, [test_executor.py](../../.agents/skills/revit-tests/scripts/test_executor.py) filters via native VSTest `TestCategory=...`. For **Revit Tests**, `find_tests_by_category` scans Revit test `.cs` files (resolving class, inherited base, and method attributes) and compiles an explicit VSTest `FullyQualifiedName~<ClassOrMethod>|...` filter expression.
+
+4. **Single-Parse Roslyn 12-Rule `FitnessRule` Engine & Bi-Directional Ratchets:**
+   - [`ArchitectureFitnessTests.cs`](../../tests/Architecture/Logic/ArchitectureFitnessTests.cs) (`[ArchitectureTest]`) loads one cached [`ArchitectureWorkspaceSnapshot`](../../tests/Architecture/Logic/ArchitectureWorkspaceSnapshot.cs) in `[OneTimeSetUp]` (parsing all `src/` and `tests/` `.cs`, `.xaml`, `.csproj`/`.targets`, `ribbon_config.json`, `SyntheticSettings.template.json`, and `CURRENT_LATEST_VERSION` from [`revit-config.md`](../agents/revit-config.md); targeting `<100ms` as a design benchmark without flaky wall-clock test assertions under cold `net48` JIT + `ParallelScope.All`).
+   - [`RoslynSyntaxNormalizer`](../../tests/Architecture/Logic/RoslynSyntaxNormalizer.cs) re-parses `#if`/`#elif`-bearing `.cs` files under `REVIT2023`..`CURRENT_LATEST_VERSION-1`, `NETFRAMEWORK`, and `DEBUG` symbols, expands `UsingDirectiveSyntax` aliases, strips `global::` (`AliasQualifiedNameSyntax`), and resolves C# 9 target-typed `new(...)` (`ImplicitObjectCreationExpressionSyntax`).
+   - **Global `0%`-Allowlist Gates (`FitnessRule` 1–7 in [`FitnessRule.cs`](../../tests/Architecture/Logic/FitnessRule.cs)):**
+     1. `CoLocatedPartitionLayout`: Enforces `Core/`/`Addin/` and `Logic/`/`Revit/` partition placement, valid dynamic `20\d{2}` project heads, zero `.shproj`/`AssemblyInfo*.cs`/legacy clutter, and `35` themed `.xaml` views merging `SyntheticThemeDictionary`.
+     2. `CorePurityAndZeroPreprocessor`: Bans `Autodesk.Revit.*`, `.xaml`/`.baml`, `ProgressCoordinator`, Excel PIA DLL emission, and `#if`/`#elif REVIT*` in `Core/`/`Logic/` (allowing `#if NETFRAMEWORK`), and inspects Roslyn `IfDirectiveTriviaSyntax`/`ElifDirectiveTriviaSyntax` nodes repo-wide to forbid `#if`/`#elif REVIT<CURRENT_LATEST_VERSION>`.
+     3. `FourBandDependencyGraph`: Enforces the 4-band acyclic dependency DAG across C# and XAML `xmlns:` declarations (`Platform.Host` isolation, zero sibling feature imports, `RevitDOM` boundaries, `App.AppControlled` bans, and retired namespace bans).
+     4. `DomainGraduationThreshold`: Passes vacuously until `src/Domain/` exists, then requires `>= 2` sub-modules each consumed by `>= 2` distinct `Features/<Slice>` modules with zero sibling `Domain` imports.
+     5. `RibbonConfigIntegrity`: Resolves every `ribbon_config.json` command `class` (and `availability_class`) via Roslyn to a concrete `IExternalCommand` (or `IExternalCommandAvailability`) in `src/**/Addin/**` and verifies all referenced `.png` assets under `src/Assets/`.
+     6. `SettingsRegistryTemplateParity`: Enforces 1-to-1 `ModuleKey` parity across concrete `ISettingModule` definitions (excluding `SyncSettings`), `HostSettingsRegistrar` calls, and `SyntheticSettings.template.json` keys, plus `Synthetic.Core` JSON defaults round-trips.
+     7. `TestCategoryAndLegacyMockRatchet`: Enforces canonical typed `[Category]` attribution, bans `Tier1_*`/`Tier2_*` names and retired failure/config symbols (`MockFailureFactory`, `DeleteWarnings(`, `App.Configurations`, `ConfigCollection`), and locks `Synthetic.LegacyMockTests` at `25` files.
+   - **Bi-Directionally Ratcheted Type-Level Gates (`FitnessRule` 8–12):**
+     8. `InteractiveSliceSeamPurity`: Forbids `Autodesk.Revit.*` inside `{ViewModels, Views, Models, Settings}` across all `14` slices.
+     9. `TransactionPlacement`: Restricts raw `new Transaction` instantiations to `IExternalCommand`, `IExternalEventHandler`, `I*Adapter`, or `Platform/Revit/Addin`, and restricts raw `new TransactionGroup` instantiations strictly to `Platform/Revit/Addin` (`DocumentTransactionExtensions`).
+     10. `TransactionFailureGuard`: Requires every `new Transaction` outside `Platform/Revit/Addin` to attach `FailurePipelines` / `IFailuresPreprocessor` / `SetFailuresPreprocessor` (or route through `DocumentTransactionExtensions`).
+     11. `ExternalEventAndDialogPurity`: Bans `static ExternalEvent` fields anywhere in `src/`, raw `DeleteAllWarnings()` outside `Platform/Revit/Addin`, `ExternalEvent.Create(...)` inside `ViewModels/`, and `TaskDialog`/`MessageBox`/`.ShowDialog()` inside restricted UI/handler/`RevitDOM` scopes (ignoring `TaskDialogShowingEventArgs` interception and exempting `Platform/UI/Addin` prompt services + `WindowsSummaryDisplayService`).
+     12. `SingleSchemaExtensibleStorage`: Restricts `new SchemaBuilder(...)` to `Platform/Settings/Addin`.
+   - Every allowlisted violation is keyed strictly by `(Slice, FitnessRule, TypeName)` (wildcards rejected) inside `TransitionalSpecBacklog` or `DormantBoyScoutAllowlist` in [`ArchitectureAllowlistRatchet.cs`](../../tests/Architecture/Logic/ArchitectureAllowlistRatchet.cs), with `0` entries permitted for `BatchPrint`, `ShadowStudy`, `SharedCoordinates`, `SheetIndex`, `Diagnostics`, and `Platform/Revit` (keeping `Diagnostics`/`StorageUtil.PurgeSchema` silent-catch hardening as a Spec 6 prose note). [`AllowlistRatchetEvaluator`](../../tests/Architecture/Logic/ArchitectureAllowlistRatchet.cs) fails both on unlisted violating types (**ceiling lock**) and on stale allowlist entries that no longer violate (**one-way ratchet**).
+
+## Alternatives Considered
+1. **Regex/Text-Based Architecture Tests:** Rejected because text scans miss `#if`-disabled branches, aliased/`global::`/C# 9 `new()` syntax, and create false positives on test string literals.
+2. **Keeping `RevitAPIMock` in `Synthetic.LogicTests`:** Rejected because mock stubs mask `.NET Framework 4.8` incompatibilities and diverge from real Revit API transaction/failure semantics.
+3. **Whole-Slice Wildcard or Ceiling-Only Allowlists:** Rejected because slice-level wildcards permit silent debt growth in untouched types and ceiling-only lists never ratchet debt downward as slices migrate.
+
+## Consequences
+* **Pros:** Runs deterministic multi-TFM (`net48`, `net8.0-windows8.0`) **Logic Tests** and Roslyn **Architecture Fitness Tests** with zero Revit dependency; enables `--category` filtering on `ricaun.NUnit` **Revit Tests**; and guarantees monotonic debt burn-down across Specs 5–9.
+* **Cons:** Requires updating `ExpectedLegacyMockTestFileCount` and removing stale `(Slice, FitnessRule, TypeName)` entries inline whenever legacy debt is retired; temporary `Synthetic.LegacyMockTests` quarantine remains until Spec 7 completes `StandardsManagement` migration.

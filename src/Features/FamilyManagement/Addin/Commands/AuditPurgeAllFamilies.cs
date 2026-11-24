@@ -11,8 +11,6 @@ using Autodesk.Revit.Attributes;
 using System.Diagnostics;
 using System.IO;
 using Newtonsoft.Json;
-using Synthetic.Platform.UI;
-using Synthetic.Platform.Revit;
 using Synthetic.Features.FamilyManagement.Handlers;
 
 namespace Synthetic.Features.FamilyManagement.Commands

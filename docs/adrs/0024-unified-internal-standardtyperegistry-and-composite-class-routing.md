@@ -1,0 +1,23 @@
+# ADR 0024 - Unified Internal StandardTypeRegistry and Composite Class Routing
+
+Status: Accepted (refines [ADR 0010](0010-hybrid-dispatcher-translator-architecture.md) and [ADR 0012](0012-explicit-translator-mapping-for-topological-sorting.md); supersedes the `ModelsToSerialize` routing portion of [ADR 0017](0017-generic-poco-consolidation-for-parameter-driven-types.md))
+
+## Context
+
+[ADR 0010](0010-hybrid-dispatcher-translator-architecture.md) established strongly-typed **RevitDOM** POCOs with explicit translator registration, [ADR 0012](0012-explicit-translator-mapping-for-topological-sorting.md) established deterministic bottom-up DAG topological sorting, and [ADR 0017](0017-generic-poco-consolidation-for-parameter-driven-types.md) consolidated parameter-driven `ElementType` subclasses onto base `ElementTypeModel` / `HostObjTypeModel` while routing them into 26 separate JSON dictionaries inside `ModelsToSerialize.cs`. In practice, leaving `ModelDispatcher` keyed solely by C# `Type` (`typeof(TModel)`) while scattering type rules across `ModelsToSerialize`, `MissingModels`, `ImportExecutionRunner`, `StandardsHierarchyUtility`, `StandardsSourceTreeViewModel`, `PocoToRevitDiffEngine`, and `RevitFamilyEnforcer` caused translator overwrites on shared POCOs, exact-type lookup misses on empty marker subclasses, silent JSON key collisions across families and categories, blind cross-family `.Duplicate()` calls, and divergent family-document filtering.
+
+## Decision
+
+We consolidate all standard element metadata and Revit translator bindings across a paired `Core/` + `Addin/` registry split (`StandardTypeMetadataRegistry` + `StandardTypeRegistry`) inside **RevitDOM** and retire both public `ModelsToSerialize` and the seven empty marker POCO subclasses (`GridTypeModel`, `LevelTypeModel`, `CurtainSystemTypeModel`, `MullionTypeModel`, `FasciaTypeModel`, `GutterTypeModel`, `ViewFamilyTypeModel`). Specifically:
+
+1. **Split Metadata & Revit Registry + Composite Dispatch:**
+   - [`StandardTypeMetadataRegistry`](../../src/RevitDOM/Core/Operations/StandardTypeMetadataRegistry.cs) (`src/RevitDOM/Core/`, compiled in `Synthetic.Core`) holds the pure `StandardTypeDescriptor` table: `BucketName`, `DefaultClass`, `ModelType`, deterministic DAG `Tier` (`1–6`), **Document Scope** (`Universal`, `ProjectOnly`, `FamilyOnly`), **Source Pane** `(GroupName, ClassName)` taxonomy, `LegacyBucketAliases` / `ClassAliases`, and deterministic `CustomKeySelector`.
+   - [`StandardTypeRegistry`](../../src/RevitDOM/Addin/Operations/StandardTypeRegistry.cs) (`src/RevitDOM/Addin/`, compiled in `Synthetic<Year>`) composes `StandardTypeMetadataRegistry` with `StandardTypeRevitBinding` (`Autodesk.Revit.DB` `Type`, `(ModelType, Class)` `TranslatorBinding` factories, and `RootCollector` queries) plus context-aware duplication/resolution strategies.
+2. **Seam Placement:** `IStandardSerializationEngine` ([`StandardSerializationEngine`](../../src/RevitDOM/Addin/Operations/StandardSerializationEngine.cs)) remains the narrow Revit `Document` port seam (`ByRevit`, `ExtractCategory`, `GatherRootElements`, `Analyze`, `ToRevit`), enforcing **Document Scope** uniformly inside `Analyze` and `ToRevit`. Pure headless operations ([`PocoJsonSerializer`](../../src/RevitDOM/Core/Operations/PocoJsonSerializer.cs) / `StandardSerializationEngine.ToJson` / `FromJson` and [`ImportExecutionRunner.Sort`](../../src/RevitDOM/Core/Operations/ImportExecutionRunner.cs)) execute directly against `StandardTypeMetadataRegistry` in `Synthetic.Core` without requiring Revit runtime or test-port indirection.
+3. **Disambiguated Identity & Legacy JSON Compatibility:** `ElementTypeModel` captures `FamilyName` and optional `ViewFamily` so JSON buckets emit deterministic composite keys per bucket kind, `FromJson` hydrates entries polymorphically via `.Class` (transparently migrating legacy 26-bucket JSON files), and `ToRevit` / `Analyze` disambiguate existing elements and template duplication by `Category` + `FamilyName`, `ViewFamily`, `DimensionStyle`, and `Pattern.Target`.
+
+## Consequences
+
+- Adding or adjusting a Revit standard type is localized to `StandardTypeMetadataRegistry` + `StandardTypeRegistry` rather than an 8-file shotgun edit, while keeping pure metadata available in multi-targeted `Synthetic.Core`.
+- Shared POCOs (`ElementTypeModel`, `HostObjTypeModel`, and polymorphic `ViewModel` subclasses) route cleanly without overwriting translators or requiring empty C# marker subclasses.
+- Same-name types across distinct families, categories, dimension styles, view families, or pattern targets no longer overwrite one another in JSON templates or live Revit documents, while existing JSON files continue to load seamlessly.

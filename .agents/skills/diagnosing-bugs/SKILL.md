@@ -7,7 +7,7 @@ description: Diagnosis loop for hard bugs and performance regressions. Use when 
 
 A discipline for hard bugs. Skip phases only when explicitly justified.
 
-When exploring the codebase, read [`GLOSSARY.md`](../../../GLOSSARY.md) (if it exists) to get a clear mental model of the relevant modules, and check ADRs in `docs/adrs/` in the area you're touching.
+When exploring the codebase, read [`GLOSSARY.md`](../../../GLOSSARY.md) to get a clear mental model of the relevant modules, and check ADRs in [`docs/adrs/`](../../../docs/adrs/) and rules in [`CODING_STANDARDS.md`](../../../CODING_STANDARDS.md).
 
 ## Redact
 
@@ -23,11 +23,11 @@ Spend disproportionate effort here. **Be aggressive. Be creative. Refuse to give
 
 ### Ways to construct one in Revit Add-in development, in roughly this order
 
-1. **Headless NUnit logic test** (`SyntheticTests.Logic`) via `python .agents/skills/revit-tests/scripts/test_executor.py --version Logic --filter "<TestName>"` for bugs in `RevitDOM` models, translators, comparison engines, or ViewModels. Fast and runs in seconds.
-2. **In-process Revit integration test** (`SyntheticTests.Shared`) via `python .agents/skills/revit-tests/scripts/test_executor.py --version 2026 --filter "<TestName>"` for bugs requiring a live Revit `Document` or active database transaction.
-3. **Revit Journal telemetry loop** (`revit-journal-telemetry`) via `python .agents/skills/revit-journal-telemetry/scripts/revit_journal_tool.py --analyze` / `--search "<pattern>"` / `--watch` to inspect unhandled managed exceptions, `DBG_WARN`, orphaned transactions, memory stats, and the `[REPRODUCTION TRAIL]` preceding a crash.
+1. **Headless Logic Test (`Synthetic.LogicTests`)** via `python .agents/skills/revit-tests/scripts/test_executor.py --version Logic --filter "<TestName>"` for bugs in `Core/` modules, ViewModels, **RevitDOM** POCOs, or `ArchitectureFitnessTests`. Runs across `net48` and `net8.0-windows8.0` in seconds.
+2. **Live Revit Test (`Synthetic.RevitTests.<Year>`)** via `python .agents/skills/revit-tests/scripts/test_executor.py --version 2026 --filter "<TestName>"` for bugs requiring a live Revit `Document` or active database transaction.
+3. **Revit Journal telemetry loop** (`revit-journal-telemetry`) via `python .agents/skills/revit-journal-telemetry/scripts/revit_journal_tool.py --analyze` / `--search "<pattern>"` / `--watch` to inspect unhandled managed exceptions, `DBG_WARN`, orphaned transactions, **RAM Statistics**, and the `[REPRODUCTION TRAIL]` preceding a crash.
 4. **Replay a captured template / `RevitDOM` payload.** Save a failing JSON template or element payload to disk; replay it through the translation or merge pipeline in isolation.
-5. **Differential multi-version loop** (`test_executor.py` across Revit 2022–2026) when the bug is version-specific (`revit-multi-versions`).
+5. **Differential multi-version loop** (`test_executor.py` omitting `--version` or targeting `2023`–`2026`) when the bug is version-specific (`revit-multi-versions`).
 6. **Interactive Visual Studio + Revit debugger (`revit-debug-by-user`)** via `powershell -File .agents/skills/revit-debug-by-user/scripts/start_debugging.ps1` or `scripts/hitl-loop.template.sh` as last resort when a human must click in the Revit/WPF UI.
 
 Build the right feedback loop, and the bug is 90% fixed.
@@ -48,7 +48,7 @@ The goal is not a clean repro but a **higher reproduction rate**. Loop the trigg
 
 ### When you genuinely cannot build a loop
 
-Stop and say so explicitly. List what you tried. Ask the user for: (a) access to whatever environment reproduces it, (b) a redacted captured artifact (journal file, dump file, test model `.rvt`, screen recording with timestamps), or (c) permission to add temporary telemetry. Do **not** proceed to hypothesise without a loop.
+Stop and say so explicitly. List what you tried. Ask the user for: (a) access to whatever environment reproduces it, (b) a redacted captured artifact (**Revit Journal**, **Crash Dump**, test model `.rvt`, screen recording with timestamps), or (c) permission to add temporary telemetry. Do **not** proceed to hypothesise without a loop.
 
 ### Completion criterion: a tight loop that goes red
 
@@ -104,7 +104,7 @@ Tool preference:
 
 **Tag every debug log** with a unique prefix, e.g. `[DEBUG-a4f2]`. Cleanup at the end becomes a single grep. Untagged logs survive; tagged logs die.
 
-**Perf branch.** For memory growth or performance regressions, check RAM statistics in the journal (`revit_journal_tool.py --analyze`) and measure transaction durations. Measure first, fix second.
+**Perf branch.** For memory growth or performance regressions, check **RAM Statistics** in the **Revit Journal** (`revit_journal_tool.py --analyze`) and measure transaction durations. Measure first, fix second.
 
 ## Phase 5: Fix + regression test
 
@@ -116,7 +116,7 @@ A correct seam is one where the test exercises the **real bug pattern** as it oc
 
 If a correct seam exists:
 
-1. Turn the minimised repro into a failing test at that seam (`SyntheticLogic.Tests` or `SyntheticTests.Shared`).
+1. Turn the minimised repro into a failing test at that seam (`Synthetic.LogicTests` or `Synthetic.RevitTests.<Year>`).
 2. Watch it fail. If you forced the red by mutating code or a fixture, `diff` against a pristine copy to prove the mutation landed before you trust it.
 3. Apply the fix.
 4. Watch it pass.

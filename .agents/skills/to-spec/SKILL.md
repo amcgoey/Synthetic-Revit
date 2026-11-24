@@ -10,9 +10,9 @@ The issue tracker and triage label vocabulary should have been provided to you. 
 
 ## Process
 
-1. Explore the repo to understand the current state of the codebase, if you haven't already. Consult `GLOSSARY.md` and `docs/adrs/` in the area you're touching; use the project's domain vocabulary throughout the spec.
+1. Explore the repo to understand the current state of the codebase, if you haven't already. Consult [`GLOSSARY.md`](../../../GLOSSARY.md), [`CODING_STANDARDS.md`](../../../CODING_STANDARDS.md), and [`docs/adrs/`](../../../docs/adrs/) in the area you're touching; use the project's domain vocabulary throughout the spec.
 
-2. Sketch out the seams at which you're going to test the feature. In this repo, distinguish between **Headless Logic seams** (`SyntheticLogic.Tests` / `RevitDOM` POCOs, preferred for fast, deterministic test loops) and **Revit API seams** (`Synthetic.Tests` running against a live Revit `Document`). Existing seams should be preferred to new ones. Use the highest seam possible. If new seams are needed, propose them at the highest point you can. The fewer seams across the codebase, the better — the ideal number is one.
+2. Sketch out the seams at which you're going to test the feature. In this repo, distinguish between **Headless Logic seams** (`Synthetic.LogicTests` across `net48` + `net8.0-windows8.0` exercising `Core/` modules, `Fake<Slice>Adapter` doubles, and **RevitDOM** POCOs) and **Revit API seams** (`Synthetic.RevitTests.<Year>` running live **Revit Tests** via `RevitTemplateRollbackFixture` or `RevitIsolatedDocumentFixture`). Existing seams should be preferred to new ones. Use the highest seam possible. If new seams are needed, propose them at the highest point you can. The fewer seams across the codebase, the better — the ideal number is one.
 
 Check with the user that these seams match their expectations.
 

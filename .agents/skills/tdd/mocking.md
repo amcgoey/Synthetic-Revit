@@ -2,9 +2,10 @@
 
 Mock at **system boundaries** only:
 
-- External file system and disk I/O (JSON template exports, Excel files via `Dot Sheet Index`)
-- External cloud or network APIs (Google Drive synchronization)
-- Modeless user interaction and UI prompts (`FakeFileDialogService`, `FakeUserPromptService`, `FakeGuardrailPromptService`)
+- External file system and disk I/O (JSON template exports, **Dot Sheet Index** `.xlsx` workbooks)
+- External process or network boundaries
+- User interaction and UI prompts (`FakeFileDialogService`, `FakeFolderDialogService`, `FakeUserPromptService`, `FakeGuardrailPromptService` in [`tests/Fixtures/Shared/`](../../../tests/Fixtures/Shared/))
+- Slice Revit seams (`FakeSheetIndexAdapter`, `FakeSharedCoordinatesAdapter`, `FakeShadowStudyAdapter` implementing `I<Slice>Adapter`)
 - System clock and randomness
 
 Don't mock:
@@ -17,12 +18,12 @@ Don't mock:
 
 `Autodesk.Revit.DB` (`Document`, `Element`, `Parameter`, `Transaction`, `FilteredElementCollector`) is a native C++-backed interop layer. The Revit API classes lack public constructors, rely on internal native pointers (`m_pElement`), and cannot be safely mocked headlessly via Moq or NSubstitute. Mocking Revit API objects with dynamic proxies causes `InternalException`s, access violations, or brittle tests that pass while failing inside real Revit.
 
-### The Solution: The RevitDOM POCO Adapter Pattern
+### The Solution: Partitioned `Core/` + `I<Slice>Adapter` Seams
 
-Synthetic completely decouples domain business logic from the native Revit runtime through the **RevitDOM POCO adapter pattern**:
+Synthetic isolates Revit database calls in `Addin/` behind `I<Slice>Adapter` interfaces and **RevitDOM** translators:
 
-1. **Headless Logic Seam (`SyntheticLogic.Tests`):** Pure C# modules consume and produce `RevitDOM` POCOs (`ElementModel`, `ParameterModel`, `CategoryModel`). These tests execute headlessly via `python .agents/skills/revit-tests/scripts/test_executor.py --version Logic` in milliseconds without any Revit API dependencies, stubs, or native mocks.
-2. **Revit Database Seam (`Synthetic.Tests` / `SyntheticTests.Shared`):** Translators and database operations crossing the native boundary (`RevitDOM` ↔ `Autodesk.Revit.DB`) are verified using real `Document` fixtures inside an actual Revit process via `python .agents/skills/revit-tests/scripts/test_executor.py --version 2026`.
+1. **Headless Logic Seam (`Synthetic.LogicTests`):** Pure `Core/` modules, ViewModels, `Fake<Slice>Adapter` test doubles, and **RevitDOM** POCOs (`ElementModel`, `ParameterModel`, `CategoryModel`) execute headlessly across `net48` and `net8.0-windows8.0` via `python .agents/skills/revit-tests/scripts/test_executor.py --version Logic` with zero Revit API dependencies or mocks.
+2. **Revit Database Seam (`Synthetic.RevitTests.<Year>`):** `Revit<Slice>Adapter` implementations and **RevitDOM** translators (`RevitDOM` ↔ `Autodesk.Revit.DB`) run inside live Revit `Document` fixtures (`RevitTemplateRollbackFixture` / `RevitIsolatedDocumentFixture`) via `python .agents/skills/revit-tests/scripts/test_executor.py --version 2026`.
 
 ## Designing for Mockability and Substitutability
 
@@ -33,31 +34,31 @@ At external system boundaries, design interfaces that are simple to substitute:
 Pass external boundaries in rather than instantiating them directly:
 
 ```csharp
-// Testable: UI dialog prompt injected via interface
-public class ExportSheetIndexViewModel
+// Testable: UI dialog prompt injected via Platform/UI interface
+public class ExportSettingsViewModel
 {
     private readonly IFileDialogService _dialogService;
 
-    public ExportSheetIndexViewModel(IFileDialogService dialogService)
+    public ExportSettingsViewModel(IFileDialogService dialogService)
     {
         _dialogService = dialogService;
     }
 
     public void RequestExportPath()
     {
-        if (_dialogService.ShowSaveDialog(".xlsx") is { } path)
+        if (_dialogService.SaveFileDialog("JSON Files (*.json)|*.json", "Export Settings", "settings.json") is string path)
         {
             ExportPath = path;
         }
     }
 }
 
-// Hard to test: Creates WPF / Windows Forms dialogs inline
-public class ExportSheetIndexViewModel
+// Hard to test: Creates modal SaveFileDialog directly inside ViewModel
+public class ExportSettingsViewModel
 {
     public void RequestExportPath()
     {
-        var dialog = new SaveFileDialog(); // Hard boundary coupling
+        var dialog = new SaveFileDialog(); // Violates FitnessRule.ExternalEventAndDialogPurity
         if (dialog.ShowDialog() == true) { ... }
     }
 }

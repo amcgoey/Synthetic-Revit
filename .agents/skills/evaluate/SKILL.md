@@ -31,7 +31,7 @@ Act as a **skeptical, evidence-backed auditor**: cite concrete file paths, symbo
 2. Read the always-applicable baselines:
    - [`docs/agents/domain.md`](../../../docs/agents/domain.md) — follow it into [`GLOSSARY.md`](../../../GLOSSARY.md) and ADRs in [`docs/adrs/`](../../../docs/adrs/) touching the subject's area.
    - [`codebase-design`](../codebase-design/SKILL.md) — shared deep-module vocabulary (`module`, `interface`, `depth`, `seam`, `adapter`, `leverage`, `locality`).
-   - [`.agents/AGENTS.md`](../../AGENTS.md) and `CODING_STANDARDS.md` (if present).
+   - [`.agents/AGENTS.md`](../../AGENTS.md) and [`CODING_STANDARDS.md`](../../../CODING_STANDARDS.md).
 3. Inspect relevant code in `src/` and `tests/` to verify the subject's claims against actual types, call sites, and prior art.
 4. Load only the playbooks whose branch matches the subject:
    - **WPF views, XAML, ViewModels, or styling** → [`revit-wpf-mvvm`](../revit-wpf-mvvm/SKILL.md), [`revit-external-events`](../revit-external-events/SKILL.md), [`docs/Synthetic_UI_Theme_Specification.md`](../../../docs/Synthetic_UI_Theme_Specification.md)
@@ -47,9 +47,9 @@ Act as a **skeptical, evidence-backed auditor**: cite concrete file paths, symbo
 
 Assess the subject across every axis below, separating hard standard/ADR violations from judgement calls:
 
-- **Strategic Alignment**: Alignment with [`GLOSSARY.md`](../../../GLOSSARY.md) ubiquitous language (flagging `_Avoid_` drift), ADRs in [`docs/adrs/`](../../../docs/adrs/) (flagging contradictions explicitly per `docs/agents/domain.md`), and reuse of existing `RevitDOM` and `SyntheticShared` prior art.
-- **Structural Integrity**: Module **depth**, **seam** placement, **adapters**, **leverage**, and **locality** ([`codebase-design`](../codebase-design/SKILL.md)); keeping live `Autodesk.Revit.DB`/`UI` types behind seams and out of pure logic or WPF ViewModels; conformance to loaded `revit-*` playbooks, [`.agents/AGENTS.md`](../../AGENTS.md), and `CODING_STANDARDS.md` (if present).
-- **Resilience**: Concrete failure modes—edge cases, stale or invalid Revit `Element`/`ElementId` wrappers, transaction or failure-dialog hazards, cross-thread WPF/modeless API violations, cross-version divergence, unhandled states, and testability gaps across headless `Logic` vs. live-Revit seams.
+- **Strategic Alignment**: Alignment with [`GLOSSARY.md`](../../../GLOSSARY.md) ubiquitous language (flagging `_Avoid_` drift), ADRs in [`docs/adrs/`](../../../docs/adrs/) (flagging contradictions explicitly per `docs/agents/domain.md`), and reuse of existing `Core/`, `Platform/`, and **RevitDOM** prior art.
+- **Structural Integrity**: Module **depth**, **seam** placement, **adapters**, **leverage**, and **locality** ([`codebase-design`](../codebase-design/SKILL.md)); keeping live `Autodesk.Revit.DB`/`UI` types behind seams and out of `Core/` logic or ViewModels; conformance to loaded `revit-*` playbooks, [`.agents/AGENTS.md`](../../AGENTS.md), and [`CODING_STANDARDS.md`](../../../CODING_STANDARDS.md).
+- **Resilience**: Concrete failure modes—edge cases, stale or invalid Revit `Element`/`ElementId` wrappers, transaction or failure-dialog hazards, cross-thread WPF/modeless API violations, cross-version divergence, unhandled states, and testability gaps across headless **Logic Tests** vs. live **Revit Tests**.
 - **Simplicity**: Occam's razor and the **deletion test**—shallow pass-throughs, hypothetical single-adapter seams, unnecessary state, or moving parts that can collapse while preserving leverage.
 - **Industry Best Practices**: Idiomatic C# / .NET / WPF craft beyond repo rules—deterministic disposal of unmanaged/Revit resources, explicit invariants and contracts, failure visibility, and structural code smells where no repo standard overrides them.
 

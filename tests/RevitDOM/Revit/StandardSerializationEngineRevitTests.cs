@@ -5,10 +5,15 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
+using Autodesk.Revit.DB.Visual;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using System.Threading;
+using Synthetic.Platform.Revit;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM.Operations.Diffing;
 using Synthetic.RevitDOM;
 using SyntheticTests.Fixtures;
 
@@ -627,6 +632,295 @@ namespace SyntheticTests.RevitDOM
                     Assert.AreEqual("Created", matOk.Action);
                 }
             });
+        }
+
+        [Test]
+        public void ToRevit_MultiCategoryTwoDocumentRoundTrip_HasZeroDriftAndNonNullResolution()
+        {
+            WithRolledBackDocumentPair((docA, docB) =>
+            {
+                const string suffix = "RoundTrip206";
+                string fillPatternName = suffix + "_Crosshatch";
+                string materialName = suffix + "_Material";
+                string appearanceName = suffix + "_Appearance";
+                string structuralName = suffix + "_Structural";
+                string thermalName = suffix + "_Thermal";
+                string dimTypeName = suffix + "_LinearDim";
+                string filterName = suffix + "_WallFilter";
+                string wallTypeName = suffix + "_WallType";
+                string viewName = suffix + "_FloorPlan";
+
+                FillPatternElement? fpElemA = null;
+                Material? matA = null;
+                DimensionType? dimTypeA = null;
+                ParameterFilterElement? filterA = null;
+                WallType? wallTypeA = null;
+                ViewPlan? viewA = null;
+
+                docA.ExecuteTransaction("Setup Multi-Category Elements in DocA", FailurePipelines.ObserveOnly(), () =>
+                {
+                    // 1. FillPatternElement
+                    var fp = new FillPattern(fillPatternName, FillPatternTarget.Drafting, FillPatternHostOrientation.ToHost);
+                    fp.SetFillGrids(new List<FillGrid> { new FillGrid(0.0, 0.25) });
+                    fpElemA = FillPatternElement.Create(docA, fp);
+
+                    // 2. Material with nested Appearance, Structural, and Thermal assets
+                    AppearanceAssetElement appearanceTemplateA = EnsureAppearanceAssetTemplate(docA);
+                    AppearanceAssetElement appearanceA = appearanceTemplateA.Duplicate(appearanceName);
+                    using (var editScope = new AppearanceAssetEditScope(docA))
+                    {
+                        Asset editableAsset = editScope.Start(appearanceA.Id);
+                        var colorProp = editableAsset.FindByName("generic_diffuse") as AssetPropertyDoubleArray4d;
+                        if (colorProp != null && !colorProp.IsReadOnly)
+                        {
+                            colorProp.SetValueAsColor(new Color(150, 160, 170));
+                        }
+                        var transProp = editableAsset.FindByName("generic_transparency") as AssetPropertyDouble;
+                        if (transProp != null && !transProp.IsReadOnly)
+                        {
+                            transProp.Value = 0.0;
+                        }
+                        var glossProp = editableAsset.FindByName("generic_glossiness") as AssetPropertyDouble;
+                        if (glossProp != null && !glossProp.IsReadOnly)
+                        {
+                            glossProp.Value = 0.75;
+                        }
+                        editScope.Commit(true);
+                    }
+
+                    var structuralAsset = new StructuralAsset(structuralName, StructuralAssetClass.Metal);
+                    structuralAsset.Behavior = StructuralBehavior.Isotropic;
+                    structuralAsset.Density = 490.0;
+                    structuralAsset.SetYoungModulus(29000000.0);
+                    structuralAsset.SetPoissonRatio(0.3);
+                    PropertySetElement structPseA = PropertySetElement.Create(docA, structuralAsset);
+
+                    var thermalAsset = new ThermalAsset(thermalName, ThermalMaterialType.Solid);
+                    thermalAsset.Density = 490.0;
+                    thermalAsset.ThermalConductivity = 45.0;
+                    thermalAsset.SpecificHeat = 0.5;
+                    thermalAsset.Emissivity = 0.75;
+                    PropertySetElement thermalPseA = PropertySetElement.Create(docA, thermalAsset);
+
+                    ElementId matIdA = Material.Create(docA, materialName);
+                    matA = (Material)docA.GetElement(matIdA);
+                    matA.Color = new Color(140, 150, 160);
+                    matA.SurfaceForegroundPatternColor = new Color(100, 110, 120);
+                    matA.SurfaceForegroundPatternId = fpElemA.Id;
+                    matA.CutForegroundPatternColor = new Color(80, 80, 80);
+                    matA.CutForegroundPatternId = fpElemA.Id;
+                    matA.AppearanceAssetId = appearanceA.Id;
+                    matA.SetMaterialAspectByPropertySet(MaterialAspect.Structural, structPseA.Id);
+                    matA.SetMaterialAspectByPropertySet(MaterialAspect.Thermal, thermalPseA.Id);
+
+                    // 3. DimensionType (Linear)
+                    DimensionType? linearSeed = new FilteredElementCollector(docA)
+                        .OfClass(typeof(DimensionType))
+                        .Cast<DimensionType>()
+                        .FirstOrDefault(d => d.StyleType == DimensionStyleType.Linear &&
+                                             !string.Equals(d.Name, DimensionTypeModel.InternalDimStyleName, StringComparison.Ordinal));
+                    Assert.IsNotNull(linearSeed, "Linear DimensionType seed must exist in docA.");
+                    dimTypeA = (DimensionType)linearSeed!.Duplicate(dimTypeName);
+
+                    // 4. ParameterFilterElement
+                    Category wallsCategory = docA.Settings.Categories.get_Item(BuiltInCategory.OST_Walls);
+                    filterA = ParameterFilterElement.Create(docA, filterName, new List<ElementId> { wallsCategory.Id });
+                    ElementId commentsParamId = new ElementId(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS);
+#if REVIT2023
+                    FilterRule rule = ParameterFilterRuleFactory.CreateContainsRule(commentsParamId, suffix, true);
+                    filterA.SetElementFilter(new ElementParameterFilter(rule));
+#else
+                    var provider = new ParameterValueProvider(commentsParamId);
+                    var rule = new FilterStringRule(provider, new FilterStringContains(), suffix);
+                    filterA.SetElementFilter(new ElementParameterFilter(rule));
+#endif
+
+                    // 5. HostObjType (WallType with CompoundStructure)
+                    WallType? wallSeed = new FilteredElementCollector(docA)
+                        .OfClass(typeof(WallType))
+                        .Cast<WallType>()
+                        .FirstOrDefault(w => string.Equals(w.FamilyName, "Basic Wall", StringComparison.OrdinalIgnoreCase));
+                    Assert.IsNotNull(wallSeed, "Basic Wall WallType seed must exist in docA.");
+                    wallTypeA = (WallType)wallSeed!.Duplicate(wallTypeName);
+
+                    var layers = new List<CompoundStructureLayer>
+                    {
+                        new CompoundStructureLayer(0.5, MaterialFunctionAssignment.Structure, matA.Id) { LayerCapFlag = true },
+                        new CompoundStructureLayer(0.125, MaterialFunctionAssignment.Finish1, matA.Id) { LayerCapFlag = false }
+                    };
+                    CompoundStructure cs = CompoundStructure.CreateSimpleCompoundStructure(layers);
+                    cs.StructuralMaterialIndex = 0;
+#if REVIT2023 || REVIT2024 || REVIT2025
+                    // Layer priority requires Revit 2026+
+#else
+                    cs.SetLayerPriority(0, 2);
+                    cs.SetLayerPriority(1, 5);
+#endif
+                    wallTypeA.SetCompoundStructure(cs);
+                    Parameter? typeCommentsParam = wallTypeA.get_Parameter(BuiltInParameter.ALL_MODEL_TYPE_COMMENTS);
+                    if (typeCommentsParam != null && !typeCommentsParam.IsReadOnly)
+                    {
+                        typeCommentsParam.Set("Golden Wall Type RoundTrip");
+                    }
+
+                    // 6. View (ViewPlan referencing the ParameterFilterElement)
+                    ViewFamilyType? floorPlanVft = new FilteredElementCollector(docA)
+                        .OfClass(typeof(ViewFamilyType))
+                        .Cast<ViewFamilyType>()
+                        .FirstOrDefault(vft => vft.ViewFamily == ViewFamily.FloorPlan);
+                    Assert.IsNotNull(floorPlanVft, "FloorPlan ViewFamilyType must exist in docA.");
+                    Level? levelA = new FilteredElementCollector(docA)
+                        .OfClass(typeof(Level))
+                        .Cast<Level>()
+                        .FirstOrDefault();
+                    Assert.IsNotNull(levelA, "A Level must exist in docA.");
+
+                    viewA = ViewPlan.Create(docA, floorPlanVft!.Id, levelA!.Id);
+                    viewA.Name = viewName;
+                    viewA.DetailLevel = ViewDetailLevel.Fine;
+                    viewA.DisplayStyle = DisplayStyle.ShadingWithEdges;
+                    viewA.Scale = 50;
+                    viewA.AddFilter(filterA.Id);
+                    viewA.SetFilterVisibility(filterA.Id, false);
+                    var filterOgs = new OverrideGraphicSettings();
+                    filterOgs.SetSurfaceTransparency(25);
+                    filterOgs.SetHalftone(true);
+                    viewA.SetFilterOverrides(filterA.Id, filterOgs);
+                });
+
+                // Ensure docB has an AppearanceAssetElement template if MetricProject starts without one
+                docB.ExecuteTransaction("Ensure AppearanceAsset Template in DocB", FailurePipelines.ObserveOnly(), () =>
+                {
+                    EnsureAppearanceAssetTemplate(docB);
+                });
+
+                var engine = new StandardSerializationEngine();
+                var sourceElementsA = new Element[]
+                {
+                    viewA!,
+                    wallTypeA!,
+                    filterA!,
+                    dimTypeA!,
+                    matA!,
+                    fpElemA!
+                };
+
+                // Act 1: ByRevit(docA) -> ToJson -> FromJson
+                List<ObjectModel> extractedA = engine.ByRevit(sourceElementsA, docA, isTemplate: true).ToList();
+                Assert.AreEqual(6, extractedA.Count, "All 6 multi-category elements must extract from docA.");
+
+                string jsonA = StandardSerializationEngine.ToJson(extractedA);
+                List<ElementModel> rehydrated = StandardSerializationEngine.FromJson(jsonA).ToList();
+                Assert.AreEqual(6, rehydrated.Count, "All 6 models must rehydrate from JSON.");
+
+                // Act 2: ToRevit(docB)
+                List<SerializationResultModel> results = engine.ToRevit(rehydrated, docB).ToList();
+
+                // Assert 1: All imports succeed
+                Assert.AreEqual(6, results.Count, "Expected 6 import results in docB.");
+                Assert.IsTrue(
+                    results.All(r => r.Success),
+                    "All ToRevit imports must succeed. Failures: " +
+                    string.Join("; ", results.Where(r => !r.Success).Select(r => $"{(r.Model as ElementModel)?.Name}: {r.Message ?? r.ErrorMessage}")));
+
+                // Assert 2: Every freshly rehydrated model resolves to a non-null element in docB
+                // (prevents silent false passes where PocoToRevitDiffEngine skips unresolved elements)
+                List<ElementModel> verificationModels = StandardSerializationEngine.FromJson(jsonA).ToList();
+                var resolvedElementsB = new List<Element>();
+                foreach (ElementModel model in verificationModels)
+                {
+                    Element? resolved = StandardTypeRegistry.ResolveTargetElement(model, docB);
+                    Assert.IsNotNull(resolved,
+                        $"ResolveTargetElement returned null in docB for '{model.Class}' named '{model.Name}'.");
+                    resolvedElementsB.Add(resolved!);
+                }
+
+                // Assert 3: PocoToRevitDiffEngine reports zero diff against docB
+                var diffEngine = new PocoToRevitDiffEngine(engine.IdentityService);
+                List<DuplicateClusterModel> diffs = diffEngine.Compare(verificationModels, docB).ToList();
+                Assert.IsEmpty(
+                    diffs,
+                    "PocoToRevitDiffEngine must report empty diff after round-trip. Conflicts: " +
+                    string.Join("; ", diffs.SelectMany(c => c.TypeMappings).SelectMany(m => m.ParameterResolutions).Select(p => $"{p.ParameterName}[{string.Join(" vs ", p.ValueList)}]")));
+
+                // Assert 4: ByRevit(docB) -> ToJson parity with docA
+                List<ObjectModel> extractedB = engine.ByRevit(resolvedElementsB, docB, isTemplate: true).ToList();
+                Assert.AreEqual(6, extractedB.Count, "All 6 resolved elements in docB must re-extract cleanly.");
+                string jsonB = StandardSerializationEngine.ToJson(extractedB);
+
+                string normalizedJsonA = NormalizeCrossDocumentJson(jsonA);
+                string normalizedJsonB = NormalizeCrossDocumentJson(jsonB);
+
+                Assert.AreEqual(
+                    normalizedJsonA,
+                    normalizedJsonB,
+                    "Normalized ByRevit(docA)->ToJson must match ByRevit(docB)->ToJson with zero drift.");
+                Assert.IsTrue(
+                    JToken.DeepEquals(JObject.Parse(normalizedJsonA), JObject.Parse(normalizedJsonB)),
+                    "Normalized structural JSON parity failed between docA and docB.");
+            });
+        }
+
+        private static AppearanceAssetElement EnsureAppearanceAssetTemplate(Document doc)
+        {
+            AppearanceAssetElement? existing = new FilteredElementCollector(doc)
+                .OfClass(typeof(AppearanceAssetElement))
+                .Cast<AppearanceAssetElement>()
+                .FirstOrDefault();
+            if (existing != null)
+            {
+                return existing;
+            }
+
+            IList<Asset> assets = doc.Application.GetAssets(AssetType.Appearance);
+            Asset? asset = assets.FirstOrDefault(a => a.FindByName("generic_diffuse") != null)
+                           ?? assets.FirstOrDefault();
+            Assert.IsNotNull(asset, "Revit application appearance asset library must provide at least one asset.");
+            return AppearanceAssetElement.Create(doc, "SeedAppearanceTemplate206", asset!);
+        }
+
+        private static string NormalizeCrossDocumentJson(string json)
+        {
+            JObject root = JObject.Parse(json);
+            ScrubVolatileDocumentIds(root);
+            return root.ToString(Formatting.Indented).Replace("\r\n", "\n").Trim();
+        }
+
+        private static void ScrubVolatileDocumentIds(JToken token)
+        {
+            if (token is JObject obj)
+            {
+                JProperty? idProp = obj.Property("Id");
+                if (idProp != null && idProp.Value.Type == JTokenType.Integer)
+                {
+                    long idVal = idProp.Value.Value<long>();
+                    if (idVal > 0)
+                    {
+                        idProp.Value = 0L;
+                    }
+                }
+
+                JProperty? uniqueIdProp = obj.Property("UniqueId");
+                if (uniqueIdProp != null && uniqueIdProp.Value.Type == JTokenType.String)
+                {
+                    if (!string.IsNullOrEmpty(uniqueIdProp.Value.Value<string>()))
+                    {
+                        uniqueIdProp.Value = JValue.CreateNull();
+                    }
+                }
+
+                foreach (JProperty prop in obj.Properties())
+                {
+                    ScrubVolatileDocumentIds(prop.Value);
+                }
+            }
+            else if (token is JArray array)
+            {
+                foreach (JToken item in array)
+                {
+                    ScrubVolatileDocumentIds(item);
+                }
+            }
         }
     }
 }

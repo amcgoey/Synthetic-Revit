@@ -11,7 +11,6 @@ using System.Text;
 using Synthetic.Platform.Settings;
 using Synthetic.Features.Worksets.Settings;
 
-using Synthetic.Platform.IO;
 namespace Synthetic.Features.Worksets.Commands
 {
     /// <summary>

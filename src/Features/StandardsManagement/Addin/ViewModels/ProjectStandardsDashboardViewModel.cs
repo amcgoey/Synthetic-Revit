@@ -10,7 +10,6 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using Synthetic.Platform.UI;
 using Synthetic.Features.StandardsManagement;
-using Synthetic.Platform.Revit;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;

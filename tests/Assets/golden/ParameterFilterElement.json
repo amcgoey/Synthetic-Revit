@@ -1,0 +1,59 @@
+{
+  "ParameterFilters": {
+    "Golden_Wall_Comment_Filter": {
+      "Categories": [
+        {
+          "Name": "Walls",
+          "Id": -2000011
+        }
+      ],
+      "RootRule": {
+        "RuleType": "LogicalAnd",
+        "ParameterId": null,
+        "Evaluator": null,
+        "RuleValue": null,
+        "InnerRules": [
+          {
+            "RuleType": "ParameterFilter",
+            "ParameterId": {
+              "Class": "Autodesk.Revit.DB.ParameterElement",
+              "Category": "",
+              "Name": "BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS",
+              "Aliases": null,
+              "Id": -1001103,
+              "UniqueId": null
+            },
+            "Evaluator": "FilterStringRule:FilterStringContains",
+            "RuleValue": "Golden",
+            "InnerRules": []
+          },
+          {
+            "RuleType": "ParameterFilter",
+            "ParameterId": {
+              "Class": "Autodesk.Revit.DB.ParameterElement",
+              "Category": "",
+              "Name": "BuiltInParameter.ALL_MODEL_MARK",
+              "Aliases": null,
+              "Id": -1001203,
+              "UniqueId": null
+            },
+            "Evaluator": "FilterStringRule:FilterStringEquals",
+            "RuleValue": "G1",
+            "InnerRules": []
+          }
+        ]
+      },
+      "Class": "Autodesk.Revit.DB.ParameterFilterElement",
+      "Category": "Filters",
+      "Name": "Golden_Wall_Comment_Filter",
+      "Aliases": null,
+      "Id": 0,
+      "UniqueId": null,
+      "Parameters": [],
+      "InstanceCount": 0,
+      "Location": null,
+      "BoundingBox": null,
+      "NestedTypes": []
+    }
+  }
+}

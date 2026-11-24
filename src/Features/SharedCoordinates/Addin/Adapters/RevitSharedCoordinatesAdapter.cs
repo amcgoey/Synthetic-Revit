@@ -5,6 +5,7 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using Synthetic.Platform.Revit;
 using Synthetic.Features.SharedCoordinates.Models;
+using Synthetic.Features.SharedCoordinates.Services;
 
 namespace Synthetic.Features.SharedCoordinates.Adapters
 {
@@ -150,13 +151,11 @@ namespace Synthetic.Features.SharedCoordinates.Adapters
             var updatedNames = new List<string>();
             var errors = new List<string>();
 
-            using (var transactionGroup = new TransactionGroup(_doc, "Sync Shared Sites to Levels"))
-            {
-                transactionGroup.Start();
-                var preprocessor = FailurePipelines.DeleteAllWarningsRecorded();
-                int committedCount = 0;
+            var preprocessor = FailurePipelines.ObserveOnly();
 
-                try
+            try
+            {
+                _doc.ExecuteCommittedBatchGroup("Sync Shared Sites to Levels", () =>
                 {
                     var existingLocations = new FilteredElementCollector(_doc)
                         .OfClass(typeof(ProjectLocation))
@@ -166,29 +165,43 @@ namespace Synthetic.Features.SharedCoordinates.Adapters
                     var activeLoc = _doc.ActiveProjectLocation;
                     if (activeLoc == null)
                     {
-                        transactionGroup.RollBack();
                         errors.Add("The active document does not have an ActiveProjectLocation.");
-                        summary.ErrorMessages = errors;
-                        return summary;
+                        return false;
                     }
 
                     double refDatumInternalElevation = request.ReferenceDatumLevel.Elevation;
+                    int committedCount = 0;
 
                     foreach (var target in request.TargetSites)
                     {
                         if (!target.IsChecked) continue;
 
-                        preprocessor.SetContext($"SyncSite:{target.LevelName}");
+                        string siteDisplayName = target.LevelName ?? "<null>";
+                        preprocessor.SetContext($"SyncSite:{siteDisplayName}");
                         int priorRecordCount = preprocessor.Report.Records.Count;
 
-                        using (Transaction itemTrans = _doc.CreateTransaction($"Sync Shared Site: {target.LevelName}", preprocessor, clearAfterRollback: true))
+                        using (Transaction itemTrans = _doc.CreateTransaction($"Sync Shared Site: {siteDisplayName}", preprocessor, clearAfterRollback: true))
                         {
-                            bool isUpdate = existingLocations.ContainsKey(target.LevelName);
+                            bool isUpdate = !string.IsNullOrWhiteSpace(target.LevelName) &&
+                                            existingLocations.ContainsKey(target.LevelName);
                             ProjectLocation? duplicatedLoc = null;
 
                             try
                             {
                                 itemTrans.Start();
+
+                                if (string.IsNullOrWhiteSpace(target.LevelName))
+                                {
+                                    throw new ArgumentException("Target shared site level name must not be null or empty.");
+                                }
+
+                                if (double.IsNaN(target.SharedElevation) ||
+                                    double.IsInfinity(target.SharedElevation) ||
+                                    double.IsNaN(refDatumInternalElevation) ||
+                                    double.IsInfinity(refDatumInternalElevation))
+                                {
+                                    throw new ArgumentException($"Target shared elevation for site '{target.LevelName}' must be finite.");
+                                }
 
                                 double targetElevation = target.SharedElevation - refDatumInternalElevation;
                                 ProjectLocation targetLoc = isUpdate
@@ -245,23 +258,14 @@ namespace Synthetic.Features.SharedCoordinates.Adapters
                         }
                     }
 
-                    if (committedCount > 0)
-                    {
-                        transactionGroup.Assimilate();
-                    }
-                    else
-                    {
-                        transactionGroup.RollBack();
-                    }
-                }
-                catch (Exception ex)
-                {
-                    if (transactionGroup.HasStarted() && !transactionGroup.HasEnded())
-                    {
-                        transactionGroup.RollBack();
-                    }
-                    errors.Add(ex.Message);
-                }
+                    return committedCount > 0;
+                });
+            }
+            catch (Exception ex)
+            {
+                createdNames.Clear();
+                updatedNames.Clear();
+                errors.Add(ex.Message);
             }
 
             summary.CreatedCount = createdNames.Count;
@@ -269,6 +273,7 @@ namespace Synthetic.Features.SharedCoordinates.Adapters
             summary.CreatedSiteNames = createdNames;
             summary.UpdatedSiteNames = updatedNames;
             summary.ErrorMessages = errors;
+            summary.FailureReport = preprocessor.Report;
             return summary;
         }
 
@@ -368,9 +373,9 @@ namespace Synthetic.Features.SharedCoordinates.Adapters
                     Transform currentTransform = instance.GetTransform();
 
                     var alignment = SharedCoordinatesMath.ComputeAlignment(
-                        hostTotalTransform,
-                        linkTotalTransform,
-                        currentTransform);
+                        ToRigidTransform3D(hostTotalTransform),
+                        ToRigidTransform3D(linkTotalTransform),
+                        ToRigidTransform3D(currentTransform));
 
                     if (alignment.IsOutOfSync)
                     {
@@ -428,16 +433,15 @@ namespace Synthetic.Features.SharedCoordinates.Adapters
 
             var selectedTypeSet = new HashSet<string>(request.SelectedTypeIds, StringComparer.OrdinalIgnoreCase);
 
-            using (var transactionGroup = new TransactionGroup(_doc, "Move Links to Shared Sites"))
-            {
-                transactionGroup.Start();
-                var preprocessor = FailurePipelines.DeleteAllWarningsRecorded();
-                int committedCount = 0;
+            var preprocessor = FailurePipelines.DeleteAllWarningsRecorded();
 
-                try
+            try
+            {
+                _doc.ExecuteCommittedBatchGroup("Move Links to Shared Sites", () =>
                 {
                     var hostActiveLoc = _doc.ActiveProjectLocation;
                     Transform hostTotalTransform = hostActiveLoc != null ? hostActiveLoc.GetTotalTransform() : Transform.Identity;
+                    int committedCount = 0;
 
                     var linkInstances = new FilteredElementCollector(_doc)
                         .OfClass(typeof(RevitLinkInstance))
@@ -476,9 +480,9 @@ namespace Synthetic.Features.SharedCoordinates.Adapters
                         Transform currentTransform = instance.GetTransform();
 
                         var alignment = SharedCoordinatesMath.ComputeAlignment(
-                            hostTotalTransform,
-                            linkTotalTransform,
-                            currentTransform);
+                            ToRigidTransform3D(hostTotalTransform),
+                            ToRigidTransform3D(linkTotalTransform),
+                            ToRigidTransform3D(currentTransform));
 
                         if (!alignment.IsOutOfSync)
                         {
@@ -509,7 +513,7 @@ namespace Synthetic.Features.SharedCoordinates.Adapters
                                 }
 
                                 Transform postRotateTransform = instance.GetTransform();
-                                XYZ remainingTranslation = alignment.ExpectedTransform.Origin - postRotateTransform.Origin;
+                                XYZ remainingTranslation = ToXyz(alignment.ExpectedTransform.Origin) - postRotateTransform.Origin;
                                 double minMoveTolerance = Math.Max(SharedCoordinatesMath.Tolerance, _doc.Application?.ShortCurveTolerance ?? 1e-4);
 
                                 if (remainingTranslation.GetLength() > minMoveTolerance)
@@ -553,23 +557,13 @@ namespace Synthetic.Features.SharedCoordinates.Adapters
                         }
                     }
 
-                    if (committedCount > 0)
-                    {
-                        transactionGroup.Assimilate();
-                    }
-                    else
-                    {
-                        transactionGroup.RollBack();
-                    }
-                }
-                catch (Exception ex)
-                {
-                    if (transactionGroup.HasStarted() && !transactionGroup.HasEnded())
-                    {
-                        transactionGroup.RollBack();
-                    }
-                    errors.Add(ex.Message);
-                }
+                    return committedCount > 0;
+                });
+            }
+            catch (Exception ex)
+            {
+                repositionedNames.Clear();
+                errors.Add(ex.Message);
             }
 
             summary.RepositionedCount = repositionedNames.Count;
@@ -578,6 +572,7 @@ namespace Synthetic.Features.SharedCoordinates.Adapters
             summary.RepositionedInstanceNames = repositionedNames;
             summary.SkippedInstanceNames = skippedNames;
             summary.ErrorMessages = errors;
+            summary.FailureReport = preprocessor.Report;
 
             return summary;
         }
@@ -647,52 +642,29 @@ namespace Synthetic.Features.SharedCoordinates.Adapters
                     }
                 }
 
-                // 2. Fallback to instance.Name inspection
+                // 2. Fallback to pure instance.Name inspection via SharedSiteNameParser
                 string instanceName = instance.Name;
-                if (!string.IsNullOrWhiteSpace(instanceName))
+                if (string.IsNullOrWhiteSpace(instanceName))
                 {
-                    // 2a. Check if instanceName contains " : location " (case-insensitive)
-                    int locIdx = instanceName.IndexOf(" : location ", StringComparison.OrdinalIgnoreCase);
-                    if (locIdx >= 0)
-                    {
-                        string afterLoc = instanceName.Substring(locIdx + " : location ".Length);
-                        int nextSep = afterLoc.IndexOf(" : ", StringComparison.Ordinal);
-                        string candidate = (nextSep >= 0 ? afterLoc.Substring(0, nextSep) : afterLoc).Trim();
-                        if (!string.IsNullOrWhiteSpace(candidate) &&
-                            !string.Equals(candidate, "<Not Shared>", StringComparison.OrdinalIgnoreCase))
-                        {
-                            return candidate;
-                        }
-                    }
-
-                    // 2b. Reject any name containing <Not Shared>
-                    if (instanceName.IndexOf("<Not Shared>", StringComparison.OrdinalIgnoreCase) >= 0)
-                    {
-                        return null;
-                    }
-
-                    // 2c. If instanceName contains " : ", extract the final segment after the last " : " (trimmed)
-                    // and check whether it matches any ProjectLocation.Name (case-insensitive) in linkDoc; if so, return that matching name.
-                    if (instanceName.Contains(" : ") && linkDoc != null)
-                    {
-                        int lastColonIdx = instanceName.LastIndexOf(" : ", StringComparison.Ordinal);
-                        string candidate = instanceName.Substring(lastColonIdx + " : ".Length).Trim();
-                        if (!string.IsNullOrWhiteSpace(candidate) &&
-                            !string.Equals(candidate, "<Not Shared>", StringComparison.OrdinalIgnoreCase))
-                        {
-                            var matchedLoc = ResolveAssignedLocation(linkDoc, candidate);
-                            if (matchedLoc != null)
-                            {
-                                return matchedLoc.Name;
-                            }
-                        }
-                    }
+                    return null;
                 }
 
-                return null;
+                IReadOnlyCollection<string> knownLinkSiteNames = linkDoc == null
+                    ? (IReadOnlyCollection<string>)Array.Empty<string>()
+                    : new FilteredElementCollector(linkDoc)
+                        .OfClass(typeof(ProjectLocation))
+                        .Cast<ProjectLocation>()
+                        .Select(loc => loc.Name)
+                        .ToList();
+
+                return SharedSiteNameParser.ResolveFromInstanceName(instanceName, knownLinkSiteNames);
             }
-            catch
+            catch (Exception ex) when (
+                ex is Autodesk.Revit.Exceptions.ApplicationException ||
+                ex is ArgumentException ||
+                ex is InvalidOperationException)
             {
+                System.Diagnostics.Debug.WriteLine($"[SharedCoordinates] GetAssignedSiteName failed: {ex.Message}");
                 return null;
             }
         }
@@ -708,6 +680,19 @@ namespace Synthetic.Features.SharedCoordinates.Adapters
                 .OfClass(typeof(ProjectLocation))
                 .Cast<ProjectLocation>()
                 .FirstOrDefault(loc => string.Equals(loc.Name, siteName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static Vector3D ToVector3D(XYZ xyz) => new Vector3D(xyz.X, xyz.Y, xyz.Z);
+
+        private static XYZ ToXyz(Vector3D vector) => new XYZ(vector.X, vector.Y, vector.Z);
+
+        private static RigidTransform3D ToRigidTransform3D(Transform transform)
+        {
+            return new RigidTransform3D(
+                ToVector3D(transform.Origin),
+                ToVector3D(transform.BasisX),
+                ToVector3D(transform.BasisY),
+                ToVector3D(transform.BasisZ));
         }
     }
 }

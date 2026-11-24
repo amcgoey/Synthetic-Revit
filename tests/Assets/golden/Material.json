@@ -1,0 +1,125 @@
+{
+  "Materials": {
+    "Golden_Structural_Steel": {
+      "AppearanceAssetId": {
+        "Class": "Autodesk.Revit.DB.AppearanceAssetElement",
+        "Category": "",
+        "Name": "Golden_Steel_Appearance",
+        "Aliases": null,
+        "Id": 0,
+        "UniqueId": null
+      },
+      "AppearanceAsset": {
+        "Name": "Golden_Steel_Appearance",
+        "Color": {
+          "Blue": 170,
+          "Green": 160,
+          "Red": 150,
+          "IsValid": true
+        },
+        "Transparency": 0.0,
+        "Smoothness": 0.75
+      },
+      "StructuralAsset": {
+        "Name": "Golden_Steel_Structural",
+        "Behavior": "Isotropic",
+        "StructuralAssetClass": "Metal",
+        "Density": 490.0,
+        "YoungModulus": 29000000.0,
+        "PoissonRatio": 0.3
+      },
+      "ThermalAsset": {
+        "Name": "Golden_Steel_Thermal",
+        "ThermalMaterialType": "Solid",
+        "Density": 490.0,
+        "ThermalConductivity": 45.0,
+        "SpecificHeat": 0.46,
+        "Emissivity": 0.8
+      },
+      "Color": {
+        "Blue": 160,
+        "Green": 150,
+        "Red": 140,
+        "IsValid": true
+      },
+      "CutForegroundPatternColor": {
+        "Blue": 80,
+        "Green": 80,
+        "Red": 80,
+        "IsValid": true
+      },
+      "CutForegroundPatternId": {
+        "Class": "Autodesk.Revit.DB.FillPatternElement",
+        "Category": "",
+        "Name": "Golden_Diagonal_Crosshatch",
+        "Aliases": null,
+        "Id": 0,
+        "UniqueId": null
+      },
+      "CutBackgroundPatternColor": {
+        "Blue": 0,
+        "Green": 0,
+        "Red": 0,
+        "IsValid": false
+      },
+      "CutBackgroundPatternId": {
+        "Class": "",
+        "Category": "",
+        "Name": "",
+        "Aliases": null,
+        "Id": -1,
+        "UniqueId": null
+      },
+      "SurfaceForegroundPatternColor": {
+        "Blue": 120,
+        "Green": 110,
+        "Red": 100,
+        "IsValid": true
+      },
+      "SurfaceForegroundPatternId": {
+        "Class": "Autodesk.Revit.DB.FillPatternElement",
+        "Category": "",
+        "Name": "Golden_Diagonal_Crosshatch",
+        "Aliases": null,
+        "Id": 0,
+        "UniqueId": null
+      },
+      "SurfaceBackgroundPatternColor": {
+        "Blue": 0,
+        "Green": 0,
+        "Red": 0,
+        "IsValid": false
+      },
+      "SurfaceBackgroundPatternId": {
+        "Class": "",
+        "Category": "",
+        "Name": "",
+        "Aliases": null,
+        "Id": -1,
+        "UniqueId": null
+      },
+      "Class": "Autodesk.Revit.DB.Material",
+      "Category": "Materials",
+      "Name": "Golden_Structural_Steel",
+      "Aliases": null,
+      "Id": 0,
+      "UniqueId": null,
+      "Parameters": [
+        {
+          "Name": "Comments",
+          "Value": "Golden structural steel material",
+          "ValueElemId": null,
+          "StorageType": "String",
+          "Id": -1001103,
+          "GUID": null,
+          "IsShared": false,
+          "IsReadOnly": false
+        }
+      ],
+      "InstanceCount": 0,
+      "Location": null,
+      "BoundingBox": null,
+      "NestedTypes": []
+    }
+  }
+}

@@ -328,7 +328,7 @@ namespace Synthetic.RevitDOM.Operations
                 // Ignore parameter errors and fall back to API mutation
             }
 
-            if (!parameterSetSuccessful)
+            if (!parameterSetSuccessful || !MatchesStructuralAsset(pse.GetStructuralAsset(), model))
             {
                 var originalAsset = pse.GetStructuralAsset();
                 if (originalAsset != null)
@@ -452,7 +452,7 @@ namespace Synthetic.RevitDOM.Operations
                 // Ignore and fall back to API mutation
             }
 
-            if (!parameterSetSuccessful)
+            if (!parameterSetSuccessful || !MatchesThermalAsset(pse.GetThermalAsset(), model))
             {
                 var originalAsset = pse.GetThermalAsset();
                 if (originalAsset != null)
@@ -505,6 +505,26 @@ namespace Synthetic.RevitDOM.Operations
             {
                 return false;
             }
+        }
+
+        private static bool MatchesStructuralAsset(StructuralAsset? asset, StructuralAssetModel model)
+        {
+            if (asset == null) return false;
+            return string.Equals(asset.Behavior.ToString(), model.Behavior, StringComparison.OrdinalIgnoreCase) &&
+                   string.Equals(asset.StructuralAssetClass.ToString(), model.StructuralAssetClass, StringComparison.OrdinalIgnoreCase) &&
+                   Math.Abs(asset.Density - model.Density) <= 1e-6 &&
+                   Math.Abs(asset.YoungModulus.X - model.YoungModulus) <= 1e-6 &&
+                   Math.Abs(asset.PoissonRatio.X - model.PoissonRatio) <= 1e-6;
+        }
+
+        private static bool MatchesThermalAsset(ThermalAsset? asset, ThermalAssetModel model)
+        {
+            if (asset == null) return false;
+            return string.Equals(asset.ThermalMaterialType.ToString(), model.ThermalMaterialType, StringComparison.OrdinalIgnoreCase) &&
+                   Math.Abs(asset.Density - model.Density) <= 1e-6 &&
+                   Math.Abs(asset.ThermalConductivity - model.ThermalConductivity) <= 1e-6 &&
+                   Math.Abs(asset.SpecificHeat - model.SpecificHeat) <= 1e-6 &&
+                   Math.Abs(asset.Emissivity - model.Emissivity) <= 1e-6;
         }
 
         #endregion

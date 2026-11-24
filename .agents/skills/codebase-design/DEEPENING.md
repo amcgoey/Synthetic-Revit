@@ -1,37 +1,100 @@
 # Deepening
 
-How to deepen a cluster of shallow modules safely, given its dependencies. Assumes the vocabulary in [SKILL.md](SKILL.md): **module**, **interface**, **seam**, **adapter**.
+How to deepen a cluster of shallow modules safely, given its dependencies. Assumes [SKILL.md](SKILL.md) vocabulary (**module**, **interface**, **seam**, **adapter**) and [CODING_STANDARDS.md](../../../CODING_STANDARDS.md) partition rules (`Core/` in `Synthetic.Core`, `Addin/` in `Synthetic<Year>`).
 
 ## Dependency categories
 
-When assessing a candidate for deepening, classify its dependencies. The category determines how the deepened module is tested across its seam.
+Classify dependencies first; the category selects where the seam lives and how [`Synthetic.LogicTests`](../../../tests/Projects/Synthetic.LogicTests/Synthetic.LogicTests.csproj) vs. `Synthetic.RevitTests.<Year>` test it.
 
 ### 1. In-process
 
-Pure C# models and computation, in-memory state, no I/O. In Synthetic: `RevitDOM` models (`ElementModel`, `ParameterModel`, `CategoryModel`), comparison engines (`IdentityComparison`, `DeepDiffComparison`), and merge state machines. Always deepenable: merge the shallow helpers and test through the new interface directly in `SyntheticLogic.Tests`. No adapter needed.
+Pure C# models and computation in `Core/` (`Synthetic.Core`, `net48;net8.0-windows8.0`) with zero Revit references: **RevitDOM** POCOs (`Synthetic.RevitDOM.Models`), `PocoIdentityService` (`Synthetic.RevitDOM.Translation`), `MergeAnalysisEngine` (`Synthetic.Features.MergeDuplicates.Services`), `SharedCoordinatesMath` (`Synthetic.Features.SharedCoordinates.Models`), and `SolarScheduleCalculator` (`Synthetic.Features.ShadowStudy.Services`). Collapse shallow helpers directly into deep `Core/` modules and test through the public interface in **Logic Tests** (`[UnitTest]`).
 
 ### 2. Local-substitutable
 
-Dependencies that have local test stand-ins (local JSON settings/template serialization via `Newtonsoft.Json`, file system operations, and Excel export via `Dot Sheet Index`). Deepenable if the stand-in exists. The deepened module is tested using local temp directories or memory streams. The seam is internal; no port at the module's external interface.
+Dependencies with deterministic local stand-ins: JSON serialization (`PocoJsonSerializer`, `Config` in `Synthetic.Platform.Settings`), local user preferences (`ShadowStudyUserPrefsStore`), filesystem streams, and OpenXML `.xlsx` packaging (`SheetIndexExporter` in `Synthetic.Features.SheetIndex.Services`). Keep the seam internal and test directly against streams or per-test temp folders in **Logic Tests**.
 
 ### 3. Remote but owned (Ports & Adapters)
 
-Revit database operations across the unmanaged C++ boundary (`Autodesk.Revit.DB.Document`, `FilteredElementCollector`, `Transaction`, `ExtensibleStorage`). Define a **port** (interface) at the seam. The deep module owns the BIM logic; `RevitDOM` translators act as the adapter. In headless tests, fake/in-memory adapters (`FakeIdentityService`, `PocoIdentityService`) or POCO fixtures are used; in `Synthetic.Tests`, real Revit documents verify the adapter inside the Revit process.
+Revit database access across the unmanaged C++ boundary (`Document`, `FilteredElementCollector`, `DocumentTransactionExtensions`, `ExtensibleStorage`, `ModelDispatcher`). Define **one** narrow port `I<Slice>Adapter` in `src/Features/<Slice>/Core/Adapters/` (`ISheetIndexAdapter`, `ISharedCoordinatesAdapter`, `IShadowStudyAdapter`), implement `Revit<Slice>Adapter` in `Addin/Adapters/`, and implement `Fake<Slice>Adapter` in [`tests/Fixtures/Shared/`](../../../tests/Fixtures/Shared/). Verify `Core/` orchestration in **Logic Tests** and verify `Revit<Slice>Adapter` in live **Revit Tests** (`RevitTemplateRollbackFixture` / `RevitIsolatedDocumentFixture`).
 
-Recommendation shape: *"Define a port at the RevitDOM seam, implement a Revit database adapter for production and a POCO adapter for headless testing, so the BIM standards logic sits in one deep module."*
+### 4. True external / Thread boundary (Port / Entry Injection)
 
-### 4. True external / Thread boundary (Mock)
+External UI prompts (`IFileDialogService`, `IFolderDialogService`, `IUserPromptService` in `Synthetic.Platform.UI`) and Revit's modeless UI thread (`UIApplication`, `IExternalEventHandler` / `ExternalEvent`, WPF `Dispatcher`). Inject `Platform/UI` prompt ports and `ExternalEvent` + `IExternalEventHandler` from `IExternalCommand.Execute` (`CmdProjectStandards.cs` window-scoped single-instance contract until `ICoalescedRevitDispatcher<TAdapter>` ships in Spec 5 per [ADR 0027](../../../docs/adrs/0027-tiered-vertical-slice-architecture-and-seam-cqs.md)); marshal UI updates back via `Dispatcher.Invoke` with zero modal dialogs inside handlers or ViewModels.
 
-Platform thread boundaries and third-party APIs (`UIApplication`, `IExternalEventHandler` / `ExternalEvent`, WPF `Dispatcher`, Google Drive cloud APIs) that you don't control. The deepened module takes the external dependency as an injected port; tests provide a mock or stub adapter.
+## Canonical Seam Patterns (Worked Examples)
+
+### `Harvest -> Pure Plan -> Atomic Apply`
+
+Keep multi-step BIM workflows split across `Core/` and `Addin/` (`SheetIndex`, `SharedCoordinates`, `ShadowStudy`):
+
+```csharp
+// 1. Harvest at I<Slice>Adapter seam (Addin -> immutable Core snapshot)
+IReadOnlyList<LinkRepositionGroupItem> groups = _adapter.GetLinkRepositionGroups();
+
+// 2. Pure Plan in Core (zero Revit API; verified in Synthetic.LogicTests)
+CoordinateTransformResult delta = SharedCoordinatesMath.ComputeAlignmentFromExpected(
+    currentTransform,
+    expectedTransform);
+
+// 3. Atomic Apply at Revit<Slice>Adapter using DocumentTransactionExtensions
+bool committed = _doc.ExecuteCommittedBatchGroup("Move Links to Shared Sites", () =>
+{
+    using Transaction tx = _doc.CreateTransaction(
+        $"Reposition {group.TypeName}",
+        FailurePipelines.ObserveOnly());
+    tx.Start();
+    // Apply pure plan transforms to Revit link instances...
+    return tx.Commit() == TransactionStatus.Committed;
+});
+```
+
+### `Seam CQS` (Command–Query Separation)
+
+Keep `I<Slice>Adapter` queries side-effect-free (returning immutable DTOs/snapshots without mutating Revit or Undo history) and pass immutable request/plan objects into command methods:
+
+```csharp
+namespace Synthetic.Features.SharedCoordinates.Adapters
+{
+    public interface ISharedCoordinatesAdapter
+    {
+        // Queries: read-only, immutable DTO lists
+        IReadOnlyList<LinkedModelItem> GetLoadedLinkedModels();
+        IReadOnlyList<LinkRepositionGroupItem> GetLinkRepositionGroups();
+
+        // Commands: pure request POCO in -> Typed Outcome Object out
+        SyncSharedSitesSummary SyncSharedSites(SyncSharedSitesRequest request);
+        RepositionLinksSummary RepositionLinks(RepositionLinksRequest request);
+    }
+}
+```
+
+### `Typed Outcome Object`
+
+Return structured outcome POCOs (`SheetIndexExportOutcome`, `RepositionLinksSummary`, `RawFrameExportResult`) from deep modules and adapters so callers (`IExternalCommand` or `Core/` ViewModels) decide presentation or assertions:
+
+```csharp
+// Deep Core exporter returns structured outcome rather than throwing or showing dialogs
+SheetIndexExportOutcome outcome = new SheetIndexExporter().Export(
+    selectedSheets,
+    selectedRevisions,
+    savePath,
+    viewModel.PreserveSheetOrder);
+
+// Entry command owns presentation decisions
+if (!outcome.Succeeded)
+{
+    TaskDialog.Show("Export Dot Sheet Index", outcome.ErrorMessage ?? "Export failed.");
+    return Result.Failed;
+}
+```
 
 ## Seam discipline
 
-- **One adapter means a hypothetical seam. Two adapters means a real one.** Don't introduce a port unless at least two adapters are justified (typically production + test). A single-adapter seam is just indirection.
-- **Internal seams vs external seams.** A deep module can have internal seams (private to its implementation, used by its own tests) as well as the external seam at its interface. Don't expose internal seams through the interface just because tests use them.
+- **One adapter means a hypothetical seam. Two adapters means a real one.** Direct Slices (`BatchPrint`, `Diagnostics`, `ViewManagement`, `Worksets`) execute in `Addin/Commands/` + `Addin/Utilities/` with zero pass-through interfaces until UI state or math earns `Fake<Slice>Adapter`.
+- **Internal seams vs external seams.** A deep module can compose internal helpers privately; keep the external seam small and test through it.
 
 ## Testing strategy: replace, don't layer
 
-- Old unit tests on shallow modules become waste once tests at the deepened module's interface exist; delete them.
-- Write new tests at the deepened module's interface. The **interface is the test surface**.
-- Tests assert on observable outcomes through the interface, not internal state.
-- Tests should survive internal refactors, since they describe behaviour, not implementation. If a test has to change when the implementation changes, it's testing past the interface.
+- Delete obsolete unit tests on collapsed shallow helpers once tests at the deepened module's interface exist.
+- Write new tests at the deepened module's interface (`SheetIndexExporter.Export`, `ISharedCoordinatesAdapter`, `IShadowStudyAdapter`); assert observable outcomes and survive internal refactors.

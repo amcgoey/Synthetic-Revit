@@ -6,7 +6,6 @@ using Synthetic.Platform.Revit;
 
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
-using Synthetic.RevitDOM.Operations;
 
 namespace Synthetic.RevitDOM.Translation
 {
@@ -65,15 +64,29 @@ namespace Synthetic.RevitDOM.Translation
             return model;
         }
 
+        internal static bool IsSolidLinePatternReference(ElementIdModel model)
+        {
+            return model.Id == -3000010 ||
+                   (string.Equals(model.Name, "Solid", StringComparison.OrdinalIgnoreCase) &&
+                    (string.Equals(model.Class, "Autodesk.Revit.DB.LinePatternElement", StringComparison.Ordinal) ||
+                     string.IsNullOrEmpty(model.Class)));
+        }
+
         public ElementId ResolveElementId(ElementIdModel model, Document doc)
         {
-            if (model == null) return ElementId.InvalidElementId;
-            if (model.Id == -3000010 || string.Equals(model.Name, "Solid", StringComparison.OrdinalIgnoreCase))
+            if (model == null ||
+                string.Equals(model.Name, "<None>", StringComparison.Ordinal) ||
+                string.Equals(model.Name, "<By Category>", StringComparison.Ordinal))
+            {
+                return ElementId.InvalidElementId;
+            }
+
+            if (IsSolidLinePatternReference(model))
             {
                 return LinePatternElement.GetSolidPatternId();
             }
 
-            // Enum-First Identity Strategy: Intercept Built-In parameter and category enums (ADR 015 / ADR 016)
+            // Enum-First Identity Strategy: Intercept Built-In parameter and category enums (ADR 0015)
             var builtInId = InterceptBuiltIn(model);
             if (builtInId != null)
             {
@@ -81,7 +94,17 @@ namespace Synthetic.RevitDOM.Translation
             }
 
             var elem = ResolveElement(model, doc);
-            return elem?.Id ?? ElementId.InvalidElementId;
+            if (elem != null)
+            {
+                return elem.Id;
+            }
+
+            if (string.IsNullOrEmpty(model.Name) && model.Id < -1)
+            {
+                return CreateElementId(model.Id);
+            }
+
+            return ElementId.InvalidElementId;
         }
 
         public Element ResolveElement(ElementIdModel model, Document doc)
