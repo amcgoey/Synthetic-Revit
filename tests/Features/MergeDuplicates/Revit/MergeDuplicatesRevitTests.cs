@@ -25,11 +25,32 @@ namespace SyntheticTests.Features.MergeDuplicates
     {
         protected override void OnFixtureSetUp(UIApplication uiapp)
         {
-            string errPath = Path.Combine(Path.GetTempPath(), "synthetic_test_error.txt");
+            DeleteDeletionErrorLogIfPresent();
+        }
+
+        protected override void OnTestSetUp()
+        {
+            DeleteDeletionErrorLogIfPresent();
+        }
+
+        protected override void OnFixtureTearDown()
+        {
+            DeleteDeletionErrorLogIfPresent();
+        }
+
+        private static void DeleteDeletionErrorLogIfPresent()
+        {
+            string errPath = ProcessMergeEventHandler.GetDeletionErrorLogPath();
             if (File.Exists(errPath))
             {
                 File.Delete(errPath);
             }
+        }
+
+        private static string ReadDeletionErrorLogOrFallback()
+        {
+            string errPath = ProcessMergeEventHandler.GetDeletionErrorLogPath();
+            return File.Exists(errPath) ? File.ReadAllText(errPath) : "No log file found.";
         }
 
         #region Helper Methods
@@ -260,7 +281,7 @@ namespace SyntheticTests.Features.MergeDuplicates
                 var deletedFamily = doc.GetElement(duplicateFamilyId);
                 if (deletedFamily != null)
                 {
-                    Assert.Fail($"Duplicate family should be deleted. Deletion error: {(File.Exists(Path.Combine(Path.GetTempPath(), "synthetic_test_error.txt")) ? File.ReadAllText(Path.Combine(Path.GetTempPath(), "synthetic_test_error.txt")) : "No log file found.")}");
+                    Assert.Fail($"Duplicate family should be deleted. Deletion error: {ReadDeletionErrorLogOrFallback()}");
                 }
 
                 // Verify instance is redirected to the primary family symbol
@@ -428,7 +449,7 @@ namespace SyntheticTests.Features.MergeDuplicates
                 var deletedFamily = doc.GetElement(duplicateFamilyId);
                 if (deletedFamily != null)
                 {
-                    Assert.Fail($"Duplicate family should be deleted. Deletion error: {(File.Exists(Path.Combine(Path.GetTempPath(), "synthetic_test_error.txt")) ? File.ReadAllText(Path.Combine(Path.GetTempPath(), "synthetic_test_error.txt")) : "No log file found.")}");
+                    Assert.Fail($"Duplicate family should be deleted. Deletion error: {ReadDeletionErrorLogOrFallback()}");
                 }
 
                 // Verify winning parameter value was copied to primary symbol
