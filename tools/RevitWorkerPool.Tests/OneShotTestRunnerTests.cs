@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using NUnit.Framework;
 using RevitWorkerPool.Discovery;
 using RevitWorkerPool.Execution;
+using RevitWorkerPool.Launching;
 using RevitWorkerPool.Pipe;
 using ricaun.NUnit.Models;
 
@@ -287,6 +288,60 @@ public class OneShotTestRunnerTests
         Assert.That(failResult.TotalTests, Is.EqualTo(1));
         Assert.That(failResult.ZeroMatches, Is.False);
         Assert.That(failLauncher.Workers.Single().IsTerminated, Is.True);
+    }
+
+    [Test]
+    public async Task RunAsync_ReportsShimEnabledFromLauncher_AndReturnsExitCode2OnFailClosedShimError()
+    {
+        using var shimmedStub = new StubWorkerProcessLauncher((server, _) =>
+        {
+            server.InitialIsBusy = false;
+            server.ExecutionHandler = (req, _, _) => Task.FromResult(new TestAssemblyModel
+            {
+                FileName = req.TestPathFile ?? string.Empty,
+                Name = "Synthetic.RevitTests.2026",
+                Success = true,
+                Tests = new List<TestTypeModel>()
+            });
+        }, usesCleanShim: true);
+
+        var shimmedRunner = new OneShotTestRunner(
+            _discovery,
+            shimmedStub,
+            new RevitPipeTestClientFactory(),
+            bundleLeaseFactory: _ => new NoOpDisposable());
+
+        OneShotRunResult okResult = await shimmedRunner.RunAsync(new OneShotRunOptions
+        {
+            RevitVersion = 2026,
+            AssemblyPath = _fakeAssemblyPath,
+            TrxPath = Path.Combine(_tempRoot, "out", "shimmed.trx")
+        });
+
+        Assert.That(okResult.Success, Is.True);
+        Assert.That(okResult.ShimEnabled, Is.True);
+
+        var failingCleanLauncher = new CleanDetoursProcessLauncher(
+            shimDllPath: Path.Combine(_tempRoot, "MissingShim.dll"),
+            launcherDllPath: Path.Combine(_tempRoot, "MissingLauncher.dll"));
+
+        var failingRunner = new OneShotTestRunner(
+            _discovery,
+            failingCleanLauncher,
+            new RevitPipeTestClientFactory(),
+            bundleLeaseFactory: _ => new NoOpDisposable());
+
+        OneShotRunResult failResult = await failingRunner.RunAsync(new OneShotRunOptions
+        {
+            RevitVersion = 2026,
+            AssemblyPath = _fakeAssemblyPath,
+            TrxPath = Path.Combine(_tempRoot, "out", "fail_closed.trx")
+        });
+
+        Assert.That(failResult.Success, Is.False);
+        Assert.That(failResult.ExitCode, Is.EqualTo(2));
+        Assert.That(failResult.ShimEnabled, Is.True);
+        Assert.That(failResult.Error, Does.Contain("MissingShim.dll"));
     }
 
     private sealed class NoOpDisposable : IDisposable

@@ -23,4 +23,13 @@
     <ProjectReference Include="..\RevitWorkerPool\RevitWorkerPool.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="..\bin\RevitWorkerPool\RevitCleanShim.dll"
+          Condition="Exists('..\bin\RevitWorkerPool\RevitCleanShim.dll')"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\bin\RevitWorkerPool\RevitCleanLauncher.dll"
+          Condition="Exists('..\bin\RevitWorkerPool\RevitCleanLauncher.dll')"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>

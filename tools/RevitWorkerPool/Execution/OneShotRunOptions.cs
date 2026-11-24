@@ -31,4 +31,6 @@ public sealed class OneShotRunOptions
     public bool JsonOutput { get; init; }
 
     public bool OneShot { get; init; } = true;
+
+    public bool NoShim { get; init; }
 }

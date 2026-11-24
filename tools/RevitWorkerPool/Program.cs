@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
@@ -16,21 +17,34 @@ namespace RevitWorkerPool;
 /// </summary>
 public static class Program
 {
-    public static async Task<int> Main(string[] args)
+    public static Task<int> Main(string[] args)
     {
+        return RunCliAsync(args);
+    }
+
+    internal static async Task<int> RunCliAsync(
+        string[] args,
+        Func<OneShotRunOptions, IWorkerProcessLauncher>? launcherFactory = null,
+        RevitInstallationDiscovery? discoveryOverride = null,
+        TextWriter? stdout = null,
+        TextWriter? stderr = null)
+    {
+        TextWriter outWriter = stdout ?? Console.Out;
+        TextWriter errWriter = stderr ?? Console.Error;
+
         if (args.Length == 0 ||
             string.Equals(args[0], "--help", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(args[0], "-h", StringComparison.OrdinalIgnoreCase))
         {
-            PrintUsage();
+            PrintUsage(errWriter);
             return 0;
         }
 
         string command = args[0];
         if (!string.Equals(command, "run", StringComparison.OrdinalIgnoreCase))
         {
-            Console.Error.WriteLine($"Unknown command '{command}'.");
-            PrintUsage();
+            errWriter.WriteLine($"Unknown command '{command}'.");
+            PrintUsage(errWriter);
             return 2;
         }
 
@@ -45,29 +59,23 @@ public static class Program
                     ExitCode = 2,
                     Error = parseError
                 };
-                Console.WriteLine(JsonConvert.SerializeObject(errorResult, Formatting.None));
+                outWriter.WriteLine(JsonConvert.SerializeObject(errorResult, Formatting.None));
             }
             else
             {
-                Console.Error.WriteLine($"[error] {parseError}");
-                PrintUsage();
+                errWriter.WriteLine($"[error] {parseError}");
+                PrintUsage(errWriter);
             }
 
             return 2;
         }
 
         Action<string>? logger = options!.Diagnostics
-            ? msg => Console.Error.WriteLine(msg)
+            ? msg => errWriter.WriteLine(msg)
             : null;
 
-        var discovery = new RevitInstallationDiscovery();
-        var launcher = new StandardProcessLauncher();
-        var clientFactory = new DiagnosticPipeClientFactory(logger);
-        var runner = new OneShotTestRunner(
-            discovery,
-            launcher,
-            clientFactory,
-            diagnosticLogger: logger);
+        RevitInstallationDiscovery discovery = discoveryOverride ?? new RevitInstallationDiscovery();
+        IWorkerProcessLauncher? launcher = null;
 
         using var cts = new CancellationTokenSource();
         ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
@@ -79,31 +87,103 @@ public static class Program
 
         try
         {
+            launcher = launcherFactory is not null
+                ? launcherFactory(options)
+                : CreateWorkerLauncher(options.NoShim);
+
+            var clientFactory = new DiagnosticPipeClientFactory(logger);
+            var runner = new OneShotTestRunner(
+                discovery,
+                launcher,
+                clientFactory,
+                diagnosticLogger: logger);
+
             OneShotRunResult result = await runner.RunAsync(options, cts.Token).ConfigureAwait(false);
 
             if (options.JsonOutput)
             {
-                Console.WriteLine(JsonConvert.SerializeObject(result, Formatting.None));
+                outWriter.WriteLine(JsonConvert.SerializeObject(result, Formatting.None));
             }
             else if (result.Success)
             {
-                Console.WriteLine(
+                outWriter.WriteLine(
                     $"[RevitWorkerPool] Revit {result.Version} run completed: " +
                     $"Total={result.TotalTests}, Passed={result.PassedTests}, Failed={result.FailedTests}, " +
                     $"Skipped={result.SkippedTests}, WorkerId={string.Join(",", result.WorkerIds)}, TRX='{result.TrxPath}'");
             }
             else
             {
-                Console.Error.WriteLine(
+                errWriter.WriteLine(
                     $"[RevitWorkerPool] Revit {result.Version} run failed: {result.Error ?? $"{result.FailedTests} test(s) failed"}");
             }
 
             return result.ExitCode;
         }
+        catch (CleanShimLaunchException ex)
+        {
+            if (options.JsonOutput)
+            {
+                var errorResult = new OneShotRunResult
+                {
+                    Success = false,
+                    ExitCode = 2,
+                    Version = options.RevitVersion,
+                    TrxPath = options.TrxPath,
+                    ShimEnabled = launcher?.UsesCleanShim ?? ShouldUseCleanShim(options.NoShim),
+                    Error = ex.Message
+                };
+                outWriter.WriteLine(JsonConvert.SerializeObject(errorResult, Formatting.None));
+            }
+            else
+            {
+                errWriter.WriteLine($"[RevitWorkerPool] Clean-launch shim failed closed: {ex.Message}");
+            }
+
+            return 2;
+        }
         finally
         {
             Console.CancelKeyPress -= cancelHandler;
         }
+    }
+
+    internal static bool ShouldUseCleanShim(
+        bool noShimFlag,
+        Func<string, string?>? getEnvironmentVariable = null)
+    {
+        if (noShimFlag)
+        {
+            return false;
+        }
+
+        Func<string, string?> envLookup = getEnvironmentVariable ?? Environment.GetEnvironmentVariable;
+        string? rawValue = envLookup("SYNTHETIC_CLEAN_SHIM");
+        if (!string.IsNullOrWhiteSpace(rawValue) &&
+            string.Equals(rawValue.Trim(), "0", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    internal static IWorkerProcessLauncher CreateWorkerLauncher(
+        bool noShimFlag,
+        Func<string, string?>? getEnvironmentVariable = null,
+        string? shimDllPath = null,
+        string? launcherDllPath = null)
+    {
+        if (!ShouldUseCleanShim(noShimFlag, getEnvironmentVariable))
+        {
+            return new StandardProcessLauncher();
+        }
+
+        if (!OperatingSystem.IsWindows())
+        {
+            throw new CleanShimLaunchException("CleanDetoursProcessLauncher requires Windows.");
+        }
+
+        return new CleanDetoursProcessLauncher(shimDllPath, launcherDllPath);
     }
 
     internal static bool TryParseRunArguments(
@@ -126,6 +206,7 @@ public static class Program
         bool jsonOutput = false;
         bool oneShot = true;
         bool diagnostics = false;
+        bool noShim = false;
 
         for (int i = 0; i < args.Count; i++)
         {
@@ -217,6 +298,10 @@ public static class Program
                     diagnostics = true;
                     break;
 
+                case "--no-shim":
+                    noShim = true;
+                    break;
+
                 default:
                     error = $"Unknown option '{arg}'.";
                     return false;
@@ -263,7 +348,8 @@ public static class Program
             ProjectRoot = projectRoot,
             JsonOutput = jsonOutput,
             OneShot = oneShot,
-            Diagnostics = diagnostics
+            Diagnostics = diagnostics,
+            NoShim = noShim
         };
 
         return true;
@@ -288,12 +374,12 @@ public static class Program
         return true;
     }
 
-    private static void PrintUsage()
+    private static void PrintUsage(TextWriter? stderr = null)
     {
-        Console.Error.WriteLine(
+        (stderr ?? Console.Error).WriteLine(
             "Usage: RevitWorkerPool run --version <Year> --assembly <DllPath> --trx <TrxPath> " +
             "[--filter <Fragment>] [--category <Name>] [--timeout-seconds <Sec>] [--boot-timeout-seconds <Sec>] " +
-            "[--worker-id <Id>] [--project-root <Path>] [--one-shot] [--json] [--diagnostics]");
+            "[--worker-id <Id>] [--project-root <Path>] [--one-shot] [--no-shim] [--json] [--diagnostics]");
     }
 
     private sealed class DiagnosticPipeClientFactory : IPipeTestClientFactory
