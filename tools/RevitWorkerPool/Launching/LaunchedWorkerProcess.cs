@@ -20,7 +20,7 @@ public sealed class LaunchedWorkerProcess : IAsyncDisposable, IDisposable
     private readonly Func<bool>? _stubHasExited;
     private readonly Func<int?>? _stubExitCode;
     private readonly Func<CancellationToken, Task>? _stubTerminateAsync;
-    private readonly Action? _stubDispose;
+    private readonly Action? _onDispose;
     private int _disposed;
 
     /// <summary>
@@ -32,13 +32,15 @@ public sealed class LaunchedWorkerProcess : IAsyncDisposable, IDisposable
         string processName,
         string workerId,
         SafeProcessHandle processHandle,
-        JobObjectContainer jobObject)
+        JobObjectContainer jobObject,
+        Action? onDispose = null)
     {
         ProcessId = processId;
         ProcessName = processName ?? throw new ArgumentNullException(nameof(processName));
         WorkerId = workerId ?? throw new ArgumentNullException(nameof(workerId));
         _processHandle = processHandle ?? throw new ArgumentNullException(nameof(processHandle));
         _jobObject = jobObject ?? throw new ArgumentNullException(nameof(jobObject));
+        _onDispose = onDispose;
     }
 
     /// <summary>
@@ -59,7 +61,7 @@ public sealed class LaunchedWorkerProcess : IAsyncDisposable, IDisposable
         _stubHasExited = hasExited ?? throw new ArgumentNullException(nameof(hasExited));
         _stubExitCode = exitCode ?? throw new ArgumentNullException(nameof(exitCode));
         _stubTerminateAsync = terminateAsync ?? throw new ArgumentNullException(nameof(terminateAsync));
-        _stubDispose = onDispose;
+        _onDispose = onDispose;
     }
 
     public int ProcessId { get; }
@@ -158,9 +160,9 @@ public sealed class LaunchedWorkerProcess : IAsyncDisposable, IDisposable
             return;
         }
 
-        _stubDispose?.Invoke();
         _jobObject?.Dispose();
         _processHandle?.Dispose();
+        _onDispose?.Invoke();
     }
 
     public async ValueTask DisposeAsync()
