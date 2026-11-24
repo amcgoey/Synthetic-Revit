@@ -10,12 +10,17 @@ public sealed class SupervisorOptions
 {
     public const int DefaultMaxActiveWorkers = 4;
     public const int DefaultWarmWorkerCount = 2;
+    public const ulong DefaultLookaheadMinAvailableMemoryBytes = 12UL * 1024 * 1024 * 1024;
 
     public string PipeName { get; init; } = SupervisorIpcConstants.DefaultPipeName;
 
     public int MaxActiveWorkers { get; init; } = DefaultMaxActiveWorkers;
 
     public int DefaultWarmCount { get; init; } = DefaultWarmWorkerCount;
+
+    public ulong LookaheadMinAvailableMemoryBytes { get; init; } = DefaultLookaheadMinAvailableMemoryBytes;
+
+    public IMemoryProbe? MemoryProbe { get; init; }
 
     public TimeSpan DefaultBootTimeout { get; init; } = TimeSpan.FromSeconds(120);
 

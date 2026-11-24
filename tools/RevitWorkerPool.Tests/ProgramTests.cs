@@ -28,6 +28,7 @@ public class ProgramTests
             "--timeout-seconds", "90",
             "--boot-timeout-seconds", "45",
             "--shards", "3",
+            "--next-version", "2025",
             "--worker-id", "w_cli_1",
             "--project-root", @"C:\repo",
             "--pipe-name", "CustomControlPipe",
@@ -51,6 +52,7 @@ public class ProgramTests
         Assert.That(options.ExecutionTimeout.TotalSeconds, Is.EqualTo(90));
         Assert.That(options.BootTimeout.TotalSeconds, Is.EqualTo(45));
         Assert.That(options.Shards, Is.EqualTo(3));
+        Assert.That(options.NextVersion, Is.EqualTo(2025));
         Assert.That(options.WorkerId, Is.EqualTo("w_cli_1"));
         Assert.That(options.ProjectRoot, Is.EqualTo(@"C:\repo"));
         Assert.That(options.PipeName, Is.EqualTo("CustomControlPipe"));
@@ -76,6 +78,7 @@ public class ProgramTests
         Assert.That(ok, Is.True, error);
         Assert.That(options!.OneShot, Is.False);
         Assert.That(options.Shards, Is.Null);
+        Assert.That(options.NextVersion, Is.Null);
         Assert.That(options.PipeName, Is.EqualTo(SupervisorIpcConstants.DefaultPipeName));
         Assert.That(options.IdleTtlMinutes, Is.EqualTo(SupervisorIpcConstants.DefaultIdleTtlMinutes));
         Assert.That(options.NoShim, Is.False);
@@ -133,6 +136,16 @@ public class ProgramTests
             Program.TryParseRunArguments(new[] { "--version", "2026", "--assembly", "a.dll", "--trx", "a.trx", "--shards", "-2" }, out _, out string? err10),
             Is.False);
         Assert.That(err10, Does.Contain("--shards"));
+
+        Assert.That(
+            Program.TryParseRunArguments(new[] { "--version", "2026", "--assembly", "a.dll", "--trx", "a.trx", "--next-version" }, out _, out string? err11),
+            Is.False);
+        Assert.That(err11, Does.Contain("--next-version"));
+
+        Assert.That(
+            Program.TryParseRunArguments(new[] { "--version", "2026", "--assembly", "a.dll", "--trx", "a.trx", "--next-version", "bad" }, out _, out string? err12),
+            Is.False);
+        Assert.That(err12, Does.Contain("--next-version"));
     }
 
     [Test]

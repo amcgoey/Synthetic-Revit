@@ -31,6 +31,8 @@ public sealed class OneShotRunOptions
 
     public int? Shards { get; init; }
 
+    public int? NextVersion { get; init; }
+
     public string PipeName { get; init; } = SupervisorIpcConstants.DefaultPipeName;
 
     public int IdleTtlMinutes { get; init; } = SupervisorIpcConstants.DefaultIdleTtlMinutes;

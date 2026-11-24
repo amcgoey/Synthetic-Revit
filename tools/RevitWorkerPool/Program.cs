@@ -422,6 +422,7 @@ public static class Program
                     WorkerId = options.WorkerId,
                     ProjectRoot = resolvedProjectRoot,
                     Shards = options.Shards,
+                    NextVersion = options.NextVersion,
                     Diagnostics = options.Diagnostics
                 }
             };
@@ -651,6 +652,7 @@ public static class Program
         int? timeoutSeconds = null;
         int? bootTimeoutSeconds = null;
         int? shards = null;
+        int? nextVersion = null;
         string? workerId = null;
         string? projectRoot = null;
         string pipeName = SupervisorIpcConstants.DefaultPipeName;
@@ -740,6 +742,12 @@ public static class Program
                     shards = parsedShards;
                     break;
 
+                case "--next-version":
+                    if (!TryParseIntOption(args, ref i, arg, out int parsedNextVersion, out error))
+                        return false;
+                    nextVersion = parsedNextVersion;
+                    break;
+
                 case "--worker-id":
                     if (!TryConsumeValue(args, ref i, arg, out workerId, out error))
                         return false;
@@ -794,6 +802,7 @@ public static class Program
             WorkerId = workerId,
             ProjectRoot = projectRoot,
             Shards = shards,
+            NextVersion = nextVersion,
             PipeName = pipeName,
             IdleTtlMinutes = idleTtlMinutes,
             NoShim = noShim,
@@ -1163,7 +1172,7 @@ public static class Program
             "[--pipe-name <Name>] [--idle-ttl-minutes <20-30>] [--no-shim] [--project-root <Path>] [--json] [--diagnostics]");
         writer.WriteLine(
             "  RevitWorkerPool run --version <Year> --assembly <DllPath> --trx <TrxPath> " +
-            "[--filter <Fragment>] [--category <Name>] [--shards <N>] [--timeout-seconds <Sec>] [--boot-timeout-seconds <Sec>] " +
+            "[--filter <Fragment>] [--category <Name>] [--shards <N>] [--next-version <Year>] [--timeout-seconds <Sec>] [--boot-timeout-seconds <Sec>] " +
             "[--worker-id <Id>] [--project-root <Path>] [--pipe-name <Name>] [--idle-ttl-minutes <20-30>] [--no-shim] [--one-shot] [--json] [--diagnostics]");
         writer.WriteLine(
             "  RevitWorkerPool status [--pipe-name <Name>] [--json] [--diagnostics]");
