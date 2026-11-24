@@ -541,7 +541,7 @@ namespace SyntheticTests.Features.SharedCoordinates
             ElementId linkTypeId = ElementId.InvalidElementId;
             RevitLinkInstance inst1 = null!;
 
-            // 1. Place Instance 1 at origin and acquire coordinates (GEO_LOCATION -> singleSiteName) without modifying the link in-memory.
+            // 1. Place Instance 1 at origin and acquire coordinates (Step 1: BuiltInParameter.GEO_LOCATION -> singleSiteName, Aligned).
             hostDoc.ExecuteTransaction("Acquire Coordinates For Instance 1", FailurePipelines.ObserveOnly(), () =>
             {
                 linkTypeId = LoadLinkType(hostDoc, unitPath);
@@ -549,37 +549,11 @@ namespace SyntheticTests.Features.SharedCoordinates
                 hostDoc.AcquireCoordinates(inst1.Id);
             });
 
-            // Per ADR 023: updating the link's site on disk and reloading leaves inst1 at its prior placement -> OutOfSync with GEO_LOCATION assigned.
-            RevitLinkType? linkType = hostDoc.GetElement(linkTypeId) as RevitLinkType;
-            Assert.IsNotNull(linkType);
-            linkType!.Unload(null);
-
-            Document modifiedUnitDoc = App.OpenDocumentFile(unitPath);
-            try
-            {
-                modifiedUnitDoc.ExecuteTransaction("Shift Unit Shared Site On Disk", FailurePipelines.ObserveOnly(), () =>
-                {
-                    modifiedUnitDoc.ActiveProjectLocation.SetProjectPosition(
-                        XYZ.Zero,
-                        CreateProjectPosition(modifiedUnitDoc, 100.0, 200.0, 50.0, 0.0));
-                });
-                modifiedUnitDoc.Save();
-            }
-            finally
-            {
-                if (modifiedUnitDoc.IsValidObject)
-                {
-                    modifiedUnitDoc.Close(false);
-                }
-            }
-
-            LinkLoadResult reloadResult = linkType.Reload();
-            Assert.AreEqual(LinkLoadResultType.LinkLoaded, reloadResult.LoadResult);
-
-            // 2. Place Instance 2 (fallback " : location ") aligned to hostTotal * linkTotal^-1 and Instance 3 (unassigned).
+            // 2. Place Instance 2 (Step 2 fallback " : location ") displaced from hostTotal * linkTotal^-1 (OutOfSync),
+            //    and Instance 3 with plain mark and unshared GEO_LOCATION (Unassigned).
             RevitLinkInstance inst2 = null!;
             RevitLinkInstance inst3 = null!;
-            hostDoc.ExecuteTransaction("Place Fallback And Unassigned Instances", FailurePipelines.ObserveOnly(), () =>
+            hostDoc.ExecuteTransaction("Place Fallback OutOfSync And Unassigned Instances", FailurePipelines.ObserveOnly(), () =>
             {
                 inst2 = RevitLinkInstance.Create(hostDoc, linkTypeId);
                 SetLinkInstanceMark(inst2, $"2 : location {singleSiteName}");
@@ -594,7 +568,8 @@ namespace SyntheticTests.Features.SharedCoordinates
                 RigidTransform3D expected2 = SharedCoordinatesMath.ComputeExpectedTransform(
                     ToRigidTransform3D(hostDoc.ActiveProjectLocation.GetTotalTransform()),
                     ToRigidTransform3D(linkLoc2.GetTotalTransform()));
-                XYZ delta2 = new XYZ(expected2.Origin.X, expected2.Origin.Y, expected2.Origin.Z) - inst2.GetTransform().Origin;
+                XYZ displacedOrigin2 = new XYZ(expected2.Origin.X + 10.0, expected2.Origin.Y, expected2.Origin.Z);
+                XYZ delta2 = displacedOrigin2 - inst2.GetTransform().Origin;
                 if (delta2.GetLength() > hostDoc.Application.ShortCurveTolerance)
                 {
                     ElementTransformUtils.MoveElement(hostDoc, inst2.Id, delta2);
@@ -613,18 +588,29 @@ namespace SyntheticTests.Features.SharedCoordinates
             Assert.AreEqual(1, group.OutOfSyncCount);
             Assert.AreEqual(1, group.UnassignedCount);
 
+            var item1 = group.Instances.First(i => i.InstanceId == inst1.Id.ToString());
+            var item2 = group.Instances.First(i => i.InstanceId == inst2.Id.ToString());
+            var item3 = group.Instances.First(i => i.InstanceId == inst3.Id.ToString());
+            Assert.IsTrue(item1.IsAssigned, "Instance 1 must resolve via Step 1 BuiltInParameter.GEO_LOCATION.");
+            Assert.AreEqual(singleSiteName, item1.AssignedSiteName);
+            Assert.IsFalse(item1.IsOutOfSync);
+            Assert.IsTrue(item2.IsAssigned, "Instance 2 must resolve via Step 2 ' : location ' fallback.");
+            Assert.AreEqual(singleSiteName, item2.AssignedSiteName);
+            Assert.IsTrue(item2.IsOutOfSync);
+            Assert.IsFalse(item3.IsAssigned, "Instance 3 must remain unassigned.");
+
             var summary = adapter.RepositionLinks(new RepositionLinksRequest
             {
                 SelectedTypeIds = new List<string> { linkTypeId.ToString() }
             });
 
-            Assert.IsFalse(
-                summary.ErrorMessages.Any(m => !m.StartsWith("[Warning]", StringComparison.OrdinalIgnoreCase)),
+            Assert.IsEmpty(
+                summary.ErrorMessages,
                 $"Unexpected RepositionLinks error(s): {string.Join("; ", summary.ErrorMessages)}");
             Assert.AreEqual(1, summary.RepositionedCount);
             Assert.AreEqual(1, summary.AlreadyAlignedCount);
             Assert.AreEqual(1, summary.SkippedCount);
-            CollectionAssert.Contains(summary.RepositionedInstanceNames, inst1.Name);
+            CollectionAssert.Contains(summary.RepositionedInstanceNames, inst2.Name);
             CollectionAssert.Contains(summary.SkippedInstanceNames, inst3.Name);
         }
 
