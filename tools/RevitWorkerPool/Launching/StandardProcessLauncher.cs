@@ -26,6 +26,8 @@ public sealed class StandardProcessLauncher : IWorkerProcessLauncher
     private const uint StartfUseShowWindow = 0x00000001;
     private const short SwShowMinNoActive = 7;
 
+    public bool UsesCleanShim => false;
+
     public Task<LaunchedWorkerProcess> LaunchAsync(
         WorkerLaunchRequest request,
         CancellationToken cancellationToken = default)
@@ -137,7 +139,10 @@ public sealed class StandardProcessLauncher : IWorkerProcessLauncher
         }
     }
 
-    internal static byte[] BuildUnicodeEnvironmentBlock(WorkerLaunchRequest request, string workerId)
+    internal static byte[] BuildUnicodeEnvironmentBlock(
+        WorkerLaunchRequest request,
+        string workerId,
+        IReadOnlyDictionary<string, string?>? extraDefaults = null)
     {
         var env = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (DictionaryEntry entry in Environment.GetEnvironmentVariables())
@@ -154,6 +159,26 @@ public sealed class StandardProcessLauncher : IWorkerProcessLauncher
         if (!string.IsNullOrWhiteSpace(request.ProjectRoot))
         {
             env["SYNTHETIC_PROJECT_ROOT"] = Path.GetFullPath(request.ProjectRoot);
+        }
+
+        if (extraDefaults is not null)
+        {
+            foreach (KeyValuePair<string, string?> kvp in extraDefaults)
+            {
+                if (string.IsNullOrWhiteSpace(kvp.Key))
+                {
+                    continue;
+                }
+
+                if (kvp.Value is null)
+                {
+                    env.Remove(kvp.Key);
+                }
+                else
+                {
+                    env[kvp.Key] = kvp.Value;
+                }
+            }
         }
 
         if (request.AdditionalEnvironmentVariables is not null)

@@ -51,7 +51,8 @@ public sealed class OneShotTestRunner
                 options.RevitVersion,
                 fullTrxPath,
                 Array.Empty<string>(),
-                $"Test assembly not found: '{options.AssemblyPath}'.");
+                $"Test assembly not found: '{options.AssemblyPath}'.",
+                shimEnabled: _launcher.UsesCleanShim);
         }
 
         string fullAssemblyPath = Path.GetFullPath(options.AssemblyPath);
@@ -62,7 +63,8 @@ public sealed class OneShotTestRunner
                 options.RevitVersion,
                 fullTrxPath,
                 Array.Empty<string>(),
-                $"Autodesk Revit {options.RevitVersion} installation was not found.");
+                $"Autodesk Revit {options.RevitVersion} installation was not found.",
+                shimEnabled: _launcher.UsesCleanShim);
         }
 
         string workerId = string.IsNullOrWhiteSpace(options.WorkerId)
@@ -145,9 +147,19 @@ public sealed class OneShotTestRunner
                 FailedTests = summary.FailedTests,
                 SkippedTests = summary.SkippedTests,
                 ZeroMatches = zeroMatches,
-                ShimEnabled = false,
+                ShimEnabled = _launcher.UsesCleanShim,
                 Error = null
             };
+        }
+        catch (CleanShimLaunchException ex)
+        {
+            return FailureResult(
+                options.RevitVersion,
+                fullTrxPath,
+                worker is not null ? new[] { worker.WorkerId } : new[] { workerId },
+                ex.Message,
+                shimEnabled: _launcher.UsesCleanShim,
+                exitCode: 2);
         }
         catch (Exception ex)
         {
@@ -155,7 +167,8 @@ public sealed class OneShotTestRunner
                 options.RevitVersion,
                 fullTrxPath,
                 worker is not null ? new[] { worker.WorkerId } : new[] { workerId },
-                ex.Message);
+                ex.Message,
+                shimEnabled: _launcher.UsesCleanShim);
         }
         finally
         {
@@ -242,12 +255,14 @@ public sealed class OneShotTestRunner
         int version,
         string trxPath,
         IReadOnlyList<string> workerIds,
-        string error)
+        string error,
+        bool shimEnabled = false,
+        int exitCode = 1)
     {
         return new OneShotRunResult
         {
             Success = false,
-            ExitCode = 1,
+            ExitCode = exitCode,
             Version = version,
             TrxPath = trxPath,
             WorkerIds = workerIds,
@@ -257,7 +272,7 @@ public sealed class OneShotTestRunner
             FailedTests = 0,
             SkippedTests = 0,
             ZeroMatches = false,
-            ShimEnabled = false,
+            ShimEnabled = shimEnabled,
             Error = error
         };
     }
