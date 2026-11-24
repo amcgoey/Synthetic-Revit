@@ -159,7 +159,8 @@ namespace SyntheticTests.Features.SheetIndex
                 new SheetIndexPrintSetModel("ps-1", "Permit Submittal", new[] { "s-3", "s-1" })
             };
 
-            var viewModel = new ExportSheetIndexViewModel(allSheets, revisions, printSets);
+            var snapshot = new SheetIndexSnapshot(allSheets, revisions, printSets);
+            var viewModel = new ExportSheetIndexViewModel(snapshot);
 
             // Act: Select Print Set source
             viewModel.SelectedSourceType = SheetSelectionSourceType.PrintSet;
