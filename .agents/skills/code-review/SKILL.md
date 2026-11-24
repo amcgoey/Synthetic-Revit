@@ -30,16 +30,18 @@ Look for the originating spec, in this order:
 
 1. Issue references in the commit messages (`#123`, `Closes #45`, GitLab `!67`, etc.), fetched via the workflow in [`docs/agents/issue-tracker.md`](../../../docs/agents/issue-tracker.md).
 2. A path the user passed as an argument.
-3. A spec file under `docs/`, `specs/`, or `.scratch/` matching the branch name or feature.
+3. A spec file under `.scratch/` or `docs/research/` matching the branch name or feature.
 4. If nothing is found, ask the user where the spec is. If they say there isn't one, the **Spec** sub-agent will skip and report "no spec available".
 
 ### 3. Identify the standards sources
 
 Search the repo for every file that documents how code should be written. Explicitly include:
-- `.agents/AGENTS.md` (tooling constraints, relative markdown links, architectural rules)
-- `docs/agents/domain.md` and `GLOSSARY.md` (ubiquitous language, bounded contexts)
-- `CODING_STANDARDS.md` or `CONTRIBUTING.md` (if present)
-- The applicable `revit-*` skill playbooks for the subsystems touched by the diff (`revit-multi-versions`, `revit-transactions`, `revit-wpf-mvvm`, `revit-data-retrieval`, `revit-extensible-storage`, `revit-external-events`, `revit-failure-handling`, `revit-ui-ribbon`)
+- [`.agents/AGENTS.md`](../../AGENTS.md) (tooling constraints, relative markdown links, context pointers)
+- [`docs/agents/domain.md`](../../../docs/agents/domain.md) and [`GLOSSARY.md`](../../../GLOSSARY.md) (ubiquitous language, bounded contexts)
+- [`CODING_STANDARDS.md`](../../../CODING_STANDARDS.md) (canonical patterns, anti-patterns, 12-rule `FitnessRule` index, 3-Tier Boy-Scout rule)
+- [`docs/agents/revitdom-serialization.md`](../../../docs/agents/revitdom-serialization.md) when touching `src/RevitDOM/`
+- [`docs/Synthetic_UI_Theme_Specification.md`](../../../docs/Synthetic_UI_Theme_Specification.md) when touching WPF `.xaml` views
+- The applicable `revit-*` skill playbooks for the subsystems touched by the diff (`revit-multi-versions`, `revit-transactions`, `revit-wpf-mvvm`, `revit-data-retrieval`, `revit-extensible-storage`, `revit-external-events`, `revit-failure-handling`, `revit-ui-ribbon`, `revit-tests`)
 
 On top of whatever the repo documents, the Standards axis always carries the **smell baseline** below: a fixed set of Fowler code smells (_Refactoring_, ch.3) that applies even when a repo documents nothing. Two rules bind it:
 

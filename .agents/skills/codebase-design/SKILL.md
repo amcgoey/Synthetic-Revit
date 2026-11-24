@@ -7,7 +7,7 @@ description: Shared vocabulary for designing deep modules. Use when the user wan
 
 Design **deep modules**: a lot of behaviour behind a small interface, placed at a clean seam, testable through that interface. Use this language and these principles wherever code is being designed or restructured. The aim is leverage for callers, locality for maintainers, and testability for everyone.
 
-When exploring the codebase, read [`GLOSSARY.md`](../../../GLOSSARY.md) (if it exists) so module names and interface vocabulary match the project's domain language, and respect ADRs in `docs/adrs/` in the area you're touching.
+When exploring the codebase, read [`GLOSSARY.md`](../../../GLOSSARY.md) so module names and interface vocabulary match the project's domain language, and respect ADRs in [`docs/adrs/`](../../../docs/adrs/) and rules in [`CODING_STANDARDS.md`](../../../CODING_STANDARDS.md).
 
 ## Glossary
 
@@ -73,28 +73,26 @@ Good interfaces make testing natural:
 1. **Accept dependencies, don't create them.**
 
    ```csharp
-   // Testable: Accepts identity service or POCO inputs
-   public StandardsMergeResult Merge(IEnumerable<ElementModel> elements, IIdentityService identityService) {}
+   // Testable: Accepts pure Core/ identity or slice adapter interface
+   public MergeResult ComputePlan(IEnumerable<ElementModel> elements, IPocoIdentityService identityService) {}
 
-   // Hard to test: Creates internal dependencies coupled to Revit collectors
-   public StandardsMergeResult Merge(IEnumerable<ElementModel> elements) {
-       var identityService = new RevitIdentityService(new FilteredElementCollector(_doc));
+   // Hard to test: Instantiates Revit-coupled adapter directly inside domain logic
+   public MergeResult ComputePlan(IEnumerable<ElementModel> elements) {
+       var identityService = new RevitIdentityService();
    }
    ```
 
 2. **Return results, don't produce side effects.**
 
    ```csharp
-   // Testable: Pure calculation returning merge diff
-   public StandardsMergeResult ComputeMerge(StandardsMergePlan plan) {}
+   // Testable: Pure calculation returning a Typed Outcome Object or plan
+   public SheetIndexExportOutcome Export(IEnumerable<SheetIndexSheetModel> sheets, ...) {}
 
-   // Hard to test: Mutates live Revit elements in place
+   // Hard to test: Interleaves domain logic directly inside live Revit database writes
    public void ExecuteMergeDirectly(Document doc, StandardsMergePlan plan) {
-       using (var t = new Transaction(doc, "Merge")) {
-           t.Start();
-           // In-place mutation
-           t.Commit();
-       }
+       doc.ExecuteTransaction("Merge", FailurePipelines.ObserveOnly(), () => {
+           // Domain computation tangled inside Revit mutation
+       });
    }
    ```
 

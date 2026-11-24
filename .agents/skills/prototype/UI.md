@@ -14,7 +14,7 @@ If the question is about business logic or state transitions rather than visual 
 ## Two formats in this repository
 
 1. **Rapid HTML/CSS Mockups (Fastest feedback)**: A single HTML page with multiple structural variants and a floating switcher. Excellent for exploring typography, density, and layout before writing XAML.
-2. **WPF / XAML Prototype Views**: When testing actual WPF control behavior, layout containers, and theme integration inside Revit or a standalone WPF previewer, adhering to `docs/Synthetic_UI_Theme_Specification.md`.
+2. **WPF / XAML Prototype Views**: When testing actual WPF control behavior, layout containers, and `<theme:SyntheticThemeDictionary />` theme integration inside Revit or a standalone WPF previewer, adhering to [`docs/Synthetic_UI_Theme_Specification.md`](../../../docs/Synthetic_UI_Theme_Specification.md).
 
 ---
 
@@ -39,14 +39,14 @@ When prototyping WPF dialogs for the Revit Add-in:
 
 ### 1. Consult the theme specification
 
-Read `docs/Synthetic_UI_Theme_Specification.md` to ensure styles, color palettes (accents, background neutrals), and control templates match Synthetic standards.
+Read [`docs/Synthetic_UI_Theme_Specification.md`](../../../docs/Synthetic_UI_Theme_Specification.md) to ensure styles, color palettes (`Synthetic.Brushes.*`), control templates, and `<theme:SyntheticThemeDictionary />` resource merging match Synthetic standards.
 
 ### 2. Scaffold structural variants
 
-Create distinct UserControls or DataTemplates in a prototype folder (e.g. `SyntheticUI/Prototypes/`):
-- `VariantA_CardGrid.xaml`
-- `VariantB_DockPanelTree.xaml`
-- `VariantC_TabbedInspector.xaml`
+Create temporary UserControls or DataTemplates inside `src/Features/<Slice>/Addin/Views/` (naming clearly as `Prototype_VariantA_*.xaml` until promoted or moved to `prototype/<name>`):
+- `Prototype_VariantA_CardGrid.xaml`
+- `Prototype_VariantB_DockPanelTree.xaml`
+- `Prototype_VariantC_TabbedInspector.xaml`
 
 Ensure each variant explores a genuinely different information hierarchy and interaction model.
 

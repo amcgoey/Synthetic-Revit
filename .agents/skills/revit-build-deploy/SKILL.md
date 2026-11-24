@@ -5,7 +5,7 @@ description: Build, sign, isolate, and deploy Synthetic across Revit versions. U
 
 # Revit Build & Deploy (`revit-build-deploy`)
 
-Architectural contract and rationale live in [ADR 018](../../../docs/adrs/Synthetic_ADRs%20-%2018%20-%20ADR%20018%20-%20AppData%20Local%20Deployment%20for%20Debug%20Builds.md). Authoritative MSBuild and deployment definitions live in [Directory.Build.props](../../../src/Directory.Build.props), [Directory.Build.targets](../../../src/Directory.Build.targets), [Deploy-To-INC-Server.template.bat](../../../build/Deploy-To-INC-Server.template.bat), and [Install-Synthetic-Workstation.template.bat](../../../build/Install-Synthetic-Workstation.template.bat).
+Architectural contract and rationale live in [ADR 0018](../../../docs/adrs/0018-universal-add-in-bootstrap-manifest-routing-and-studio-deployment.md). Authoritative MSBuild and deployment definitions live in [Directory.Build.props](../../../src/Directory.Build.props), [Directory.Build.targets](../../../src/Directory.Build.targets), [Deploy-To-INC-Server.template.bat](../../../build/Deploy-To-INC-Server.template.bat), and [Install-Synthetic-Workstation.template.bat](../../../build/Install-Synthetic-Workstation.template.bat).
 
 ## 1. Platform & Output Layout
 

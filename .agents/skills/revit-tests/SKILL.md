@@ -59,7 +59,7 @@ python .agents/skills/revit-tests/scripts/test_executor.py --version 2026 --no-p
 | Category / Attribute | Target Project | Scope & Lifecycle |
 | :--- | :--- | :--- |
 | `Unit` (`[UnitTest]`) | [Synthetic.LogicTests](../../../tests/Projects/Synthetic.LogicTests/Synthetic.LogicTests.csproj) | Pure `Core/` / `Logic/` tests (including STA WPF layout/theme tests) with zero Revit process dependency. |
-| `Architecture` (`[ArchitectureTest]`) | [Synthetic.LogicTests](../../../tests/Projects/Synthetic.LogicTests/Synthetic.LogicTests.csproj) | Assembly/source structural guardrails enforcing `Core/` purity and isomorphic `tests/` layout. |
+| `Architecture` (`[ArchitectureTest]`) | [Synthetic.LogicTests](../../../tests/Projects/Synthetic.LogicTests/Synthetic.LogicTests.csproj) | Single-parse Roslyn and XML/JSON `FitnessRule` gates enforcing partitions, 4-band DAG, registry parity, and allowlist ratchets ([ArchitectureFitnessTests](../../../tests/Architecture/Logic/ArchitectureFitnessTests.cs), [ADR 0029](../../../docs/adrs/0029-isomorphic-test-mirror-and-architecture-fitness-guardrails.md)). |
 | `RevitSmoke` (`[RevitSmokeTest]`) | `Synthetic.RevitTests.<Year>` | Minimal live Revit host checks (assembly load, ribbon wiring, `ExternalEvent`, BAML `Window.Show()`). |
 | `RevitAdapter` (`[RevitAdapterTest]`) | `Synthetic.RevitTests.<Year>` | Live Revit API/adapter tests executing inside rolled-back `TransactionGroup`s against a cached baseline document. |
 | `RevitIsolatedDoc` (`[RevitIsolatedDocTest]`) | `Synthetic.RevitTests.<Year>` | Live Revit tests opening temp copies of `.rvt`/`.rfa` fixtures, `EditFamily`/`LoadFamily`, or linked models. |
@@ -67,7 +67,7 @@ python .agents/skills/revit-tests/scripts/test_executor.py --version 2026 --no-p
 
 ## 3. Shared Fixtures & State Management
 
-State-management design rationale lives in [ADR 0001](../../../docs/adrs/Synthetic_ADRs%20-%2001%20-%20ADR%20001%20-%20Hybrid%20State%20Management%20for%20Integration%20Tests.md). Inherit from the shared base class matching the test's isolation profile:
+State-management design rationale lives in [ADR 0001](../../../docs/adrs/0001-hybrid-state-management-for-revit-tests.md). Inherit from the shared base class matching the test's isolation profile:
 
 - **[`RevitTemplateRollbackFixture`](../../../tests/Fixtures/Revit/RevitTemplateRollbackFixture.cs) (`[RevitAdapterTest]`):**
   - Caches one baseline `Document` per `[TestFixture]` across `[OneTimeSetUp]` / `[OneTimeTearDown]` (`BaselineKind`: `MetricProject`, `ImperialProject`, `TestTemplateCopy`, or `None`—compatible with `ricaun.NUnit 1.5.0`, which injects `UIApplication` into `[OneTimeSetUp]` and omits `[SetUpFixture]`).
