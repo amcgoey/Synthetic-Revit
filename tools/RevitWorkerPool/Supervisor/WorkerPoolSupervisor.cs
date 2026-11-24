@@ -11,6 +11,8 @@ using RevitWorkerPool.Execution;
 using RevitWorkerPool.Ipc;
 using RevitWorkerPool.Launching;
 using RevitWorkerPool.Pipe;
+using RevitWorkerPool.Reporting;
+using RevitWorkerPool.Sharding;
 using RevitWorkerPool.Startup;
 
 namespace RevitWorkerPool.Supervisor;
@@ -31,6 +33,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
     private readonly Func<int> _currentLatestVersionProvider;
     private readonly Action<string>? _diagnosticLogger;
     private readonly StartupBootProtector? _startupProtector;
+    private readonly FixtureTimingCache _timingCache;
 
     private readonly object _sync = new();
     private readonly List<ManagedWorker> _workers = new();
@@ -62,7 +65,8 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
         TimeProvider? timeProvider = null,
         Func<int>? currentLatestVersionProvider = null,
         Action<string>? diagnosticLogger = null,
-        StartupBootProtector? startupProtector = null)
+        StartupBootProtector? startupProtector = null,
+        FixtureTimingCache? timingCache = null)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
         if (_options.MaxActiveWorkers <= 0)
@@ -78,6 +82,9 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
         _currentLatestVersionProvider = currentLatestVersionProvider ?? ResolveDefaultLatestVersion;
         _diagnosticLogger = diagnosticLogger;
         _startupProtector = startupProtector;
+        _timingCache = timingCache ?? new FixtureTimingCache(
+            _options.TimingCacheDirectory,
+            diagnosticLogger: diagnosticLogger);
         _lastActivityUtc = _timeProvider.GetUtcNow();
     }
 
@@ -344,21 +351,25 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
             }
         }
 
-        FilterPreparationResult filterPrep = TestExecutionHelper.PrepareExecutionFilters(
+        RunPlanPreparationResult runPlan = TestExecutionHelper.PrepareRunPlan(
             options.RevitVersion,
             fullAssemblyPath,
             fullTrxPath,
             options.Filters,
             options.Category,
             options.Categories,
+            options.Shards,
+            _options.MaxActiveWorkers,
+            _timingCache,
             EffectiveShimEnabled,
             _diagnosticLogger);
 
-        if (!filterPrep.ShouldExecute)
+        if (!runPlan.ShouldExecute)
         {
-            return filterPrep.ImmediateResult!;
+            return runPlan.ImmediateResult!;
         }
 
+        IReadOnlyList<TestShardPlan> shards = runPlan.Shards;
         Guid runId = Guid.NewGuid();
         using var runExecutionCts = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken,
@@ -373,7 +384,8 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                     fullTrxPath,
                     Array.Empty<string>(),
                     EffectiveShimEnabled,
-                    "Worker pool supervisor is draining.");
+                    "Worker pool supervisor is draining.",
+                    shards.Count);
             }
 
             try
@@ -387,7 +399,8 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                     fullTrxPath,
                     Array.Empty<string>(),
                     EffectiveShimEnabled,
-                    ex.Message);
+                    ex.Message,
+                    shards.Count);
             }
 
             _inFlightRuns++;
@@ -395,65 +408,142 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
             _activeRunTasks[runId] = new ActiveRunTracking(runExecutionCts);
         }
 
-        WorkerAssignment? assignment = null;
-        string? knownWorkerId = options.WorkerId;
-        bool dispatchedSuccessfully = false;
+        var stagingDirs = new List<string>();
+        var shardStates = new ShardExecutionState[shards.Count];
 
         try
         {
-            assignment = await AcquireWorkerAsync(
-                options.RevitVersion,
-                options.WorkerId,
-                options.BootTimeout,
-                runExecutionCts.Token).ConfigureAwait(false);
+            var shardAssemblyPaths = new string[shards.Count];
+            if (shards.Count == 1)
+            {
+                shardAssemblyPaths[0] = fullAssemblyPath;
+            }
+            else
+            {
+                for (int i = 0; i < shards.Count; i++)
+                {
+                    ShardStagingHelper.StagedShardDirectory staged =
+                        ShardStagingHelper.CreateStagingDirectory(
+                            fullAssemblyPath,
+                            shards[i].ShardIndex,
+                            _diagnosticLogger);
+                    stagingDirs.Add(staged.StagingDirectory);
+                    shardAssemblyPaths[i] = staged.StagedAssemblyPath;
+                }
+            }
 
-            knownWorkerId = assignment.Worker.WorkerId;
-            dispatchedSuccessfully = true;
+            DateTimeOffset runStart = DateTimeOffset.UtcNow;
+            using var shardRunCts = CancellationTokenSource.CreateLinkedTokenSource(runExecutionCts.Token);
+            var shardTasks = new Task[shards.Count];
 
-            // Lazy auto-start policy: keep at least 1 standby worker only for CURRENT_LATEST_VERSION
-            // unless already warmed higher (e.g., 2). Older versions keep target=0 unless explicitly warmed.
-            ApplyLazyLatestPolicyOnDispatch(options.RevitVersion);
+            for (int i = 0; i < shards.Count; i++)
+            {
+                TestShardPlan shard = shards[i];
+                string shardAssemblyPath = shardAssemblyPaths[i];
+                string? preferredWorkerId = ResolveShardPreferredWorkerId(options.WorkerId, i, shards.Count);
+                var state = new ShardExecutionState(i, shard);
+                shardStates[i] = state;
 
-            OneShotRunResult result = await TestExecutionHelper.ExecuteOnReadyWorkerAsync(
-                options.RevitVersion,
-                assignment.Process,
-                assignment.PipeClient,
-                fullAssemblyPath,
+                shardTasks[i] = ExecuteShardAsync(
+                    options,
+                    state,
+                    shardAssemblyPath,
+                    preferredWorkerId,
+                    shardRunCts);
+            }
+
+            await Task.WhenAll(shardTasks).ConfigureAwait(false);
+            DateTimeOffset runFinish = DateTimeOffset.UtcNow;
+
+            string[] workerIds = shardStates
+                .Select(s => s.WorkerId)
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Cast<string>()
+                .ToArray();
+
+            UpdateTimingCacheFromCompletedShards(options.RevitVersion, shardStates);
+
+            Exception? primaryError = shardStates
+                .Select(s => s.Error)
+                .FirstOrDefault(e => e is not null and not OperationCanceledException)
+                ?? shardStates.Select(s => s.Error).FirstOrDefault(e => e is not null);
+
+            if (primaryError is not null)
+            {
+                return TestExecutionHelper.InfrastructureFailureResult(
+                    options.RevitVersion,
+                    fullTrxPath,
+                    workerIds,
+                    EffectiveShimEnabled,
+                    primaryError.Message,
+                    shards.Count);
+            }
+
+            var trxInputs = new TrxShardResult[shards.Count];
+            for (int i = 0; i < shards.Count; i++)
+            {
+                ShardExecutionOutcome outcome = shardStates[i].Outcome!.Value;
+                trxInputs[i] = new TrxShardResult(
+                    outcome.Execution.AssemblyResult,
+                    outcome.Execution.StreamedTests,
+                    outcome.StartTime,
+                    outcome.FinishTime);
+            }
+
+            TrxSummary summary = TrxMerger.WriteMergedTrx(
                 fullTrxPath,
-                filterPrep.ResolvedTestFilters,
-                options.ExecutionTimeout,
-                EffectiveShimEnabled,
-                _diagnosticLogger,
-                runExecutionCts.Token).ConfigureAwait(false);
+                fullAssemblyPath,
+                trxInputs,
+                runStart,
+                runFinish);
 
-            return result;
+            bool zeroMatches = summary.TotalTests == 0;
+            bool success = summary.FailedTests == 0;
+            int exitCode = success ? 0 : 1;
+
+            return new OneShotRunResult
+            {
+                Success = success,
+                ExitCode = exitCode,
+                Version = options.RevitVersion,
+                TrxPath = summary.TrxPath,
+                WorkerIds = workerIds,
+                ShardCount = shards.Count,
+                TotalTests = summary.TotalTests,
+                PassedTests = summary.PassedTests,
+                FailedTests = summary.FailedTests,
+                SkippedTests = summary.SkippedTests,
+                ZeroMatches = zeroMatches,
+                ShimEnabled = EffectiveShimEnabled,
+                Error = null
+            };
         }
         catch (Exception ex)
         {
-            string[] workerIds = string.IsNullOrWhiteSpace(knownWorkerId)
-                ? Array.Empty<string>()
-                : new[] { knownWorkerId };
+            string[] workerIds = shardStates
+                .Where(s => s is not null && !string.IsNullOrWhiteSpace(s.WorkerId))
+                .Select(s => s.WorkerId!)
+                .ToArray();
             return TestExecutionHelper.InfrastructureFailureResult(
                 options.RevitVersion,
                 fullTrxPath,
                 workerIds,
                 EffectiveShimEnabled,
-                ex.Message);
+                ex.Message,
+                shards.Count);
         }
         finally
         {
-            if (assignment is not null)
-            {
-                await ReleaseAndTerminateConsumedWorkerAsync(assignment.Worker).ConfigureAwait(false);
-            }
+            ShardStagingHelper.CleanupStagingDirectories(stagingDirs, _diagnosticLogger);
 
+            bool anyDispatched = shardStates.Any(s => s is not null && s.Dispatched);
             lock (_sync)
             {
                 _activeRunTasks.TryRemove(runId, out _);
                 _inFlightRuns--;
                 TouchActivityLocked();
 
-                if (dispatchedSuccessfully && !_draining && !_disposed)
+                if (anyDispatched && !_draining && !_disposed)
                 {
                     ScheduleLocked();
                 }
@@ -581,6 +671,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                     ExecutionTimeout = TimeSpan.FromSeconds(Math.Max(0.05, request.Run.ExecutionTimeoutSeconds)),
                     WorkerId = request.Run.WorkerId,
                     ProjectRoot = request.Run.ProjectRoot ?? _options.ProjectRoot,
+                    Shards = request.Run.Shards,
                     Diagnostics = request.Run.Diagnostics
                 };
 
@@ -1682,9 +1773,122 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
         return RicaunBundleLease.Acquire(testAdapterSearchDirectories: searchDirs);
     }
 
+    private async Task ExecuteShardAsync(
+        OneShotRunOptions options,
+        ShardExecutionState state,
+        string shardAssemblyPath,
+        string? preferredWorkerId,
+        CancellationTokenSource shardRunCts)
+    {
+        WorkerAssignment? assignment = null;
+        if (!string.IsNullOrWhiteSpace(preferredWorkerId))
+        {
+            state.WorkerId = preferredWorkerId;
+        }
+
+        try
+        {
+            assignment = await AcquireWorkerAsync(
+                options.RevitVersion,
+                preferredWorkerId,
+                options.BootTimeout,
+                shardRunCts.Token).ConfigureAwait(false);
+
+            state.WorkerId = assignment.Worker.WorkerId;
+            state.Dispatched = true;
+
+            // Lazy auto-start policy: keep at least 1 standby worker only for CURRENT_LATEST_VERSION
+            // unless already warmed higher (e.g., 2). Older versions keep target=0 unless explicitly warmed.
+            ApplyLazyLatestPolicyOnDispatch(options.RevitVersion);
+
+            state.Outcome = await TestExecutionHelper.ExecuteShardOnReadyWorkerAsync(
+                assignment.Process,
+                assignment.PipeClient,
+                shardAssemblyPath,
+                state.Shard.RicaunTestFilters,
+                options.ExecutionTimeout,
+                _diagnosticLogger,
+                shardRunCts.Token).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            state.Error = ex;
+            try
+            {
+                shardRunCts.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+        }
+        finally
+        {
+            if (assignment is not null)
+            {
+                await ReleaseAndTerminateConsumedWorkerAsync(assignment.Worker).ConfigureAwait(false);
+            }
+        }
+    }
+
+    private void UpdateTimingCacheFromCompletedShards(
+        int revitVersion,
+        ShardExecutionState[] shardStates)
+    {
+        try
+        {
+            var completedShards = shardStates
+                .Where(s => s is not null && s.Outcome.HasValue)
+                .Select(s => (
+                    s.Outcome!.Value.Execution.AssemblyResult,
+                    (IReadOnlyList<ricaun.NUnit.Models.TestModel>?)s.Outcome.Value.Execution.StreamedTests,
+                    (IReadOnlyList<DiscoveredFixtureTests>?)s.Shard.Fixtures));
+
+            _timingCache.UpdateFromCompletedShards(revitVersion, completedShards);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or TimeoutException)
+        {
+            Log($"[sharding] Warning: failed to persist fixture timing cache for Revit {revitVersion}: {ex.Message}");
+        }
+    }
+
+    private static string? ResolveShardPreferredWorkerId(
+        string? baseWorkerId,
+        int shardIndex,
+        int shardCount)
+    {
+        if (string.IsNullOrWhiteSpace(baseWorkerId))
+        {
+            return null;
+        }
+
+        string trimmed = baseWorkerId.Trim();
+        return shardCount <= 1 ? trimmed : $"{trimmed}_s{shardIndex}";
+    }
+
     private void Log(string message)
     {
         _diagnosticLogger?.Invoke(message);
+    }
+
+    private sealed class ShardExecutionState
+    {
+        public ShardExecutionState(int shardIndex, TestShardPlan shard)
+        {
+            ShardIndex = shardIndex;
+            Shard = shard;
+        }
+
+        public int ShardIndex { get; }
+
+        public TestShardPlan Shard { get; }
+
+        public string? WorkerId { get; set; }
+
+        public bool Dispatched { get; set; }
+
+        public ShardExecutionOutcome? Outcome { get; set; }
+
+        public Exception? Error { get; set; }
     }
 
     internal sealed record WorkerAssignment(
