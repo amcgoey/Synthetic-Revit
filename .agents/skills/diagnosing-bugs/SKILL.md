@@ -104,7 +104,7 @@ Tool preference:
 
 **Tag every debug log** with a unique prefix, e.g. `[DEBUG-a4f2]`. Cleanup at the end becomes a single grep. Untagged logs survive; tagged logs die.
 
-**Perf branch.** For memory growth or performance regressions, check RAM statistics in the journal (`revit_journal_tool.py --analyze`) and measure transaction durations. Measure first, fix second.
+**Perf branch.** For memory growth or performance regressions, check **RAM Statistics** in the **Revit Journal** (`revit_journal_tool.py --analyze`) and measure transaction durations. Measure first, fix second.
 
 ## Phase 5: Fix + regression test
 

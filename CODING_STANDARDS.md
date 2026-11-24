@@ -62,7 +62,7 @@ Authoritative architecture, design, and review rules across `Synthetic.Core` (`n
 ### 9. Single-Field JSON Settings + Local User Prefs
 ([ADR 0025](docs/adrs/0025-non-mutating-shadow-study-export-and-base-ratio-multiply-compositing.md), [revit-extensible-storage](.agents/skills/revit-extensible-storage/SKILL.md))
 
-- Persist project-stored **Firmwide Settings** (`ISettingModule` with parameterless `IsValid()` in `Core/Settings/` or `<Slice>/Addin/Settings/`) through `SyntheticSettingsJsonSchema` (`JsonData` + `ModuleKey` string fields on `DataStorage`).
+- Persist project-stored **Firmwide Settings** (`ISettingModule`, using parameterless `IsValid()` on migrated slices such as `ShadowStudySettings`; remaining modules migrate from `IsValid(Document)` in Spec 6) through `SyntheticSettingsJsonSchema` (`JsonData` + `ModuleKey` string fields on `DataStorage`).
 - Maintain 1-to-1 `ModuleKey` parity across concrete `ISettingModule` types, `HostSettingsRegistrar`, and `SyntheticSettings.template.json` (`SyncSettings` excluded from template).
 - Store machine-local **Local User Preferences** (last folder, pixel widths, toggles) under `%APPDATA%\Synthetic\` (`ShadowStudyUserPrefsStore`) outside the model so normal runs leave Undo history clean.
 

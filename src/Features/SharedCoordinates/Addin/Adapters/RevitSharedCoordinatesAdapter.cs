@@ -659,8 +659,12 @@ namespace Synthetic.Features.SharedCoordinates.Adapters
 
                 return SharedSiteNameParser.ResolveFromInstanceName(instanceName, knownLinkSiteNames);
             }
-            catch
+            catch (Exception ex) when (
+                ex is Autodesk.Revit.Exceptions.ApplicationException ||
+                ex is ArgumentException ||
+                ex is InvalidOperationException)
             {
+                System.Diagnostics.Debug.WriteLine($"[SharedCoordinates] GetAssignedSiteName failed: {ex.Message}");
                 return null;
             }
         }

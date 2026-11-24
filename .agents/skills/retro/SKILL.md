@@ -20,7 +20,7 @@ The user has asked for a **retrospective**. You are suggesting improvements to t
 - **Project AGENTS.md**: are there any steering instructions that should be moved to coding standards (or automated checks) instead? Check [`.agents/AGENTS.md`](../../AGENTS.md): keep it lean, reserving it for universal rules like direct file editing and relative links. _Use when_ steering files are particularly large or noisy.
 - **Tool economy**: did the agent make expensive tool calls that could be streamlined? Did it violate [`.agents/AGENTS.md`](../../AGENTS.md) by attempting to run Python/PowerShell scripts to edit files instead of built-in tools? Did it encounter lock contention on `MSBuild.exe` or `output/Synthetic/`? _Use when_ the agent made an expensive or forbidden tool call.
 - **No-ops**: look for instructions in steering files that don't modify the agent's behavior. _Use when_ steering files are large and unwieldy.
-- **Information access**: look for opportunities to increase the agent's access to information (e.g. tailing Revit journal session logs, inspecting `RevitDOM` definitions, reading primary API docs). _Use when_ a crucial piece of information was not available to the agent.
+- **Information access**: look for opportunities to increase the agent's access to information (e.g. tailing **Revit Journals**, inspecting `RevitDOM` definitions, reading primary API docs). _Use when_ a crucial piece of information was not available to the agent.
 
 4. Present these candidates to the user, in order of severity.
 

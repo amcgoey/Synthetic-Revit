@@ -41,7 +41,7 @@ CoordinateTransformResult delta = SharedCoordinatesMath.ComputeAlignmentFromExpe
 bool committed = _doc.ExecuteCommittedBatchGroup("Move Links to Shared Sites", () =>
 {
     using Transaction tx = _doc.CreateTransaction(
-        $"Reposition {group.LinkName}",
+        $"Reposition {group.TypeName}",
         FailurePipelines.ObserveOnly());
     tx.Start();
     // Apply pure plan transforms to Revit link instances...
