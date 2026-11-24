@@ -10,6 +10,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import uuid
 import winreg
@@ -23,6 +24,77 @@ import guid_whitelister
 
 BUNDLE_LEASE_MUTEX_NAME = r"Local\Synthetic_RicaunBundleLease"
 RICAUN_BUNDLE_FOLDER_NAME = "ricaun.RevitTest.Application.bundle"
+STARTUP_GATE_MUTEX_PREFIX = r"Local\Synthetic_RevitStartupGate_"
+DEFAULT_STARTUP_GATE_HOLD_SECONDS = 90.0
+DEFAULT_STARTUP_GATE_ACQUIRE_TIMEOUT_MS = 300000
+DEFAULT_STARTUP_POLL_INTERVAL_SECONDS = 0.5
+STARTUP_COMPLETE_JOURNAL_MARKERS = (
+    "<-DesktopMFCApp::doStartupWarnings",
+    "ricaun.RevitTest: Execute:",
+)
+STARTUP_FAILURE_DIALOG_ID = "TaskDialog_External_Tools_External_Tool_Failure"
+STARTUP_FAILURE_WINDOW_TEXT_MARKERS = (
+    "external tools - external tool failure",
+    "taskdialog_external_tools_external_tool_failure",
+    "revit cannot run the external application",
+)
+LEGACY_MANIFEST_EXPECTED_CLASS = "Synthetic.Bootstrap.BootstrapApp"
+
+
+def check_legacy_programdata_manifest(version, program_data=None):
+    """
+    Read-only preflight check for legacy machine-wide %ProgramData% Synthetic*.addin manifests.
+    Warns if any <FullClassName> entry differs from Synthetic.Bootstrap.BootstrapApp due to shadow-loading risk.
+    """
+    resolved_pd = (
+        program_data
+        if program_data is not None
+        else (os.environ.get("ProgramData") or r"C:\ProgramData")
+    )
+    if not resolved_pd:
+        return []
+
+    addins_dir = os.path.join(resolved_pd, "Autodesk", "Revit", "Addins", str(version))
+    if not os.path.isdir(addins_dir):
+        return []
+
+    flagged = []
+    try:
+        entries = sorted(os.listdir(addins_dir))
+    except OSError:
+        return []
+
+    for entry in entries:
+        lower = entry.lower()
+        if not (lower.startswith("synthetic") and lower.endswith(".addin")):
+            continue
+        manifest_path = os.path.join(addins_dir, entry)
+        if not os.path.isfile(manifest_path):
+            continue
+        try:
+            tree = ET.parse(manifest_path)
+            root = tree.getroot()
+        except (ET.ParseError, OSError) as exc:
+            print(f"[WARN] Could not parse ProgramData manifest '{manifest_path}': {exc}")
+            continue
+
+        full_classes = [
+            (elem.text or "").strip()
+            for elem in root.iter()
+            if elem.tag.split("}")[-1] == "FullClassName"
+        ]
+        legacy_classes = [fc for fc in full_classes if fc != LEGACY_MANIFEST_EXPECTED_CLASS]
+        if legacy_classes:
+            flagged.append(manifest_path)
+            classes_desc = ", ".join(legacy_classes)
+            print(
+                f"[WARN] Legacy machine-wide manifest detected for Revit {version} at '{manifest_path}' "
+                f"(FullClassName={classes_desc}; expected {LEGACY_MANIFEST_EXPECTED_CLASS}). "
+                "Risk of shadow-loading stale binaries alongside %APPDATA% Debug Manifest "
+                "(read-only warning; file left untouched)."
+            )
+
+    return flagged
 
 
 class TempDisableThirdPartyAddins:
@@ -189,10 +261,16 @@ class _Win32KernelLease:
         return h_mutex
 
     def release_mutex(self, h_mutex):
+        released = False
+        err = 0
         try:
-            self._k32.ReleaseMutex(h_mutex)
+            released = bool(self._k32.ReleaseMutex(h_mutex))
+            if not released:
+                err = ctypes.get_last_error()
         finally:
             self._k32.CloseHandle(h_mutex)
+        if not released:
+            raise ctypes.WinError(err)
 
     def open_shared_read_no_delete(self, file_path):
         share_mode = self.FILE_SHARE_READ | self.FILE_SHARE_WRITE
@@ -273,6 +351,67 @@ class RicaunBundleLease:
                 shutil.rmtree(self.bundle_dir, ignore_errors=True)
         finally:
             self._win32.release_mutex(h_mutex)
+
+
+def get_startup_gate_mutex_name(version):
+    """Return the per-Revit-version Win32 Startup Gate named mutex."""
+    return f"{STARTUP_GATE_MUTEX_PREFIX}{version}"
+
+
+class RevitStartupGate:
+    """
+    Coordinates per-Revit-version startup serialization via Local\\Synthetic_RevitStartupGate_<Year>.
+    Enforces Win32 mutex thread affinity: release() must execute on the exact acquiring OS thread.
+    """
+
+    def __init__(
+        self,
+        version,
+        mutex_name=None,
+        acquire_timeout_ms=DEFAULT_STARTUP_GATE_ACQUIRE_TIMEOUT_MS,
+        win32=None,
+    ):
+        self.version = str(version)
+        self.mutex_name = mutex_name or get_startup_gate_mutex_name(self.version)
+        self.acquire_timeout_ms = acquire_timeout_ms
+        self._win32 = win32 or _Win32KernelLease()
+        self._handle = None
+        self._owner_thread_id = None
+
+    @property
+    def is_held(self):
+        return self._handle is not None
+
+    def acquire(self):
+        if self._handle is not None:
+            raise RuntimeError(f"Startup gate '{self.mutex_name}' is already held by this instance.")
+        handle = self._win32.acquire_mutex(self.mutex_name, timeout_ms=self.acquire_timeout_ms)
+        self._handle = handle
+        self._owner_thread_id = threading.get_ident()
+        return self
+
+    def release(self):
+        if self._handle is None:
+            return False
+        current_tid = threading.get_ident()
+        if current_tid != self._owner_thread_id:
+            raise RuntimeError(
+                f"Win32 mutex '{self.mutex_name}' must be released on acquiring thread "
+                f"{self._owner_thread_id}, not thread {current_tid}."
+            )
+        handle = self._handle
+        try:
+            self._win32.release_mutex(handle)
+        finally:
+            self._handle = None
+            self._owner_thread_id = None
+        return True
+
+    def __enter__(self):
+        return self.acquire()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.release()
 
 
 RUN_DIR_PATTERN = re.compile(r"^\d{8}_\d{6}_\d+_[0-9a-fA-F]+$")
@@ -1074,6 +1213,574 @@ def cleanup_revit_test_temp(run_id, temp_dir=None):
     return removed
 
 
+def _list_journal_files(journals_dir):
+    """Return journal*.txt paths in journals_dir sorted newest-first by mtime."""
+    if not journals_dir or not os.path.isdir(journals_dir):
+        return []
+    files = []
+    try:
+        entries = os.listdir(journals_dir)
+    except OSError:
+        return []
+    for entry in entries:
+        if entry.startswith("journal") and entry.endswith(".txt"):
+            full_path = os.path.join(journals_dir, entry)
+            if os.path.isfile(full_path):
+                try:
+                    mtime = os.path.getmtime(full_path)
+                except OSError:
+                    mtime = 0.0
+                files.append((mtime, full_path))
+    files.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    return [item[1] for item in files]
+
+
+def _read_journal_text_best_effort(filepath):
+    """Read an active or completed Revit journal without failing on partial writes or encoding."""
+    try:
+        with open(filepath, "rb") as f:
+            raw = f.read()
+    except OSError:
+        return ""
+    if not raw:
+        return ""
+    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+        return raw.decode("utf-16", errors="ignore")
+    if raw.startswith(b"\xef\xbb\xbf"):
+        return raw.decode("utf-8-sig", errors="ignore")
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode("cp1252", errors="ignore")
+
+
+def _contains_run_id_marker(text, run_id):
+    if not run_id or not text:
+        return False
+    pattern = rf"SYNTHETIC_TEST_RUN:{re.escape(str(run_id))}(?![A-Za-z0-9_.-])"
+    return bool(re.search(pattern, text))
+
+
+def find_live_worker_journal(journals_dir, run_id=None, known_journals=None):
+    """
+    Resolve the active worker journal in journals_dir:
+      1) new journal (not in known_journals) containing SYNTHETIC_TEST_RUN:<run_id>
+      2) newly created journal relative to known_journals not attributed to another run ID
+    Returns (filepath, text) or (None, "").
+    """
+    known_set = {os.path.normcase(os.path.abspath(p)) for p in (known_journals or ())}
+    candidates = _list_journal_files(journals_dir)
+    new_candidates = [
+        p for p in candidates if os.path.normcase(os.path.abspath(p)) not in known_set
+    ]
+    if not new_candidates:
+        return None, ""
+
+    cached = {}
+    for candidate in new_candidates:
+        text = _read_journal_text_best_effort(candidate)
+        cached[candidate] = text
+        if run_id and _contains_run_id_marker(text, run_id):
+            return candidate, text
+
+    for candidate in new_candidates:
+        text = cached.get(candidate, "")
+        if "SYNTHETIC_TEST_RUN:" in text:
+            continue
+        return candidate, text
+
+    return None, ""
+
+
+def _has_startup_completed(journal_text):
+    return bool(journal_text) and any(
+        marker in journal_text for marker in STARTUP_COMPLETE_JOURNAL_MARKERS
+    )
+
+
+def _poll_process(proc):
+    poll_fn = getattr(proc, "poll", None)
+    if callable(poll_fn):
+        return poll_fn()
+    return getattr(proc, "returncode", None)
+
+
+def _terminate_process_tree_and_wait(proc, tree_killer):
+    tree_killer(proc.pid)
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+
+
+class _PROCESSENTRY32W(ctypes.Structure):
+    _fields_ = [
+        ("dwSize", wintypes.DWORD),
+        ("cntUsage", wintypes.DWORD),
+        ("th32ProcessID", wintypes.DWORD),
+        ("th32DefaultHeapID", ctypes.c_size_t),
+        ("th32ModuleID", wintypes.DWORD),
+        ("cntThreads", wintypes.DWORD),
+        ("th32ParentProcessID", wintypes.DWORD),
+        ("pcPriClassBase", wintypes.LONG),
+        ("dwFlags", wintypes.DWORD),
+        ("szExeFile", wintypes.WCHAR * 260),
+    ]
+
+
+def iter_process_snapshot():
+    """Return list of (pid, ppid, exe_name) tuples from Win32 CreateToolhelp32Snapshot."""
+    th32cs_snapprocess = 0x00000002
+    invalid_handle = ctypes.c_void_p(-1).value
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    k32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    k32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.POINTER(_PROCESSENTRY32W)]
+    k32.Process32FirstW.restype = wintypes.BOOL
+    k32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.POINTER(_PROCESSENTRY32W)]
+    k32.Process32NextW.restype = wintypes.BOOL
+    k32.CloseHandle.argtypes = [wintypes.HANDLE]
+    k32.CloseHandle.restype = wintypes.BOOL
+
+    snap = k32.CreateToolhelp32Snapshot(th32cs_snapprocess, 0)
+    if not snap or snap == invalid_handle:
+        return []
+
+    entries = []
+    try:
+        pe = _PROCESSENTRY32W()
+        pe.dwSize = ctypes.sizeof(_PROCESSENTRY32W)
+        ok = k32.Process32FirstW(snap, ctypes.byref(pe))
+        while ok:
+            entries.append((int(pe.th32ProcessID), int(pe.th32ParentProcessID), str(pe.szExeFile)))
+            ok = k32.Process32NextW(snap, ctypes.byref(pe))
+    finally:
+        k32.CloseHandle(snap)
+    return entries
+
+
+def find_descendant_revit_pids(root_pid, process_snapshot=None):
+    """Return sorted PIDs of Revit.exe processes within the descendant tree of root_pid."""
+    if root_pid is None or root_pid <= 0:
+        return []
+    entries = process_snapshot if process_snapshot is not None else iter_process_snapshot()
+    children_by_parent = {}
+    exe_by_pid = {}
+    for pid, ppid, exe_name in entries:
+        if pid <= 0:
+            continue
+        exe_by_pid[pid] = exe_name or ""
+        children_by_parent.setdefault(ppid, []).append(pid)
+
+    visited = set()
+    queue = [int(root_pid)]
+    revit_pids = []
+    while queue:
+        current = queue.pop(0)
+        if current in visited or current <= 0:
+            continue
+        visited.add(current)
+        if exe_by_pid.get(current, "").casefold() == "revit.exe":
+            revit_pids.append(current)
+        for child_pid in children_by_parent.get(current, ()):
+            if child_pid not in visited:
+                queue.append(child_pid)
+    return sorted(revit_pids)
+
+
+def _enumerate_win32_windows_for_pids(target_pids):
+    """Enumerate top-level Win32 #32770 windows (and child control text) owned by target_pids."""
+    if not target_pids:
+        return []
+    u32 = ctypes.WinDLL("user32", use_last_error=True)
+    wndenumproc = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    u32.EnumWindows.argtypes = [wndenumproc, wintypes.LPARAM]
+    u32.EnumWindows.restype = wintypes.BOOL
+    u32.EnumChildWindows.argtypes = [wintypes.HWND, wndenumproc, wintypes.LPARAM]
+    u32.EnumChildWindows.restype = wintypes.BOOL
+    u32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    u32.GetWindowThreadProcessId.restype = wintypes.DWORD
+    u32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    u32.GetClassNameW.restype = wintypes.INT if hasattr(wintypes, "INT") else ctypes.c_int
+    u32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+    u32.GetWindowTextLengthW.restype = ctypes.c_int
+    u32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    u32.GetWindowTextW.restype = ctypes.c_int
+
+    def _read_window_text(hwnd):
+        length = u32.GetWindowTextLengthW(hwnd)
+        buf_len = min(max(length + 1, 256), 4096)
+        buf = ctypes.create_unicode_buffer(buf_len)
+        u32.GetWindowTextW(hwnd, buf, buf_len)
+        return buf.value
+
+    def _read_class_name(hwnd):
+        buf = ctypes.create_unicode_buffer(256)
+        u32.GetClassNameW(hwnd, buf, 256)
+        return buf.value
+
+    target_set = set(target_pids)
+    results = []
+
+    def _on_top_window(hwnd, _lparam):
+        try:
+            pid_val = wintypes.DWORD()
+            u32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid_val))
+            pid_int = int(pid_val.value)
+            if pid_int not in target_set:
+                return True
+            class_name = _read_class_name(hwnd)
+            if class_name != "#32770":
+                return True
+            title = _read_window_text(hwnd)
+            child_texts = []
+
+            def _on_child(child_hwnd, _child_lp):
+                try:
+                    txt = _read_window_text(child_hwnd)
+                    if txt:
+                        child_texts.append(txt)
+                except Exception:
+                    pass
+                return True
+
+            child_cb = wndenumproc(_on_child)
+            u32.EnumChildWindows(hwnd, child_cb, 0)
+            results.append((int(hwnd), pid_int, class_name, title, child_texts))
+        except Exception:
+            pass
+        return True
+
+    top_cb = wndenumproc(_on_top_window)
+    u32.EnumWindows(top_cb, 0)
+    return results
+
+
+def detect_startup_modal_window(
+    root_pid,
+    process_snapshot_fn=iter_process_snapshot,
+    enumerate_windows_fn=None,
+):
+    """
+    Detect a #32770 External Tool Failure TaskDialog owned by any descendant Revit.exe of root_pid.
+    Returns metadata dict if detected, otherwise None.
+    """
+    revit_pids = find_descendant_revit_pids(root_pid, process_snapshot=process_snapshot_fn())
+    if not revit_pids:
+        return None
+    target_set = set(revit_pids)
+    windows = (
+        enumerate_windows_fn(target_set)
+        if enumerate_windows_fn is not None
+        else _enumerate_win32_windows_for_pids(target_set)
+    )
+    for hwnd, pid, class_name, title, child_texts in windows:
+        if pid not in target_set or class_name != "#32770":
+            continue
+        texts = [title or ""] + list(child_texts or ())
+        for txt in texts:
+            lowered = txt.casefold()
+            if any(marker in lowered for marker in STARTUP_FAILURE_WINDOW_TEXT_MARKERS):
+                return {
+                    "source": "window",
+                    "pid": pid,
+                    "hwnd": hwnd,
+                    "class_name": class_name,
+                    "title": title,
+                    "matched_text": txt,
+                }
+    return None
+
+
+def _build_effective_known_journals(journals_dir, known_journals, run_id):
+    """Merge caller snapshot with any pre-spawn journals on disk not tagged for run_id."""
+    effective_known = {os.path.normcase(os.path.abspath(p)) for p in (known_journals or ())}
+    for existing_j in _list_journal_files(journals_dir):
+        norm_j = os.path.normcase(os.path.abspath(existing_j))
+        if norm_j in effective_known:
+            continue
+        existing_text = _read_journal_text_best_effort(existing_j)
+        if run_id and _contains_run_id_marker(existing_text, run_id):
+            continue
+        effective_known.add(norm_j)
+    return effective_known
+
+
+def _detect_startup_modal_reason(proc_pid, journals_dir, run_id, known_journals, window_modal_detector):
+    """Inspect live journal and descendant Revit.exe #32770 windows; return (startup_done, modal_reason)."""
+    journal_path, journal_text = find_live_worker_journal(
+        journals_dir,
+        run_id=run_id,
+        known_journals=known_journals,
+    )
+    startup_done = _has_startup_completed(journal_text)
+    if startup_done:
+        return True, None
+
+    if journal_text and STARTUP_FAILURE_DIALOG_ID in journal_text:
+        return False, f"journal '{journal_path}' ({STARTUP_FAILURE_DIALOG_ID})"
+
+    modal_win = window_modal_detector(proc_pid)
+    if modal_win:
+        return (
+            False,
+            f"descendant Revit window (PID={modal_win.get('pid')}, title={modal_win.get('title')!r})",
+        )
+    return False, None
+
+
+def _execute_revit_test_attempt(
+    cmd,
+    out_f,
+    worker_env,
+    version,
+    run_id=None,
+    journals_dir=None,
+    known_journals=None,
+    timeout=660,
+    startup_hold_cap=DEFAULT_STARTUP_GATE_HOLD_SECONDS,
+    poll_interval=DEFAULT_STARTUP_POLL_INTERVAL_SECONDS,
+    acquire_timeout_ms=DEFAULT_STARTUP_GATE_ACQUIRE_TIMEOUT_MS,
+    popen_fn=subprocess.Popen,
+    tree_killer=kill_process_tree,
+    gate_factory=None,
+    window_modal_detector=None,
+    monotonic_fn=time.monotonic,
+    sleep_fn=time.sleep,
+):
+    """Run one cold Revit test worker attempt coordinated by the per-version Startup Gate."""
+    resolved_journals_dir = journals_dir or get_default_journals_dir(version, env=worker_env)
+    modal_win_detector = window_modal_detector or detect_startup_modal_window
+    gate = (
+        gate_factory(version)
+        if gate_factory is not None
+        else RevitStartupGate(version, acquire_timeout_ms=acquire_timeout_ms)
+    )
+    try:
+        gate.acquire()
+    except TimeoutError as exc:
+        print(
+            f"[WARN] Timed out acquiring Startup Gate '{gate.mutex_name}' ({exc}); "
+            "proceeding with early-boot watchdog."
+        )
+
+    proc = None
+    timed_out = False
+    modal_aborted = False
+    proc_started_at = monotonic_fn()
+    gate_acquired_at = proc_started_at
+
+    def _kill_on_timeout():
+        print(
+            f"[TESTS] Test execution timed out after {timeout} seconds. "
+            f"Killing worker PID tree {proc.pid}..."
+        )
+        _terminate_process_tree_and_wait(proc, tree_killer)
+
+    try:
+        effective_known = _build_effective_known_journals(resolved_journals_dir, known_journals, run_id)
+        proc = popen_fn(cmd, stdout=out_f, stderr=out_f, env=worker_env)
+        proc_started_at = monotonic_fn()
+        gate_acquired_at = proc_started_at
+
+        while True:
+            if _poll_process(proc) is not None:
+                gate.release()
+                break
+
+            startup_done, modal_reason = _detect_startup_modal_reason(
+                proc.pid,
+                resolved_journals_dir,
+                run_id,
+                effective_known,
+                modal_win_detector,
+            )
+            if modal_reason:
+                modal_aborted = True
+                print(
+                    f"[WARN] Startup failure modal detected in {modal_reason} for Revit {version} "
+                    f"(worker PID {proc.pid}); killing PID tree and releasing Startup Gate..."
+                )
+                _terminate_process_tree_and_wait(proc, tree_killer)
+                gate.release()
+                break
+
+            if startup_done:
+                gate.release()
+                break
+
+            now = monotonic_fn()
+            if gate.is_held and (now - gate_acquired_at) >= startup_hold_cap:
+                print(
+                    f"[TESTS] Startup Gate hold cap ({startup_hold_cap:.1f}s) expired for Revit {version}; "
+                    "releasing Startup Gate while continuing early-boot monitoring."
+                )
+                gate.release()
+
+            elapsed = now - proc_started_at
+            if elapsed >= timeout:
+                timed_out = True
+                _kill_on_timeout()
+                gate.release()
+                break
+
+            if poll_interval > 0:
+                sleep_fn(min(poll_interval, max(0.0, timeout - elapsed)))
+    finally:
+        gate.release()
+
+    if proc is not None and not timed_out and not modal_aborted and _poll_process(proc) is None:
+        remaining = max(0.001, timeout - (monotonic_fn() - proc_started_at))
+        try:
+            proc.wait(timeout=remaining)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            _kill_on_timeout()
+
+    rc = proc.returncode if (proc is not None and proc.returncode is not None) else 1
+    if modal_aborted and rc == 0:
+        rc = 1
+    return rc, timed_out, modal_aborted
+
+
+def _collect_aborted_attempt_journals(journals_dir, known_set, attempt_run_id):
+    """Collect newly created journals belonging to (or unattributed from) an aborted attempt."""
+    added = []
+    for candidate in _list_journal_files(journals_dir):
+        norm = os.path.normcase(os.path.abspath(candidate))
+        if norm in known_set:
+            continue
+        text = _read_journal_text_best_effort(candidate)
+        if "SYNTHETIC_TEST_RUN:" in text:
+            if attempt_run_id and _contains_run_id_marker(text, attempt_run_id):
+                added.append(os.path.abspath(candidate))
+        else:
+            added.append(os.path.abspath(candidate))
+    return added
+
+
+def _append_snapshot_entries(snapshot_path, new_paths):
+    if not snapshot_path or not new_paths:
+        return
+    try:
+        existing = []
+        if os.path.isfile(snapshot_path):
+            with open(snapshot_path, "r", encoding="utf-8") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, list):
+                existing = [str(p) for p in loaded]
+        seen = {os.path.normcase(os.path.abspath(p)) for p in existing}
+        for path in new_paths:
+            abs_path = os.path.abspath(path)
+            norm = os.path.normcase(abs_path)
+            if norm not in seen:
+                existing.append(abs_path)
+                seen.add(norm)
+        with open(snapshot_path, "w", encoding="utf-8") as f:
+            json.dump(existing, f, indent=2)
+    except (OSError, ValueError):
+        pass
+
+
+def execute_revit_test_with_startup_gate(
+    cmd,
+    out_f,
+    worker_env,
+    version,
+    run_id=None,
+    journals_dir=None,
+    known_journals=None,
+    snapshot_path=None,
+    timeout=660,
+    startup_hold_cap=DEFAULT_STARTUP_GATE_HOLD_SECONDS,
+    poll_interval=DEFAULT_STARTUP_POLL_INTERVAL_SECONDS,
+    acquire_timeout_ms=DEFAULT_STARTUP_GATE_ACQUIRE_TIMEOUT_MS,
+    max_retries=1,
+    popen_fn=subprocess.Popen,
+    tree_killer=kill_process_tree,
+    gate_factory=None,
+    window_modal_detector=None,
+    monotonic_fn=time.monotonic,
+    sleep_fn=time.sleep,
+):
+    """
+    Execute a cold Revit test run under the per-version Startup Gate with fail-fast
+    startup modal detection and bounded single retry (max_retries=1).
+    """
+    resolved_journals_dir = journals_dir or get_default_journals_dir(version, env=worker_env)
+    attempt_known = set()
+    if known_journals is not None:
+        attempt_known = {os.path.normcase(os.path.abspath(p)) for p in known_journals}
+    elif snapshot_path and os.path.isfile(snapshot_path):
+        try:
+            with open(snapshot_path, "r", encoding="utf-8") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, list):
+                attempt_known = {os.path.normcase(os.path.abspath(str(p))) for p in loaded}
+        except (OSError, ValueError):
+            attempt_known = set()
+
+    total_attempts = max(0, int(max_retries)) + 1
+    rc = 1
+    timed_out = False
+    modal_aborted = False
+    effective_run_id = run_id
+
+    for attempt in range(total_attempts):
+        attempt_run_id = run_id if attempt == 0 else (f"{run_id}_retry{attempt}" if run_id else None)
+        effective_run_id = attempt_run_id
+        attempt_env = dict(worker_env)
+        if attempt_run_id:
+            attempt_env["SYNTHETIC_TEST_RUN_ID"] = str(attempt_run_id)
+
+        if attempt > 0:
+            print(
+                f"[TESTS] Retrying Revit {version} cold startup (attempt {attempt + 1}/{total_attempts}, "
+                f"run ID: {attempt_run_id})..."
+            )
+            if hasattr(out_f, "write"):
+                try:
+                    out_f.write(
+                        f"\n[TESTS] Retrying Revit {version} after startup modal abort "
+                        f"(attempt {attempt + 1}/{total_attempts}, run ID: {attempt_run_id})...\n"
+                    )
+                    out_f.flush()
+                except Exception:
+                    pass
+
+        rc, timed_out, modal_aborted = _execute_revit_test_attempt(
+            cmd,
+            out_f,
+            attempt_env,
+            version=version,
+            run_id=attempt_run_id,
+            journals_dir=resolved_journals_dir,
+            known_journals=attempt_known,
+            timeout=timeout,
+            startup_hold_cap=startup_hold_cap,
+            poll_interval=poll_interval,
+            acquire_timeout_ms=acquire_timeout_ms,
+            popen_fn=popen_fn,
+            tree_killer=tree_killer,
+            gate_factory=gate_factory,
+            window_modal_detector=window_modal_detector,
+            monotonic_fn=monotonic_fn,
+            sleep_fn=sleep_fn,
+        )
+
+        if not modal_aborted or attempt >= total_attempts - 1:
+            break
+
+        aborted_journals = _collect_aborted_attempt_journals(
+            resolved_journals_dir, attempt_known, attempt_run_id
+        )
+        for jpath in aborted_journals:
+            attempt_known.add(os.path.normcase(os.path.abspath(jpath)))
+        _append_snapshot_entries(snapshot_path, aborted_journals)
+
+    return rc, timed_out, effective_run_id, modal_aborted
+
+
 def execute_revit_test_process(
     cmd,
     out_f,
@@ -1081,8 +1788,31 @@ def execute_revit_test_process(
     timeout=660,
     popen_fn=subprocess.Popen,
     tree_killer=kill_process_tree,
+    version=None,
+    run_id=None,
+    journals_dir=None,
+    known_journals=None,
+    startup_hold_cap=DEFAULT_STARTUP_GATE_HOLD_SECONDS,
+    poll_interval=DEFAULT_STARTUP_POLL_INTERVAL_SECONDS,
 ):
     """Launch dotnet test for a Revit worker and kill only its PID tree on timeout."""
+    if version is not None:
+        rc, timed_out, _ = _execute_revit_test_attempt(
+            cmd,
+            out_f,
+            dict(worker_env),
+            version=version,
+            run_id=run_id,
+            journals_dir=journals_dir,
+            known_journals=known_journals,
+            timeout=timeout,
+            startup_hold_cap=startup_hold_cap,
+            poll_interval=poll_interval,
+            popen_fn=popen_fn,
+            tree_killer=tree_killer,
+        )
+        return rc, timed_out
+
     proc = popen_fn(cmd, stdout=out_f, stderr=out_f, env=worker_env)
     timed_out = False
     try:
@@ -1090,11 +1820,7 @@ def execute_revit_test_process(
     except subprocess.TimeoutExpired:
         timed_out = True
         print(f"[TESTS] Test execution timed out after {timeout} seconds. Killing worker PID tree {proc.pid}...")
-        tree_killer(proc.pid)
-        try:
-            proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+        _terminate_process_tree_and_wait(proc, tree_killer)
     return (proc.returncode if proc.returncode is not None else 1), timed_out
 
 
@@ -1247,6 +1973,7 @@ def run_test_suite(target_class="", target_version="", category="", no_pool=Fals
                         proc_returncode = res.returncode
                 else:
                     guid_whitelister.whitelist_existing_addins(ver)
+                    check_legacy_programdata_manifest(ver)
                     snapshot_path = os.path.join(run_results_dir, f"known_journals_{ver}.json")
                     snapshot_known_journals(ver, snapshot_path)
                     worker_env = build_worker_env(workspace_path, run_id)
@@ -1258,13 +1985,19 @@ def run_test_suite(target_class="", target_version="", category="", no_pool=Fals
                     with open(out_file_path, "w", encoding="utf-8") as out_f:
                         with RicaunBundleLease(testadapter_search_dirs=[isolated_test_outdir]):
                             print(f"[TESTS] Waiting for Revit {ver} test execution to complete (timeout: {timeout}s)...")
-                            proc_returncode, timed_out = execute_revit_test_process(
-                                cmd, out_f, worker_env, timeout=timeout
+                            proc_returncode, timed_out, effective_run_id, modal_aborted = execute_revit_test_with_startup_gate(
+                                cmd,
+                                out_f,
+                                worker_env,
+                                version=ver,
+                                run_id=run_id,
+                                snapshot_path=snapshot_path,
+                                timeout=timeout,
                             )
-                            if timed_out:
+                            if timed_out or modal_aborted:
                                 had_execution_error = True
 
-                    is_clean, gate_output = run_journal_cleanliness_gate(ver, run_id, snapshot_path)
+                    is_clean, gate_output = run_journal_cleanliness_gate(ver, effective_run_id, snapshot_path)
                     if gate_output:
                         print(gate_output)
                     if not is_clean:
