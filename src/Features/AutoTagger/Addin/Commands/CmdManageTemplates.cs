@@ -1,8 +1,5 @@
-using Synthetic.Features.AutoTagger.Commands;
-using Synthetic.Features.AutoTagger.Models;
 using Synthetic.Features.AutoTagger.ViewModels;
 using Synthetic.Features.AutoTagger.Views;
-using Synthetic.Features.AutoTagger.Repositories;
 
 using System;
 using Autodesk.Revit.Attributes;
@@ -11,10 +8,6 @@ using Autodesk.Revit.UI;
 using Autodesk.Revit.UI.Selection;
 
 using Synthetic.Features.AutoTagger.Utilities;
-using Synthetic.Platform.Revit;
-using Synthetic.Platform.IO;
-
-using Synthetic.Platform.UI;
 
 namespace Synthetic.Features.AutoTagger.Commands
 {

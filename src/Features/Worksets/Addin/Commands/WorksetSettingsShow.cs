@@ -12,7 +12,6 @@ using System;
 using System.IO;
 using System.Collections.Generic;
 using System.Diagnostics;
-using Synthetic.Platform.IO;
 
 using Synthetic.Platform.Settings;
 using Synthetic.Features.Worksets.Settings;

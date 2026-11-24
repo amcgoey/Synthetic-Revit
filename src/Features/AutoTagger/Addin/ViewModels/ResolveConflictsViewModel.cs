@@ -10,8 +10,6 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Windows.Input;
 
-using Synthetic.Platform.IO;
-
 using Synthetic.Platform.UI;
 namespace Synthetic.Features.AutoTagger.ViewModels
 {

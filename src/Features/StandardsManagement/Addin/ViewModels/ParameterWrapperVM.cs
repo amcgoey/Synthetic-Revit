@@ -6,12 +6,10 @@ using System.Linq;
 using System.Windows.Input;
 
 using Synthetic.RevitDOM.Models;
-using Synthetic.Platform.IO;
 using Autodesk.Revit.DB;
 using Select = Synthetic.Platform.Revit.Select;
 using Synthetic.Platform.UI;
 using Synthetic.Features.StandardsManagement.Views;
-using Synthetic.Platform.Revit;
 
 namespace Synthetic.Features.StandardsManagement.ViewModels
 {

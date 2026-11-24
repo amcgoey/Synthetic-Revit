@@ -16,7 +16,6 @@ using View = Autodesk.Revit.DB.View;
 using Synthetic.Platform.UI;
 using Synthetic.Platform.Settings;
 
-using Synthetic.Platform.Revit;
 namespace Synthetic.Features.DetailItemFactory.ViewModels
 {
     /// <summary>

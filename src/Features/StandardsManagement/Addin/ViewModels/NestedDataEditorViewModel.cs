@@ -9,7 +9,6 @@ using System.Windows.Input;
 
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
-using Synthetic.Platform.IO;
 using RevitDB = Autodesk.Revit.DB;
 using Synthetic.Platform.UI;
 using Synthetic.Platform.Revit;
