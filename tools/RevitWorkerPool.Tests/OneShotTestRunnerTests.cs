@@ -174,7 +174,7 @@ public class OneShotTestRunnerTests
         });
 
         Assert.That(result.Success, Is.False);
-        Assert.That(result.ExitCode, Is.EqualTo(1));
+        Assert.That(result.ExitCode, Is.EqualTo(2));
         Assert.That(result.Error, Does.Contain("IsBusy == false"));
         Assert.That(result.WorkerIds.Count, Is.EqualTo(1));
         Assert.That(launcher.Workers.Single().IsTerminated, Is.True);
