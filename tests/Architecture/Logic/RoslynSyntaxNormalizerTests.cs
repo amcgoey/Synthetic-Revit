@@ -477,5 +477,260 @@ namespace Synthetic.Platform.Host
             Assert.IsTrue(driftedViolations.Any(v => v.Contains("Sample")), "Missing template key 'Sample' must fail.");
             Assert.IsTrue(driftedViolations.Any(v => v.Contains("SyncSettings")), "Template key 'SyncSettings' must be rejected.");
         }
+
+        [Test]
+        public void Rules08To12_HandleAliasesGlobalTargetTypedNewIfBranchesAndExemptions()
+        {
+            WorkspaceSourceFile cleanAdapter = ArchitectureWorkspaceSnapshot.CreateSyntheticSourceFile(
+                SourceArea.Src,
+                "Features/SheetIndex/Addin/Adapters/RevitSampleAdapter.cs",
+                @"
+using RevitDB = global::Autodesk.Revit.DB;
+using RevitUI = global::Autodesk.Revit.UI;
+namespace Synthetic.Features.SheetIndex.Adapters
+{
+    public interface ISampleAdapter { }
+    public class RevitSampleAdapter : ISampleAdapter
+    {
+        public void Run(RevitDB.Document doc, object args)
+        {
+            if (args is RevitUI.Events.TaskDialogShowingEventArgs taskArgs)
+            {
+                _ = taskArgs.DialogId;
+            }
+            using (RevitDB.Transaction tx = new(doc, ""Guarded""))
+            {
+                var opts = tx.GetFailureHandlingOptions();
+                opts.SetFailuresPreprocessor(FailurePipelines.ObserveOnly());
+                tx.SetFailureHandlingOptions(opts);
+            }
+        }
+    }
+}");
+
+            WorkspaceSourceFile platformRevitHelper = ArchitectureWorkspaceSnapshot.CreateSyntheticSourceFile(
+                SourceArea.Src,
+                "Platform/Revit/Addin/DocumentTransactionExtensions.cs",
+                @"
+using Autodesk.Revit.DB;
+namespace Synthetic.Platform.Revit
+{
+    public static class DocumentTransactionExtensions
+    {
+        public static void Batch(Document doc)
+        {
+            using (TransactionGroup tg = new(doc, ""Batch"")) { }
+        }
+        public static void DeleteRaw(FailuresAccessor accessor) => accessor.DeleteAllWarnings();
+    }
+}");
+
+            WorkspaceSourceFile platformUiAdapter = ArchitectureWorkspaceSnapshot.CreateSyntheticSourceFile(
+                SourceArea.Src,
+                "Platform/UI/Addin/WindowsPromptAdapter.cs",
+                @"
+namespace Synthetic.Platform.UI
+{
+    public class WindowsPromptAdapter
+    {
+        public void Show() => System.Windows.MessageBox.Show(""ok"");
+    }
+}");
+
+            WorkspaceSourceFile summaryDisplayService = ArchitectureWorkspaceSnapshot.CreateSyntheticSourceFile(
+                SourceArea.Src,
+                "Features/StandardsManagement/Addin/WindowsSummaryDisplayService.cs",
+                @"
+namespace Synthetic.Features.StandardsManagement
+{
+    public class WindowsSummaryDisplayService
+    {
+        public void ShowSummary(System.Windows.Window w) => w.ShowDialog();
+    }
+}");
+
+            WorkspaceSourceFile platformSettingsSchema = ArchitectureWorkspaceSnapshot.CreateSyntheticSourceFile(
+                SourceArea.Src,
+                "Platform/Settings/Addin/SettingsSchema.cs",
+                @"
+using Ext = global::Autodesk.Revit.DB.ExtensibleStorage;
+namespace Synthetic.Platform.Settings
+{
+    public static class SettingsSchema
+    {
+        public static void Build(System.Guid id)
+        {
+            Ext.SchemaBuilder sb = new(id);
+        }
+    }
+}");
+
+            WorkspaceSourceFile directSliceCommandWithTxGroup = ArchitectureWorkspaceSnapshot.CreateSyntheticSourceFile(
+                SourceArea.Src,
+                "Features/Worksets/Addin/Commands/CmdBadTxGroup.cs",
+                @"
+using RevitDB = Autodesk.Revit.DB;
+using Autodesk.Revit.UI;
+namespace Synthetic.Features.Worksets.Commands
+{
+    public class CmdBadTxGroup : IExternalCommand
+    {
+        private static ExternalEvent? _staticEvent;
+        public void Run(RevitDB.Document doc)
+        {
+            RevitDB.TransactionGroup tg = new(doc, ""BadGroup"");
+            using (RevitDB.Transaction t1 = new(doc, ""Guarded""))
+            {
+                var opts = t1.GetFailureHandlingOptions();
+                opts.SetFailuresPreprocessor(FailurePipelines.ObserveOnly());
+            }
+            using (RevitDB.Transaction t2 = new(doc, ""Unguarded""))
+            {
+                t2.Start();
+            }
+            using (RevitDB.Transaction t3 = new(doc, ""NullPreprocessor""))
+            {
+                var opts3 = t3.GetFailureHandlingOptions();
+                opts3.SetFailuresPreprocessor(null);
+            }
+        }
+    }
+}");
+
+            WorkspaceSourceFile sequentialTxCommand = ArchitectureWorkspaceSnapshot.CreateSyntheticSourceFile(
+                SourceArea.Src,
+                "Features/BatchPrint/Addin/Commands/CmdSequentialTx.cs",
+                @"
+using Autodesk.Revit.DB;
+using Autodesk.Revit.UI;
+namespace Synthetic.Features.BatchPrint.Commands
+{
+    public class CmdSequentialTx : IExternalCommand
+    {
+        public void Run(Document doc)
+        {
+            using Transaction t1 = new(doc, ""FirstUnguarded"");
+            t1.Start();
+            t1.Commit();
+
+            using Transaction t2 = new(doc, ""SecondGuarded"");
+            var opts = t2.GetFailureHandlingOptions();
+            opts.SetFailuresPreprocessor(FailurePipelines.ObserveOnly());
+            t2.SetFailureHandlingOptions(opts);
+            t2.Start();
+            t2.Commit();
+        }
+    }
+}");
+
+            WorkspaceSourceFile standardSerializationStyle = ArchitectureWorkspaceSnapshot.CreateSyntheticSourceFile(
+                SourceArea.Src,
+                "RevitDOM/Addin/Operations/StandardSerializationEngine.cs",
+                @"
+using Autodesk.Revit.DB;
+using Synthetic.Platform.Revit;
+namespace Synthetic.RevitDOM.Operations
+{
+    public class StandardSerializationEngine
+    {
+        public void Write(Document doc)
+        {
+            doc.ExecuteCommittedBatchGroup(""Import"", () =>
+            {
+                doc.ExecuteTransaction(""Inner"", FailurePipelines.ObserveOnly(), () => { });
+            });
+        }
+    }
+}");
+
+            WorkspaceSourceFile leakyVmInIfBranch = ArchitectureWorkspaceSnapshot.CreateSyntheticSourceFile(
+                SourceArea.Src,
+                "Features/AutoTagger/Addin/ViewModels/LeakyViewModel.cs",
+                @"
+using TD = global::Autodesk.Revit.UI.TaskDialog;
+namespace Synthetic.Features.AutoTagger.ViewModels
+{
+    public class LeakyViewModel
+    {
+        public void Trigger(Autodesk.Revit.UI.IExternalEventHandler handler)
+        {
+#if REVIT2023
+            var ev = global::Autodesk.Revit.UI.ExternalEvent.Create(handler);
+            TD.Show(""Title"", ""Msg"");
+            TD dialog = new(""Inline"");
+#endif
+        }
+    }
+}",
+                currentLatestVersion: 2026);
+
+            WorkspaceSourceFile leakySchemaAndDeleteWarnings = ArchitectureWorkspaceSnapshot.CreateSyntheticSourceFile(
+                SourceArea.Src,
+                "Features/AutoTagger/Addin/Repositories/LeakyRepo.cs",
+                @"
+using Ext = Autodesk.Revit.DB.ExtensibleStorage;
+namespace Synthetic.Features.AutoTagger.Repositories
+{
+    public class LeakyRepo
+    {
+        public void Save(System.Guid id, Autodesk.Revit.DB.FailuresAccessor acc)
+        {
+            Ext.SchemaBuilder sb = new(id);
+            acc.DeleteAllWarnings();
+        }
+    }
+}");
+
+            var snapshot = ArchitectureWorkspaceSnapshot.CreateSyntheticForTest(
+                2026,
+                new[]
+                {
+                    cleanAdapter,
+                    platformRevitHelper,
+                    platformUiAdapter,
+                    summaryDisplayService,
+                    platformSettingsSchema,
+                    directSliceCommandWithTxGroup,
+                    sequentialTxCommand,
+                    standardSerializationStyle,
+                    leakyVmInIfBranch,
+                    leakySchemaAndDeleteWarnings
+                });
+
+            IReadOnlyList<TypeLevelViolation> rule8 = ArchitectureFitnessRules.CollectInteractiveSliceSeamPurityViolations(snapshot);
+            Assert.IsTrue(rule8.Any(v => v.Slice == "AutoTagger" && v.TypeName == "LeakyViewModel"));
+            Assert.IsFalse(rule8.Any(v => v.Slice == "SheetIndex"));
+
+            IReadOnlyList<TypeLevelViolation> rule9 = ArchitectureFitnessRules.CollectTransactionPlacementViolations(snapshot);
+            Assert.IsTrue(rule9.Any(v => v.Slice == "Worksets" && v.TypeName == "CmdBadTxGroup"));
+            Assert.IsFalse(rule9.Any(v => v.TypeName == "RevitSampleAdapter"));
+            Assert.IsFalse(rule9.Any(v => v.TypeName == "DocumentTransactionExtensions"));
+            Assert.IsFalse(rule9.Any(v => v.TypeName == "StandardSerializationEngine"));
+            Assert.IsFalse(rule9.Any(v => v.TypeName == "CmdSequentialTx"));
+
+            IReadOnlyList<TypeLevelViolation> rule10 = ArchitectureFitnessRules.CollectTransactionFailureGuardViolations(snapshot);
+            Assert.AreEqual(2, rule10.Count(v => v.TypeName == "CmdBadTxGroup"), "Unguarded t2 and null-preprocessor t3 (not guarded t1) should fail.");
+            Assert.IsTrue(rule10.Any(v => v.TypeName == "CmdBadTxGroup" && v.Detail.Contains(":17 ")), "Expected unguarded t2 at line 17 to fail.");
+            Assert.IsTrue(rule10.Any(v => v.TypeName == "CmdBadTxGroup" && v.Detail.Contains(":21 ")), "Expected null-preprocessor t3 at line 21 to fail.");
+            Assert.AreEqual(1, rule10.Count(v => v.TypeName == "CmdSequentialTx"), "Only sequential t1 (not guarded t2) should fail.");
+            Assert.IsTrue(rule10.Any(v => v.TypeName == "CmdSequentialTx" && v.Detail.Contains(":10 ")), "Expected sequential t1 at line 10 to fail.");
+            Assert.IsFalse(rule10.Any(v => v.TypeName == "RevitSampleAdapter"));
+            Assert.IsFalse(rule10.Any(v => v.TypeName == "StandardSerializationEngine"));
+
+            IReadOnlyList<TypeLevelViolation> rule11 = ArchitectureFitnessRules.CollectExternalEventAndDialogPurityViolations(snapshot);
+            Assert.IsTrue(rule11.Any(v => v.TypeName == "CmdBadTxGroup" && v.Detail.Contains("static ExternalEvent")));
+            Assert.IsTrue(rule11.Any(v => v.TypeName == "LeakyViewModel" && v.Detail.Contains("ExternalEvent.Create")));
+            Assert.IsTrue(rule11.Any(v => v.TypeName == "LeakyViewModel" && v.Detail.Contains("TaskDialog.Show")));
+            Assert.IsTrue(rule11.Any(v => v.TypeName == "LeakyViewModel" && v.Detail.Contains("instantiates TaskDialog")));
+            Assert.IsTrue(rule11.Any(v => v.TypeName == "LeakyRepo" && v.Detail.Contains("DeleteAllWarnings")));
+            Assert.IsFalse(rule11.Any(v => v.TypeName == "RevitSampleAdapter"), "TaskDialogShowingEventArgs interception must be ignored.");
+            Assert.IsFalse(rule11.Any(v => v.TypeName == "WindowsPromptAdapter"), "Platform/UI/Addin must be exempt.");
+            Assert.IsFalse(rule11.Any(v => v.TypeName == "WindowsSummaryDisplayService"), "WindowsSummaryDisplayService must be exempt.");
+            Assert.IsFalse(rule11.Any(v => v.TypeName == "DocumentTransactionExtensions"));
+
+            IReadOnlyList<TypeLevelViolation> rule12 = ArchitectureFitnessRules.CollectSingleSchemaExtensibleStorageViolations(snapshot);
+            Assert.AreEqual(1, rule12.Count);
+            Assert.AreEqual("LeakyRepo", rule12[0].TypeName);
+        }
     }
 }

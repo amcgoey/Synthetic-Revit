@@ -6,6 +6,8 @@ using System.Linq;
 using System.Reflection;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace SyntheticTests.Architecture
@@ -56,6 +58,25 @@ namespace SyntheticTests.Architecture
         private static readonly Regex DynamicBootstrapYearRegex = new Regex(@"^Synthetic\.Bootstrap(20\d{2})?$", RegexOptions.CultureInvariant);
         private static readonly Regex DynamicRevitTestProjectRegex = new Regex(@"^Synthetic\.RevitTests\.(20\d{2})$", RegexOptions.CultureInvariant);
         private static readonly Regex RevitYearPrefixRegex = new Regex(@"^REVIT20\d{2}$", RegexOptions.CultureInvariant);
+        private static readonly Regex AdapterInterfaceNameRegex = new Regex(@"^I[A-Z].*Adapter$", RegexOptions.CultureInvariant);
+
+        private static readonly HashSet<string> InteractiveSeamRestrictedRoleFolders = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "ViewModels",
+            "Views",
+            "Models",
+            "Settings"
+        };
+
+        private static readonly HashSet<string> DialogPurityRestrictedRoleFolders = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "ViewModels",
+            "Views",
+            "Adapters",
+            "Handlers",
+            "ExternalEvents",
+            "Settings"
+        };
 
         private static readonly HashSet<string> CanonicalCategoryAttributeNames = new HashSet<string>(StringComparer.Ordinal)
         {
@@ -1546,22 +1567,38 @@ namespace SyntheticTests.Architecture
             string expectedNamespace,
             IReadOnlyDictionary<string, List<TypeEntry>> typesByFullName)
         {
-            var visited = new HashSet<string>(StringComparer.Ordinal);
-            return ImplementsOrInheritsInternal(
+            return MatchesBaseTypePredicate(
                 typeEntry,
-                expectedFullInterfaceName,
-                expectedSimpleInterfaceName,
-                expectedNamespace,
                 typesByFullName,
-                visited);
+                (current, baseType) =>
+                {
+                    if (string.Equals(baseType, expectedFullInterfaceName, StringComparison.Ordinal))
+                    {
+                        return true;
+                    }
+
+                    bool hasExpectedNamespaceScope =
+                        string.Equals(current.Type.Namespace, expectedNamespace, StringComparison.Ordinal) ||
+                        current.Variant.Usings.Any(u => string.Equals(u.NormalizedTarget, expectedNamespace, StringComparison.Ordinal));
+
+                    return hasExpectedNamespaceScope &&
+                           string.Equals(baseType, expectedSimpleInterfaceName, StringComparison.Ordinal);
+                });
         }
 
-        private static bool ImplementsOrInheritsInternal(
+        private static bool MatchesBaseTypePredicate(
             TypeEntry typeEntry,
-            string expectedFullInterfaceName,
-            string expectedSimpleInterfaceName,
-            string expectedNamespace,
             IReadOnlyDictionary<string, List<TypeEntry>> typesByFullName,
+            Func<TypeEntry, string, bool> predicate)
+        {
+            var visited = new HashSet<string>(StringComparer.Ordinal);
+            return MatchesBaseTypePredicateInternal(typeEntry, typesByFullName, predicate, visited);
+        }
+
+        private static bool MatchesBaseTypePredicateInternal(
+            TypeEntry typeEntry,
+            IReadOnlyDictionary<string, List<TypeEntry>> typesByFullName,
+            Func<TypeEntry, string, bool> predicate,
             HashSet<string> visited)
         {
             if (!visited.Add(typeEntry.Type.FullName))
@@ -1569,19 +1606,9 @@ namespace SyntheticTests.Architecture
                 return false;
             }
 
-            bool hasExpectedNamespaceScope =
-                string.Equals(typeEntry.Type.Namespace, expectedNamespace, StringComparison.Ordinal) ||
-                typeEntry.Variant.Usings.Any(u => string.Equals(u.NormalizedTarget, expectedNamespace, StringComparison.Ordinal));
-
             foreach (string baseType in typeEntry.Type.NormalizedBaseTypes)
             {
-                if (string.Equals(baseType, expectedFullInterfaceName, StringComparison.Ordinal))
-                {
-                    return true;
-                }
-
-                if (hasExpectedNamespaceScope &&
-                    string.Equals(baseType, expectedSimpleInterfaceName, StringComparison.Ordinal))
+                if (predicate(typeEntry, baseType))
                 {
                     return true;
                 }
@@ -1590,7 +1617,7 @@ namespace SyntheticTests.Architecture
                 {
                     foreach (TypeEntry baseEntry in baseCandidates)
                     {
-                        if (ImplementsOrInheritsInternal(baseEntry, expectedFullInterfaceName, expectedSimpleInterfaceName, expectedNamespace, typesByFullName, visited))
+                        if (MatchesBaseTypePredicateInternal(baseEntry, typesByFullName, predicate, visited))
                         {
                             return true;
                         }
@@ -1598,16 +1625,17 @@ namespace SyntheticTests.Architecture
                 }
                 else
                 {
-                    string sameNs = string.IsNullOrEmpty(typeEntry.Type.Namespace)
-                        ? baseType
-                        : typeEntry.Type.Namespace + "." + baseType;
-                    if (typesByFullName.TryGetValue(sameNs, out List<TypeEntry>? sameNsCandidates))
+                    if (!string.IsNullOrEmpty(typeEntry.Type.Namespace))
                     {
-                        foreach (TypeEntry baseEntry in sameNsCandidates)
+                        string sameNs = typeEntry.Type.Namespace + "." + baseType;
+                        if (typesByFullName.TryGetValue(sameNs, out List<TypeEntry>? sameNsCandidates))
                         {
-                            if (ImplementsOrInheritsInternal(baseEntry, expectedFullInterfaceName, expectedSimpleInterfaceName, expectedNamespace, typesByFullName, visited))
+                            foreach (TypeEntry baseEntry in sameNsCandidates)
                             {
-                                return true;
+                                if (MatchesBaseTypePredicateInternal(baseEntry, typesByFullName, predicate, visited))
+                                {
+                                    return true;
+                                }
                             }
                         }
                     }
@@ -1624,7 +1652,7 @@ namespace SyntheticTests.Architecture
                         {
                             foreach (TypeEntry baseEntry in usingCandidates)
                             {
-                                if (ImplementsOrInheritsInternal(baseEntry, expectedFullInterfaceName, expectedSimpleInterfaceName, expectedNamespace, typesByFullName, visited))
+                                if (MatchesBaseTypePredicateInternal(baseEntry, typesByFullName, predicate, visited))
                                 {
                                     return true;
                                 }
@@ -1766,6 +1794,708 @@ namespace SyntheticTests.Architecture
         {
             return TestMethodAttributeNames.Contains(attr.NormalizedName) ||
                    TestMethodAttributeNames.Contains(attr.RawName);
+        }
+
+        // =====================================================================
+        // Rules 8-12: Type-Level Bi-Directionally Auto-Ratcheted Gates
+        // =====================================================================
+
+        public static IReadOnlyList<string> EvaluateInteractiveSliceSeamPurity(
+            ArchitectureWorkspaceSnapshot snapshot,
+            IReadOnlyList<AllowlistEntry>? allowlist = null)
+        {
+            return AllowlistRatchetEvaluator.Evaluate(
+                FitnessRule.InteractiveSliceSeamPurity,
+                CollectInteractiveSliceSeamPurityViolations(snapshot),
+                allowlist ?? ArchitectureAllowlists.AllEntries);
+        }
+
+        public static IReadOnlyList<string> EvaluateTransactionPlacement(
+            ArchitectureWorkspaceSnapshot snapshot,
+            IReadOnlyList<AllowlistEntry>? allowlist = null)
+        {
+            return AllowlistRatchetEvaluator.Evaluate(
+                FitnessRule.TransactionPlacement,
+                CollectTransactionPlacementViolations(snapshot),
+                allowlist ?? ArchitectureAllowlists.AllEntries);
+        }
+
+        public static IReadOnlyList<string> EvaluateTransactionFailureGuard(
+            ArchitectureWorkspaceSnapshot snapshot,
+            IReadOnlyList<AllowlistEntry>? allowlist = null)
+        {
+            return AllowlistRatchetEvaluator.Evaluate(
+                FitnessRule.TransactionFailureGuard,
+                CollectTransactionFailureGuardViolations(snapshot),
+                allowlist ?? ArchitectureAllowlists.AllEntries);
+        }
+
+        public static IReadOnlyList<string> EvaluateExternalEventAndDialogPurity(
+            ArchitectureWorkspaceSnapshot snapshot,
+            IReadOnlyList<AllowlistEntry>? allowlist = null)
+        {
+            return AllowlistRatchetEvaluator.Evaluate(
+                FitnessRule.ExternalEventAndDialogPurity,
+                CollectExternalEventAndDialogPurityViolations(snapshot),
+                allowlist ?? ArchitectureAllowlists.AllEntries);
+        }
+
+        public static IReadOnlyList<string> EvaluateSingleSchemaExtensibleStorage(
+            ArchitectureWorkspaceSnapshot snapshot,
+            IReadOnlyList<AllowlistEntry>? allowlist = null)
+        {
+            return AllowlistRatchetEvaluator.Evaluate(
+                FitnessRule.SingleSchemaExtensibleStorage,
+                CollectSingleSchemaExtensibleStorageViolations(snapshot),
+                allowlist ?? ArchitectureAllowlists.AllEntries);
+        }
+
+        public static IReadOnlyList<TypeLevelViolation> CollectInteractiveSliceSeamPurityViolations(ArchitectureWorkspaceSnapshot snapshot)
+        {
+            var violations = new List<TypeLevelViolation>();
+
+            foreach (WorkspaceSourceFile file in snapshot.SourceFiles)
+            {
+                if (file.Area != SourceArea.Src ||
+                    !string.Equals(file.TopFolder, "Features", StringComparison.Ordinal) ||
+                    string.IsNullOrEmpty(file.SliceName) ||
+                    string.IsNullOrEmpty(file.RoleFolder) ||
+                    !InteractiveSeamRestrictedRoleFolders.Contains(file.RoleFolder!))
+                {
+                    continue;
+                }
+
+                string slice = file.SliceName!;
+                foreach (ParsedSyntaxVariant variant in file.Variants)
+                {
+                    TypeReferenceRecord? firstRevitRef = variant.TypeReferences
+                        .FirstOrDefault(r => MatchesPrefix(r.NormalizedName, "Autodesk.Revit"));
+                    if (firstRevitRef == null)
+                    {
+                        continue;
+                    }
+
+                    List<TypeDeclarationRecord> topLevelTypes = variant.Types
+                        .Where(t => !t.IsNested)
+                        .ToList();
+
+                    if (topLevelTypes.Count > 0)
+                    {
+                        foreach (TypeDeclarationRecord typeDecl in topLevelTypes)
+                        {
+                            violations.Add(new TypeLevelViolation(
+                                slice,
+                                FitnessRule.InteractiveSliceSeamPurity,
+                                typeDecl.TypeChainName,
+                                $"{file.RelativeToRepoPath}:{firstRevitRef.LineNumber} ({typeDecl.FullName}) references '{firstRevitRef.NormalizedName}' inside {file.RoleFolder}/."));
+                        }
+                    }
+                    else
+                    {
+                        string fallbackName = Path.GetFileNameWithoutExtension(file.FullPath);
+                        violations.Add(new TypeLevelViolation(
+                            slice,
+                            FitnessRule.InteractiveSliceSeamPurity,
+                            fallbackName,
+                            $"{file.RelativeToRepoPath}:{firstRevitRef.LineNumber} references '{firstRevitRef.NormalizedName}' inside {file.RoleFolder}/."));
+                    }
+                }
+            }
+
+            foreach (WorkspaceXamlFile xaml in snapshot.XamlFiles)
+            {
+                if (xaml.Area != SourceArea.Src ||
+                    !string.Equals(xaml.TopFolder, "Features", StringComparison.Ordinal) ||
+                    string.IsNullOrEmpty(xaml.SliceName))
+                {
+                    continue;
+                }
+
+                string? roleFolder = ArchitectureWorkspaceSnapshot.ClassifyPath(SourceArea.Src, xaml.RelativeToAreaPath).RoleFolder;
+                if (string.IsNullOrEmpty(roleFolder) || !InteractiveSeamRestrictedRoleFolders.Contains(roleFolder!))
+                {
+                    continue;
+                }
+
+                foreach (XamlNamespaceBinding binding in xaml.XmlnsBindings)
+                {
+                    if (!string.IsNullOrEmpty(binding.ClrNamespace) &&
+                        MatchesPrefix(binding.ClrNamespace!, "Autodesk.Revit"))
+                    {
+                        string xamlTypeName = Path.GetFileNameWithoutExtension(xaml.FullPath);
+                        violations.Add(new TypeLevelViolation(
+                            xaml.SliceName!,
+                            FitnessRule.InteractiveSliceSeamPurity,
+                            xamlTypeName,
+                            $"{xaml.RelativeToRepoPath} XAML xmlns:{binding.Prefix} references '{binding.ClrNamespace}' inside {roleFolder}/."));
+                    }
+                }
+            }
+
+            return violations;
+        }
+
+        public static IReadOnlyList<TypeLevelViolation> CollectTransactionPlacementViolations(ArchitectureWorkspaceSnapshot snapshot)
+        {
+            var violations = new List<TypeLevelViolation>();
+
+            foreach (WorkspaceSourceFile file in snapshot.SourceFiles)
+            {
+                if (file.Area != SourceArea.Src || IsPlatformRevitAddin(file))
+                {
+                    continue;
+                }
+
+                string slice = GetSliceScope(file);
+                foreach (ParsedSyntaxVariant variant in file.Variants)
+                {
+                    foreach (ObjectCreationRecord creation in variant.ObjectCreations)
+                    {
+                        bool isTx = IsRevitType(creation.NormalizedTypeName, variant, "Autodesk.Revit.DB", "Transaction");
+                        bool isTxGroup = IsRevitType(creation.NormalizedTypeName, variant, "Autodesk.Revit.DB", "TransactionGroup");
+                        if (!isTx && !isTxGroup)
+                        {
+                            continue;
+                        }
+
+                        TypeDeclarationRecord? enclosingDecl = FindTypeInVariant(variant, creation.EnclosingTypeFullName);
+                        string typeName = enclosingDecl?.TypeChainName ?? ResolveFallbackTypeName(creation.EnclosingTypeFullName, file);
+
+                        if (isTxGroup)
+                        {
+                            violations.Add(new TypeLevelViolation(
+                                slice,
+                                FitnessRule.TransactionPlacement,
+                                typeName,
+                                $"{file.RelativeToRepoPath}:{creation.LineNumber} instantiates raw TransactionGroup outside Platform/Revit/Addin (DocumentTransactionExtensions)."));
+                            continue;
+                        }
+
+                        bool isPermittedRole = false;
+                        if (enclosingDecl != null)
+                        {
+                            var typeEntry = new TypeEntry(file, variant, enclosingDecl);
+                            isPermittedRole =
+                                ImplementsOrInherits(typeEntry, "Autodesk.Revit.UI.IExternalCommand", "IExternalCommand", "Autodesk.Revit.UI", snapshot.SrcTypesByFullName) ||
+                                ImplementsOrInherits(typeEntry, "Autodesk.Revit.UI.IExternalEventHandler", "IExternalEventHandler", "Autodesk.Revit.UI", snapshot.SrcTypesByFullName) ||
+                                IsAdapterImplementation(typeEntry, snapshot.SrcTypesByFullName);
+                        }
+
+                        if (!isPermittedRole)
+                        {
+                            violations.Add(new TypeLevelViolation(
+                                slice,
+                                FitnessRule.TransactionPlacement,
+                                typeName,
+                                $"{file.RelativeToRepoPath}:{creation.LineNumber} instantiates raw Transaction inside '{typeName}' outside permitted roles (IExternalCommand, IExternalEventHandler, I*Adapter, or Platform/Revit/Addin)."));
+                        }
+                    }
+                }
+            }
+
+            return violations;
+        }
+
+        public static IReadOnlyList<TypeLevelViolation> CollectTransactionFailureGuardViolations(ArchitectureWorkspaceSnapshot snapshot)
+        {
+            var violations = new List<TypeLevelViolation>();
+
+            foreach (WorkspaceSourceFile file in snapshot.SourceFiles)
+            {
+                if (file.Area != SourceArea.Src || IsPlatformRevitAddin(file))
+                {
+                    continue;
+                }
+
+                string slice = GetSliceScope(file);
+                foreach (ParsedSyntaxVariant variant in file.Variants)
+                {
+                    List<ObjectCreationRecord> txCreations = variant.ObjectCreations
+                        .Where(c => IsRevitType(c.NormalizedTypeName, variant, "Autodesk.Revit.DB", "Transaction"))
+                        .ToList();
+
+                    if (txCreations.Count == 0)
+                    {
+                        continue;
+                    }
+
+                    var allTxCreationNodes = new HashSet<SyntaxNode>(txCreations.Select(c => c.Node));
+                    foreach (ObjectCreationRecord creation in txCreations)
+                    {
+                        if (!IsTransactionCreationGuarded(creation.Node, allTxCreationNodes))
+                        {
+                            string typeName = ResolveTypeChainName(creation.EnclosingTypeFullName, variant, file);
+                            violations.Add(new TypeLevelViolation(
+                                slice,
+                                FitnessRule.TransactionFailureGuard,
+                                typeName,
+                                $"{file.RelativeToRepoPath}:{creation.LineNumber} instantiates Transaction without attaching FailurePipelines / IFailuresPreprocessor / SetFailuresPreprocessor."));
+                        }
+                    }
+                }
+            }
+
+            return violations;
+        }
+
+        public static IReadOnlyList<TypeLevelViolation> CollectExternalEventAndDialogPurityViolations(ArchitectureWorkspaceSnapshot snapshot)
+        {
+            var violations = new List<TypeLevelViolation>();
+
+            foreach (WorkspaceSourceFile file in snapshot.SourceFiles)
+            {
+                if (file.Area != SourceArea.Src)
+                {
+                    continue;
+                }
+
+                string slice = GetSliceScope(file);
+                bool isPlatformRevitAddin = IsPlatformRevitAddin(file);
+                bool isPlatformUiAddin = string.Equals(file.TopFolder, "Platform", StringComparison.Ordinal) &&
+                                         string.Equals(file.SliceName, "UI", StringComparison.Ordinal) &&
+                                         file.Partition == PartitionKind.Addin;
+                bool isViewModelsFolder = string.Equals(file.RoleFolder, "ViewModels", StringComparison.Ordinal);
+                bool isRestrictedDialogScope = !isPlatformUiAddin &&
+                                               (string.Equals(file.TopFolder, "RevitDOM", StringComparison.Ordinal) ||
+                                                (!string.IsNullOrEmpty(file.RoleFolder) &&
+                                                 DialogPurityRestrictedRoleFolders.Contains(file.RoleFolder!)));
+
+                foreach (ParsedSyntaxVariant variant in file.Variants)
+                {
+                    // 1. Zero static ExternalEvent fields anywhere in src/
+                    foreach (TypeDeclarationRecord typeDecl in variant.Types)
+                    {
+                        foreach (FieldDeclarationRecord field in typeDecl.Fields)
+                        {
+                            if (field.IsStatic && IsRevitType(field.NormalizedTypeName, variant, "Autodesk.Revit.UI", "ExternalEvent"))
+                            {
+                                violations.Add(new TypeLevelViolation(
+                                    slice,
+                                    FitnessRule.ExternalEventAndDialogPurity,
+                                    typeDecl.TypeChainName,
+                                    $"{file.RelativeToRepoPath}:{field.LineNumber} declares static ExternalEvent field '{field.Name}'."));
+                            }
+                        }
+                    }
+
+                    // 2. Zero raw FailuresAccessor.DeleteAllWarnings() outside Platform/Revit/Addin
+                    if (!isPlatformRevitAddin)
+                    {
+                        foreach (InvocationRecord inv in variant.Invocations)
+                        {
+                            if (string.Equals(inv.MethodName, "DeleteAllWarnings", StringComparison.Ordinal))
+                            {
+                                string typeName = ResolveTypeChainName(inv.EnclosingTypeFullName, variant, file);
+                                violations.Add(new TypeLevelViolation(
+                                    slice,
+                                    FitnessRule.ExternalEventAndDialogPurity,
+                                    typeName,
+                                    $"{file.RelativeToRepoPath}:{inv.LineNumber} calls raw DeleteAllWarnings() outside Platform/Revit/Addin."));
+                            }
+                        }
+                    }
+
+                    // 3. Zero ExternalEvent.Create(...) in ViewModels/
+                    if (isViewModelsFolder)
+                    {
+                        foreach (InvocationRecord inv in variant.Invocations)
+                        {
+                            if (IsExternalEventCreateInvocation(inv, variant))
+                            {
+                                string typeName = ResolveTypeChainName(inv.EnclosingTypeFullName, variant, file);
+                                violations.Add(new TypeLevelViolation(
+                                    slice,
+                                    FitnessRule.ExternalEventAndDialogPurity,
+                                    typeName,
+                                    $"{file.RelativeToRepoPath}:{inv.LineNumber} calls ExternalEvent.Create(...) inside ViewModels/."));
+                            }
+                        }
+                    }
+
+                    // 4. Zero TaskDialog.Show / new TaskDialog / MessageBox.Show / .ShowDialog()
+                    //    inside ViewModels/, Views/, Adapters/, Handlers/, ExternalEvents/, Settings/, or RevitDOM/
+                    //    (exempting Platform/UI Addin prompt/dialog adapters and WindowsSummaryDisplayService,
+                    //     and ignoring TaskDialogShowingEventArgs event interception).
+                    if (isRestrictedDialogScope)
+                    {
+                        foreach (InvocationRecord inv in variant.Invocations)
+                        {
+                            string typeName = ResolveTypeChainName(inv.EnclosingTypeFullName, variant, file);
+                            if (string.Equals(typeName, "WindowsSummaryDisplayService", StringComparison.Ordinal))
+                            {
+                                continue;
+                            }
+
+                            if (IsTaskDialogShowInvocation(inv, variant) ||
+                                IsMessageBoxShowInvocation(inv, variant) ||
+                                string.Equals(inv.MethodName, "ShowDialog", StringComparison.Ordinal))
+                            {
+                                violations.Add(new TypeLevelViolation(
+                                    slice,
+                                    FitnessRule.ExternalEventAndDialogPurity,
+                                    typeName,
+                                    $"{file.RelativeToRepoPath}:{inv.LineNumber} invokes '{inv.NormalizedTarget}' inside restricted UI/handler/RevitDOM scope."));
+                            }
+                        }
+
+                        foreach (ObjectCreationRecord creation in variant.ObjectCreations)
+                        {
+                            string typeName = ResolveTypeChainName(creation.EnclosingTypeFullName, variant, file);
+                            if (string.Equals(typeName, "WindowsSummaryDisplayService", StringComparison.Ordinal))
+                            {
+                                continue;
+                            }
+
+                            if (IsRevitType(creation.NormalizedTypeName, variant, "Autodesk.Revit.UI", "TaskDialog"))
+                            {
+                                violations.Add(new TypeLevelViolation(
+                                    slice,
+                                    FitnessRule.ExternalEventAndDialogPurity,
+                                    typeName,
+                                    $"{file.RelativeToRepoPath}:{creation.LineNumber} instantiates TaskDialog inside restricted UI/handler/RevitDOM scope."));
+                            }
+                        }
+                    }
+                }
+            }
+
+            return violations;
+        }
+
+        public static IReadOnlyList<TypeLevelViolation> CollectSingleSchemaExtensibleStorageViolations(ArchitectureWorkspaceSnapshot snapshot)
+        {
+            var violations = new List<TypeLevelViolation>();
+
+            foreach (WorkspaceSourceFile file in snapshot.SourceFiles)
+            {
+                if (file.Area != SourceArea.Src)
+                {
+                    continue;
+                }
+
+                bool isPlatformSettingsAddin = string.Equals(file.TopFolder, "Platform", StringComparison.Ordinal) &&
+                                               string.Equals(file.SliceName, "Settings", StringComparison.Ordinal) &&
+                                               file.Partition == PartitionKind.Addin;
+                if (isPlatformSettingsAddin)
+                {
+                    continue;
+                }
+
+                string slice = GetSliceScope(file);
+                foreach (ParsedSyntaxVariant variant in file.Variants)
+                {
+                    foreach (ObjectCreationRecord creation in variant.ObjectCreations)
+                    {
+                        if (IsRevitType(creation.NormalizedTypeName, variant, "Autodesk.Revit.DB.ExtensibleStorage", "SchemaBuilder"))
+                        {
+                            string typeName = ResolveTypeChainName(creation.EnclosingTypeFullName, variant, file);
+                            violations.Add(new TypeLevelViolation(
+                                slice,
+                                FitnessRule.SingleSchemaExtensibleStorage,
+                                typeName,
+                                $"{file.RelativeToRepoPath}:{creation.LineNumber} instantiates SchemaBuilder outside Platform/Settings/Addin."));
+                        }
+                    }
+                }
+            }
+
+            return violations;
+        }
+
+        private static bool IsPlatformRevitAddin(WorkspaceSourceFile file)
+        {
+            return string.Equals(file.TopFolder, "Platform", StringComparison.Ordinal) &&
+                   string.Equals(file.SliceName, "Revit", StringComparison.Ordinal) &&
+                   file.Partition == PartitionKind.Addin;
+        }
+
+        private static string GetSliceScope(WorkspaceSourceFile file)
+        {
+            if (string.Equals(file.TopFolder, "Features", StringComparison.Ordinal) && !string.IsNullOrEmpty(file.SliceName))
+            {
+                return file.SliceName!;
+            }
+
+            if (string.Equals(file.TopFolder, "Platform", StringComparison.Ordinal) && !string.IsNullOrEmpty(file.SliceName))
+            {
+                return "Platform/" + file.SliceName!;
+            }
+
+            if (string.Equals(file.TopFolder, "Domain", StringComparison.Ordinal) && !string.IsNullOrEmpty(file.SliceName))
+            {
+                return "Domain/" + file.SliceName!;
+            }
+
+            return file.TopFolder;
+        }
+
+        private static TypeDeclarationRecord? FindTypeInVariant(ParsedSyntaxVariant variant, string? fullTypeName)
+        {
+            if (string.IsNullOrEmpty(fullTypeName))
+            {
+                return null;
+            }
+
+            return variant.Types.FirstOrDefault(t => string.Equals(t.FullName, fullTypeName, StringComparison.Ordinal));
+        }
+
+        private static string ResolveTypeChainName(string? enclosingTypeFullName, ParsedSyntaxVariant variant, WorkspaceSourceFile file)
+        {
+            TypeDeclarationRecord? found = FindTypeInVariant(variant, enclosingTypeFullName);
+            return found != null ? found.TypeChainName : ResolveFallbackTypeName(enclosingTypeFullName, file);
+        }
+
+        private static string ResolveFallbackTypeName(string? fullTypeName, WorkspaceSourceFile file)
+        {
+            if (!string.IsNullOrEmpty(fullTypeName))
+            {
+                int lastDot = fullTypeName!.LastIndexOf('.');
+                return lastDot >= 0 && lastDot + 1 < fullTypeName.Length
+                    ? fullTypeName.Substring(lastDot + 1)
+                    : fullTypeName;
+            }
+
+            return Path.GetFileNameWithoutExtension(file.FullPath);
+        }
+
+        private static bool IsRevitType(
+            string normalizedTypeName,
+            ParsedSyntaxVariant variant,
+            string expectedNamespace,
+            string expectedSimpleTypeName)
+        {
+            if (string.IsNullOrEmpty(normalizedTypeName))
+            {
+                return false;
+            }
+
+            string fullExpected = expectedNamespace + "." + expectedSimpleTypeName;
+            if (string.Equals(normalizedTypeName, fullExpected, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            if (string.Equals(normalizedTypeName, expectedSimpleTypeName, StringComparison.Ordinal))
+            {
+                return HasNamespaceUsing(variant, expectedNamespace);
+            }
+
+            return false;
+        }
+
+        private static bool HasNamespaceUsing(ParsedSyntaxVariant variant, string targetNamespace)
+        {
+            return variant.Usings.Any(u =>
+                string.IsNullOrEmpty(u.Alias) &&
+                !u.IsStatic &&
+                string.Equals(u.NormalizedTarget, targetNamespace, StringComparison.Ordinal));
+        }
+
+        private static bool IsAdapterImplementation(
+            TypeEntry typeEntry,
+            IReadOnlyDictionary<string, List<TypeEntry>> typesByFullName)
+        {
+            if (!string.Equals(typeEntry.Type.Kind, "class", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            return MatchesBaseTypePredicate(
+                typeEntry,
+                typesByFullName,
+                (_, baseType) =>
+                {
+                    int lastDot = baseType.LastIndexOf('.');
+                    string simpleName = lastDot >= 0 && lastDot + 1 < baseType.Length
+                        ? baseType.Substring(lastDot + 1)
+                        : baseType;
+
+                    return AdapterInterfaceNameRegex.IsMatch(simpleName);
+                });
+        }
+
+        private static bool IsTransactionCreationGuarded(SyntaxNode creationNode, HashSet<SyntaxNode> allTxCreationNodes)
+        {
+            UsingStatementSyntax? enclosingUsingHeader = creationNode.Ancestors()
+                .OfType<UsingStatementSyntax>()
+                .FirstOrDefault(u =>
+                    (u.Declaration != null && u.Declaration.Span.Contains(creationNode.Span)) ||
+                    (u.Expression != null && u.Expression.Span.Contains(creationNode.Span)));
+
+            if (enclosingUsingHeader != null)
+            {
+                return ContainsFailureGuardInvocation(enclosingUsingHeader.Statement, creationNode, allTxCreationNodes);
+            }
+
+            StatementSyntax? enclosingStatement = creationNode.Ancestors().OfType<StatementSyntax>().FirstOrDefault();
+            if (enclosingStatement == null)
+            {
+                return false;
+            }
+
+            if (enclosingStatement.Parent is BlockSyntax parentBlock)
+            {
+                bool started = false;
+                foreach (StatementSyntax sibling in parentBlock.Statements)
+                {
+                    if (!started)
+                    {
+                        if (sibling == enclosingStatement)
+                        {
+                            started = true;
+                            if (ContainsFailureGuardInvocation(sibling, creationNode, allTxCreationNodes))
+                            {
+                                return true;
+                            }
+                        }
+                        continue;
+                    }
+
+                    if (StatementStartsAnotherTransaction(sibling, creationNode, allTxCreationNodes))
+                    {
+                        break;
+                    }
+
+                    if (ContainsFailureGuardInvocation(sibling, creationNode, allTxCreationNodes))
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            return ContainsFailureGuardInvocation(enclosingStatement, creationNode, allTxCreationNodes);
+        }
+
+        private static bool StatementStartsAnotherTransaction(
+            StatementSyntax statement,
+            SyntaxNode currentCreationNode,
+            HashSet<SyntaxNode> allTxCreationNodes)
+        {
+            if (statement is UsingStatementSyntax usingStmt)
+            {
+                return (usingStmt.Declaration != null && ContainsOtherTxCreation(usingStmt.Declaration, currentCreationNode, allTxCreationNodes)) ||
+                       (usingStmt.Expression != null && ContainsOtherTxCreation(usingStmt.Expression, currentCreationNode, allTxCreationNodes));
+            }
+
+            if (statement is LocalDeclarationStatementSyntax || statement is ExpressionStatementSyntax)
+            {
+                return ContainsOtherTxCreation(statement, currentCreationNode, allTxCreationNodes);
+            }
+
+            return false;
+        }
+
+        private static bool ContainsOtherTxCreation(
+            SyntaxNode node,
+            SyntaxNode currentCreationNode,
+            HashSet<SyntaxNode> allTxCreationNodes)
+        {
+            return node.DescendantNodesAndSelf()
+                .Any(n => n != currentCreationNode && allTxCreationNodes.Contains(n));
+        }
+
+        private static bool ContainsFailureGuardInvocation(
+            SyntaxNode root,
+            SyntaxNode currentCreationNode,
+            HashSet<SyntaxNode> allTxCreationNodes)
+        {
+            foreach (SyntaxNode node in root.DescendantNodesAndSelf(n =>
+            {
+                if (n is UsingStatementSyntax nestedUsing)
+                {
+                    bool headerHasOtherTx =
+                        (nestedUsing.Declaration != null && ContainsOtherTxCreation(nestedUsing.Declaration, currentCreationNode, allTxCreationNodes)) ||
+                        (nestedUsing.Expression != null && ContainsOtherTxCreation(nestedUsing.Expression, currentCreationNode, allTxCreationNodes));
+                    if (headerHasOtherTx)
+                    {
+                        return false;
+                    }
+                }
+
+                return true;
+            }))
+            {
+                if (node is InvocationExpressionSyntax inv)
+                {
+                    string methodName = inv.Expression switch
+                    {
+                        IdentifierNameSyntax id => id.Identifier.ValueText,
+                        MemberAccessExpressionSyntax ma => ma.Name.Identifier.ValueText,
+                        MemberBindingExpressionSyntax mb => mb.Name.Identifier.ValueText,
+                        _ => string.Empty
+                    };
+
+                    if (string.Equals(methodName, "SetFailuresPreprocessor", StringComparison.Ordinal) &&
+                        inv.ArgumentList?.Arguments.Count > 0)
+                    {
+                        ExpressionSyntax argExpr = inv.ArgumentList.Arguments[0].Expression;
+                        if (!(argExpr is LiteralExpressionSyntax lit && lit.IsKind(SyntaxKind.NullLiteralExpression)))
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsExternalEventCreateInvocation(InvocationRecord inv, ParsedSyntaxVariant variant)
+        {
+            if (string.Equals(inv.NormalizedTarget, "Autodesk.Revit.UI.ExternalEvent.Create", StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            if (string.Equals(inv.NormalizedTarget, "ExternalEvent.Create", StringComparison.Ordinal) &&
+                HasNamespaceUsing(variant, "Autodesk.Revit.UI"))
+            {
+                return true;
+            }
+
+            return string.Equals(inv.MethodName, "Create", StringComparison.Ordinal) &&
+                   variant.Usings.Any(u => u.IsStatic && string.Equals(u.NormalizedTarget, "Autodesk.Revit.UI.ExternalEvent", StringComparison.Ordinal));
+        }
+
+        private static bool IsTaskDialogShowInvocation(InvocationRecord inv, ParsedSyntaxVariant variant)
+        {
+            if (string.Equals(inv.NormalizedTarget, "Autodesk.Revit.UI.TaskDialog.Show", StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            if (string.Equals(inv.NormalizedTarget, "TaskDialog.Show", StringComparison.Ordinal) &&
+                HasNamespaceUsing(variant, "Autodesk.Revit.UI"))
+            {
+                return true;
+            }
+
+            return string.Equals(inv.MethodName, "Show", StringComparison.Ordinal) &&
+                   string.Equals(inv.NormalizedTarget, "Show", StringComparison.Ordinal) &&
+                   variant.Usings.Any(u => u.IsStatic && string.Equals(u.NormalizedTarget, "Autodesk.Revit.UI.TaskDialog", StringComparison.Ordinal));
+        }
+
+        private static bool IsMessageBoxShowInvocation(InvocationRecord inv, ParsedSyntaxVariant variant)
+        {
+            if (string.Equals(inv.NormalizedTarget, "System.Windows.MessageBox.Show", StringComparison.Ordinal) ||
+                string.Equals(inv.NormalizedTarget, "System.Windows.Forms.MessageBox.Show", StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            if (string.Equals(inv.NormalizedTarget, "MessageBox.Show", StringComparison.Ordinal) &&
+                (HasNamespaceUsing(variant, "System.Windows") || HasNamespaceUsing(variant, "System.Windows.Forms")))
+            {
+                return true;
+            }
+
+            return string.Equals(inv.MethodName, "Show", StringComparison.Ordinal) &&
+                   string.Equals(inv.NormalizedTarget, "Show", StringComparison.Ordinal) &&
+                   variant.Usings.Any(u => u.IsStatic &&
+                       (string.Equals(u.NormalizedTarget, "System.Windows.MessageBox", StringComparison.Ordinal) ||
+                        string.Equals(u.NormalizedTarget, "System.Windows.Forms.MessageBox", StringComparison.Ordinal)));
         }
     }
 }
