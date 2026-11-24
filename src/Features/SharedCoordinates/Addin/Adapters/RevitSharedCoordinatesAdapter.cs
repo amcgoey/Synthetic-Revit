@@ -176,17 +176,32 @@ namespace Synthetic.Features.SharedCoordinates.Adapters
                     {
                         if (!target.IsChecked) continue;
 
-                        preprocessor.SetContext($"SyncSite:{target.LevelName}");
+                        string siteDisplayName = target.LevelName ?? "<null>";
+                        preprocessor.SetContext($"SyncSite:{siteDisplayName}");
                         int priorRecordCount = preprocessor.Report.Records.Count;
 
-                        using (Transaction itemTrans = _doc.CreateTransaction($"Sync Shared Site: {target.LevelName}", preprocessor, clearAfterRollback: true))
+                        using (Transaction itemTrans = _doc.CreateTransaction($"Sync Shared Site: {siteDisplayName}", preprocessor, clearAfterRollback: true))
                         {
-                            bool isUpdate = existingLocations.ContainsKey(target.LevelName);
+                            bool isUpdate = !string.IsNullOrWhiteSpace(target.LevelName) &&
+                                            existingLocations.ContainsKey(target.LevelName);
                             ProjectLocation? duplicatedLoc = null;
 
                             try
                             {
                                 itemTrans.Start();
+
+                                if (string.IsNullOrWhiteSpace(target.LevelName))
+                                {
+                                    throw new ArgumentException("Target shared site level name must not be null or empty.");
+                                }
+
+                                if (double.IsNaN(target.SharedElevation) ||
+                                    double.IsInfinity(target.SharedElevation) ||
+                                    double.IsNaN(refDatumInternalElevation) ||
+                                    double.IsInfinity(refDatumInternalElevation))
+                                {
+                                    throw new ArgumentException($"Target shared elevation for site '{target.LevelName}' must be finite.");
+                                }
 
                                 double targetElevation = target.SharedElevation - refDatumInternalElevation;
                                 ProjectLocation targetLoc = isUpdate

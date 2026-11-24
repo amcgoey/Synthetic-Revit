@@ -519,6 +519,96 @@ namespace SyntheticTests.Features.SharedCoordinates
             Assert.AreEqual(50.0, actual.Origin.Z, 1e-3, "Link instance must move to +50.0 Z (not -50.0 Z).");
         }
 
+        [Test]
+        public void RevitSharedCoordinates_GetLinkRepositionGroups_MultiStepResolution_CorrectlyClassifiesInstances()
+        {
+            string singleSiteName = "Internal";
+            string unitPath = CreateSavedUnitModel(
+                "MultiStepUnit.rvt",
+                unitDoc =>
+                {
+                    unitDoc.ExecuteTransaction("Configure Single Unit Site", FailurePipelines.ObserveOnly(), () =>
+                    {
+                        ProjectLocation activeLoc = unitDoc.ActiveProjectLocation;
+                        Assert.IsNotNull(activeLoc);
+                        activeLoc.SetProjectPosition(XYZ.Zero, CreateProjectPosition(unitDoc, 25.0, 15.0, 5.0, 0.0));
+                        singleSiteName = activeLoc.Name;
+                    });
+                    Assert.AreEqual(1, unitDoc.ProjectLocations.Size, "AcquireCoordinates requires a single ProjectLocation.");
+                });
+
+            Document hostDoc = NewTrackedProjectDocument(UnitSystem.Imperial);
+            ElementId linkTypeId = ElementId.InvalidElementId;
+            RevitLinkInstance inst1 = null!;
+
+            // 1. Place Instance 1, acquire coordinates (GEO_LOCATION -> singleSiteName), and displace it in-memory.
+            hostDoc.ExecuteTransaction("Acquire Coordinates And Displace Instance 1", FailurePipelines.DeleteAllWarnings(), () =>
+            {
+                linkTypeId = LoadLinkType(hostDoc, unitPath);
+                inst1 = RevitLinkInstance.Create(hostDoc, linkTypeId);
+                hostDoc.AcquireCoordinates(inst1.Id);
+                ElementTransformUtils.MoveElement(hostDoc, inst1.Id, new XYZ(10.0, 0.0, 0.0));
+            });
+
+            // Reload without saving back in-memory link-site changes so inst1 stays displaced at (10,0,0) with GEO_LOCATION assigned.
+            RevitLinkType? linkType = hostDoc.GetElement(linkTypeId) as RevitLinkType;
+            Assert.IsNotNull(linkType);
+            linkType!.Unload(null);
+            LinkLoadResult reloadResult = linkType.Reload();
+            Assert.AreEqual(LinkLoadResultType.LinkLoaded, reloadResult.LoadResult);
+
+            // 2. Place Instance 2 (fallback " : location ") aligned to hostTotal * linkTotal^-1 and Instance 3 (unassigned).
+            RevitLinkInstance inst2 = null!;
+            RevitLinkInstance inst3 = null!;
+            hostDoc.ExecuteTransaction("Place Fallback And Unassigned Instances", FailurePipelines.ObserveOnly(), () =>
+            {
+                inst2 = RevitLinkInstance.Create(hostDoc, linkTypeId);
+                SetLinkInstanceMark(inst2, $"2 : location {singleSiteName}");
+
+                Document? linkDoc2 = inst2.GetLinkDocument();
+                Assert.IsNotNull(linkDoc2);
+                ProjectLocation linkLoc2 = new FilteredElementCollector(linkDoc2)
+                    .OfClass(typeof(ProjectLocation))
+                    .Cast<ProjectLocation>()
+                    .First(loc => string.Equals(loc.Name, singleSiteName, StringComparison.OrdinalIgnoreCase));
+
+                RigidTransform3D expected2 = SharedCoordinatesMath.ComputeExpectedTransform(
+                    ToRigidTransform3D(hostDoc.ActiveProjectLocation.GetTotalTransform()),
+                    ToRigidTransform3D(linkLoc2.GetTotalTransform()));
+                XYZ delta2 = new XYZ(expected2.Origin.X, expected2.Origin.Y, expected2.Origin.Z) - inst2.GetTransform().Origin;
+                if (delta2.GetLength() > hostDoc.Application.ShortCurveTolerance)
+                {
+                    ElementTransformUtils.MoveElement(hostDoc, inst2.Id, delta2);
+                }
+
+                inst3 = RevitLinkInstance.Create(hostDoc, linkTypeId);
+                SetLinkInstanceMark(inst3, "3");
+            });
+
+            var adapter = new RevitSharedCoordinatesAdapter(hostDoc, null);
+            var groups = adapter.GetLinkRepositionGroups();
+
+            Assert.AreEqual(1, groups.Count);
+            var group = groups[0];
+            Assert.AreEqual(3, group.TotalInstanceCount);
+            Assert.AreEqual(1, group.OutOfSyncCount);
+            Assert.AreEqual(1, group.UnassignedCount);
+
+            var summary = adapter.RepositionLinks(new RepositionLinksRequest
+            {
+                SelectedTypeIds = new List<string> { linkTypeId.ToString() }
+            });
+
+            Assert.IsFalse(
+                summary.ErrorMessages.Any(m => !m.StartsWith("[Warning]", StringComparison.OrdinalIgnoreCase)),
+                $"Unexpected RepositionLinks error(s): {string.Join("; ", summary.ErrorMessages)}");
+            Assert.AreEqual(1, summary.RepositionedCount);
+            Assert.AreEqual(1, summary.AlreadyAlignedCount);
+            Assert.AreEqual(1, summary.SkippedCount);
+            CollectionAssert.Contains(summary.RepositionedInstanceNames, inst1.Name);
+            CollectionAssert.Contains(summary.SkippedInstanceNames, inst3.Name);
+        }
+
         private string CreateSavedUnitModel(string fileNamePrefix, Action<Document>? configure = null)
         {
             string tempPath = GetTempFilePath($"{Path.GetFileNameWithoutExtension(fileNamePrefix)}_{Guid.NewGuid():N}.rvt");

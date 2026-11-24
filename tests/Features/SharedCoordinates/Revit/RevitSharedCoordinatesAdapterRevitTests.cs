@@ -435,85 +435,27 @@ namespace SyntheticTests.Features.SharedCoordinates
         }
 
         [Test]
-        public void GetLinkRepositionGroups_MultiStepResolution_CorrectlyClassifiesInstances()
+        public void GetAssignedSiteName_UnsharedInstanceWithoutLocationToken_ReturnsNull()
         {
             WithRolledBackDocument(doc =>
             {
-                ElementId linkTypeId = CreateLinkedType(doc, _singleSiteUnitModelPath!);
-                RevitLinkInstance inst1 = null!;
-                RevitLinkInstance inst2 = null!;
-                RevitLinkInstance inst3 = null!;
-
-                // 1. Place Instance 1 and share coordinates via AcquireCoordinates (GEO_LOCATION -> _singleSiteName)
-                doc.ExecuteTransaction("Acquire Coordinates For Instance 1", FailurePipelines.ObserveOnly(), () =>
+                RevitLinkInstance linkInst = CreateLinkedInstance(doc, _multiSiteUnitModelPath!);
+                doc.ExecuteTransaction("Set Plain Unshared Instance Mark", FailurePipelines.ObserveOnly(), () =>
                 {
-                    inst1 = RevitLinkInstance.Create(doc, linkTypeId);
-                    doc.AcquireCoordinates(inst1.Id);
+                    SetLinkInstanceMark(linkInst, "99");
                 });
 
-                // 2. Shift host ActiveProjectLocation so Instance 1 becomes out of sync without mutating link site positions,
-                //    then place Instance 2 (fallback " : location ") aligned to the updated host transform, and Instance 3 (unassigned).
-                doc.ExecuteTransaction("Shift Host Site And Place Remaining Instances", FailurePipelines.ObserveOnly(), () =>
-                {
-                    doc.ActiveProjectLocation.SetProjectPosition(
-                        XYZ.Zero,
-                        CreateProjectPosition(doc, 100.0, 200.0, 50.0, 0.0));
-
-                    inst2 = RevitLinkInstance.Create(doc, linkTypeId);
-                    SetLinkInstanceMark(inst2, $"2 : location {_singleSiteName}");
-
-                    Document? linkDoc2 = inst2.GetLinkDocument();
-                    Assert.IsNotNull(linkDoc2);
-                    ProjectLocation linkLoc2 = new FilteredElementCollector(linkDoc2)
-                        .OfClass(typeof(ProjectLocation))
-                        .Cast<ProjectLocation>()
-                        .First(loc => string.Equals(loc.Name, _singleSiteName, StringComparison.OrdinalIgnoreCase));
-
-                    RigidTransform3D expected2 = SharedCoordinatesMath.ComputeExpectedTransform(
-                        ToRigidTransform3D(doc.ActiveProjectLocation.GetTotalTransform()),
-                        ToRigidTransform3D(linkLoc2.GetTotalTransform()));
-                    XYZ delta2 = new XYZ(expected2.Origin.X, expected2.Origin.Y, expected2.Origin.Z) - inst2.GetTransform().Origin;
-                    if (delta2.GetLength() > doc.Application.ShortCurveTolerance)
-                    {
-                        ElementTransformUtils.MoveElement(doc, inst2.Id, delta2);
-                    }
-
-                    inst3 = RevitLinkInstance.Create(doc, linkTypeId);
-                    SetLinkInstanceMark(inst3, "3");
-                });
+                Parameter? geoParam = linkInst.get_Parameter(BuiltInParameter.GEO_LOCATION);
+                Assert.IsTrue(
+                    geoParam == null ||
+                    geoParam.AsElementId() == ElementId.InvalidElementId ||
+                    (geoParam.AsValueString()?.IndexOf("<Not Shared>", StringComparison.OrdinalIgnoreCase) ?? -1) >= 0,
+                    "Unshared link instance must not report a shared GEO_LOCATION assignment.");
 
                 var adapter = new RevitSharedCoordinatesAdapter(doc);
-                var groups = adapter.GetLinkRepositionGroups();
-
-                Assert.AreEqual(1, groups.Count);
-                var group = groups[0];
-                Assert.AreEqual(3, group.TotalInstanceCount);
-                Assert.AreEqual(1, group.OutOfSyncCount);
-                Assert.AreEqual(1, group.UnassignedCount);
-
-                var summary = adapter.RepositionLinks(new RepositionLinksRequest
-                {
-                    SelectedTypeIds = new List<string> { linkTypeId.ToString() }
-                });
-
-                Assert.IsFalse(
-                    summary.ErrorMessages.Any(m => !m.StartsWith("[Warning]", StringComparison.OrdinalIgnoreCase)),
-                    $"Unexpected RepositionLinks error(s): {string.Join("; ", summary.ErrorMessages)}");
-                Assert.AreEqual(1, summary.RepositionedCount);
-                Assert.AreEqual(1, summary.AlreadyAlignedCount);
-                Assert.AreEqual(1, summary.SkippedCount);
-                CollectionAssert.Contains(summary.RepositionedInstanceNames, inst1.Name);
-                CollectionAssert.Contains(summary.SkippedInstanceNames, inst3.Name);
+                string? resolved = adapter.GetAssignedSiteName(linkInst, linkInst.GetLinkDocument());
+                Assert.IsNull(resolved);
             });
-        }
-
-        private static RigidTransform3D ToRigidTransform3D(Transform transform)
-        {
-            return new RigidTransform3D(
-                new Vector3D(transform.Origin.X, transform.Origin.Y, transform.Origin.Z),
-                new Vector3D(transform.BasisX.X, transform.BasisX.Y, transform.BasisX.Z),
-                new Vector3D(transform.BasisY.X, transform.BasisY.Y, transform.BasisY.Z),
-                new Vector3D(transform.BasisZ.X, transform.BasisZ.Y, transform.BasisZ.Z));
         }
 
         private static ElementId CreateLinkedType(Document doc, string modelFilePath)
