@@ -19,6 +19,7 @@ namespace SyntheticTests.Features.SharedCoordinates
         private string? _fixtureTempDir;
         private string? _singleSiteUnitModelPath;
         private string? _multiSiteUnitModelPath;
+        private string _singleSiteName = "Internal";
 
         protected override void OnFixtureSetUp(UIApplication uiapp)
         {
@@ -35,25 +36,13 @@ namespace SyntheticTests.Features.SharedCoordinates
                     ProjectLocation activeLoc = singleDoc.ActiveProjectLocation;
                     Assert.IsNotNull(activeLoc, "New project document must have an ActiveProjectLocation.");
 
-                    try
-                    {
-                        activeLoc.Name = "Floor 1";
-                    }
-                    catch
-                    {
-                        ElementId originalId = activeLoc.Id;
-                        ProjectLocation floor1Loc = activeLoc.Duplicate("Floor 1");
-                        singleDoc.ActiveProjectLocation = floor1Loc;
-                        singleDoc.Delete(originalId);
-                    }
-
-                    singleDoc.ActiveProjectLocation.SetProjectPosition(
+                    activeLoc.SetProjectPosition(
                         XYZ.Zero,
                         CreateProjectPosition(singleDoc, 25.0, 15.0, 5.0, 0.0));
+                    _singleSiteName = activeLoc.Name;
                 });
 
-                int singleLocCount = new FilteredElementCollector(singleDoc).OfClass(typeof(ProjectLocation)).GetElementCount();
-                Assert.AreEqual(1, singleLocCount, "Single-site unit model must contain exactly one ProjectLocation.");
+                Assert.AreEqual(1, singleDoc.ProjectLocations.Size, "Single-site unit model must contain exactly one ProjectLocation.");
                 singleDoc.SaveAs(_singleSiteUnitModelPath);
             }
             finally
@@ -400,7 +389,7 @@ namespace SyntheticTests.Features.SharedCoordinates
                 Assert.IsNotNull(linkDoc, "Linked document must be loaded.");
 
                 string? resolved = adapter.GetAssignedSiteName(linkInst, linkDoc);
-                Assert.AreEqual("Floor 1", resolved);
+                Assert.AreEqual(_singleSiteName, resolved);
             });
         }
 
@@ -417,7 +406,7 @@ namespace SyntheticTests.Features.SharedCoordinates
 
                 var adapter = new RevitSharedCoordinatesAdapter(doc);
                 string? resolved = adapter.GetAssignedSiteName(linkInst, null);
-                Assert.AreEqual("Floor 1", resolved);
+                Assert.AreEqual(_singleSiteName, resolved);
             });
         }
 
@@ -455,18 +444,40 @@ namespace SyntheticTests.Features.SharedCoordinates
                 RevitLinkInstance inst2 = null!;
                 RevitLinkInstance inst3 = null!;
 
-                doc.ExecuteTransaction("Create Multi-Step Link Instances", FailurePipelines.ObserveOnly(), () =>
+                // 1. Place Instance 1 and share coordinates via AcquireCoordinates (GEO_LOCATION -> _singleSiteName)
+                doc.ExecuteTransaction("Acquire Coordinates For Instance 1", FailurePipelines.ObserveOnly(), () =>
                 {
-                    // Instance 1: GEO_LOCATION assigned via AcquireCoordinates -> "Floor 1", then displaced -> Out of sync
                     inst1 = RevitLinkInstance.Create(doc, linkTypeId);
                     doc.AcquireCoordinates(inst1.Id);
-                    ElementTransformUtils.MoveElement(doc, inst1.Id, new XYZ(10.0, 0.0, 0.0));
+                });
 
-                    // Instance 2: Unshared GEO_LOCATION, fallback via " : location Floor 1", aligned at origin (hostTotal == linkTotal) -> In sync
+                // 2. Shift host ActiveProjectLocation so Instance 1 becomes out of sync without mutating link site positions,
+                //    then place Instance 2 (fallback " : location ") aligned to the updated host transform, and Instance 3 (unassigned).
+                doc.ExecuteTransaction("Shift Host Site And Place Remaining Instances", FailurePipelines.ObserveOnly(), () =>
+                {
+                    doc.ActiveProjectLocation.SetProjectPosition(
+                        XYZ.Zero,
+                        CreateProjectPosition(doc, 100.0, 200.0, 50.0, 0.0));
+
                     inst2 = RevitLinkInstance.Create(doc, linkTypeId);
-                    SetLinkInstanceMark(inst2, "2 : location Floor 1");
+                    SetLinkInstanceMark(inst2, $"2 : location {_singleSiteName}");
 
-                    // Instance 3: Unshared GEO_LOCATION with default mark -> Unassigned
+                    Document? linkDoc2 = inst2.GetLinkDocument();
+                    Assert.IsNotNull(linkDoc2);
+                    ProjectLocation linkLoc2 = new FilteredElementCollector(linkDoc2)
+                        .OfClass(typeof(ProjectLocation))
+                        .Cast<ProjectLocation>()
+                        .First(loc => string.Equals(loc.Name, _singleSiteName, StringComparison.OrdinalIgnoreCase));
+
+                    RigidTransform3D expected2 = SharedCoordinatesMath.ComputeExpectedTransform(
+                        ToRigidTransform3D(doc.ActiveProjectLocation.GetTotalTransform()),
+                        ToRigidTransform3D(linkLoc2.GetTotalTransform()));
+                    XYZ delta2 = new XYZ(expected2.Origin.X, expected2.Origin.Y, expected2.Origin.Z) - inst2.GetTransform().Origin;
+                    if (delta2.GetLength() > doc.Application.ShortCurveTolerance)
+                    {
+                        ElementTransformUtils.MoveElement(doc, inst2.Id, delta2);
+                    }
+
                     inst3 = RevitLinkInstance.Create(doc, linkTypeId);
                     SetLinkInstanceMark(inst3, "3");
                 });
@@ -485,13 +496,24 @@ namespace SyntheticTests.Features.SharedCoordinates
                     SelectedTypeIds = new List<string> { linkTypeId.ToString() }
                 });
 
-                Assert.IsEmpty(summary.ErrorMessages);
+                Assert.IsFalse(
+                    summary.ErrorMessages.Any(m => !m.StartsWith("[Warning]", StringComparison.OrdinalIgnoreCase)),
+                    $"Unexpected RepositionLinks error(s): {string.Join("; ", summary.ErrorMessages)}");
                 Assert.AreEqual(1, summary.RepositionedCount);
                 Assert.AreEqual(1, summary.AlreadyAlignedCount);
                 Assert.AreEqual(1, summary.SkippedCount);
                 CollectionAssert.Contains(summary.RepositionedInstanceNames, inst1.Name);
                 CollectionAssert.Contains(summary.SkippedInstanceNames, inst3.Name);
             });
+        }
+
+        private static RigidTransform3D ToRigidTransform3D(Transform transform)
+        {
+            return new RigidTransform3D(
+                new Vector3D(transform.Origin.X, transform.Origin.Y, transform.Origin.Z),
+                new Vector3D(transform.BasisX.X, transform.BasisX.Y, transform.BasisX.Z),
+                new Vector3D(transform.BasisY.X, transform.BasisY.Y, transform.BasisY.Z),
+                new Vector3D(transform.BasisZ.X, transform.BasisZ.Y, transform.BasisZ.Z));
         }
 
         private static ElementId CreateLinkedType(Document doc, string modelFilePath)

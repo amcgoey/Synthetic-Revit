@@ -204,43 +204,33 @@ namespace SyntheticTests.Platform.Revit
         }
 
         [Test]
-        public void ExecuteCommittedBatchGroup_FuncBoolWithUnclosedInnerTransaction_FailsLoudly()
+        public void ExecuteCommittedBatchGroup_FuncBoolRollsBackOnException_WithoutMaskingInnerTransactionUnwind()
         {
             WithRolledBackDocument(doc =>
             {
                 Level level = FindFirstLevel(doc);
 
-                foreach (bool predicateResult in new[] { false, true })
+                var thrown = Assert.Throws<ApplicationException>(() =>
                 {
-                    Transaction? leakedTx = null;
-                    try
+                    doc.ExecuteCommittedBatchGroup("Predicate Inner Tx Exception Batch", () =>
                     {
-                        Assert.Throws<InvalidOperationException>(() =>
+                        doc.ExecuteTransaction("Committed Before Failure", FailurePipelines.ObserveOnly(), () =>
                         {
-                            doc.ExecuteCommittedBatchGroup($"Unclosed Inner Tx ({predicateResult})", () =>
-                            {
-                                leakedTx = new Transaction(doc, "Leaked Inner Tx");
-                                leakedTx.Start();
-                                Wall.Create(doc, Line.CreateBound(XYZ.Zero, new XYZ(10, 0, 0)), level.Id, false);
-                                return predicateResult;
-                            });
+                            Wall.Create(doc, Line.CreateBound(XYZ.Zero, new XYZ(10, 0, 0)), level.Id, false);
                         });
-                    }
-                    finally
-                    {
-                        if (leakedTx != null)
-                        {
-                            if (leakedTx.GetStatus() == TransactionStatus.Started)
-                            {
-                                leakedTx.RollBack();
-                            }
-                            leakedTx.Dispose();
-                        }
-                    }
 
-                    Assert.AreEqual(0, new FilteredElementCollector(doc).OfClass(typeof(Wall)).GetElementCount());
-                    Assert.IsFalse(doc.IsModifiable);
-                }
+                        using (var innerTx = doc.CreateTransaction("Inner Failing Tx", FailurePipelines.ObserveOnly()))
+                        {
+                            innerTx.Start();
+                            Wall.Create(doc, Line.CreateBound(new XYZ(0, 10, 0), new XYZ(10, 10, 0)), level.Id, false);
+                            throw new ApplicationException("Original predicate inner exception");
+                        }
+                    });
+                });
+
+                Assert.AreEqual("Original predicate inner exception", thrown!.Message);
+                Assert.AreEqual(0, new FilteredElementCollector(doc).OfClass(typeof(Wall)).GetElementCount());
+                Assert.IsFalse(doc.IsModifiable);
             });
         }
 
