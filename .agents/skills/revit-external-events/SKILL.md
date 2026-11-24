@@ -11,7 +11,7 @@ Safely execute Revit API modifications from modeless WPF windows and toast notif
 
 Enforced by `FitnessRule.ExternalEventAndDialogPurity` ([ADR 0029](../../../docs/adrs/0029-isomorphic-test-mirror-and-architecture-fitness-guardrails.md)): keep `ExternalEvent.Create(handler)` at the `IExternalCommand.Execute` (or [`App.OnDocumentOpen`](../../../src/Platform/Host/Addin/App.cs)) entry point—never inside `ViewModels/` and never as a `static ExternalEvent` field.
 
-* **Command-Owned Session Lifecycle:** As exemplified in [`CmdProjectStandards.cs`](../../../src/Features/StandardsManagement/Addin/Commands/CmdProjectStandards.cs), `IExternalCommand.Execute` tracks one `_windowInstance` (`Focus()` if `IsLoaded`, cleared on `Closed`), instantiates one `IExternalEventHandler` + `ExternalEvent.Create(handler)` per session, injects both into the window/ViewModel, and disposes the `ExternalEvent` when the session ends.
+* **Command-Owned Session Lifecycle:** As exemplified in [`CmdProjectStandards.cs`](../../../src/Features/StandardsManagement/Addin/Commands/CmdProjectStandards.cs), `IExternalCommand.Execute` tracks one `_windowInstance` (`Focus()` if `IsLoaded`, cleared via `_windowInstance = null` on `Closed`), instantiates one `IExternalEventHandler` + `ExternalEvent.Create(handler)` per session, and injects both into the window/ViewModel.
 * **Modal Alternative:** For modal workflows (`ShowDialog()`), run synchronously inside `IExternalCommand.Execute` with [`ProgressCoordinator`](../../../src/Platform/UI/Addin/ProgressCoordinator.cs) instead of creating an `ExternalEvent`.
 
 ## 2. Gating and UI Synchronization

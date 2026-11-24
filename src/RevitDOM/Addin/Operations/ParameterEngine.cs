@@ -221,50 +221,36 @@ namespace Synthetic.RevitDOM.Operations
                 return param.Set(ElementId.InvalidElementId);
             }
 
-            if (string.Equals(valModel.Name, "Solid", StringComparison.OrdinalIgnoreCase))
+            ElementId targetId = identityService.ResolveElementId(valModel, doc);
+            if (targetId != ElementId.InvalidElementId)
             {
                 try
                 {
-                    if (param.Set(LinePatternElement.GetSolidPatternId()))
+                    if (param.Set(targetId))
                     {
                         return true;
                     }
                 }
-                catch
+                catch (Exception ex) when (ex is Autodesk.Revit.Exceptions.ApplicationException ||
+                                           ex is ArgumentException ||
+                                           ex is InvalidOperationException)
                 {
-                    // Fallback to InvalidElementId if the parameter represents solid/default via -1
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[ParameterEngine] Parameter '{param.Definition?.Name}' rejected ElementId {targetId}: {ex.Message}");
                 }
-                return param.Set(ElementId.InvalidElementId);
+
+                if (RevitIdentityService.IsSolidLinePatternReference(valModel) ||
+                    (string.IsNullOrEmpty(valModel.Name) && valModel.Id < -1))
+                {
+                    return param.Set(ElementId.InvalidElementId);
+                }
+
+                return false;
             }
 
             if (string.IsNullOrEmpty(valModel.Name))
             {
-                if (valModel.Id < -1)
-                {
-#if REVIT2023
-                    ElementId builtInSentinelId = new ElementId((int)valModel.Id);
-#else
-                    ElementId builtInSentinelId = new ElementId(valModel.Id);
-#endif
-                    try
-                    {
-                        if (param.Set(builtInSentinelId))
-                        {
-                            return true;
-                        }
-                    }
-                    catch
-                    {
-                        // Fallback to InvalidElementId if this parameter rejects the negative sentinel ID
-                    }
-                }
                 return param.Set(ElementId.InvalidElementId);
-            }
-
-            Element elem = identityService.ResolveElement(valModel, doc);
-            if (elem != null)
-            {
-                return param.Set(elem.Id);
             }
 
             return false;

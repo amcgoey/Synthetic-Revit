@@ -273,6 +273,75 @@ namespace SyntheticTests.Platform.Revit
             });
         }
 
+        [Test]
+        public void ExecuteCommittedBatchGroup_FuncBool_SurfacesWarningsOnBothCommitAndRollback()
+        {
+            WithRolledBackDocument(doc =>
+            {
+                Level level = FindFirstLevel(doc);
+
+                // 1. Predicate returns false -> group rolls back, yet recorded warnings surface cleanly
+                FailureProcessingReport? rollbackReport = null;
+                bool assimilatedOnFalse = doc.ExecuteCommittedBatchGroup("Predicate Rollback With Warning", () =>
+                {
+                    CompositeFailuresPreprocessor preprocessor = FailurePipelines.DeleteAllWarningsRecorded(out FailureProcessingReport report);
+                    preprocessor.SetContext("SyncSite:RollbackWarn");
+                    rollbackReport = report;
+
+                    doc.ExecuteTransaction("Create Site And Post Warning", preprocessor, () =>
+                    {
+                        doc.ActiveProjectLocation.Duplicate("RolledBackWarnSite");
+                        doc.PostFailure(new FailureMessage(BuiltInFailures.RoomFailures.RoomNotEnclosed));
+                    });
+
+                    return false;
+                });
+
+                Assert.IsFalse(assimilatedOnFalse);
+                Assert.IsNotNull(rollbackReport);
+                Assert.IsTrue(rollbackReport!.WarningTripped, "DeleteAllWarningsRecorded must capture warning before rollback.");
+                Assert.IsTrue(rollbackReport.Records.Any(r => r.ContextTag == "SyncSite:RollbackWarn" && r.ActionTaken == FailureHandlingAction.Deleted));
+                CollectionAssert.DoesNotContain(
+                    GetProjectLocationNames(doc),
+                    "RolledBackWarnSite",
+                    "Returning false must roll back inner committed site creation.");
+
+                // 2. Predicate returns true -> group assimilates, site persists, warnings surface
+                FailureProcessingReport? commitReport = null;
+                bool assimilatedOnTrue = doc.ExecuteCommittedBatchGroup("Predicate Commit With Warning", () =>
+                {
+                    CompositeFailuresPreprocessor preprocessor = FailurePipelines.DeleteAllWarningsRecorded(out FailureProcessingReport report);
+                    preprocessor.SetContext("SyncSite:CommitWarn");
+                    commitReport = report;
+
+                    doc.ExecuteTransaction("Create Room And Post Warning", preprocessor, () =>
+                    {
+                        doc.Create.NewRoom(level, new UV(0, 0));
+                        doc.ActiveProjectLocation.Duplicate("CommittedWarnSite");
+                    });
+
+                    return true;
+                });
+
+                Assert.IsTrue(assimilatedOnTrue);
+                Assert.IsNotNull(commitReport);
+                Assert.IsTrue(commitReport!.WarningTripped);
+                Assert.IsTrue(commitReport.Records.Any(r => r.ContextTag == "SyncSite:CommitWarn" && r.ActionTaken == FailureHandlingAction.Deleted));
+                CollectionAssert.Contains(
+                    GetProjectLocationNames(doc),
+                    "CommittedWarnSite");
+            });
+        }
+
+        private static IReadOnlyList<string> GetProjectLocationNames(Document doc)
+        {
+            return new FilteredElementCollector(doc)
+                .OfClass(typeof(ProjectLocation))
+                .Cast<ProjectLocation>()
+                .Select(loc => loc.Name)
+                .ToList();
+        }
+
         private static Level FindFirstLevel(Document doc)
         {
             Level? level = new FilteredElementCollector(doc)

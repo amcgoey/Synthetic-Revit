@@ -294,55 +294,6 @@ namespace SyntheticTests.Modules.FailureProcessing
             leakedTx?.RollBack();
             leakedTx?.Dispose();
         }
-
-        [Test]
-        public void ExecuteCommittedBatchGroup_FuncBoolAndFuncDocumentBool_AssimilatesOnTrueAndRollsBackDirectlyOnFalse()
-        {
-            var doc = new Document();
-
-            bool assimilated = doc.ExecuteCommittedBatchGroup("Predicate True", () =>
-            {
-                doc.ExecuteTransaction("Inner True Tx", FailurePipelines.ObserveOnly(), () => { });
-                return true;
-            });
-
-            Assert.IsTrue(assimilated);
-            Assert.IsTrue(TransactionGroup.LastCreatedGroup!.WasAssimilated);
-            Assert.AreEqual(TransactionStatus.Committed, TransactionGroup.LastCreatedGroup.GetStatus());
-
-            bool rolledBack = doc.ExecuteCommittedBatchGroup("Predicate Doc False", d =>
-            {
-                Assert.AreSame(doc, d);
-                d.ExecuteTransaction("Inner False Tx", FailurePipelines.ObserveOnly(), () => { });
-                return false;
-            });
-
-            Assert.IsFalse(rolledBack);
-            Assert.IsFalse(TransactionGroup.LastCreatedGroup!.WasAssimilated);
-            Assert.AreEqual(TransactionStatus.RolledBack, TransactionGroup.LastCreatedGroup.GetStatus());
-
-            foreach (bool returnValue in new[] { false, true })
-            {
-                Transaction? leakedTx = null;
-                try
-                {
-                    Assert.Throws<InvalidOperationException>(() =>
-                    {
-                        doc.ExecuteCommittedBatchGroup($"Unclosed Inner Tx ({returnValue})", () =>
-                        {
-                            leakedTx = new Transaction(doc, "Leaked Inner Tx");
-                            leakedTx.Start();
-                            return returnValue;
-                        });
-                    });
-                }
-                finally
-                {
-                    leakedTx?.RollBack();
-                    leakedTx?.Dispose();
-                }
-            }
-        }
 #endif
     }
 }

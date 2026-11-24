@@ -151,7 +151,7 @@ namespace Synthetic.Features.SharedCoordinates.Adapters
             var updatedNames = new List<string>();
             var errors = new List<string>();
 
-            var preprocessor = FailurePipelines.DeleteAllWarningsRecorded();
+            var preprocessor = FailurePipelines.ObserveOnly();
 
             try
             {
@@ -273,6 +273,7 @@ namespace Synthetic.Features.SharedCoordinates.Adapters
             summary.CreatedSiteNames = createdNames;
             summary.UpdatedSiteNames = updatedNames;
             summary.ErrorMessages = errors;
+            summary.FailureReport = preprocessor.Report;
             return summary;
         }
 
@@ -571,6 +572,7 @@ namespace Synthetic.Features.SharedCoordinates.Adapters
             summary.RepositionedInstanceNames = repositionedNames;
             summary.SkippedInstanceNames = skippedNames;
             summary.ErrorMessages = errors;
+            summary.FailureReport = preprocessor.Report;
 
             return summary;
         }

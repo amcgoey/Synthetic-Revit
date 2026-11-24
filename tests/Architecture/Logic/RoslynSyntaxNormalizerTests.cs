@@ -732,5 +732,75 @@ namespace Synthetic.Features.AutoTagger.Repositories
             Assert.AreEqual(1, rule12.Count);
             Assert.AreEqual("LeakyRepo", rule12[0].TypeName);
         }
+
+        [Test]
+        public void Rule10_TransactionFailureGuard_FlagsUnguardedNonUsingTransactionInsideOuterGuardedUsingBlock()
+        {
+            WorkspaceSourceFile nestedNonUsingInGuardedOuter = ArchitectureWorkspaceSnapshot.CreateSyntheticSourceFile(
+                SourceArea.Src,
+                "Features/Worksets/Addin/Commands/CmdNestedTransactions.cs",
+                @"
+using Autodesk.Revit.DB;
+using Autodesk.Revit.UI;
+namespace Synthetic.Features.Worksets.Commands
+{
+    public class CmdNestedTransactions : IExternalCommand
+    {
+        public void Run(Document doc, bool flag)
+        {
+            using (Transaction outerGuarded = new Transaction(doc, ""OuterGuarded""))
+            {
+                var outerOpts = outerGuarded.GetFailureHandlingOptions();
+                outerOpts.SetFailuresPreprocessor(FailurePipelines.ObserveOnly());
+                outerGuarded.Start();
+
+                Transaction innerUnguarded = new Transaction(doc, ""InnerUnguarded"");
+                innerUnguarded.Start();
+                innerUnguarded.Commit();
+            }
+
+            using (Transaction outerUnguarded = new Transaction(doc, ""OuterUnguarded""))
+            {
+                if (flag)
+                {
+                    Transaction innerGuarded = new Transaction(doc, ""InnerGuarded"");
+                    var innerOpts = innerGuarded.GetFailureHandlingOptions();
+                    innerOpts.SetFailuresPreprocessor(FailurePipelines.ObserveOnly());
+                }
+
+                Transaction flatInnerGuarded = new Transaction(doc, ""FlatInnerGuarded"");
+                var flatOpts = flatInnerGuarded.GetFailureHandlingOptions();
+                flatOpts.SetFailuresPreprocessor(FailurePipelines.ObserveOnly());
+            }
+
+            using (Transaction outerWithNestedUsing = new Transaction(doc, ""OuterWithNestedUsing""))
+            {
+                using (Transaction nestedUsingGuarded = new Transaction(doc, ""NestedUsingGuarded""))
+                {
+                    var nestedOpts = nestedUsingGuarded.GetFailureHandlingOptions();
+                    nestedOpts.SetFailuresPreprocessor(FailurePipelines.ObserveOnly());
+                }
+
+                var outerAfterOpts = outerWithNestedUsing.GetFailureHandlingOptions();
+                outerAfterOpts.SetFailuresPreprocessor(FailurePipelines.ObserveOnly());
+            }
+        }
+    }
+}");
+
+            var snapshot = ArchitectureWorkspaceSnapshot.CreateSyntheticForTest(
+                2026,
+                new[] { nestedNonUsingInGuardedOuter });
+
+            IReadOnlyList<TypeLevelViolation> violations = ArchitectureFitnessRules.CollectTransactionFailureGuardViolations(snapshot);
+
+            Assert.AreEqual(2, violations.Count, "Expected exactly InnerUnguarded (line 16) and OuterUnguarded (line 21) to fail.");
+            Assert.IsTrue(
+                violations.Any(v => v.Detail.Contains(":16 ")),
+                $"Expected unguarded non-using inner Transaction at line 16 to be flagged. Actual: {string.Join("; ", violations.Select(v => v.Detail))}");
+            Assert.IsTrue(
+                violations.Any(v => v.Detail.Contains(":21 ")),
+                $"Expected outer unguarded Transaction at line 21 not to borrow inner guard. Actual: {string.Join("; ", violations.Select(v => v.Detail))}");
+        }
     }
 }

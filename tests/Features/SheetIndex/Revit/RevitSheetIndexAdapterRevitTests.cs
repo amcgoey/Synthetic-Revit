@@ -277,7 +277,14 @@ META	2	1
                     App.SharedParametersFilename = originalSharedParamsFile;
                     if (File.Exists(tempFilePath))
                     {
-                        try { File.Delete(tempFilePath); } catch { }
+                        try
+                        {
+                            File.Delete(tempFilePath);
+                        }
+                        catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+                        {
+                            TestContext.WriteLine($"Failed to delete temp shared parameter file '{tempFilePath}': {ex.Message}");
+                        }
                     }
                 }
             });

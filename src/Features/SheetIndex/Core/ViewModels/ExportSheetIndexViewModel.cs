@@ -478,11 +478,7 @@ namespace Synthetic.Features.SheetIndex.ViewModels
                     }
                     else if (!string.IsNullOrEmpty(SelectedPrintSetName) && PrintSetSheetMap.TryGetValue(SelectedPrintSetName!, out var validIds))
                     {
-                        var set = new HashSet<string>(validIds, StringComparer.OrdinalIgnoreCase);
-                        foreach (var sheet in Sheets)
-                        {
-                            sheet.IsSelected = set.Contains(sheet.Model.UniqueId);
-                        }
+                        ApplySelectionFromSheetIds(validIds);
                     }
                     else if (!isInitialRestore)
                     {
@@ -509,11 +505,7 @@ namespace Synthetic.Features.SheetIndex.ViewModels
                     }
                     else if (!string.IsNullOrEmpty(SelectedScheduleName) && ScheduleSheetMap.TryGetValue(SelectedScheduleName!, out var validIds))
                     {
-                        var set = new HashSet<string>(validIds, StringComparer.OrdinalIgnoreCase);
-                        foreach (var sheet in Sheets)
-                        {
-                            sheet.IsSelected = set.Contains(sheet.Model.UniqueId);
-                        }
+                        ApplySelectionFromSheetIds(validIds);
                     }
                     else if (!isInitialRestore)
                     {
@@ -525,6 +517,15 @@ namespace Synthetic.Features.SheetIndex.ViewModels
             {
                 _isApplyingSourceMode = false;
                 CommandManager.InvalidateRequerySuggested();
+            }
+        }
+
+        private void ApplySelectionFromSheetIds(IEnumerable<string> validIds)
+        {
+            var set = new HashSet<string>(validIds, StringComparer.OrdinalIgnoreCase);
+            foreach (var sheet in Sheets)
+            {
+                sheet.IsSelected = set.Contains(sheet.Model.UniqueId);
             }
         }
 
@@ -554,27 +555,42 @@ namespace Synthetic.Features.SheetIndex.ViewModels
             }
         }
 
-        private SheetIndexPrintSetModel? FindPrintSetByName(string? name)
+        private static T? FindByNameExactOrIgnoreCase<T>(
+            IEnumerable<T> items,
+            string? name,
+            Func<T, string> nameSelector) where T : class
         {
             if (string.IsNullOrWhiteSpace(name))
             {
                 return null;
             }
 
-            return PrintSets.FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.Ordinal))
-                ?? PrintSets.FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
-        }
-
-        private SheetIndexScheduleModel? FindScheduleByName(string? name)
-        {
-            if (string.IsNullOrWhiteSpace(name))
+            T? caseInsensitiveMatch = null;
+            foreach (T item in items)
             {
-                return null;
+                string itemName = nameSelector(item);
+                if (string.Equals(itemName, name, StringComparison.Ordinal))
+                {
+                    return item;
+                }
+
+                if (caseInsensitiveMatch == null && string.Equals(itemName, name, StringComparison.OrdinalIgnoreCase))
+                {
+                    caseInsensitiveMatch = item;
+                }
             }
 
-            return Schedules.FirstOrDefault(s => !ReferenceEquals(s, _allSheetsOption) && string.Equals(s.Name, name, StringComparison.Ordinal))
-                ?? Schedules.FirstOrDefault(s => !ReferenceEquals(s, _allSheetsOption) && string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase));
+            return caseInsensitiveMatch;
         }
+
+        private SheetIndexPrintSetModel? FindPrintSetByName(string? name) =>
+            FindByNameExactOrIgnoreCase(PrintSets, name, p => p.Name);
+
+        private SheetIndexScheduleModel? FindScheduleByName(string? name) =>
+            FindByNameExactOrIgnoreCase(
+                Schedules.Where(s => !ReferenceEquals(s, _allSheetsOption)),
+                name,
+                s => s.Name);
 
         public List<SheetIndexSheetModel> GetSelectedSheets()
         {
