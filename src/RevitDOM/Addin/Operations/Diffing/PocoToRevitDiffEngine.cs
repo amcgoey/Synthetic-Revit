@@ -274,9 +274,17 @@ namespace Synthetic.RevitDOM.Operations.Diffing
                 ElementId targetId = ElementId.InvalidElementId;
                 if (paramModel.ValueElemId != null)
                 {
-                    if (paramModel.ValueElemId.Name == "Solid")
+                    if (string.Equals(paramModel.ValueElemId.Name, "Solid", StringComparison.OrdinalIgnoreCase))
                     {
                         targetId = LinePatternElement.GetSolidPatternId();
+                    }
+                    else if (string.IsNullOrEmpty(paramModel.ValueElemId.Name) && paramModel.ValueElemId.Id < -1)
+                    {
+#if REVIT2023
+                        targetId = new ElementId((int)paramModel.ValueElemId.Id);
+#else
+                        targetId = new ElementId(paramModel.ValueElemId.Id);
+#endif
                     }
                     else
                     {

@@ -413,5 +413,46 @@ namespace SyntheticTests.Features.SheetIndex
 
             Assert.IsTrue(selected2.Any(s => s.UniqueId == "s-999"));
         }
+
+        [Test]
+        public void FilterSheetsByPrintSet_FiltersAndAssignsPrintOrderSequence()
+        {
+            var revisions = new List<SheetIndexRevisionModel>
+            {
+                new SheetIndexRevisionModel("rev-1", "Issue 1", "2026-01-01", 1)
+            };
+
+            var allSheets = new List<SheetIndexSheetModel>
+            {
+                new SheetIndexSheetModel("s-1", "A101", "Floor Plan"),
+                new SheetIndexSheetModel("s-2", "A102", "Reflected Ceiling Plan"),
+                new SheetIndexSheetModel("s-3", "A103", "Roof Plan"),
+                new SheetIndexSheetModel("s-4", "A104", "Building Sections")
+            };
+
+            // Print set containing s-3 (index 0) and s-1 (index 1)
+            var printSets = new List<SheetIndexPrintSetModel>
+            {
+                new SheetIndexPrintSetModel("ps-1", "Permit Submittal", new[] { "s-3", "s-1" })
+            };
+
+            var snapshot = new SheetIndexSnapshot(allSheets, revisions, printSets);
+            var viewModel = new ExportSheetIndexViewModel(snapshot);
+
+            viewModel.SelectedSourceType = SheetSelectionSourceType.PrintSet;
+
+            Assert.IsTrue(viewModel.IsPrintSetSourceSelected);
+            Assert.AreEqual(2, viewModel.Sheets.Count);
+            Assert.AreEqual("A103", viewModel.Sheets[0].SheetNumber);
+            Assert.AreEqual(0, viewModel.Sheets[0].Model.PrintOrderIndex);
+            Assert.AreEqual("A101", viewModel.Sheets[1].SheetNumber);
+            Assert.AreEqual(1, viewModel.Sheets[1].Model.PrintOrderIndex);
+
+            viewModel.SelectedSourceType = SheetSelectionSourceType.AllSheets;
+
+            Assert.IsFalse(viewModel.IsPrintSetSourceSelected);
+            Assert.AreEqual(4, viewModel.Sheets.Count);
+            Assert.IsNull(viewModel.Sheets[0].Model.PrintOrderIndex);
+        }
     }
 }
