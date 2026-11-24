@@ -9,6 +9,8 @@ using RevitWorkerPool.Discovery;
 using RevitWorkerPool.Launching;
 using RevitWorkerPool.Pipe;
 using RevitWorkerPool.Reporting;
+using RevitWorkerPool.Startup;
+using RevitWorkerPool.Windowing;
 
 namespace RevitWorkerPool.Execution;
 
@@ -23,19 +25,22 @@ public sealed class OneShotTestRunner
     private readonly IPipeTestClientFactory _pipeClientFactory;
     private readonly Func<string, IDisposable> _bundleLeaseFactory;
     private readonly Action<string>? _diagnosticLogger;
+    private readonly StartupBootProtector? _startupProtector;
 
     public OneShotTestRunner(
         RevitInstallationDiscovery discovery,
         IWorkerProcessLauncher launcher,
         IPipeTestClientFactory pipeClientFactory,
         Func<string, IDisposable>? bundleLeaseFactory = null,
-        Action<string>? diagnosticLogger = null)
+        Action<string>? diagnosticLogger = null,
+        StartupBootProtector? startupProtector = null)
     {
         _discovery = discovery ?? throw new ArgumentNullException(nameof(discovery));
         _launcher = launcher ?? throw new ArgumentNullException(nameof(launcher));
         _pipeClientFactory = pipeClientFactory ?? throw new ArgumentNullException(nameof(pipeClientFactory));
         _bundleLeaseFactory = bundleLeaseFactory ?? DefaultAcquireBundleLease;
         _diagnosticLogger = diagnosticLogger;
+        _startupProtector = startupProtector;
     }
 
     public async Task<OneShotRunResult> RunAsync(
@@ -72,14 +77,80 @@ public sealed class OneShotTestRunner
             : options.WorkerId.Trim();
 
         string projectRoot = ResolveProjectRoot(options.ProjectRoot, fullAssemblyPath);
-        string[] normalizedFilters = NormalizeTestFilters(options.Filters);
+        DateTimeOffset runStart = DateTimeOffset.UtcNow;
+
+        bool hasFilter = options.Filters.Any(f => !string.IsNullOrWhiteSpace(f));
+        bool hasCategory = !string.IsNullOrWhiteSpace(options.Category);
+        string[] resolvedFilters;
+
+        if (hasFilter || hasCategory)
+        {
+            TestDiscoveryResult discoveryResult;
+            try
+            {
+                discoveryResult = Ecma335TestDiscovery.DiscoverAndFilter(
+                    fullAssemblyPath,
+                    options.Filters,
+                    options.Category);
+            }
+            catch (Exception ex)
+            {
+                return FailureResult(
+                    options.RevitVersion,
+                    fullTrxPath,
+                    Array.Empty<string>(),
+                    $"Failed to inspect test assembly metadata '{fullAssemblyPath}': {ex.Message}",
+                    shimEnabled: _launcher.UsesCleanShim);
+            }
+
+            if (!discoveryResult.HasMatches)
+            {
+                TrxSummary emptySummary = TrxWriter.Write(
+                    fullTrxPath,
+                    fullAssemblyPath,
+                    assemblyModel: null,
+                    streamedTests: null,
+                    startTime: runStart,
+                    finishTime: DateTimeOffset.UtcNow);
+
+                Log(
+                    $"[runner] 0 matching tests discovered in '{fullAssemblyPath}' " +
+                    $"(category='{options.Category ?? string.Empty}', filters={options.Filters.Count}); " +
+                    $"skipping worker launch and wrote empty TRX '{emptySummary.TrxPath}'.");
+
+                return new OneShotRunResult
+                {
+                    Success = true,
+                    ExitCode = 0,
+                    Version = options.RevitVersion,
+                    TrxPath = emptySummary.TrxPath,
+                    WorkerIds = Array.Empty<string>(),
+                    ShardCount = 0,
+                    TotalTests = 0,
+                    PassedTests = 0,
+                    FailedTests = 0,
+                    SkippedTests = 0,
+                    ZeroMatches = true,
+                    ShimEnabled = false,
+                    Error = null
+                };
+            }
+
+            resolvedFilters = discoveryResult.RicaunTestFilters.ToArray();
+            Log(
+                $"[runner] ECMA-335 discovery matched {discoveryResult.TestFullNames.Count} test(s) " +
+                $"across {discoveryResult.Fixtures.Count} fixture(s).");
+        }
+        else
+        {
+            resolvedFilters = Array.Empty<string>();
+        }
 
         Log($"[runner] Starting one-shot run: version={options.RevitVersion}, workerId={workerId}, exe='{installation.ExecutablePath}'");
 
         IDisposable? bundleLease = null;
         LaunchedWorkerProcess? worker = null;
         IPipeTestClient? pipeClient = null;
-        DateTimeOffset runStart = DateTimeOffset.UtcNow;
 
         try
         {
@@ -95,18 +166,40 @@ public sealed class OneShotTestRunner
                 ProjectRoot = projectRoot
             };
 
-            worker = await _launcher.LaunchAsync(launchRequest, cancellationToken).ConfigureAwait(false);
-            Log($"[runner] Launched worker PID={worker.ProcessId}, pipe='{worker.PipeName}'.");
+            StartupBootProtector? protector = ResolveStartupBootProtector();
+            if (protector is not null && OperatingSystem.IsWindows())
+            {
+                ProtectedWorkerBootOptions bootOptions = protector.DefaultOptions with
+                {
+                    BootTimeout = options.BootTimeout
+                };
 
-            pipeClient = _pipeClientFactory.CreateClient(worker);
-            await pipeClient.ConnectAndWaitForReadyAsync(worker, options.BootTimeout, cancellationToken)
-                .ConfigureAwait(false);
-            Log($"[runner] Worker PID={worker.ProcessId} reported IsBusy=false (ready).");
+                ProtectedWorkerBootResult bootResult = await protector.BootWorkerWithStartupProtectionAsync(
+                    _launcher,
+                    _pipeClientFactory,
+                    launchRequest,
+                    bootOptions,
+                    cancellationToken).ConfigureAwait(false);
+
+                worker = bootResult.Worker;
+                pipeClient = bootResult.PipeClient;
+                Log($"[runner] Worker PID={worker.ProcessId} reported IsBusy=false (ready, attempts={bootResult.AttemptsUsed}).");
+            }
+            else
+            {
+                worker = await _launcher.LaunchAsync(launchRequest, cancellationToken).ConfigureAwait(false);
+                Log($"[runner] Launched worker PID={worker.ProcessId}, pipe='{worker.PipeName}'.");
+
+                pipeClient = _pipeClientFactory.CreateClient(worker);
+                await pipeClient.ConnectAndWaitForReadyAsync(worker, options.BootTimeout, cancellationToken)
+                    .ConfigureAwait(false);
+                Log($"[runner] Worker PID={worker.ProcessId} reported IsBusy=false (ready).");
+            }
 
             var testRequest = new TestRequest
             {
                 TestPathFile = fullAssemblyPath,
-                TestFilters = normalizedFilters,
+                TestFilters = resolvedFilters,
                 Info = $"WorkerId={worker.WorkerId}"
             };
 
@@ -160,6 +253,15 @@ public sealed class OneShotTestRunner
                 ex.Message,
                 shimEnabled: _launcher.UsesCleanShim,
                 exitCode: 2);
+        }
+        catch (StartupModalDetectedException ex)
+        {
+            return FailureResult(
+                options.RevitVersion,
+                fullTrxPath,
+                ex.AbortedWorkerIds.Count > 0 ? ex.AbortedWorkerIds : new[] { workerId },
+                ex.Message,
+                shimEnabled: _launcher.UsesCleanShim);
         }
         catch (Exception ex)
         {
@@ -275,6 +377,32 @@ public sealed class OneShotTestRunner
             ShimEnabled = shimEnabled,
             Error = error
         };
+    }
+
+    private StartupBootProtector? ResolveStartupBootProtector()
+    {
+        if (_startupProtector is not null)
+        {
+            return _startupProtector;
+        }
+
+        if (OperatingSystem.IsWindows() && IsUnshimmedProductionLauncher(_launcher))
+        {
+            return new StartupBootProtector(diagnosticLogger: _diagnosticLogger);
+        }
+
+        return null;
+    }
+
+    private static bool IsUnshimmedProductionLauncher(IWorkerProcessLauncher launcher)
+    {
+        IWorkerProcessLauncher current = launcher;
+        while (OperatingSystem.IsWindows() && current is OffScreenWindowingLauncher windowing)
+        {
+            current = windowing.InnerLauncher;
+        }
+
+        return current is StandardProcessLauncher;
     }
 
     private void Log(string message)

@@ -9,6 +9,7 @@ using RevitWorkerPool.Discovery;
 using RevitWorkerPool.Execution;
 using RevitWorkerPool.Launching;
 using RevitWorkerPool.Pipe;
+using RevitWorkerPool.Windowing;
 
 namespace RevitWorkerPool;
 
@@ -75,7 +76,8 @@ public static class Program
             : null;
 
         RevitInstallationDiscovery discovery = discoveryOverride ?? new RevitInstallationDiscovery();
-        IWorkerProcessLauncher? launcher = null;
+        IWorkerProcessLauncher? baseLauncher = null;
+        OffScreenWindowingLauncher? windowingLauncher = null;
 
         using var cts = new CancellationTokenSource();
         ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
@@ -87,14 +89,21 @@ public static class Program
 
         try
         {
-            launcher = launcherFactory is not null
+            baseLauncher = launcherFactory is not null
                 ? launcherFactory(options)
                 : CreateWorkerLauncher(options.NoShim);
+
+            IWorkerProcessLauncher effectiveLauncher = baseLauncher;
+            if (OperatingSystem.IsWindows() && baseLauncher is not OffScreenWindowingLauncher)
+            {
+                windowingLauncher = new OffScreenWindowingLauncher(baseLauncher, logger);
+                effectiveLauncher = windowingLauncher;
+            }
 
             var clientFactory = new DiagnosticPipeClientFactory(logger);
             var runner = new OneShotTestRunner(
                 discovery,
-                launcher,
+                effectiveLauncher,
                 clientFactory,
                 diagnosticLogger: logger);
 
@@ -129,7 +138,7 @@ public static class Program
                     ExitCode = 2,
                     Version = options.RevitVersion,
                     TrxPath = options.TrxPath,
-                    ShimEnabled = launcher?.UsesCleanShim ?? ShouldUseCleanShim(options.NoShim),
+                    ShimEnabled = baseLauncher?.UsesCleanShim ?? ShouldUseCleanShim(options.NoShim),
                     Error = ex.Message
                 };
                 outWriter.WriteLine(JsonConvert.SerializeObject(errorResult, Formatting.None));
@@ -144,6 +153,7 @@ public static class Program
         finally
         {
             Console.CancelKeyPress -= cancelHandler;
+            windowingLauncher?.Dispose();
         }
     }
 
@@ -198,6 +208,7 @@ public static class Program
         string? assemblyPath = null;
         string? trxPath = null;
         var filters = new List<string>();
+        string? category = null;
         int? timeoutSeconds = null;
         int? bootTimeoutSeconds = null;
         string? workerId = null;
@@ -239,6 +250,15 @@ public static class Program
                     if (!string.IsNullOrWhiteSpace(filterVal))
                     {
                         filters.Add(filterVal);
+                    }
+                    break;
+
+                case "--category":
+                    if (!TryConsumeValue(args, ref i, arg, out string? categoryVal, out error))
+                        return false;
+                    if (!string.IsNullOrWhiteSpace(categoryVal))
+                    {
+                        category = categoryVal.Trim();
                     }
                     break;
 
@@ -331,6 +351,7 @@ public static class Program
             AssemblyPath = assemblyPath,
             TrxPath = trxPath,
             Filters = filters,
+            Category = category,
             BootTimeout = bootTimeout,
             ExecutionTimeout = executionTimeout,
             WorkerId = workerId,
@@ -367,7 +388,7 @@ public static class Program
     {
         (stderr ?? Console.Error).WriteLine(
             "Usage: RevitWorkerPool run --version <Year> --assembly <DllPath> --trx <TrxPath> " +
-            "[--filter <Fragment>] [--timeout-seconds <Sec>] [--boot-timeout-seconds <Sec>] " +
+            "[--filter <Fragment>] [--category <Name>] [--timeout-seconds <Sec>] [--boot-timeout-seconds <Sec>] " +
             "[--worker-id <Id>] [--project-root <Path>] [--one-shot] [--no-shim] [--json] [--diagnostics]");
     }
 
