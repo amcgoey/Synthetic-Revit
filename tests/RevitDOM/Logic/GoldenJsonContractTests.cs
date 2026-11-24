@@ -271,7 +271,6 @@ namespace SyntheticTests.RevitDOM
                 }
             }
         }
-        }
 
         private static string NormalizeJsonFormatting(string json)
         {
