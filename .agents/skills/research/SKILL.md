@@ -3,7 +3,7 @@ name: research
 description: Investigate a question against high-trust primary sources and capture the findings as a Markdown file in the repo. Use when the user wants a topic researched, docs or API facts gathered, or reading legwork delegated to a background agent.
 ---
 
-Spin up a **background agent** using `Model: "pro"` with a fresh context window to do the research, so you keep working while it reads.
+Spin up a **background subagent** with a fresh context window that inherits the parent agent and model (preserving full web-search and file-write access for saving to `docs/research/`), letting you keep working while it reads.
 
 Its job:
 

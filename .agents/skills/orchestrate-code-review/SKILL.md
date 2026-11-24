@@ -25,17 +25,16 @@ For each ticket to be reviewed:
 - Determine the git branch (e.g. `ticket-<number>`), pull request, or commit range associated with the work.
 - Locate the originating spec or ticket description to serve as the spec source.
 
-### 3. Resource & Concurrency Protocol
+### 3. Baseline Verification & Concurrency Protocol
 
-- **Concurrency Cap**: Run at most **2–4 subagents** in parallel.
-- **Isolated Concurrent Builds & Tests**: Reviewers may build and run [`test_executor.py`](../revit-tests/scripts/test_executor.py) concurrently across separate worktrees without colliding on `output/Synthetic/`, `AddInsSettings.json`, `HKCU\...\CodeSigning`, or open developer Revit sessions (see [`revit-tests`](../revit-tests/SKILL.md)). Give each subagent its own worktree when checking out branches.
+- **Concurrency Cap**: Run at most **2–4 review subagents** in parallel.
+- **Orchestrator-Owned Baselines**: Before spawning a review subagent for a ticket, the orchestrator checks out the ticket branch in an isolated worktree when needed and runs `python .agents/skills/revit-tests/scripts/test_executor.py --version Logic` to confirm a clean compilation and headless logic baseline (multiple worktrees can build and run [`test_executor.py`](../revit-tests/scripts/test_executor.py) concurrently without colliding on `output/Synthetic/`, `AddInsSettings.json`, `HKCU\...\CodeSigning`, or open Revit sessions; see [`revit-tests`](../revit-tests/SKILL.md)). This keeps `code-reviewer` strictly within read-only inspection.
 
 ### 4. Spawning Review Subagents
 
-For each ticket under review:
-- Spawn a review subagent using `invoke_subagent` with `TypeName: "research"` and `Model: "pro"`.
-- Start each subagent with a fresh context window.
-- Provide sparse context pointers: target branch/commit range, ticket reference, and spec link. Instruct the subagent to run `code-review`.
+For each ticket whose baseline passes:
+- Spawn a review subagent via `invoke_subagent` (`TypeName: "code-reviewer"`) with a fresh context window.
+- Provide sparse context pointers: target branch/commit range, ticket reference, spec link, and confirmation that the `Logic` baseline already passed. Instruct it to run the Standards and Spec review axes from `code-review` (skipping the already-verified baseline build/test step).
 - Wait for the subagent to return its Standards and Spec review reports.
 
 ### 5. Report Compilation & Formatting

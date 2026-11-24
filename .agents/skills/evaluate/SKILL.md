@@ -18,7 +18,7 @@ The root agent resolves the subject, dispatches a fresh-context auditor, and pre
    - **Inline proposal / chat text**: extract the exact text verbatim.
    If the target is ambiguous, ask the user to confirm the exact subject first.
 2. **Derive Artifact Path**: Build `<artifactDir>/evaluate_<slug>.md` from the conversation's artifact directory and a short lowercase slug of the subject (e.g. `evaluate_standards_pipeline.md`, `evaluate_issue_184.md`).
-3. **Dispatch Auditor**: Define a subagent via `define_subagent` (`Name: "objective-auditor"`, `EnableWriteTools: true`) whose `SystemPrompt` establishes the skeptical, evidence-backed Objective Auditor role and the Write Boundary below. Invoke it via `invoke_subagent` (`TypeName: "objective-auditor"`, `Model: "pro"`, `Role: "Objective Auditor"`), passing the resolved subject, the exact target artifact path, and the instruction to read `.agents/skills/evaluate/SKILL.md` and execute **Section 2: Auditor Protocol**.
+3. **Dispatch Auditor**: Invoke `invoke_subagent` (`TypeName: "architect-auditor"`, `Role: "Objective Auditor"`), passing the resolved subject, the exact target artifact path, and the instruction to read `.agents/skills/evaluate/SKILL.md` and execute **Section 2: Auditor Protocol**.
 4. **Present Result**: When the auditor returns, share a clickable link to the artifact and highlight only the highest-leverage open choices or trade-offs.
 
 ## 2. Subagent: Auditor Protocol

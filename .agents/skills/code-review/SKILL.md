@@ -61,11 +61,9 @@ Each smell reads *what it is* → *how to fix*; match it against the diff:
 - **Middle Man**: a class or function that mostly just delegates onward. → cut it, call the real target direct.
 - **Refused Bequest**: a subclass or implementer that ignores or overrides most of what it inherits. → drop the inheritance, use composition.
 
-### 4. Spawn both sub-agents in parallel using the `pro` model
+### 4. Spawn both reviewers in parallel
 
-**Important:** You must use `invoke_subagent` with `TypeName: "research"` and `Model: "pro"` for both reviewers (avoiding `self` which hits a planner config error), starting each with a fresh context window.
-
-Issue both sub-agent calls together, in the foreground, and aggregate the reports they return.
+Invoke `invoke_subagent` (`TypeName: "code-reviewer"`) for both reviewers with fresh context windows, issue both calls together in the foreground, and aggregate the reports they return.
 
 **Standards sub-agent prompt** should include:
 

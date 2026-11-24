@@ -24,7 +24,7 @@ This command is _informed_ by the project's domain model and built on a shared d
 
 Read the project's domain glossary ([`GLOSSARY.md`](../../../GLOSSARY.md)) and any ADRs in `docs/adrs/` in the area you're touching first.
 
-Then spawn an exploration sub-agent using `invoke_subagent` with `TypeName: "research"` and `Model: "pro"` with a fresh context window to walk the codebase. Note where you experience architectural friction:
+Then spawn an exploration sub-agent via `invoke_subagent` (`TypeName: "architect-auditor"`) with a fresh context window to walk the codebase. Note where you experience architectural friction:
 
 - Where live `Autodesk.Revit.DB.Element` instances leak into WPF ViewModels instead of decoupled `RevitDOM` POCOs.
 - Where `Transaction` objects are started deep inside domain services instead of at the external command seam.

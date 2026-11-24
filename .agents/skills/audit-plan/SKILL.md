@@ -12,7 +12,7 @@ The root agent dispatches the orchestrator subagent and conducts the resolution 
 
 1. **Resolve Target**: Identify the exact target (e.g., `implementation_plan.md`, a spec artifact, or a GitHub issue via [`docs/agents/issue-tracker.md`](../../../docs/agents/issue-tracker.md)).
 2. **Locate Transcript**: Determine the absolute path to the current conversation's transcript directory (`<appDataDir>\brain\<conversation-id>\.system_generated\logs\transcript.jsonl`).
-3. **Dispatch Orchestrator**: Define a subagent via `define_subagent` (`Name: "senior-auditor"`, `EnableWriteTools: true`, `EnableSubagentTools: true`) and invoke it via `invoke_subagent` (`TypeName: "senior-auditor"`, `Model: "pro"`, `Role: "Senior Auditor"`). Pass the target, transcript path, and artifact directory path, and instruct it to execute the **Senior Auditor Protocol** below.
+3. **Dispatch Orchestrator**: Invoke `invoke_subagent` (`TypeName: "architect-auditor"`, `Role: "Senior Auditor"`). Pass the target, transcript path, and artifact directory path, and instruct it to execute the **Senior Auditor Protocol** below.
 4. **Handoff to [`grill-with-docs`](../grill-with-docs/SKILL.md)**: When the Senior Auditor reports completion, immediately start an interactive [`grilling`](../grilling/SKILL.md) + [`domain-modeling`](../domain-modeling/SKILL.md) session with the user:
    - Work through the **Open Decisions** and **Recommended Modifications** in `plan_audit_report.md` in **design-tree rounds**, asking the **frontier** questions with your recommended answers formatted so "yes" accepts the recommendation.
    - Capture resolved domain terms inline in [`GLOSSARY.md`](../../../GLOSSARY.md) and record qualifying architectural trade-offs as ADRs in `docs/adrs/` using [`domain-modeling`](../domain-modeling/SKILL.md).
@@ -24,15 +24,15 @@ As the Senior Auditor, you orchestrate the four specialist auditors, reconcile t
 
 ### Step A: Spawn the Audit Team
 
-Use `invoke_subagent` (`TypeName: "research"`, `Model: "pro"`) to spawn all 4 specialist subagents concurrently with fresh context windows. Pass the target material to each:
+Spawn all 4 specialist subagents concurrently via `invoke_subagent` with fresh context windows, using each role's `TypeName` below. Pass the target material to each:
 
-1. **Role: Traceability Auditor**
+1. **Role: Traceability Auditor** (`TypeName: "codebase-researcher"`)
    - **Prompt**: Read the provided `transcript.jsonl` file (and `transcript_full.jsonl` for any relevant lines marked with `truncated_fields`). Compare the full conversation history against the target plan. Report every dropped requirement, missing detail, unrecorded decision, or ignored user instruction.
-2. **Role: Stress-Test Auditor**
+2. **Role: Stress-Test Auditor** (`TypeName: "architect-auditor"`)
    - **Prompt**: Review the target plan for logic holes, edge cases, Revit API lifecycle and threading hazards (mutations outside `Transaction`/`TransactionGroup`, cross-thread Revit API calls from modeless WPF windows without `ExternalEvent`, invalidated or null `ElementId`/Revit wrappers, unhandled Revit failure dialogs, multi-version `2022–2026` API behavior differences), and gaps in the 3-step test strategy ([`tdd`](../tdd/SKILL.md) / [`revit-tests`](../revit-tests/SKILL.md): headless `Logic` POCO tests vs. in-Revit integration tests). Report every resilience and testability flaw.
-3. **Role: Architecture Auditor**
+3. **Role: Architecture Auditor** (`TypeName: "architect-auditor"`)
    - **Prompt**: Read [`docs/agents/domain.md`](../../../docs/agents/domain.md), [`GLOSSARY.md`](../../../GLOSSARY.md), `docs/adrs/`, `CODING_STANDARDS.md` (if present), [`.agents/AGENTS.md`](../../AGENTS.md), [`codebase-design`](../codebase-design/SKILL.md) (including [`DEEPENING.md`](../codebase-design/DEEPENING.md)), and the `revit-*` skill playbooks touched by the plan (`revit-wpf-mvvm`, `revit-transactions`, `revit-multi-versions`, `revit-data-retrieval`, `revit-extensible-storage`, `revit-external-events`, `revit-failure-handling`, `revit-ui-ribbon`). Evaluate **module depth**, **seam** placement, **adapters**, **leverage**, and **locality**: check whether live `Autodesk.Revit.DB`/`UI` types leak past the seam into WPF ViewModels or pure domain logic instead of using `RevitDOM` POCOs or a narrow port, apply the **deletion test** to spot shallow pass-throughs or single-adapter indirection, and check adherence to `CODING_STANDARDS.md` and Occam's razor. Report every structural, vocabulary, or standards violation.
-4. **Role: Integration Auditor**
+4. **Role: Integration Auditor** (`TypeName: "codebase-researcher"`)
    - **Prompt**: Scan the codebase to evaluate how the plan wires into existing subsystems (`RevitDOM`, `SyntheticCore`, `SyntheticUI`, `SyntheticRevit`, `ribbon_config.json`, multi-version `.csproj` targets). Identify existing modules or prior art that should be reused or deepened rather than duplicated, missing call-site integrations, breaking changes, and zombie code that must be deleted. Report every integration risk.
 
 ### Step B: Reconcile and Deduplicate
