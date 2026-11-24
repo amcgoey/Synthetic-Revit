@@ -1,4 +1,4 @@
-## ADR 011 - "Filter on Extract" Parameter Strategy & Explicit Constructor Dependencies
+# ADR 0011 - "Filter on Extract" Parameter Strategy & Explicit Constructor Dependencies
 
 Status: Accepted
 The previous "Extract All, Filter on Write" parameter strategy generated noisy JSON payloads, and a generic parameter engine cannot reliably provide constructor dependencies (e.g., LinePatternElement segments) since that data often isn't exposed as standard parameters. We decided to use a "Filter on Extract" strategy where the generic Parameter Engine aggressively drops read-only or empty parameters when exporting templates (isTemplate == true).

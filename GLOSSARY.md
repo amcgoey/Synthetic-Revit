@@ -31,21 +31,37 @@ _Avoid_: Error log, dump file
 Memory utilization metrics periodically logged in the journal showing system InUse and Peak RAM footprints.
 _Avoid_: Memory stats, RAM info
 
+**Logic Tests**:
+Fast, headless automated tests verifying pure domain rules, calculations, serialization, and presentation state without a running Revit process or Revit API mocks.
+_Avoid_: Tier 1 tests, Tier 2 headless tests, mock unit tests
+
+**Revit Tests**:
+Automated integration tests running inside live Autodesk Revit sessions across supported **Revit Versions** to verify Revit database queries, transactions, families, and host startup.
+_Avoid_: Tier 2 tests, Tier 3 integration tests
+
+**Architecture Fitness Tests**:
+Automated structural checks enforcing codebase partition boundaries, dependency direction, settings parity, test categories, and legacy quarantine ceilings.
+_Avoid_: Tier 3 tests, lint checks, partition tests
+
+**Firmwide Settings**:
+Shared studio configuration templates and project-stored settings synchronized across workstations via an external linked settings JSON file.
+_Avoid_: Global config, studio JSON, shared config
+
+**Local User Preferences**:
+Per-workstation user convenience defaults (such as last output folder or dialog options) persisted outside the Revit model so normal tool usage never mutates the document or Undo history.
+_Avoid_: User settings module, local project config
+
 **Serialization Engine**:
-The core component responsible for extracting Revit elements and categories into standard templates, analyzing differences against live models, and writing templates back to the Revit database.
+The cross-slice module responsible for extracting Revit elements and categories into standard templates, analyzing differences against live models, and writing templates back to the Revit database.
 _Avoid_: Translator manager, DOM converter
 
 **RevitDOM**:
-The foundational architectural framework housing the pure C# POCO models, translators, and operations engines representing Revit elements without active Revit API dependencies.
-_Avoid_: Revit DOM, Revit models folder, Serializer module.
+The shared cross-slice BIM representation module housing pure element template models alongside Revit-connected translators, **Serialization Engine**, **Identity Comparison**, **Deep Diff Comparison**, and **Alias Swapping**.
+_Avoid_: Revit DOM, Revit models folder, Serializer module
 
 **Standards Extraction**:
 The process of recursively scanning a Revit document to harvest BIM standards and their nested dependencies.
 _Avoid_: Standard harvesting, recursive exporter
-
-**Progress State**:
-A generic telemetry model that holds current progress bounds, task descriptions, and state flags, enabling UI-independent progress reporting.
-_Avoid_: Progress wrapper, UI indicator
 
 **Standards Execution Pipeline**:
 The deep orchestration engine responsible for executing BIM standards updates, coordinating Revit database writes, family editing cycles, file exports, and logging.
@@ -55,28 +71,28 @@ _Avoid_: Execution VM, queue runner
 The process of combining existing standard elements with newly extracted standard elements prior to export or update operations.
 
 **Duplicate Detection (Standards)**:
-The strict mechanism for identifying matching standard elements during a Standards Merge or template serialization, disambiguating elements by their Class, Category or parent Family, and Name.
+The strict mechanism for identifying matching standard elements during a Standards Merge or template serialization, disambiguating elements by their element class, category or parent family, and element name.
 
 **Document Scope**:
 The classification of a standard element as Project-Only, Family-Only, or Universal, governing which Revit document kinds may analyze or enforce it.
 _Avoid_: Family filter flag, project whitelist
 
 **Family Enforcer**:
-The specialized service responsible for recursively traversing editable Revit families, opening family documents in the background, injecting BIM standards, purging unused style types, and loading them back into the host project.
+The specialized module responsible for recursively traversing editable Revit families, opening family documents in the background, injecting BIM standards, purging unused style types, and loading them back into the host project.
 _Avoid_: Family processing manager, nested family updater.
 
 **Standards Dashboard**:
 The main user interface coordinator that houses the Source Pane, Staging Queue, and execution settings for managing Revit standards.
 
 **Source Pane**:
-The user interface component showing the hierarchy of elements harvested from a live Revit model or loaded from a JSON file.
+The user interface pane showing the hierarchy of elements harvested from a live Revit model or loaded from a JSON file.
 
 **Staging Queue**:
-The collection and user interface component holding elements selected from the Source Pane, prepared for saving or enforcing.
+The staged collection and user interface list holding elements selected from the Source Pane, prepared for saving or enforcing.
 _Avoid_: Action Queue.
 
 **Duplicate Merging**:
-The process of identifying duplicate Revit elements (such as family symbols, system types, annotation types, groups, or assemblies) using POCO-based matching rules, mapping aliases to their standard POCO counterparts, and performing an alias swap to redirect references and delete the redundant elements.
+The process of identifying duplicate Revit elements (such as family symbols, system types, annotation types, groups, or assemblies) using template-based matching rules, mapping aliases to their standard template counterparts, and performing an alias swap to redirect references and delete the redundant elements.
 _Avoid_: Duplicate deletion, element merging.
 
 **Alias Swapping**:
@@ -84,20 +100,19 @@ The operation that scans a Revit document to redirect all instance, parameter, c
 _Avoid_: Reference swapping, ID redirecting.
 
 **Identity Comparison**:
-The process of determining whether two Revit elements, POCO models, or `ElementIdModel` references represent the same underlying BIM entity using the 5-step fallback strategy (`UniqueId` -> `Id` -> `Class`/`Category` + `Name` -> `Aliases`), independent of document or session boundaries.
+The process of determining whether two Revit elements or element references represent the same underlying BIM entity through a 5-step fallback across built-in constants, unique identifier, numeric element ID, element class or category plus name, and aliases, independent of document or session boundaries.
 _Avoid_: Direct ID comparison, reference checking.
 
 **Deep Diff Comparison**:
 The process of comparing internal parameter values, storage types, graphic overrides, and schema definitions between two elements that have already been matched as sharing the same **Identity Comparison**.
-_Avoid_: Identity check, POCO comparison.
+_Avoid_: Identity check, template comparison.
 
-**Revit Merge Data Collector**:
-The Revit-connected collector service responsible for querying the active Revit document via FilteredElementCollector to harvest duplicate candidate elements and convert them into pure ElementModel POCOs for headless duplicate analysis.
-_Avoid_: Revit merge scanner, document merge collector.
-
+**Duplicate Candidate Harvesting**:
+The Revit document scan that collects candidate duplicate types and families into portable element templates for headless duplicate analysis.
+_Avoid_: Revit Merge Data Collector, Revit merge scanner, document merge collector.
 
 **Sheet Index Exporter**:
-The command and service responsible for harvesting Revit sheets and revision history, converting issuance data into matrix columns, and exporting a formatted Excel spreadsheet.
+The module responsible for harvesting Revit sheets and revision history, converting issuance data into matrix columns, and exporting a formatted Excel spreadsheet.
 _Avoid_: Sheet revision exporter, revision matrix generator
 
 **Sheet Selection Source**:
@@ -113,7 +128,7 @@ The character symbol placed in an Issuance Column cell to indicate that a sheet 
 _Avoid_: Revision mark, checkmark, issue symbol
 
 **Sheet Index Ordering Strategy**:
-The tiered strategy for determining row sequence and grouping in the exported sheet index: (1) ViewSchedule layout & grouping, (2) native ViewSheetSet print order (if supported), and (3) alphanumeric Sheet Number fallback.
+The tiered strategy for determining row sequence and grouping in the exported sheet index: (1) sheet schedule layout and grouping, (2) native Print Set order (if supported), and (3) alphanumeric Sheet Number fallback.
 _Avoid_: Sheet sort mode, row ordering rule
 
 **Export Completion Dialog**:
@@ -133,19 +148,19 @@ The exported sheet index spreadsheet containing sheet metadata and revision issu
 _Avoid_: Dot matrix index, sheet revision table
 
 **Level-Based Shared Site**:
-A named Revit `ProjectLocation` (Shared Site) inside a unit or floor-plate model that corresponds 1-to-1 by exact name with a target `Level` from a linked host model, storing the shared coordinate elevation required to place the unit model at that level.
+A named Revit Shared Site inside a unit or floor-plate model that corresponds 1-to-1 by exact name with a target level from a linked host model, storing the shared coordinate elevation required to place the unit model at that level.
 _Avoid_: Level location, floor site, custom coordinate preset
 
 **Reference Datum Level**:
-The `Level` in the active unit model whose internal elevation acts as the local vertical datum aligned to each selected target `Level`'s shared coordinate elevation when generating or updating **Level-Based Shared Sites** (defaulting to the level closest to internal `0'-0"`).
+The level in the active unit model whose internal elevation acts as the local vertical datum aligned to each selected target level's shared coordinate elevation when generating or updating **Level-Based Shared Sites** (defaulting to the level closest to internal `0'-0"`).
 _Avoid_: Base level, zero level, origin level
 
 **Shared Site Sync**:
-The operation executed inside a unit model that reads selected `Level` elevations from a linked host model and creates or updates the corresponding **Level-Based Shared Sites** (`ProjectLocation`s) while preserving existing East/West, North/South, and True North Angle coordinates.
+The operation executed inside a unit model that reads selected level elevations from a linked host model and creates or updates the corresponding **Level-Based Shared Sites** while preserving existing East/West, North/South, and True North Angle coordinates.
 _Avoid_: Survey point mover, site generator
 
 **Shared Site Link Repositioning**:
-The operation executed inside a host (main) model that inspects loaded `RevitLinkInstance` elements, resolves each instance's assigned Shared Site (`ProjectLocation`) in its linked document, computes the target 3D shared-coordinate transform, and moves/rotates out-of-sync link instances (temporarily unpinning and re-pinning as needed) into alignment.
+The operation executed inside a host (main) model that inspects loaded linked model instances, resolves each instance's assigned Shared Site in its linked document, computes the target 3D shared-coordinate placement, and moves or rotates out-of-sync link instances (temporarily unpinning and re-pinning as needed) into alignment.
 _Avoid_: Link reset, origin move, coordinate re-acquire
 
 **Shadow Study**:

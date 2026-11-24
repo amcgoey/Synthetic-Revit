@@ -72,7 +72,7 @@ namespace Synthetic.RevitDOM.Translation
                 return LinePatternElement.GetSolidPatternId();
             }
 
-            // Enum-First Identity Strategy: Intercept Built-In parameter and category enums (ADR 015 / ADR 016)
+            // Enum-First Identity Strategy: Intercept Built-In parameter and category enums (ADR 0015)
             var builtInId = InterceptBuiltIn(model);
             if (builtInId != null)
             {
