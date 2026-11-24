@@ -11,8 +11,6 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using Application = Autodesk.Revit.ApplicationServices.Application;
 
-using Synthetic.Platform.IO;
-
 using Synthetic.Platform.UI;
 
 using Synthetic.Platform.Revit;

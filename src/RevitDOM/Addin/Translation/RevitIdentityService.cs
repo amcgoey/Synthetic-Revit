@@ -6,7 +6,6 @@ using Synthetic.Platform.Revit;
 
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
-using Synthetic.RevitDOM.Operations;
 
 namespace Synthetic.RevitDOM.Translation
 {

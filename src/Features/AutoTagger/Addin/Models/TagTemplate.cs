@@ -6,7 +6,6 @@ using Synthetic.Features.AutoTagger.Repositories;
 
 using System;
 using Autodesk.Revit.DB;
-using Synthetic.Platform.Revit;
 
 namespace Synthetic.Features.AutoTagger.Models
 {

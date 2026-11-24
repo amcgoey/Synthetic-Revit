@@ -1,19 +1,15 @@
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
-using View = Autodesk.Revit.DB.View;
 using Autodesk.Revit.UI;
-using Synthetic.Features.BatchPrint.Commands;
 using Synthetic.Features.BatchPrint.Utilities;
 
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using System.IO;
 using Autodesk.Revit.DB.Events;
 
 using Synthetic.Platform.UI;
-using Synthetic.Platform.Revit;
 
 namespace Synthetic.Features.BatchPrint.Commands
 {

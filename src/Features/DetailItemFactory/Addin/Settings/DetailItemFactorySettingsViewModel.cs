@@ -15,7 +15,6 @@ using Synthetic.Platform.Settings;
 
 using Synthetic.Platform.UI;
 
-using Synthetic.Platform.Revit;
 namespace Synthetic.Features.DetailItemFactory.Settings
 {
     /// <summary>

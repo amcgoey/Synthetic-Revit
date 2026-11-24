@@ -8,7 +8,6 @@ using Autodesk.Revit.DB;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.Platform.UI;
-using Synthetic.Platform.Revit;
 
 namespace Synthetic.Features.StandardsManagement.ViewModels
 {

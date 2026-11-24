@@ -5,7 +5,6 @@ using RevitCategory = Autodesk.Revit.DB.Category;
 
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
-using Synthetic.RevitDOM.Operations;
 
 namespace Synthetic.RevitDOM.Translation
 {
