@@ -8,6 +8,8 @@ using RevitWorkerPool.Discovery;
 using RevitWorkerPool.Execution;
 using RevitWorkerPool.Launching;
 using RevitWorkerPool.Pipe;
+using RevitWorkerPool.Startup;
+using RevitWorkerPool.Windowing;
 
 namespace RevitWorkerPool;
 
@@ -61,13 +63,15 @@ public static class Program
             : null;
 
         var discovery = new RevitInstallationDiscovery();
-        var launcher = new StandardProcessLauncher();
+        using var launcher = new OffScreenWindowingLauncher(new StandardProcessLauncher(), logger);
         var clientFactory = new DiagnosticPipeClientFactory(logger);
+        var startupProtector = new StartupBootProtector(diagnosticLogger: logger);
         var runner = new OneShotTestRunner(
             discovery,
             launcher,
             clientFactory,
-            diagnosticLogger: logger);
+            diagnosticLogger: logger,
+            startupProtector: startupProtector);
 
         using var cts = new CancellationTokenSource();
         ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>

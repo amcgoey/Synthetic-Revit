@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Threading;
@@ -14,6 +15,7 @@ namespace RevitWorkerPool.Launching;
 public sealed class LaunchedWorkerProcess : IAsyncDisposable, IDisposable
 {
     private const uint WaitObject0 = 0x00000000;
+    private const uint DuplicateSameAccess = 0x00000002;
 
     private readonly SafeProcessHandle? _processHandle;
     private readonly JobObjectContainer? _jobObject;
@@ -21,6 +23,12 @@ public sealed class LaunchedWorkerProcess : IAsyncDisposable, IDisposable
     private readonly Func<int?>? _stubExitCode;
     private readonly Func<CancellationToken, Task>? _stubTerminateAsync;
     private readonly Action? _stubDispose;
+    private readonly object _cleanupSync = new();
+    private readonly List<Action> _exitOrDisposeCallbacks = new();
+
+    private RegisteredWaitHandle? _registeredExitWait;
+    private WaitHandle? _exitWaitHandle;
+    private int _cleanupInvoked;
     private int _disposed;
 
     /// <summary>
@@ -74,17 +82,26 @@ public sealed class LaunchedWorkerProcess : IAsyncDisposable, IDisposable
     {
         get
         {
+            bool exited;
             if (_stubHasExited is not null)
             {
-                return _stubHasExited();
+                exited = _stubHasExited();
             }
-
-            if (_processHandle is null || _processHandle.IsInvalid || _processHandle.IsClosed)
+            else if (_processHandle is null || _processHandle.IsInvalid || _processHandle.IsClosed)
             {
-                return true;
+                exited = true;
+            }
+            else
+            {
+                exited = NativeMethods.WaitForSingleObject(_processHandle, 0) == WaitObject0;
             }
 
-            return NativeMethods.WaitForSingleObject(_processHandle, 0) == WaitObject0;
+            if (exited)
+            {
+                InvokeCleanupCallbacks();
+            }
+
+            return exited;
         }
     }
 
@@ -108,6 +125,44 @@ public sealed class LaunchedWorkerProcess : IAsyncDisposable, IDisposable
         }
     }
 
+    /// <summary>
+    /// Registers a callback invoked once when the worker process exits or is disposed.
+    /// </summary>
+    internal void RegisterExitOrDisposeCallback(Action callback)
+    {
+        ArgumentNullException.ThrowIfNull(callback);
+
+        if (Volatile.Read(ref _cleanupInvoked) != 0 || Volatile.Read(ref _disposed) != 0 || HasExited)
+        {
+            callback();
+            return;
+        }
+
+        lock (_cleanupSync)
+        {
+            if (Volatile.Read(ref _cleanupInvoked) != 0 || Volatile.Read(ref _disposed) != 0)
+            {
+                callback();
+                return;
+            }
+
+            _exitOrDisposeCallbacks.Add(callback);
+            if (_registeredExitWait is null &&
+                _processHandle is not null &&
+                !_processHandle.IsInvalid &&
+                !_processHandle.IsClosed &&
+                OperatingSystem.IsWindows())
+            {
+                TryAttachKernelExitWaitLocked();
+            }
+        }
+
+        if (HasExited)
+        {
+            InvokeCleanupCallbacks();
+        }
+    }
+
     public async Task WaitForExitAsync(CancellationToken cancellationToken = default)
     {
         while (!HasExited)
@@ -122,6 +177,7 @@ public sealed class LaunchedWorkerProcess : IAsyncDisposable, IDisposable
         if (_stubTerminateAsync is not null)
         {
             await _stubTerminateAsync(cancellationToken).ConfigureAwait(false);
+            InvokeCleanupCallbacks();
             return;
         }
 
@@ -149,6 +205,8 @@ public sealed class LaunchedWorkerProcess : IAsyncDisposable, IDisposable
                 }
             }
         }
+
+        InvokeCleanupCallbacks();
     }
 
     public void Dispose()
@@ -158,6 +216,28 @@ public sealed class LaunchedWorkerProcess : IAsyncDisposable, IDisposable
             return;
         }
 
+        InvokeCleanupCallbacks();
+
+        RegisteredWaitHandle? regWait;
+        WaitHandle? exitWaitHandle;
+        lock (_cleanupSync)
+        {
+            regWait = _registeredExitWait;
+            exitWaitHandle = _exitWaitHandle;
+            _registeredExitWait = null;
+            _exitWaitHandle = null;
+        }
+
+        if (regWait is not null)
+        {
+            using var unregistered = new ManualResetEvent(false);
+            if (regWait.Unregister(unregistered))
+            {
+                unregistered.WaitOne(TimeSpan.FromSeconds(1));
+            }
+        }
+
+        exitWaitHandle?.Dispose();
         _stubDispose?.Invoke();
         _jobObject?.Dispose();
         _processHandle?.Dispose();
@@ -175,6 +255,73 @@ public sealed class LaunchedWorkerProcess : IAsyncDisposable, IDisposable
         }
     }
 
+    [SupportedOSPlatform("windows")]
+    private void TryAttachKernelExitWaitLocked()
+    {
+        if (_processHandle is null || _processHandle.IsInvalid || _processHandle.IsClosed)
+        {
+            return;
+        }
+
+        IntPtr currentProcess = NativeMethods.GetCurrentProcess();
+        if (!NativeMethods.DuplicateHandle(
+                currentProcess,
+                _processHandle,
+                currentProcess,
+                out SafeWaitHandle duplicatedHandle,
+                0,
+                bInheritHandle: false,
+                DuplicateSameAccess))
+        {
+            duplicatedHandle.Dispose();
+            return;
+        }
+
+        var waitHandle = new ProcessExitWaitHandle(duplicatedHandle);
+        _exitWaitHandle = waitHandle;
+        _registeredExitWait = ThreadPool.RegisterWaitForSingleObject(
+            waitHandle,
+            static (state, _) => ((LaunchedWorkerProcess)state!).InvokeCleanupCallbacks(),
+            this,
+            Timeout.Infinite,
+            executeOnlyOnce: true);
+    }
+
+    private void InvokeCleanupCallbacks()
+    {
+        if (Interlocked.Exchange(ref _cleanupInvoked, 1) != 0)
+        {
+            return;
+        }
+
+        Action[] snapshot;
+        lock (_cleanupSync)
+        {
+            snapshot = _exitOrDisposeCallbacks.ToArray();
+            _exitOrDisposeCallbacks.Clear();
+        }
+
+        foreach (Action callback in snapshot)
+        {
+            try
+            {
+                callback();
+            }
+            catch (Exception)
+            {
+                // Best-effort cleanup callbacks must not break exit polling or disposal.
+            }
+        }
+    }
+
+    private sealed class ProcessExitWaitHandle : WaitHandle
+    {
+        public ProcessExitWaitHandle(SafeWaitHandle handle)
+        {
+            SafeWaitHandle = handle;
+        }
+    }
+
     private static class NativeMethods
     {
         [DllImport("kernel32.dll", SetLastError = true)]
@@ -187,5 +334,19 @@ public sealed class LaunchedWorkerProcess : IAsyncDisposable, IDisposable
         [DllImport("kernel32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool TerminateProcess(SafeProcessHandle hProcess, uint uExitCode);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool DuplicateHandle(
+            IntPtr hSourceProcessHandle,
+            SafeProcessHandle hSourceHandle,
+            IntPtr hTargetProcessHandle,
+            out SafeWaitHandle lpTargetHandle,
+            uint dwDesiredAccess,
+            [MarshalAs(UnmanagedType.Bool)] bool bInheritHandle,
+            uint dwOptions);
+
+        [DllImport("kernel32.dll")]
+        public static extern IntPtr GetCurrentProcess();
     }
 }

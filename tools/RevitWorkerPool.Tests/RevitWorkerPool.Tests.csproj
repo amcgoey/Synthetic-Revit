@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\RevitWorkerPool\RevitWorkerPool.csproj" />
+    <ProjectReference Include="..\RevitCleanShim.Probes\GuiFocusProbe\GuiFocusProbe.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>
