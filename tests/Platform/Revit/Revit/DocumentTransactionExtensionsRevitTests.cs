@@ -110,10 +110,149 @@ namespace SyntheticTests.Platform.Revit
         }
 
         [Test]
+        public void ExecuteCommittedBatchGroup_FuncBoolTrue_AssimilatesAndReturnsTrue()
+        {
+            WithRolledBackDocument(doc =>
+            {
+                Level level = FindFirstLevel(doc);
+
+                bool assimilated = doc.ExecuteCommittedBatchGroup("Predicate True Batch", () =>
+                {
+                    doc.ExecuteTransaction("Wall 1", FailurePipelines.ObserveOnly(), () =>
+                    {
+                        Wall.Create(doc, Line.CreateBound(XYZ.Zero, new XYZ(10, 0, 0)), level.Id, false);
+                    });
+
+                    return true;
+                });
+
+                Assert.IsTrue(assimilated, "Returning true must assimilate the TransactionGroup and return true.");
+                Assert.AreEqual(1, new FilteredElementCollector(doc).OfClass(typeof(Wall)).GetElementCount());
+                Assert.IsFalse(doc.IsModifiable);
+            });
+        }
+
+        [Test]
+        public void ExecuteCommittedBatchGroup_FuncDocumentBoolTrue_AssimilatesAndReturnsTrue()
+        {
+            WithRolledBackDocument(doc =>
+            {
+                Level level = FindFirstLevel(doc);
+
+                bool assimilated = doc.ExecuteCommittedBatchGroup("Predicate Document True Batch", d =>
+                {
+                    Assert.AreSame(doc, d);
+                    d.ExecuteTransaction("Wall 1", FailurePipelines.ObserveOnly(), () =>
+                    {
+                        Wall.Create(d, Line.CreateBound(XYZ.Zero, new XYZ(10, 0, 0)), level.Id, false);
+                    });
+
+                    return true;
+                });
+
+                Assert.IsTrue(assimilated, "Func<Document, bool> returning true must assimilate and return true.");
+                Assert.AreEqual(1, new FilteredElementCollector(doc).OfClass(typeof(Wall)).GetElementCount());
+                Assert.IsFalse(doc.IsModifiable);
+            });
+        }
+
+        [Test]
+        public void ExecuteCommittedBatchGroup_FuncBoolFalse_RollsBackChangesDirectlyAndReturnsFalse()
+        {
+            WithRolledBackDocument(doc =>
+            {
+                Level level = FindFirstLevel(doc);
+
+                bool assimilated = doc.ExecuteCommittedBatchGroup("Predicate False Batch", () =>
+                {
+                    doc.ExecuteTransaction("Wall 1", FailurePipelines.ObserveOnly(), () =>
+                    {
+                        Wall.Create(doc, Line.CreateBound(XYZ.Zero, new XYZ(10, 0, 0)), level.Id, false);
+                    });
+
+                    return false;
+                });
+
+                Assert.IsFalse(assimilated, "Returning false must roll back the TransactionGroup and return false.");
+                Assert.AreEqual(0, new FilteredElementCollector(doc).OfClass(typeof(Wall)).GetElementCount(), "Rolled-back predicate group must undo inner committed transactions.");
+                Assert.IsFalse(doc.IsModifiable);
+            });
+        }
+
+        [Test]
+        public void ExecuteCommittedBatchGroup_FuncDocumentBoolFalse_RollsBackChangesDirectlyAndReturnsFalse()
+        {
+            WithRolledBackDocument(doc =>
+            {
+                Level level = FindFirstLevel(doc);
+
+                bool assimilated = doc.ExecuteCommittedBatchGroup("Predicate Document False Batch", d =>
+                {
+                    Assert.AreSame(doc, d);
+                    d.ExecuteTransaction("Wall 1", FailurePipelines.ObserveOnly(), () =>
+                    {
+                        Wall.Create(d, Line.CreateBound(XYZ.Zero, new XYZ(10, 0, 0)), level.Id, false);
+                    });
+
+                    return false;
+                });
+
+                Assert.IsFalse(assimilated, "Func<Document, bool> returning false must roll back and return false.");
+                Assert.AreEqual(0, new FilteredElementCollector(doc).OfClass(typeof(Wall)).GetElementCount());
+                Assert.IsFalse(doc.IsModifiable);
+            });
+        }
+
+        [Test]
+        public void ExecuteCommittedBatchGroup_FuncBoolWithUnclosedInnerTransaction_FailsLoudly()
+        {
+            WithRolledBackDocument(doc =>
+            {
+                Level level = FindFirstLevel(doc);
+
+                foreach (bool predicateResult in new[] { false, true })
+                {
+                    Transaction? leakedTx = null;
+                    try
+                    {
+                        Assert.Throws<InvalidOperationException>(() =>
+                        {
+                            doc.ExecuteCommittedBatchGroup($"Unclosed Inner Tx ({predicateResult})", () =>
+                            {
+                                leakedTx = new Transaction(doc, "Leaked Inner Tx");
+                                leakedTx.Start();
+                                Wall.Create(doc, Line.CreateBound(XYZ.Zero, new XYZ(10, 0, 0)), level.Id, false);
+                                return predicateResult;
+                            });
+                        });
+                    }
+                    finally
+                    {
+                        if (leakedTx != null)
+                        {
+                            if (leakedTx.GetStatus() == TransactionStatus.Started)
+                            {
+                                leakedTx.RollBack();
+                            }
+                            leakedTx.Dispose();
+                        }
+                    }
+
+                    Assert.AreEqual(0, new FilteredElementCollector(doc).OfClass(typeof(Wall)).GetElementCount());
+                    Assert.IsFalse(doc.IsModifiable);
+                }
+            });
+        }
+
+        [Test]
         public void TransactionGroups_RejectModifiableDocumentOnEntry()
         {
             WithRolledBackDocument(doc =>
             {
+                Assert.Throws<ArgumentNullException>(() => doc.ExecuteCommittedBatchGroup("Null Func", (Func<bool>)null!));
+                Assert.Throws<ArgumentNullException>(() => doc.ExecuteCommittedBatchGroup("Null Doc Func", (Func<Document, bool>)null!));
+                Assert.Throws<ArgumentException>(() => doc.ExecuteCommittedBatchGroup("   ", () => false));
+
                 using (var activeTx = new Transaction(doc, "Outer Open Transaction"))
                 {
                     activeTx.Start();
@@ -123,6 +262,12 @@ namespace SyntheticTests.Platform.Revit
 
                         Assert.Throws<InvalidOperationException>(() =>
                             doc.ExecuteCommittedBatchGroup("Nested Committed Group", () => { }));
+
+                        Assert.Throws<InvalidOperationException>(() =>
+                            doc.ExecuteCommittedBatchGroup("Nested Predicate Group", () => true));
+
+                        Assert.Throws<InvalidOperationException>(() =>
+                            doc.ExecuteCommittedBatchGroup("Nested Doc Predicate Group", _ => false));
 
                         Assert.Throws<InvalidOperationException>(() =>
                             doc.ExecuteRolledBackGroup("Nested RolledBack Group", () => { }));

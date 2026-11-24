@@ -5,6 +5,7 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using Synthetic.Platform.Revit;
 using Synthetic.Features.SharedCoordinates.Models;
+using Synthetic.Features.SharedCoordinates.Services;
 
 namespace Synthetic.Features.SharedCoordinates.Adapters
 {
@@ -150,13 +151,11 @@ namespace Synthetic.Features.SharedCoordinates.Adapters
             var updatedNames = new List<string>();
             var errors = new List<string>();
 
-            using (var transactionGroup = new TransactionGroup(_doc, "Sync Shared Sites to Levels"))
-            {
-                transactionGroup.Start();
-                var preprocessor = FailurePipelines.DeleteAllWarningsRecorded();
-                int committedCount = 0;
+            var preprocessor = FailurePipelines.DeleteAllWarningsRecorded();
 
-                try
+            try
+            {
+                _doc.ExecuteCommittedBatchGroup("Sync Shared Sites to Levels", () =>
                 {
                     var existingLocations = new FilteredElementCollector(_doc)
                         .OfClass(typeof(ProjectLocation))
@@ -166,13 +165,12 @@ namespace Synthetic.Features.SharedCoordinates.Adapters
                     var activeLoc = _doc.ActiveProjectLocation;
                     if (activeLoc == null)
                     {
-                        transactionGroup.RollBack();
                         errors.Add("The active document does not have an ActiveProjectLocation.");
-                        summary.ErrorMessages = errors;
-                        return summary;
+                        return false;
                     }
 
                     double refDatumInternalElevation = request.ReferenceDatumLevel.Elevation;
+                    int committedCount = 0;
 
                     foreach (var target in request.TargetSites)
                     {
@@ -245,23 +243,14 @@ namespace Synthetic.Features.SharedCoordinates.Adapters
                         }
                     }
 
-                    if (committedCount > 0)
-                    {
-                        transactionGroup.Assimilate();
-                    }
-                    else
-                    {
-                        transactionGroup.RollBack();
-                    }
-                }
-                catch (Exception ex)
-                {
-                    if (transactionGroup.HasStarted() && !transactionGroup.HasEnded())
-                    {
-                        transactionGroup.RollBack();
-                    }
-                    errors.Add(ex.Message);
-                }
+                    return committedCount > 0;
+                });
+            }
+            catch (Exception ex)
+            {
+                createdNames.Clear();
+                updatedNames.Clear();
+                errors.Add(ex.Message);
             }
 
             summary.CreatedCount = createdNames.Count;
@@ -428,16 +417,15 @@ namespace Synthetic.Features.SharedCoordinates.Adapters
 
             var selectedTypeSet = new HashSet<string>(request.SelectedTypeIds, StringComparer.OrdinalIgnoreCase);
 
-            using (var transactionGroup = new TransactionGroup(_doc, "Move Links to Shared Sites"))
-            {
-                transactionGroup.Start();
-                var preprocessor = FailurePipelines.DeleteAllWarningsRecorded();
-                int committedCount = 0;
+            var preprocessor = FailurePipelines.DeleteAllWarningsRecorded();
 
-                try
+            try
+            {
+                _doc.ExecuteCommittedBatchGroup("Move Links to Shared Sites", () =>
                 {
                     var hostActiveLoc = _doc.ActiveProjectLocation;
                     Transform hostTotalTransform = hostActiveLoc != null ? hostActiveLoc.GetTotalTransform() : Transform.Identity;
+                    int committedCount = 0;
 
                     var linkInstances = new FilteredElementCollector(_doc)
                         .OfClass(typeof(RevitLinkInstance))
@@ -553,23 +541,13 @@ namespace Synthetic.Features.SharedCoordinates.Adapters
                         }
                     }
 
-                    if (committedCount > 0)
-                    {
-                        transactionGroup.Assimilate();
-                    }
-                    else
-                    {
-                        transactionGroup.RollBack();
-                    }
-                }
-                catch (Exception ex)
-                {
-                    if (transactionGroup.HasStarted() && !transactionGroup.HasEnded())
-                    {
-                        transactionGroup.RollBack();
-                    }
-                    errors.Add(ex.Message);
-                }
+                    return committedCount > 0;
+                });
+            }
+            catch (Exception ex)
+            {
+                repositionedNames.Clear();
+                errors.Add(ex.Message);
             }
 
             summary.RepositionedCount = repositionedNames.Count;
@@ -647,49 +625,22 @@ namespace Synthetic.Features.SharedCoordinates.Adapters
                     }
                 }
 
-                // 2. Fallback to instance.Name inspection
+                // 2. Fallback to pure instance.Name inspection via SharedSiteNameParser
                 string instanceName = instance.Name;
-                if (!string.IsNullOrWhiteSpace(instanceName))
+                if (string.IsNullOrWhiteSpace(instanceName))
                 {
-                    // 2a. Check if instanceName contains " : location " (case-insensitive)
-                    int locIdx = instanceName.IndexOf(" : location ", StringComparison.OrdinalIgnoreCase);
-                    if (locIdx >= 0)
-                    {
-                        string afterLoc = instanceName.Substring(locIdx + " : location ".Length);
-                        int nextSep = afterLoc.IndexOf(" : ", StringComparison.Ordinal);
-                        string candidate = (nextSep >= 0 ? afterLoc.Substring(0, nextSep) : afterLoc).Trim();
-                        if (!string.IsNullOrWhiteSpace(candidate) &&
-                            !string.Equals(candidate, "<Not Shared>", StringComparison.OrdinalIgnoreCase))
-                        {
-                            return candidate;
-                        }
-                    }
-
-                    // 2b. Reject any name containing <Not Shared>
-                    if (instanceName.IndexOf("<Not Shared>", StringComparison.OrdinalIgnoreCase) >= 0)
-                    {
-                        return null;
-                    }
-
-                    // 2c. If instanceName contains " : ", extract the final segment after the last " : " (trimmed)
-                    // and check whether it matches any ProjectLocation.Name (case-insensitive) in linkDoc; if so, return that matching name.
-                    if (instanceName.Contains(" : ") && linkDoc != null)
-                    {
-                        int lastColonIdx = instanceName.LastIndexOf(" : ", StringComparison.Ordinal);
-                        string candidate = instanceName.Substring(lastColonIdx + " : ".Length).Trim();
-                        if (!string.IsNullOrWhiteSpace(candidate) &&
-                            !string.Equals(candidate, "<Not Shared>", StringComparison.OrdinalIgnoreCase))
-                        {
-                            var matchedLoc = ResolveAssignedLocation(linkDoc, candidate);
-                            if (matchedLoc != null)
-                            {
-                                return matchedLoc.Name;
-                            }
-                        }
-                    }
+                    return null;
                 }
 
-                return null;
+                IReadOnlyCollection<string> knownLinkSiteNames = linkDoc == null
+                    ? (IReadOnlyCollection<string>)Array.Empty<string>()
+                    : new FilteredElementCollector(linkDoc)
+                        .OfClass(typeof(ProjectLocation))
+                        .Cast<ProjectLocation>()
+                        .Select(loc => loc.Name)
+                        .ToList();
+
+                return SharedSiteNameParser.ResolveFromInstanceName(instanceName, knownLinkSiteNames);
             }
             catch
             {

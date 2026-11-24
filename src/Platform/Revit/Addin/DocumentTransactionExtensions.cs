@@ -151,22 +151,11 @@ namespace Synthetic.Platform.Revit
             if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("Transaction group name cannot be null or whitespace.", nameof(name));
             if (action == null) throw new ArgumentNullException(nameof(action));
 
-            EnsureDocumentWritableForEntry(doc, name);
-
-            using (var group = new TransactionGroup(doc, name))
+            ExecuteCommittedBatchGroup(doc, name, () =>
             {
-                group.Start();
-                try
-                {
-                    action();
-                    group.Assimilate();
-                }
-                catch
-                {
-                    TryRollBackGroupWithoutMasking(group, name);
-                    throw;
-                }
-            }
+                action();
+                return true;
+            });
         }
 
         /// <summary>
@@ -183,6 +172,79 @@ namespace Synthetic.Platform.Revit
             if (doc == null) throw new ArgumentNullException(nameof(doc));
             if (action == null) throw new ArgumentNullException(nameof(action));
             ExecuteCommittedBatchGroup(doc, name, () => action(doc));
+        }
+
+        /// <summary>
+        /// Executes a multi-transaction batch inside a <see cref="TransactionGroup"/>, calling <c>TransactionGroup.Assimilate()</c>
+        /// when <paramref name="action"/> returns <c>true</c> or <c>TransactionGroup.RollBack()</c> directly when it returns <c>false</c>,
+        /// and rolling back on error without masking any inner exception if an inner <see cref="Transaction"/> remained open.
+        /// </summary>
+        /// <param name="doc">The Revit Document context.</param>
+        /// <param name="name">The name of the transaction group.</param>
+        /// <param name="action">The batch predicate returning <c>true</c> to assimilate or <c>false</c> to roll back.</param>
+        /// <returns><c>true</c> if the group was assimilated; <c>false</c> if it was rolled back.</returns>
+        public static bool ExecuteCommittedBatchGroup(
+            this Document doc,
+            string name,
+            Func<bool> action)
+        {
+            if (doc == null) throw new ArgumentNullException(nameof(doc));
+            if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("Transaction group name cannot be null or whitespace.", nameof(name));
+            if (action == null) throw new ArgumentNullException(nameof(action));
+
+            EnsureDocumentWritableForEntry(doc, name);
+
+            using (var group = new TransactionGroup(doc, name))
+            {
+                group.Start();
+                try
+                {
+                    bool shouldAssimilate = action();
+                    if (group.GetStatus() != TransactionStatus.Started)
+                    {
+                        return group.GetStatus() == TransactionStatus.Committed;
+                    }
+
+                    if (doc.IsModifiable)
+                    {
+                        throw new InvalidOperationException(
+                            $"Cannot complete '{name}' while an inner transaction is still open on the document.");
+                    }
+
+                    if (shouldAssimilate)
+                    {
+                        group.Assimilate();
+                        return true;
+                    }
+
+                    group.RollBack();
+                    return false;
+                }
+                catch
+                {
+                    TryRollBackGroupWithoutMasking(group, name);
+                    throw;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Executes a multi-transaction batch accepting the <see cref="Document"/> inside a <see cref="TransactionGroup"/>,
+        /// calling <c>TransactionGroup.Assimilate()</c> when <paramref name="action"/> returns <c>true</c> or
+        /// <c>TransactionGroup.RollBack()</c> directly when it returns <c>false</c>.
+        /// </summary>
+        /// <param name="doc">The Revit Document context.</param>
+        /// <param name="name">The name of the transaction group.</param>
+        /// <param name="action">The batch predicate accepting <see cref="Document"/> and returning <c>true</c> to assimilate or <c>false</c> to roll back.</param>
+        /// <returns><c>true</c> if the group was assimilated; <c>false</c> if it was rolled back.</returns>
+        public static bool ExecuteCommittedBatchGroup(
+            this Document doc,
+            string name,
+            Func<Document, bool> action)
+        {
+            if (doc == null) throw new ArgumentNullException(nameof(doc));
+            if (action == null) throw new ArgumentNullException(nameof(action));
+            return ExecuteCommittedBatchGroup(doc, name, () => action(doc));
         }
 
         /// <summary>
