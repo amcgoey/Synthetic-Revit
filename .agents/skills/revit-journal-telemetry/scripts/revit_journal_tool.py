@@ -18,6 +18,7 @@ BENIGN_LOG_PATTERNS = (
     "GetPreferences",
     "LoadLatestEpoch",
     "SYNTHETIC_TEST_RUN:",
+    "SYNTHETIC_WORKER_ID:",
     "[MERGE_WARNING]",
     "[MERGE_ERROR]",
 )
@@ -159,12 +160,22 @@ def _load_known_journals(known_journals_file, journal_dir):
     return known_paths
 
 
-def _contains_run_id(text, run_id):
-    """Return True when text contains the exact SYNTHETIC_TEST_RUN:<RunId> token."""
+def _contains_marker_token(text, prefix, value):
+    """Return True when text contains the exact <prefix>:<value> token."""
     pattern = re.compile(
-        rf"SYNTHETIC_TEST_RUN:{re.escape(run_id)}(?![A-Za-z0-9_.-])"
+        rf"{re.escape(prefix)}:{re.escape(value)}(?![A-Za-z0-9_.-])"
     )
     return bool(pattern.search(text))
+
+
+def _contains_run_id(text, run_id):
+    """Return True when text contains the exact SYNTHETIC_TEST_RUN:<RunId> token."""
+    return _contains_marker_token(text, "SYNTHETIC_TEST_RUN", run_id)
+
+
+def _contains_worker_id(text, worker_id):
+    """Return True when text contains the exact SYNTHETIC_WORKER_ID:<WorkerId> token."""
+    return _contains_marker_token(text, "SYNTHETIC_WORKER_ID", worker_id)
 
 
 def get_latest_journal(version, journals_dir=None):
@@ -186,8 +197,9 @@ def resolve_journal_path(
     run_id=None,
     known_journals_file=None,
     journals_dir=None,
+    worker_id=None,
 ):
-    """Resolve the target journal according to --file -> --run-id -> latest."""
+    """Resolve the target journal according to --file -> --worker-id -> --run-id -> latest."""
     if file_path:
         if not os.path.isfile(file_path):
             print(f"[-] Specified journal file does not exist: {file_path}", file=sys.stderr)
@@ -202,6 +214,24 @@ def resolve_journal_path(
     candidates = list_journal_files(target_dir)
     if not candidates:
         print(f"[-] No journal files found in: {target_dir}", file=sys.stderr)
+        return None
+
+    if worker_id is not None:
+        if not worker_id.strip():
+            print(
+                "[-] Worker ID must be non-empty when --worker-id is specified.",
+                file=sys.stderr,
+            )
+            return None
+        for candidate in candidates:
+            lines, _ = read_journal_lines(candidate)
+            text = "".join(lines)
+            if _contains_worker_id(text, worker_id):
+                return candidate
+        print(
+            f"[-] No journal matching worker ID '{worker_id}' found in: {target_dir}",
+            file=sys.stderr,
+        )
         return None
 
     if run_id:
@@ -725,6 +755,10 @@ def main():
     )
     parser.add_argument("--file", help="Explicit Revit journal file path to analyze")
     parser.add_argument(
+        "--worker-id",
+        help="Deterministic worker ID to locate journal containing SYNTHETIC_WORKER_ID:<WorkerId>",
+    )
+    parser.add_argument(
         "--run-id",
         help="Deterministic run ID to locate journal containing SYNTHETIC_TEST_RUN:<RunId>",
     )
@@ -795,6 +829,7 @@ def main():
         run_id=args.run_id,
         known_journals_file=args.known_journals_file,
         journals_dir=args.journals_dir,
+        worker_id=args.worker_id,
     )
     if not target_journal:
         sys.exit(1)

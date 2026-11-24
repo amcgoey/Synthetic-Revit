@@ -5,16 +5,19 @@ using Autodesk.Revit.UI;
 namespace SyntheticTests.Helpers
 {
     /// <summary>
-    /// Writes a once-per-process <c>SYNTHETIC_TEST_RUN:&lt;RunId&gt;</c> comment into the active
-    /// Revit journal as an idempotent fallback when bootstrap manifests are not deployed.
+    /// Writes once-per-process <c>SYNTHETIC_TEST_RUN:&lt;RunId&gt;</c> and
+    /// <c>SYNTHETIC_WORKER_ID:&lt;WorkerId&gt;</c> comments into the active Revit journal
+    /// as an idempotent fallback when bootstrap manifests are not deployed.
     /// </summary>
     public static class TestWorkerJournalMarker
     {
-        private static int _written;
+        private static int _runIdWritten;
+        private static int _workerIdWritten;
 
         /// <summary>
-        /// Writes <c>SYNTHETIC_TEST_RUN:&lt;RunId&gt;</c> to the Revit journal once per process when
-        /// <c>SYNTHETIC_TEST_RUN_ID</c> is set and <paramref name="uiapp"/> is available.
+        /// Writes <c>SYNTHETIC_TEST_RUN:&lt;RunId&gt;</c> and
+        /// <c>SYNTHETIC_WORKER_ID:&lt;WorkerId&gt;</c> to the Revit journal once per process
+        /// when the corresponding environment variables are set and <paramref name="uiapp"/> is available.
         /// </summary>
         public static void EnsureWritten(UIApplication? uiapp)
         {
@@ -23,20 +26,30 @@ namespace SyntheticTests.Helpers
                 return;
             }
 
-            string? runId = Environment.GetEnvironmentVariable("SYNTHETIC_TEST_RUN_ID");
-            if (string.IsNullOrWhiteSpace(runId))
+            TryWriteMarkerOnce(uiapp, "SYNTHETIC_TEST_RUN_ID", "SYNTHETIC_TEST_RUN", ref _runIdWritten);
+            TryWriteMarkerOnce(uiapp, "SYNTHETIC_WORKER_ID", "SYNTHETIC_WORKER_ID", ref _workerIdWritten);
+        }
+
+        private static void TryWriteMarkerOnce(
+            UIApplication uiapp,
+            string envVarName,
+            string markerPrefix,
+            ref int writtenFlag)
+        {
+            string? value = Environment.GetEnvironmentVariable(envVarName);
+            if (string.IsNullOrWhiteSpace(value))
             {
                 return;
             }
 
-            if (Interlocked.Exchange(ref _written, 1) != 0)
+            if (Interlocked.Exchange(ref writtenFlag, 1) != 0)
             {
                 return;
             }
 
             try
             {
-                uiapp.Application.WriteJournalComment($"SYNTHETIC_TEST_RUN:{runId!.Trim()}", true);
+                uiapp.Application.WriteJournalComment($"{markerPrefix}:{value!.Trim()}", true);
             }
             catch
             {
