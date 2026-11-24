@@ -4,6 +4,7 @@ using System.IO;
 using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
+using RevitWorkerPool.Execution;
 using RevitWorkerPool.Launching;
 using RevitWorkerPool.Pipe;
 
@@ -248,7 +249,8 @@ public sealed class StartupBootProtector
                         $"[startup-protector] Startup failure modal detected in {modalDetection.Reason} " +
                         $"for Revit {baseRequest.RevitVersion} (worker PID {worker.ProcessId}); terminating PID tree and releasing Startup Gate...");
 
-                    await TerminateAndDisposeWorkerAsync(worker, pipeClient).ConfigureAwait(false);
+                    await TestExecutionHelper.TerminateAndDisposeWorkerAsync(worker, pipeClient, _diagnosticLogger)
+                        .ConfigureAwait(false);
                     worker = null;
                     pipeClient = null;
 
@@ -293,7 +295,8 @@ public sealed class StartupBootProtector
             {
                 if (worker is not null || pipeClient is not null)
                 {
-                    await TerminateAndDisposeWorkerAsync(worker, pipeClient).ConfigureAwait(false);
+                    await TestExecutionHelper.TerminateAndDisposeWorkerAsync(worker, pipeClient, _diagnosticLogger)
+                        .ConfigureAwait(false);
                 }
 
                 gate?.Release();
@@ -392,36 +395,5 @@ public sealed class StartupBootProtector
         {
             return null;
         }
-    }
-
-    private static async Task TerminateAndDisposeWorkerAsync(
-        LaunchedWorkerProcess? worker,
-        IPipeTestClient? pipeClient)
-    {
-        if (worker is not null)
-        {
-            try
-            {
-                await worker.TerminateAsync(CancellationToken.None).ConfigureAwait(false);
-            }
-            catch (Exception)
-            {
-                // Best-effort process tree termination on abort.
-            }
-        }
-
-        if (pipeClient is not null)
-        {
-            try
-            {
-                await pipeClient.DisposeAsync().ConfigureAwait(false);
-            }
-            catch (Exception)
-            {
-                // Best-effort pipe cleanup on abort.
-            }
-        }
-
-        worker?.Dispose();
     }
 }

@@ -134,7 +134,12 @@ public sealed class OneShotTestRunner
             }
             else
             {
-                worker = await _launcher.LaunchAsync(launchRequest, cancellationToken).ConfigureAwait(false);
+                worker = await TestExecutionHelper.LaunchWithJournalCreationGateAsync(
+                    _launcher,
+                    launchRequest,
+                    options.BootTimeout,
+                    _diagnosticLogger,
+                    cancellationToken).ConfigureAwait(false);
                 Log($"[runner] Launched worker PID={worker.ProcessId}, pipe='{worker.PipeName}'.");
 
                 pipeClient = _pipeClientFactory.CreateClient(worker);

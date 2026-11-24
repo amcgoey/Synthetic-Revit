@@ -465,11 +465,58 @@ def get_default_dotnet_sdk_roots(env=None):
     ]
 
 
-def find_best_dotnet_sdk(sdk_roots=None):
-    """Return metadata for the highest semantic .NET SDK across candidate sdk roots."""
+def _msbuild_has_broken_dotnet_releases_redirect(msbuild_path):
+    """Return True if MSBuild.exe.config pins Microsoft.Deployment.DotNet.Releases to a missing file."""
+    if not msbuild_path or not os.path.isfile(msbuild_path):
+        return False
+    config_path = msbuild_path + ".config"
+    if not os.path.isfile(config_path):
+        return False
+    try:
+        tree = ET.parse(config_path)
+        root = tree.getroot()
+    except (ET.ParseError, OSError):
+        return False
+
+    for elem in root.iter():
+        if elem.tag.split("}")[-1] != "dependentAssembly":
+            continue
+        has_releases_id = False
+        codebase_hrefs = []
+        for child in elem:
+            child_tag = child.tag.split("}")[-1]
+            if child_tag == "assemblyIdentity" and child.attrib.get("name") == "Microsoft.Deployment.DotNet.Releases":
+                has_releases_id = True
+            elif child_tag == "codeBase" and child.attrib.get("href"):
+                codebase_hrefs.append(child.attrib["href"])
+        if has_releases_id and codebase_hrefs:
+            base_dir = os.path.dirname(os.path.abspath(msbuild_path))
+            return any(not os.path.isfile(os.path.normpath(os.path.join(base_dir, href))) for href in codebase_hrefs)
+
+    return False
+
+
+def is_sdk_compatible_with_msbuild(sdk_path, version_str, msbuild_path=None):
+    """Skip .NET 10+ SDKs when paired with an MSBuild.exe whose config redirects DotNet.Releases to a missing resolver."""
+    parsed = parse_sdk_version(version_str)
+    if parsed is None or parsed[0][0] < 10:
+        return True
+    sdk_releases = os.path.join(
+        sdk_path, "Sdks", "Microsoft.NET.Sdk", "tools", "net472", "Microsoft.Deployment.DotNet.Releases.dll"
+    )
+    if not os.path.isfile(sdk_releases):
+        return True
+    resolved_msbuild = msbuild_path if msbuild_path is not None else find_msbuild()
+    return not _msbuild_has_broken_dotnet_releases_redirect(resolved_msbuild)
+
+
+def find_best_dotnet_sdk(sdk_roots=None, msbuild_path=None):
+    """Return metadata for the highest compatible semantic .NET SDK across candidate sdk roots."""
     roots = get_default_dotnet_sdk_roots() if sdk_roots is None else sdk_roots
-    best = None
-    best_key = None
+    best_compatible = None
+    best_compatible_key = None
+    best_any = None
+    best_any_key = None
 
     for sdk_root in roots:
         if not sdk_root or not os.path.isdir(sdk_root):
@@ -486,21 +533,26 @@ def find_best_dotnet_sdk(sdk_roots=None):
             parsed = parse_sdk_version(entry)
             if parsed is None:
                 continue
-            if best_key is None or parsed > best_key:
-                best_key = parsed
-                best = {
-                    "version": entry,
-                    "sdk_path": sdk_path,
-                    "dotnet_root": os.path.dirname(sdk_root),
-                }
+            candidate = {
+                "version": entry,
+                "sdk_path": sdk_path,
+                "dotnet_root": os.path.dirname(sdk_root),
+            }
+            if best_any_key is None or parsed > best_any_key:
+                best_any_key = parsed
+                best_any = candidate
+            if is_sdk_compatible_with_msbuild(sdk_path, entry, msbuild_path=msbuild_path):
+                if best_compatible_key is None or parsed > best_compatible_key:
+                    best_compatible_key = parsed
+                    best_compatible = candidate
 
-    return best
+    return best_compatible if best_compatible is not None else best_any
 
 
-def configure_dotnet_environment(env=None, sdk_roots=None):
+def configure_dotnet_environment(env=None, sdk_roots=None, msbuild_path=None):
     env = os.environ if env is None else env
     roots = get_default_dotnet_sdk_roots(env) if sdk_roots is None else sdk_roots
-    best = find_best_dotnet_sdk(sdk_roots=roots)
+    best = find_best_dotnet_sdk(sdk_roots=roots, msbuild_path=msbuild_path)
     if best:
         dotnet_root = best["dotnet_root"]
         env["DOTNET_ROOT"] = dotnet_root

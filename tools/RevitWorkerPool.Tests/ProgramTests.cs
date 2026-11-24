@@ -424,6 +424,7 @@ public class ProgramTests
                     "--trx", zeroTrx,
                     "--category", "MissingCat",
                     "--pipe-name", pipeName,
+                    "--no-shim",
                     "--json"
                 },
                 stdout: zeroOut,
@@ -450,6 +451,7 @@ public class ProgramTests
                     "--category", "RevitSmoke",
                     "--filter", "SmokeFixture",
                     "--pipe-name", pipeName,
+                    "--no-shim",
                     "--json"
                 },
                 stdout: matchOut,
@@ -470,6 +472,161 @@ public class ProgramTests
         }
         finally
         {
+            if (Directory.Exists(tempRoot))
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+    }
+
+    [TestCase(true, "warm", true)]
+    [TestCase(false, "warm", false)]
+    [TestCase(true, "run", true)]
+    [TestCase(false, "run", false)]
+    public async Task RunCliAsync_SupervisorShimModeMismatch_FailsClosedInTextAndJsonModes_WithZeroWorkersLaunched(
+        bool supervisorUsesShim,
+        string command,
+        bool callerNoShim)
+    {
+        string? priorCleanShimEnv = Environment.GetEnvironmentVariable("SYNTHETIC_CLEAN_SHIM");
+        Environment.SetEnvironmentVariable("SYNTHETIC_CLEAN_SHIM", null);
+
+        string tempRoot = Path.Combine(Path.GetTempPath(), "RevitWorkerPool_ShimMismatch_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            string revitDir = Path.Combine(tempRoot, "Autodesk", "Revit 2026");
+            Directory.CreateDirectory(revitDir);
+            File.WriteAllText(Path.Combine(revitDir, "Revit.exe"), string.Empty);
+
+            string assemblyPath = Path.Combine(tempRoot, "Synthetic.RevitTests.2026.dll");
+            File.WriteAllText(assemblyPath, string.Empty);
+            string trxPath = Path.Combine(tempRoot, "out", "mismatch.trx");
+
+            var discovery = new RevitInstallationDiscovery(
+                () => new[] { Path.Combine(tempRoot, "Autodesk") },
+                () => Array.Empty<UninstallRegistryEntry>());
+
+            string pipeName = $"Synthetic_ShimMismatch_{Guid.NewGuid():N}";
+            using var launcher = new StubWorkerProcessLauncher(usesCleanShim: supervisorUsesShim);
+            await using var supervisor = new WorkerPoolSupervisor(
+                new SupervisorOptions
+                {
+                    PipeName = pipeName,
+                    CurrentLatestVersion = 2026,
+                    IdleTimeout = TimeSpan.FromMinutes(25),
+                    ShimEnabled = supervisorUsesShim,
+                    TimingCacheDirectory = Path.Combine(tempRoot, "timing_cache")
+                },
+                discovery,
+                launcher,
+                new RevitWorkerPool.Pipe.RevitPipeTestClientFactory(),
+                bundleLeaseFactory: _ => new NoOpDisposable());
+            await using var ipcServer = new SupervisorIpcServer(
+                pipeName,
+                (req, ct) => supervisor.HandleIpcRequestAsync(req, ct));
+            supervisor.AttachIpcServer(ipcServer);
+            supervisor.Start();
+            ipcServer.Start();
+
+            int expectedSupervisorPid = Environment.ProcessId;
+            string expectedActualToken = $"shimEnabled={supervisorUsesShim.ToString().ToLowerInvariant()}";
+            string expectedRequestedToken = $"expectedShim={(!callerNoShim).ToString().ToLowerInvariant()}";
+            string expectedRemediation = $"RevitWorkerPool drain --pipe-name \"{pipeName}\"";
+
+            string[] BuildArgs(bool json)
+            {
+                var argList = new System.Collections.Generic.List<string> { command, "--version", "2026" };
+                if (command == "run")
+                {
+                    argList.Add("--assembly");
+                    argList.Add(assemblyPath);
+                    argList.Add("--trx");
+                    argList.Add(trxPath);
+                }
+
+                argList.Add("--pipe-name");
+                argList.Add(pipeName);
+                if (callerNoShim)
+                {
+                    argList.Add("--no-shim");
+                }
+
+                if (json)
+                {
+                    argList.Add("--json");
+                }
+
+                return argList.ToArray();
+            }
+
+            // Text mode
+            using var textOut = new StringWriter();
+            using var textErr = new StringWriter();
+            int textExit = await Program.RunCliAsync(BuildArgs(json: false), stdout: textOut, stderr: textErr);
+
+            Assert.That(textExit, Is.EqualTo(2));
+            string textErrOutput = textErr.ToString();
+            Assert.That(textErrOutput, Does.Contain(pipeName));
+            Assert.That(textErrOutput, Does.Contain(expectedSupervisorPid.ToString()));
+            Assert.That(textErrOutput, Does.Contain(expectedActualToken));
+            Assert.That(textErrOutput, Does.Contain(expectedRequestedToken));
+            Assert.That(textErrOutput, Does.Contain(expectedRemediation));
+            Assert.That(launcher.Workers.Count, Is.EqualTo(0));
+
+            // JSON mode
+            using var jsonOut = new StringWriter();
+            using var jsonErr = new StringWriter();
+            int jsonExit = await Program.RunCliAsync(BuildArgs(json: true), stdout: jsonOut, stderr: jsonErr);
+
+            Assert.That(jsonExit, Is.EqualTo(2));
+            string jsonLine = jsonOut.ToString().Trim();
+            if (command == "warm")
+            {
+                WarmResult? warmResult = JsonConvert.DeserializeObject<WarmResult>(jsonLine);
+                Assert.That(warmResult, Is.Not.Null);
+                Assert.That(warmResult!.Success, Is.False);
+                Assert.That(warmResult.ExitCode, Is.EqualTo(2));
+                Assert.That(warmResult.Error, Does.Contain(pipeName));
+                Assert.That(warmResult.Error, Does.Contain(expectedActualToken));
+                Assert.That(warmResult.Error, Does.Contain(expectedRequestedToken));
+                Assert.That(warmResult.Error, Does.Contain(expectedRemediation));
+            }
+            else
+            {
+                OneShotRunResult? runResult = JsonConvert.DeserializeObject<OneShotRunResult>(jsonLine);
+                Assert.That(runResult, Is.Not.Null);
+                Assert.That(runResult!.Success, Is.False);
+                Assert.That(runResult.ExitCode, Is.EqualTo(2));
+                Assert.That(runResult.Error, Does.Contain(pipeName));
+                Assert.That(runResult.Error, Does.Contain(expectedActualToken));
+                Assert.That(runResult.Error, Does.Contain(expectedRequestedToken));
+                Assert.That(runResult.Error, Does.Contain(expectedRemediation));
+            }
+
+            Assert.That(launcher.Workers.Count, Is.EqualTo(0));
+
+            // status and drain remain mode-agnostic
+            using var statusOut = new StringWriter();
+            using var statusErr = new StringWriter();
+            int statusExit = await Program.RunCliAsync(
+                new[] { "status", "--pipe-name", pipeName, "--json" },
+                stdout: statusOut,
+                stderr: statusErr);
+            Assert.That(statusExit, Is.EqualTo(0));
+
+            using var drainOut = new StringWriter();
+            using var drainErr = new StringWriter();
+            int drainExit = await Program.RunCliAsync(
+                new[] { "drain", "--pipe-name", pipeName, "--json" },
+                stdout: drainOut,
+                stderr: drainErr);
+            Assert.That(drainExit, Is.EqualTo(0));
+            Assert.That(launcher.Workers.Count, Is.EqualTo(0));
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("SYNTHETIC_CLEAN_SHIM", priorCleanShimEnv);
             if (Directory.Exists(tempRoot))
             {
                 Directory.Delete(tempRoot, recursive: true);

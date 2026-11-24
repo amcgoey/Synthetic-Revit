@@ -239,18 +239,21 @@ public static class Program
 
         try
         {
-            bool noShimEffective = !ShouldUseCleanShim(options.NoShim);
+            bool expectedShim = ShouldUseCleanShim(options.NoShim);
             var launchOptions = new SupervisorClientLaunchOptions
             {
                 PipeName = options.PipeName,
                 IdleTtlMinutes = options.IdleTtlMinutes,
-                NoShim = noShimEffective,
+                NoShim = !expectedShim,
                 ProjectRoot = options.ProjectRoot ?? RevitInstallationDiscovery.FindRepositoryRoot(),
                 Diagnostics = options.Diagnostics
             };
 
-            await SupervisorIpcClient.EnsureSupervisorRunningAsync(launchOptions, logger, cancellationToken)
-                .ConfigureAwait(false);
+            await EnsureSupervisorMatchingShimModeAsync(
+                launchOptions,
+                expectedShim,
+                logger,
+                cancellationToken).ConfigureAwait(false);
 
             var request = new SupervisorIpcRequest
             {
@@ -401,8 +404,11 @@ public static class Program
                 Diagnostics = options.Diagnostics
             };
 
-            await SupervisorIpcClient.EnsureSupervisorRunningAsync(launchOptions, logger, cancellationToken)
-                .ConfigureAwait(false);
+            await EnsureSupervisorMatchingShimModeAsync(
+                launchOptions,
+                expectedShim,
+                logger,
+                cancellationToken).ConfigureAwait(false);
 
             var ipcRequest = new SupervisorIpcRequest
             {
@@ -454,6 +460,56 @@ public static class Program
             WriteRunOutput(errorResult, options.JsonOutput, outWriter, errWriter);
             return errorResult.ExitCode;
         }
+    }
+
+    private static async Task EnsureSupervisorMatchingShimModeAsync(
+        SupervisorClientLaunchOptions launchOptions,
+        bool expectedShim,
+        Action<string>? logger,
+        CancellationToken cancellationToken)
+    {
+        SupervisorIpcResponse? prePing = await SupervisorIpcClient.TryPingAsync(
+            launchOptions.PipeName,
+            TimeSpan.FromMilliseconds(500),
+            cancellationToken).ConfigureAwait(false);
+
+        if (prePing is { Success: true, IsDraining: false, Status: { Running: true } preStatus })
+        {
+            ThrowIfShimModeMismatch(preStatus, launchOptions.PipeName, expectedShim);
+            return;
+        }
+
+        await SupervisorIpcClient.EnsureSupervisorRunningAsync(launchOptions, logger, cancellationToken)
+            .ConfigureAwait(false);
+
+        SupervisorIpcResponse? postPing = await SupervisorIpcClient.TryPingAsync(
+            launchOptions.PipeName,
+            TimeSpan.FromSeconds(2),
+            cancellationToken).ConfigureAwait(false);
+
+        if (postPing is { Success: true, IsDraining: false, Status: { Running: true } postStatus })
+        {
+            ThrowIfShimModeMismatch(postStatus, launchOptions.PipeName, expectedShim);
+        }
+    }
+
+    private static void ThrowIfShimModeMismatch(
+        PoolStatusSnapshot status,
+        string pipeName,
+        bool expectedShim)
+    {
+        if (status.ShimEnabled == expectedShim)
+        {
+            return;
+        }
+
+        string activeMode = status.ShimEnabled ? "shimmed" : "--no-shim";
+        string requestedMode = expectedShim ? "shimmed" : "--no-shim";
+        throw new CleanShimLaunchException(
+            $"Worker Pool supervisor PID={status.SupervisorPid} on pipe '{pipeName}' has " +
+            $"shimEnabled={status.ShimEnabled.ToString().ToLowerInvariant()} ({activeMode}), " +
+            $"which does not match requested expectedShim={expectedShim.ToString().ToLowerInvariant()} ({requestedMode}). " +
+            $"Drain it first via: RevitWorkerPool drain --pipe-name \"{pipeName}\"");
     }
 
     private static async Task<int> ExecuteStatusCommandAsync(

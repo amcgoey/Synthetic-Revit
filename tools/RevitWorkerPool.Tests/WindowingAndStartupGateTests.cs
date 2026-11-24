@@ -841,6 +841,117 @@ public class WindowingAndStartupGateTests
         }
     }
 
+    [Test]
+    public async Task LaunchWithJournalCreationGateAsync_SerializesConcurrentLaunchesUntilJournalFileAppears_AndBypassesStub()
+    {
+        string journalsDir = Path.Combine(_tempRoot, "JournalsGate");
+        Directory.CreateDirectory(journalsDir);
+        string mutexPrefix = $@"Local\Synthetic_TestJournalGate_{Guid.NewGuid():N}_";
+
+        // 1. Stub launcher without bypassExecutableCheck skips gating immediately.
+        using var plainStub = new StubWorkerProcessLauncher();
+        LaunchedWorkerProcess fastStubWorker = await TestExecutionHelper.LaunchWithJournalCreationGateAsync(
+            plainStub,
+            new WorkerLaunchRequest
+            {
+                RevitVersion = 2026,
+                ExecutablePath = _fakeAssemblyPath,
+                WorkerId = "w_stub_fast"
+            },
+            TimeSpan.FromSeconds(5),
+            logger: null,
+            CancellationToken.None);
+        fastStubWorker.Dispose();
+
+        // 2. Concurrent launches with bypassExecutableCheck serialize until journal.NNNN.txt is written.
+        int launchSeq = 0;
+        var launch1Started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        int launch2StartedFlag = 0;
+
+        using var gatedLauncher = new StubWorkerProcessLauncher((_, req) =>
+        {
+            int seq = Interlocked.Increment(ref launchSeq);
+            if (seq == 1)
+            {
+                launch1Started.TrySetResult(true);
+            }
+            else if (seq == 2)
+            {
+                Volatile.Write(ref launch2StartedFlag, 1);
+                File.WriteAllText(Path.Combine(journalsDir, "journal.0002.txt"), "' second\r\n");
+            }
+        });
+
+        var req1 = new WorkerLaunchRequest { RevitVersion = 2026, ExecutablePath = _fakeAssemblyPath, WorkerId = "w_jg_1" };
+        var req2 = new WorkerLaunchRequest { RevitVersion = 2026, ExecutablePath = _fakeAssemblyPath, WorkerId = "w_jg_2" };
+
+        Task<LaunchedWorkerProcess> task1 = TestExecutionHelper.LaunchWithJournalCreationGateAsync(
+            gatedLauncher,
+            req1,
+            TimeSpan.FromSeconds(5),
+            logger: null,
+            CancellationToken.None,
+            journalsDirectoryOverride: journalsDir,
+            mutexPrefix: mutexPrefix,
+            journalWaitCapOverride: TimeSpan.FromSeconds(5),
+            bypassExecutableCheck: true);
+
+        await launch1Started.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Task<LaunchedWorkerProcess> task2 = TestExecutionHelper.LaunchWithJournalCreationGateAsync(
+            gatedLauncher,
+            req2,
+            TimeSpan.FromSeconds(5),
+            logger: null,
+            CancellationToken.None,
+            journalsDirectoryOverride: journalsDir,
+            mutexPrefix: mutexPrefix,
+            journalWaitCapOverride: TimeSpan.FromSeconds(5),
+            bypassExecutableCheck: true);
+
+        await Task.Delay(75);
+        Assert.That(Volatile.Read(ref launch2StartedFlag), Is.EqualTo(0),
+            "Second launch must wait until first worker creates its journal.NNNN.txt file.");
+
+        File.WriteAllText(Path.Combine(journalsDir, "journal.0001.txt"), "' first\r\n");
+
+        LaunchedWorkerProcess[] processes = await Task.WhenAll(task1, task2).WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.That(Volatile.Read(ref launch2StartedFlag), Is.EqualTo(1));
+        Assert.That(processes.Length, Is.EqualTo(2));
+
+        foreach (LaunchedWorkerProcess p in processes)
+        {
+            p.Dispose();
+        }
+    }
+
+    [Test]
+    public void LaunchWithJournalCreationGateAsync_TerminatesWorkerOnCancellationDuringJournalWait()
+    {
+        string journalsDir = Path.Combine(_tempRoot, "JournalsGateCancel");
+        Directory.CreateDirectory(journalsDir);
+        string mutexPrefix = $@"Local\Synthetic_TestJournalGateCancel_{Guid.NewGuid():N}_";
+
+        using var launcher = new StubWorkerProcessLauncher();
+        using var cts = new CancellationTokenSource();
+        cts.CancelAfter(60);
+
+        Assert.CatchAsync<OperationCanceledException>(async () =>
+            await TestExecutionHelper.LaunchWithJournalCreationGateAsync(
+                launcher,
+                new WorkerLaunchRequest { RevitVersion = 2026, ExecutablePath = _fakeAssemblyPath, WorkerId = "w_jg_cancel" },
+                TimeSpan.FromSeconds(5),
+                logger: null,
+                cts.Token,
+                journalsDirectoryOverride: journalsDir,
+                mutexPrefix: mutexPrefix,
+                journalWaitCapOverride: TimeSpan.FromSeconds(5),
+                bypassExecutableCheck: true));
+
+        Assert.That(launcher.Workers.Count, Is.EqualTo(1));
+        Assert.That(launcher.Workers.Single().IsTerminated, Is.True);
+    }
+
     private sealed class ThrowingBeforeResumeLauncher : IWorkerProcessLauncher
     {
         private readonly int _pid;

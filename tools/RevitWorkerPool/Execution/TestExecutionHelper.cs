@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using RevitWorkerPool.Discovery;
@@ -421,34 +423,244 @@ internal static class TestExecutionHelper
         IPipeTestClient? pipeClient,
         Action<string>? logger = null)
     {
-        if (pipeClient is not null)
+        try
         {
-            try
+            if (worker is not null)
             {
-                await pipeClient.DisposeAsync().ConfigureAwait(false);
+                try
+                {
+                    logger?.Invoke($"[worker] Terminating consumed worker PID={worker.ProcessId} ({worker.WorkerId})...");
+                    await worker.TerminateAsync(CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    logger?.Invoke($"[worker] Warning while terminating worker PID={worker.ProcessId}: {ex.Message}");
+                }
             }
-            catch (Exception ex)
+
+            if (pipeClient is not null)
             {
-                logger?.Invoke($"[worker] Warning while disposing pipe client: {ex.Message}");
+                try
+                {
+                    await pipeClient.DisposeAsync().ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    logger?.Invoke($"[worker] Warning while disposing pipe client: {ex.Message}");
+                }
             }
+        }
+        finally
+        {
+            worker?.Dispose();
+        }
+    }
+
+    private const string JournalCreationGateMutexPrefix = @"Local\Synthetic_RevitJournalCreateGate_";
+
+    private static readonly Regex NumericJournalFileRegex = new(
+        @"^journal\.\d+\.txt$",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// Serializes concurrent launches of real <c>Revit.exe</c> workers for the same
+    /// Revit version across the brief (~0.2-1.5s) journal-numbering window so Revit never
+    /// collides on <c>journal.NNNN.txt</c> creation and silently drops a worker's journal.
+    /// Headless stub and test-probe launches bypass the gate immediately.
+    /// </summary>
+    public static async Task<LaunchedWorkerProcess> LaunchWithJournalCreationGateAsync(
+        IWorkerProcessLauncher launcher,
+        WorkerLaunchRequest request,
+        TimeSpan bootTimeout,
+        Action<string>? logger,
+        CancellationToken cancellationToken,
+        string? journalsDirectoryOverride = null,
+        string mutexPrefix = JournalCreationGateMutexPrefix,
+        TimeSpan? journalWaitCapOverride = null,
+        bool bypassExecutableCheck = false)
+    {
+        ArgumentNullException.ThrowIfNull(launcher);
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (!OperatingSystem.IsWindows() ||
+            request.RevitVersion <= 0 ||
+            (!bypassExecutableCheck && !IsRealRevitLauncherAndExecutable(launcher, request.ExecutablePath)))
+        {
+            return await launcher.LaunchAsync(request, cancellationToken).ConfigureAwait(false);
         }
 
-        if (worker is not null)
+        string resolvedJournalsDir = !string.IsNullOrWhiteSpace(journalsDirectoryOverride)
+            ? journalsDirectoryOverride
+            : StartupModalWatchdog.GetDefaultJournalsDirectory(request.RevitVersion);
+
+        StartupGateMutex? gate = new StartupGateMutex(
+            request.RevitVersion,
+            mutexPrefix,
+            acquireTimeout: TimeSpan.FromSeconds(45),
+            holdCap: TimeSpan.FromSeconds(15),
+            diagnosticLogger: logger);
+
+        try
         {
             try
             {
-                logger?.Invoke($"[worker] Terminating consumed worker PID={worker.ProcessId} ({worker.WorkerId})...");
-                await worker.TerminateAsync(CancellationToken.None).ConfigureAwait(false);
+                await gate.AcquireAsync(cancellationToken).ConfigureAwait(false);
             }
-            catch (Exception ex)
+            catch (TimeoutException ex)
             {
-                logger?.Invoke($"[worker] Warning while terminating worker PID={worker.ProcessId}: {ex.Message}");
+                logger?.Invoke(
+                    $"[journal-gate] Warning: timed out acquiring journal creation gate '{gate.MutexName}' ({ex.Message}); proceeding without gate.");
+                gate.Dispose();
+                gate = null;
             }
-            finally
+
+            HashSet<string> existingJournals = SnapshotNumericJournalFiles(resolvedJournalsDir);
+            LaunchedWorkerProcess process = await launcher.LaunchAsync(request, cancellationToken).ConfigureAwait(false);
+
+            if (gate is not null)
             {
-                worker.Dispose();
+                try
+                {
+                    TimeSpan waitCap = journalWaitCapOverride
+                        ?? TimeSpan.FromMilliseconds(Math.Clamp(bootTimeout.TotalMilliseconds, 500, 8000));
+                    bool observed = await WaitForNewJournalFileAsync(
+                        process,
+                        resolvedJournalsDir,
+                        existingJournals,
+                        waitCap,
+                        cancellationToken).ConfigureAwait(false);
+
+                    logger?.Invoke(
+                        observed
+                            ? $"[journal-gate] Worker PID={process.ProcessId} (Revit {request.RevitVersion}) initialized journal file; releasing launch gate."
+                            : $"[journal-gate] Released launch gate after {waitCap.TotalSeconds:F1}s window for worker PID={process.ProcessId} (Revit {request.RevitVersion}).");
+                }
+                catch
+                {
+                    await TerminateAndDisposeWorkerAsync(process, pipeClient: null, logger).ConfigureAwait(false);
+                    throw;
+                }
+            }
+
+            return process;
+        }
+        finally
+        {
+            gate?.Release();
+            gate?.Dispose();
+        }
+    }
+
+    private static bool IsRealRevitLauncherAndExecutable(IWorkerProcessLauncher launcher, string executablePath)
+    {
+        IWorkerProcessLauncher current = launcher;
+        while (current is OffScreenWindowingLauncher windowing)
+        {
+            current = windowing.InnerLauncher;
+        }
+
+        if (current is not (CleanDetoursProcessLauncher or StandardProcessLauncher))
+        {
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(executablePath) ||
+            !string.Equals(Path.GetFileName(executablePath), "Revit.exe", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        try
+        {
+            var info = new FileInfo(executablePath);
+            return info.Exists && info.Length > 0;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    private static HashSet<string> SnapshotNumericJournalFiles(string journalsDir)
+    {
+        var files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (string.IsNullOrWhiteSpace(journalsDir) || !Directory.Exists(journalsDir))
+        {
+            return files;
+        }
+
+        try
+        {
+            foreach (string path in Directory.EnumerateFiles(journalsDir, "journal*.txt"))
+            {
+                string fileName = Path.GetFileName(path);
+                if (NumericJournalFileRegex.IsMatch(fileName))
+                {
+                    files.Add(Path.GetFullPath(path));
+                }
             }
         }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+
+        return files;
+    }
+
+    private static async Task<bool> WaitForNewJournalFileAsync(
+        LaunchedWorkerProcess process,
+        string journalsDir,
+        IReadOnlySet<string> existingJournals,
+        TimeSpan waitCap,
+        CancellationToken cancellationToken)
+    {
+        var sw = Stopwatch.StartNew();
+        while (sw.Elapsed < waitCap)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (process.HasExited)
+            {
+                return false;
+            }
+
+            if (Directory.Exists(journalsDir))
+            {
+                try
+                {
+                    foreach (string path in Directory.EnumerateFiles(journalsDir, "journal*.txt"))
+                    {
+                        string fileName = Path.GetFileName(path);
+                        if (NumericJournalFileRegex.IsMatch(fileName) &&
+                            !existingJournals.Contains(Path.GetFullPath(path)))
+                        {
+                            return true;
+                        }
+                    }
+                }
+                catch (IOException)
+                {
+                }
+                catch (UnauthorizedAccessException)
+                {
+                }
+            }
+
+            TimeSpan remaining = waitCap - sw.Elapsed;
+            if (remaining <= TimeSpan.Zero)
+            {
+                break;
+            }
+
+            await Task.Delay(
+                remaining < TimeSpan.FromMilliseconds(25) ? remaining : TimeSpan.FromMilliseconds(25),
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        return false;
     }
 
     public static StartupBootProtector? ResolveStartupBootProtector(

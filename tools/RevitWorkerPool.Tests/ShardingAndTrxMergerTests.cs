@@ -647,6 +647,7 @@ public class ShardingAndTrxMergerTests
                 "--trx", run2Trx,
                 "--shards", "2",
                 "--pipe-name", pipeName,
+                "--no-shim",
                 "--json"
             },
             stdout: cliOut,
