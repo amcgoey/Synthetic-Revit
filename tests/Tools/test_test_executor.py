@@ -94,6 +94,53 @@ class TestDotnetSdkDiscovery(unittest.TestCase):
         )
         self.assertEqual(env["MSBuildEnableWorkloadResolver"], "false")
 
+    def test_find_best_dotnet_sdk_falls_back_from_incompatible_net10_when_msbuild_lacks_resolver(self):
+        local_sdk_root = self._make_sdk("local_dotnet", "8.0.427")
+        pf_sdk_root = self._make_sdk("pf_dotnet", "10.0.404")
+        net10_releases = os.path.join(
+            pf_sdk_root, "10.0.404", "Sdks", "Microsoft.NET.Sdk", "tools", "net472", "Microsoft.Deployment.DotNet.Releases.dll"
+        )
+        os.makedirs(os.path.dirname(net10_releases), exist_ok=True)
+        with open(net10_releases, "w", encoding="utf-8") as f:
+            f.write("")
+
+        msbuild_dir = os.path.join(self.root, "VSBuildTools", "MSBuild", "Current", "Bin", "amd64")
+        os.makedirs(msbuild_dir, exist_ok=True)
+        fake_msbuild = os.path.join(msbuild_dir, "MSBuild.exe")
+        with open(fake_msbuild, "w", encoding="utf-8") as f:
+            f.write("")
+        with open(fake_msbuild + ".config", "w", encoding="utf-8") as f:
+            f.write(
+                """<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <runtime>
+    <assemblyBinding xmlns="urn:schemas-microsoft-com:asm.v1">
+      <dependentAssembly>
+        <assemblyIdentity name="Microsoft.Deployment.DotNet.Releases" culture="neutral" publicKeyToken="31bf3856ad364e35" />
+        <codeBase version="2.0.0.0" href="..\\SdkResolvers\\Microsoft.DotNet.MSBuildSdkResolver\\Microsoft.Deployment.DotNet.Releases.dll" />
+      </dependentAssembly>
+    </assemblyBinding>
+  </runtime>
+</configuration>
+"""
+            )
+
+        best = te.find_best_dotnet_sdk([local_sdk_root, pf_sdk_root], msbuild_path=fake_msbuild)
+        self.assertIsNotNone(best)
+        self.assertEqual(best["version"], "8.0.427")
+
+        # When the resolver DLL exists next to MSBuild, .NET 10 SDK is eligible.
+        resolver_dll = os.path.normpath(
+            os.path.join(msbuild_dir, "..", "SdkResolvers", "Microsoft.DotNet.MSBuildSdkResolver", "Microsoft.Deployment.DotNet.Releases.dll")
+        )
+        os.makedirs(os.path.dirname(resolver_dll), exist_ok=True)
+        with open(resolver_dll, "w", encoding="utf-8") as f:
+            f.write("")
+
+        best_with_resolver = te.find_best_dotnet_sdk([local_sdk_root, pf_sdk_root], msbuild_path=fake_msbuild)
+        self.assertIsNotNone(best_with_resolver)
+        self.assertEqual(best_with_resolver["version"], "10.0.404")
+
 
 class TestCategoryAndFilterComposition(unittest.TestCase):
     def setUp(self):

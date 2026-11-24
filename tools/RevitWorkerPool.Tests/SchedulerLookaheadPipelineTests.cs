@@ -698,6 +698,7 @@ public class SchedulerLookaheadPipelineTests
                 "--assembly", _singleFixtureDll,
                 "--trx", Path.Combine(_tempRoot, "out", "cli_pipe_2024.trx"),
                 "--pipe-name", pipeName,
+                "--no-shim",
                 "--json"
             },
             stdout: cliOut,

@@ -1258,9 +1258,12 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
             }
             else
             {
-                process = await _launcher
-                    .LaunchAsync(launchRequest, worker.BootCts.Token)
-                    .ConfigureAwait(false);
+                process = await TestExecutionHelper.LaunchWithJournalCreationGateAsync(
+                    _launcher,
+                    launchRequest,
+                    worker.BootTimeout,
+                    _diagnosticLogger,
+                    worker.BootCts.Token).ConfigureAwait(false);
 
                 bool shouldAbort;
                 lock (_sync)
