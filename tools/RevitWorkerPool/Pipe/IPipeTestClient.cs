@@ -21,6 +21,10 @@ public sealed record PipeTestExecutionResult(
 /// </summary>
 public interface IPipeTestClient : IAsyncDisposable, IDisposable
 {
+    bool IsConnected { get; }
+
+    event Action? Disconnected;
+
     Task ConnectAndWaitForReadyAsync(
         LaunchedWorkerProcess worker,
         TimeSpan bootTimeout,

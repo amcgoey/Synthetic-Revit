@@ -86,10 +86,37 @@ public static class Ecma335TestDiscovery
         IReadOnlyList<string>? filters = null,
         string? category = null)
     {
+        IReadOnlyCollection<string>? categories = string.IsNullOrWhiteSpace(category)
+            ? null
+            : new[] { category.Trim() };
+        return DiscoverAndFilterByCategories(assemblyPath, filters, categories);
+    }
+
+    /// <summary>
+    /// Discovers all concrete non-abstract test fixtures and their test methods in <paramref name="assemblyPath"/>
+    /// and filters them by optional <paramref name="filters"/> and any matching category in <paramref name="categories"/>.
+    /// </summary>
+    public static TestDiscoveryResult DiscoverAndFilterByCategories(
+        string assemblyPath,
+        IReadOnlyList<string>? filters = null,
+        IReadOnlyCollection<string>? categories = null)
+    {
         (string fullPath, string? targetFramework, IReadOnlyList<DiscoveredFixtureMetadata> allFixtures) =
             ReadAssemblyFixtures(assemblyPath);
 
-        string? normalizedCategory = string.IsNullOrWhiteSpace(category) ? null : category.Trim();
+        HashSet<string>? normalizedCategories = null;
+        if (categories is not null)
+        {
+            foreach (string rawCategory in categories)
+            {
+                if (!string.IsNullOrWhiteSpace(rawCategory))
+                {
+                    normalizedCategories ??= new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    normalizedCategories.Add(rawCategory.Trim());
+                }
+            }
+        }
+
         Func<DiscoveredTestMethod, bool> filterPredicate = TestFilterExpression.Compile(filters);
 
         var matchedFixtures = new List<DiscoveredFixtureTests>();
@@ -103,8 +130,8 @@ public static class Ecma335TestDiscovery
 
             foreach (DiscoveredTestMethod method in fixture.Methods)
             {
-                if (normalizedCategory is not null &&
-                    !method.Categories.Contains(normalizedCategory, StringComparer.OrdinalIgnoreCase))
+                if (normalizedCategories is not null &&
+                    !method.Categories.Any(c => normalizedCategories.Contains(c)))
                 {
                     continue;
                 }

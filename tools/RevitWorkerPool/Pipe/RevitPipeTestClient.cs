@@ -38,9 +38,23 @@ public sealed class RevitPipeTestClient : IPipeTestClient
         {
             AutoReconnect = false
         };
+        _client.Disconnected += OnPersistentDisconnected;
     }
 
     public string PipeName { get; }
+
+    public bool IsConnected
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _connected && Volatile.Read(ref _disposed) == 0;
+            }
+        }
+    }
+
+    public event Action? Disconnected;
 
     public async Task ConnectAndWaitForReadyAsync(
         LaunchedWorkerProcess worker,
@@ -95,12 +109,17 @@ public sealed class RevitPipeTestClient : IPipeTestClient
             lastIsBusy = response.IsBusy;
             _diagnosticLogger?.Invoke($"[pipe] ServerMessage IsBusy={response.IsBusy} Info={response.Info}");
 
-            if (!response.IsBusy)
+            lock (_sync)
             {
-                lock (_sync)
+                _connected = true;
+                if (!response.IsBusy)
                 {
                     _isReady = true;
                 }
+            }
+
+            if (!response.IsBusy)
+            {
                 readyTcs.TrySetResult(true);
             }
         }
@@ -300,6 +319,13 @@ public sealed class RevitPipeTestClient : IPipeTestClient
             return;
         }
 
+        lock (_sync)
+        {
+            _connected = false;
+        }
+
+        _client.Disconnected -= OnPersistentDisconnected;
+
         try
         {
             if (_started)
@@ -311,6 +337,16 @@ public sealed class RevitPipeTestClient : IPipeTestClient
         {
             // Best-effort pipe shutdown.
         }
+    }
+
+    private void OnPersistentDisconnected(NamedPipeConnection<TestResponse, TestRequest> _)
+    {
+        lock (_sync)
+        {
+            _connected = false;
+        }
+
+        Disconnected?.Invoke();
     }
 
     public ValueTask DisposeAsync()
