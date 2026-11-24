@@ -1,0 +1,86 @@
+{
+  "HostObjTypes": {
+    "[Basic Wall]_Golden_Partition_Wall": {
+      "Function": {
+        "Type": "Autodesk.Revit.DB.WallFunction",
+        "Value": "Interior"
+      },
+      "Structure": {
+        "Layers": [
+          {
+            "MaterialId": {
+              "Class": "Autodesk.Revit.DB.Material",
+              "Category": "Materials",
+              "Name": "Golden_Structural_Steel",
+              "Aliases": null,
+              "Id": 0,
+              "UniqueId": null
+            },
+            "Function": "Structure",
+            "Width": 0.5,
+            "DeckEmbeddingType": "Invalid",
+            "DeckProfileId": {
+              "Class": "",
+              "Category": "",
+              "Name": "",
+              "Aliases": null,
+              "Id": -1,
+              "UniqueId": null
+            },
+            "LayerCapFlag": true,
+            "StructuralMaterial": true,
+            "Priority": 2
+          },
+          {
+            "MaterialId": {
+              "Class": "Autodesk.Revit.DB.Material",
+              "Category": "Materials",
+              "Name": "Golden_Finish_Gypsum",
+              "Aliases": null,
+              "Id": 0,
+              "UniqueId": null
+            },
+            "Function": "Finish1",
+            "Width": 0.125,
+            "DeckEmbeddingType": "Invalid",
+            "DeckProfileId": {
+              "Class": "",
+              "Category": "",
+              "Name": "",
+              "Aliases": null,
+              "Id": -1,
+              "UniqueId": null
+            },
+            "LayerCapFlag": false,
+            "StructuralMaterial": false,
+            "Priority": 5
+          }
+        ],
+        "WallSweeps": []
+      },
+      "FamilyName": "Basic Wall",
+      "Class": "Autodesk.Revit.DB.WallType",
+      "Category": "Walls",
+      "Name": "Golden_Partition_Wall",
+      "Aliases": null,
+      "Id": 0,
+      "UniqueId": null,
+      "Parameters": [
+        {
+          "Name": "Type Comments",
+          "Value": "Golden partition wall type",
+          "ValueElemId": null,
+          "StorageType": "String",
+          "Id": -1002051,
+          "GUID": null,
+          "IsShared": false,
+          "IsReadOnly": false
+        }
+      ],
+      "InstanceCount": 0,
+      "Location": null,
+      "BoundingBox": null,
+      "NestedTypes": []
+    }
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "DimensionTypes": {
+    "[Angular]_Golden_Angular_Dim": {
+      "DimensionStyle": "Angular",
+      "FamilyName": "Angular Dimension Style",
+      "Class": "Autodesk.Revit.DB.DimensionType",
+      "Category": "Dimensions",
+      "Name": "Golden_Angular_Dim",
+      "Aliases": null,
+      "Id": 0,
+      "UniqueId": null,
+      "Parameters": [
+        {
+          "Name": "Text Size",
+          "Value": "0.0078125",
+          "ValueElemId": null,
+          "StorageType": "Double",
+          "Id": -1006306,
+          "GUID": null,
+          "IsShared": false,
+          "IsReadOnly": false
+        }
+      ],
+      "InstanceCount": 0,
+      "Location": null,
+      "BoundingBox": null,
+      "NestedTypes": []
+    },
+    "[Linear]_Golden_Linear_Dim": {
+      "DimensionStyle": "Linear",
+      "FamilyName": "Linear Dimension Style",
+      "Class": "Autodesk.Revit.DB.DimensionType",
+      "Category": "Dimensions",
+      "Name": "Golden_Linear_Dim",
+      "Aliases": null,
+      "Id": 0,
+      "UniqueId": null,
+      "Parameters": [
+        {
+          "Name": "Text Size",
+          "Value": "0.0078125",
+          "ValueElemId": null,
+          "StorageType": "Double",
+          "Id": -1006306,
+          "GUID": null,
+          "IsShared": false,
+          "IsReadOnly": false
+        }
+      ],
+      "InstanceCount": 0,
+      "Location": null,
+      "BoundingBox": null,
+      "NestedTypes": []
+    }
+  }
+}
