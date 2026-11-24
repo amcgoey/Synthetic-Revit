@@ -1,0 +1,1674 @@
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using RevitWorkerPool.Containment;
+using RevitWorkerPool.Discovery;
+using RevitWorkerPool.Execution;
+using RevitWorkerPool.Ipc;
+using RevitWorkerPool.Launching;
+using RevitWorkerPool.Pipe;
+
+namespace RevitWorkerPool.Supervisor;
+
+/// <summary>
+/// On-demand Worker Pool supervisor managing pre-booted, single-use Revit Standby Workers,
+/// host-wide concurrency cap enforcement, lazy auto-start/latest-version replenishment,
+/// shared bundle lease lifetime, clean drain, and idle scale-to-zero.
+/// </summary>
+public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
+{
+    private readonly SupervisorOptions _options;
+    private readonly RevitInstallationDiscovery _discovery;
+    private readonly IWorkerProcessLauncher _launcher;
+    private readonly IPipeTestClientFactory _pipeClientFactory;
+    private readonly Func<string?, IDisposable> _bundleLeaseFactory;
+    private readonly TimeProvider _timeProvider;
+    private readonly Func<int> _currentLatestVersionProvider;
+    private readonly Action<string>? _diagnosticLogger;
+
+    private readonly object _sync = new();
+    private readonly List<ManagedWorker> _workers = new();
+    private readonly List<PendingWorkItem> _pendingQueue = new();
+    private readonly Dictionary<int, int> _standbyTargets = new();
+    private readonly ConcurrentDictionary<Task, byte> _backgroundTasks = new();
+    private readonly ConcurrentDictionary<Guid, ActiveRunTracking> _activeRunTasks = new();
+    private readonly CancellationTokenSource _supervisorCts = new();
+    private readonly TaskCompletionSource<bool> _shutdownTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    private IDisposable? _bundleLease;
+    private ITimer? _idleTimer;
+    private SupervisorIpcServer? _ipcServer;
+    private DateTimeOffset _lastActivityUtc;
+    private int _inFlightRuns;
+    private int _activeWarmCalls;
+    private int _totalTerminatedWorkers;
+    private bool _started;
+    private bool _draining;
+    private bool _disposed;
+    private Task<DrainResult>? _drainTask;
+
+    public WorkerPoolSupervisor(
+        SupervisorOptions options,
+        RevitInstallationDiscovery discovery,
+        IWorkerProcessLauncher launcher,
+        IPipeTestClientFactory pipeClientFactory,
+        Func<string?, IDisposable>? bundleLeaseFactory = null,
+        TimeProvider? timeProvider = null,
+        Func<int>? currentLatestVersionProvider = null,
+        Action<string>? diagnosticLogger = null)
+    {
+        _options = options ?? throw new ArgumentNullException(nameof(options));
+        if (_options.MaxActiveWorkers <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(options), "MaxActiveWorkers must be >= 1.");
+        }
+
+        _discovery = discovery ?? throw new ArgumentNullException(nameof(discovery));
+        _launcher = launcher ?? throw new ArgumentNullException(nameof(launcher));
+        _pipeClientFactory = pipeClientFactory ?? throw new ArgumentNullException(nameof(pipeClientFactory));
+        _bundleLeaseFactory = bundleLeaseFactory ?? DefaultAcquireBundleLease;
+        _timeProvider = timeProvider ?? TimeProvider.System;
+        _currentLatestVersionProvider = currentLatestVersionProvider ?? ResolveDefaultLatestVersion;
+        _diagnosticLogger = diagnosticLogger;
+        _lastActivityUtc = _timeProvider.GetUtcNow();
+    }
+
+    public bool IsDraining
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _draining;
+            }
+        }
+    }
+
+    public bool HasShutdownCompleted => _shutdownTcs.Task.IsCompleted;
+
+    /// <summary>
+    /// Attaches the IPC server so <see cref="DrainAsync"/> stops accepting new IPC clients
+    /// before tearing down workers.
+    /// </summary>
+    public void AttachIpcServer(SupervisorIpcServer ipcServer)
+    {
+        ArgumentNullException.ThrowIfNull(ipcServer);
+        lock (_sync)
+        {
+            _ipcServer = ipcServer;
+        }
+    }
+
+    /// <summary>
+    /// Starts the supervisor, acquires the shared bundle lease for the supervisor's active lifetime,
+    /// and arms the idle scale-to-zero timer.
+    /// </summary>
+    public void Start(string? initialAssemblyDir = null)
+    {
+        lock (_sync)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_draining)
+            {
+                return;
+            }
+
+            EnsureBundleLeaseAcquiredLocked(initialAssemblyDir);
+            if (!_started)
+            {
+                _started = true;
+                _lastActivityUtc = _timeProvider.GetUtcNow();
+                ArmOrResetIdleTimerLocked();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Completes once the supervisor has drained to zero workers (via explicit <c>drain</c> or idle TTL).
+    /// </summary>
+    public Task WaitForShutdownAsync(CancellationToken cancellationToken = default)
+    {
+        return _shutdownTcs.Task.WaitAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Pre-boots <paramref name="count"/> Standby Workers (default 2) for <paramref name="version"/>
+    /// (default <c>CURRENT_LATEST_VERSION</c>) up to the host-wide active cap.
+    /// </summary>
+    public async Task<WarmResult> WarmAsync(
+        int? version = null,
+        int? count = null,
+        TimeSpan? bootTimeout = null,
+        CancellationToken cancellationToken = default)
+    {
+        int resolvedVersion;
+        try
+        {
+            resolvedVersion = version ?? _currentLatestVersionProvider();
+        }
+        catch (Exception ex)
+        {
+            return new WarmResult
+            {
+                Success = false,
+                ExitCode = 2,
+                Version = version ?? 0,
+                TargetCount = 0,
+                ReadyCount = 0,
+                Error = ex.Message,
+                Status = GetStatus()
+            };
+        }
+
+        int requestedCount = count ?? _options.DefaultWarmCount;
+        if (requestedCount <= 0)
+        {
+            return new WarmResult
+            {
+                Success = false,
+                ExitCode = 2,
+                Version = resolvedVersion,
+                TargetCount = requestedCount,
+                ReadyCount = 0,
+                Error = $"Warm count must be >= 1 (got {requestedCount}).",
+                Status = GetStatus()
+            };
+        }
+
+        RevitInstallation? installation = _discovery.TryFindInstallation(resolvedVersion);
+        if (installation is null)
+        {
+            return new WarmResult
+            {
+                Success = false,
+                ExitCode = 2,
+                Version = resolvedVersion,
+                TargetCount = 0,
+                ReadyCount = 0,
+                Error = $"Autodesk Revit {resolvedVersion} installation was not found.",
+                Status = GetStatus()
+            };
+        }
+
+        TimeSpan effectiveBootTimeout = bootTimeout ?? _options.DefaultBootTimeout;
+        int cappedTarget = Math.Min(requestedCount, _options.MaxActiveWorkers);
+        List<Task<bool>> bootWaitTasks;
+
+        lock (_sync)
+        {
+            if (_disposed || _draining)
+            {
+                return new WarmResult
+                {
+                    Success = false,
+                    ExitCode = 2,
+                    Version = resolvedVersion,
+                    TargetCount = cappedTarget,
+                    ReadyCount = 0,
+                    Error = "Worker pool supervisor is draining.",
+                    Status = GetStatusLocked()
+                };
+            }
+
+            try
+            {
+                EnsureStartedLocked(initialAssemblyDir: null);
+            }
+            catch (Exception ex)
+            {
+                return new WarmResult
+                {
+                    Success = false,
+                    ExitCode = 2,
+                    Version = resolvedVersion,
+                    TargetCount = cappedTarget,
+                    ReadyCount = 0,
+                    Error = ex.Message,
+                    Status = GetStatusLocked()
+                };
+            }
+
+            _activeWarmCalls++;
+            TouchActivityLocked();
+
+            _standbyTargets[resolvedVersion] = cappedTarget;
+            ScheduleLocked(effectiveBootTimeout);
+
+            bootWaitTasks = _workers
+                .Where(w => w.Version == resolvedVersion && w.State == WorkerState.Booting)
+                .Select(w => w.WarmWaitTcs.Task)
+                .ToList();
+        }
+
+        try
+        {
+            if (bootWaitTasks.Count > 0)
+            {
+                await Task.WhenAll(bootWaitTasks).WaitAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            PoolStatusSnapshot status = GetStatus();
+            int readyCount = status.Versions.TryGetValue(resolvedVersion, out VersionWorkerStatus? vs)
+                ? vs.ReadyStandby
+                : 0;
+
+            return new WarmResult
+            {
+                Success = true,
+                ExitCode = 0,
+                Version = resolvedVersion,
+                TargetCount = cappedTarget,
+                ReadyCount = readyCount,
+                Status = status
+            };
+        }
+        catch (Exception ex)
+        {
+            return new WarmResult
+            {
+                Success = false,
+                ExitCode = 2,
+                Version = resolvedVersion,
+                TargetCount = cappedTarget,
+                ReadyCount = 0,
+                Error = ex.Message,
+                Status = GetStatus()
+            };
+        }
+        finally
+        {
+            lock (_sync)
+            {
+                _activeWarmCalls--;
+                TouchActivityLocked();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Dispatches a single test run to a ready Standby Worker (or waits for a booting worker / boots on demand),
+    /// terminates the consumed worker PID tree immediately on completion, and triggers async replenishment.
+    /// </summary>
+    public async Task<OneShotRunResult> RunAsync(
+        OneShotRunOptions options,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        string fullTrxPath = Path.GetFullPath(options.TrxPath);
+        if (string.IsNullOrWhiteSpace(options.AssemblyPath) || !File.Exists(options.AssemblyPath))
+        {
+            return TestExecutionHelper.InfrastructureFailureResult(
+                options.RevitVersion,
+                fullTrxPath,
+                Array.Empty<string>(),
+                _options.ShimEnabled,
+                $"Test assembly not found: '{options.AssemblyPath}'.");
+        }
+
+        string fullAssemblyPath = Path.GetFullPath(options.AssemblyPath);
+        RevitInstallation? installation = _discovery.TryFindInstallation(options.RevitVersion);
+        if (installation is null)
+        {
+            return TestExecutionHelper.InfrastructureFailureResult(
+                options.RevitVersion,
+                fullTrxPath,
+                Array.Empty<string>(),
+                _options.ShimEnabled,
+                $"Autodesk Revit {options.RevitVersion} installation was not found.");
+        }
+
+        Guid runId = Guid.NewGuid();
+        using var runExecutionCts = CancellationTokenSource.CreateLinkedTokenSource(
+            cancellationToken,
+            _supervisorCts.Token);
+
+        lock (_sync)
+        {
+            if (_disposed || _draining)
+            {
+                return TestExecutionHelper.InfrastructureFailureResult(
+                    options.RevitVersion,
+                    fullTrxPath,
+                    Array.Empty<string>(),
+                    _options.ShimEnabled,
+                    "Worker pool supervisor is draining.");
+            }
+
+            try
+            {
+                EnsureStartedLocked(Path.GetDirectoryName(fullAssemblyPath));
+            }
+            catch (Exception ex)
+            {
+                return TestExecutionHelper.InfrastructureFailureResult(
+                    options.RevitVersion,
+                    fullTrxPath,
+                    Array.Empty<string>(),
+                    _options.ShimEnabled,
+                    ex.Message);
+            }
+
+            _inFlightRuns++;
+            TouchActivityLocked();
+            _activeRunTasks[runId] = new ActiveRunTracking(runExecutionCts);
+        }
+
+        WorkerAssignment? assignment = null;
+        string? knownWorkerId = options.WorkerId;
+        bool dispatchedSuccessfully = false;
+
+        try
+        {
+            assignment = await AcquireWorkerAsync(
+                options.RevitVersion,
+                options.WorkerId,
+                options.BootTimeout,
+                runExecutionCts.Token).ConfigureAwait(false);
+
+            knownWorkerId = assignment.Worker.WorkerId;
+            dispatchedSuccessfully = true;
+
+            // Lazy auto-start policy: keep at least 1 standby worker only for CURRENT_LATEST_VERSION
+            // unless already warmed higher (e.g., 2). Older versions keep target=0 unless explicitly warmed.
+            ApplyLazyLatestPolicyOnDispatch(options.RevitVersion);
+
+            OneShotRunResult result = await TestExecutionHelper.ExecuteOnReadyWorkerAsync(
+                options.RevitVersion,
+                assignment.Process,
+                assignment.PipeClient,
+                fullAssemblyPath,
+                fullTrxPath,
+                options.Filters,
+                options.ExecutionTimeout,
+                _options.ShimEnabled,
+                _diagnosticLogger,
+                runExecutionCts.Token).ConfigureAwait(false);
+
+            return result;
+        }
+        catch (Exception ex)
+        {
+            string[] workerIds = string.IsNullOrWhiteSpace(knownWorkerId)
+                ? Array.Empty<string>()
+                : new[] { knownWorkerId };
+            return TestExecutionHelper.InfrastructureFailureResult(
+                options.RevitVersion,
+                fullTrxPath,
+                workerIds,
+                _options.ShimEnabled,
+                ex.Message);
+        }
+        finally
+        {
+            if (assignment is not null)
+            {
+                await ReleaseAndTerminateConsumedWorkerAsync(assignment.Worker).ConfigureAwait(false);
+            }
+
+            lock (_sync)
+            {
+                _activeRunTasks.TryRemove(runId, out _);
+                _inFlightRuns--;
+                TouchActivityLocked();
+
+                if (dispatchedSuccessfully && !_draining && !_disposed)
+                {
+                    ScheduleLocked();
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Returns live aggregate and per-version worker counts.
+    /// </summary>
+    public PoolStatusSnapshot GetStatus()
+    {
+        lock (_sync)
+        {
+            return GetStatusLocked();
+        }
+    }
+
+    /// <summary>
+    /// Cancels background replenishment, terminates all standby/booting/active workers cleanly,
+    /// disposes the bundle lease, and signals supervisor shutdown. Idempotent.
+    /// </summary>
+    public Task<DrainResult> DrainAsync(CancellationToken cancellationToken = default)
+    {
+        Task<DrainResult> task;
+        lock (_sync)
+        {
+            if (_drainTask is not null)
+            {
+                task = _drainTask;
+            }
+            else
+            {
+                _draining = true;
+                task = ExecuteDrainAsync();
+                _drainTask = task;
+            }
+        }
+
+        return task.WaitAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Routes a control IPC request (<c>ping</c>, <c>warm</c>, <c>run</c>, <c>status</c>, <c>drain</c>).
+    /// </summary>
+    public async Task<SupervisorIpcResponse> HandleIpcRequestAsync(
+        SupervisorIpcRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        switch (request.Command.Trim().ToLowerInvariant())
+        {
+            case SupervisorIpcCommands.Ping:
+            {
+                PoolStatusSnapshot status = GetStatus();
+                return new SupervisorIpcResponse
+                {
+                    RequestId = request.RequestId,
+                    Success = !status.Draining,
+                    ExitCode = status.Draining ? 2 : 0,
+                    IsDraining = status.Draining,
+                    Status = status
+                };
+            }
+
+            case SupervisorIpcCommands.Status:
+            {
+                PoolStatusSnapshot status = GetStatus();
+                return new SupervisorIpcResponse
+                {
+                    RequestId = request.RequestId,
+                    Success = true,
+                    ExitCode = 0,
+                    IsDraining = status.Draining,
+                    Status = status
+                };
+            }
+
+            case SupervisorIpcCommands.Warm:
+            {
+                TimeSpan? bootTimeout = request.BootTimeoutSeconds is > 0
+                    ? TimeSpan.FromSeconds(request.BootTimeoutSeconds.Value)
+                    : null;
+                WarmResult warm = await WarmAsync(
+                    request.Version,
+                    request.Count,
+                    bootTimeout,
+                    cancellationToken).ConfigureAwait(false);
+
+                return new SupervisorIpcResponse
+                {
+                    RequestId = request.RequestId,
+                    Success = warm.Success,
+                    ExitCode = warm.ExitCode,
+                    Error = warm.Error,
+                    IsDraining = warm.Status?.Draining ?? false,
+                    Status = warm.Status,
+                    WarmResult = warm
+                };
+            }
+
+            case SupervisorIpcCommands.Run:
+            {
+                if (request.Run is null)
+                {
+                    return new SupervisorIpcResponse
+                    {
+                        RequestId = request.RequestId,
+                        Success = false,
+                        ExitCode = 2,
+                        Error = "Run payload is required."
+                    };
+                }
+
+                var runOptions = new OneShotRunOptions
+                {
+                    RevitVersion = request.Run.Version,
+                    AssemblyPath = request.Run.AssemblyPath,
+                    TrxPath = request.Run.TrxPath,
+                    Filters = request.Run.Filters,
+                    BootTimeout = TimeSpan.FromSeconds(Math.Max(0.05, request.Run.BootTimeoutSeconds)),
+                    ExecutionTimeout = TimeSpan.FromSeconds(Math.Max(0.05, request.Run.ExecutionTimeoutSeconds)),
+                    WorkerId = request.Run.WorkerId,
+                    ProjectRoot = request.Run.ProjectRoot ?? _options.ProjectRoot,
+                    Diagnostics = request.Run.Diagnostics
+                };
+
+                OneShotRunResult result = await RunAsync(runOptions, cancellationToken).ConfigureAwait(false);
+                return new SupervisorIpcResponse
+                {
+                    RequestId = request.RequestId,
+                    Success = result.Success,
+                    ExitCode = result.ExitCode,
+                    Error = result.Error,
+                    IsDraining = IsDraining,
+                    RunResult = result
+                };
+            }
+
+            case SupervisorIpcCommands.Drain:
+            {
+                DrainResult drain = await DrainAsync(cancellationToken).ConfigureAwait(false);
+                return new SupervisorIpcResponse
+                {
+                    RequestId = request.RequestId,
+                    Success = drain.Success,
+                    ExitCode = drain.ExitCode,
+                    Error = drain.Error,
+                    IsDraining = true,
+                    Status = drain.Status,
+                    DrainResult = drain
+                };
+            }
+
+            default:
+                return new SupervisorIpcResponse
+                {
+                    RequestId = request.RequestId,
+                    Success = false,
+                    ExitCode = 2,
+                    Error = $"Unsupported IPC command '{request.Command}'."
+                };
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        lock (_sync)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+        }
+
+        try
+        {
+            await DrainAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            // Best-effort drain during disposal.
+        }
+
+        lock (_sync)
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            _idleTimer?.Dispose();
+            _idleTimer = null;
+            _bundleLease?.Dispose();
+            _bundleLease = null;
+        }
+
+        _supervisorCts.Dispose();
+    }
+
+    public void Dispose()
+    {
+        DisposeAsync().AsTask().GetAwaiter().GetResult();
+    }
+
+    /// <summary>
+    /// Extension seam for #234 sharding and #235 fair round-robin queueing: acquires a single
+    /// ready worker for <paramref name="version"/>, waiting for an already-booting worker or
+    /// launching on demand within <see cref="SupervisorOptions.MaxActiveWorkers"/>.
+    /// </summary>
+    internal async Task<WorkerAssignment> AcquireWorkerAsync(
+        int version,
+        string? preferredWorkerId,
+        TimeSpan bootTimeout,
+        CancellationToken cancellationToken)
+    {
+        PendingWorkItem pending;
+
+        lock (_sync)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_draining)
+            {
+                throw new OperationCanceledException("Worker pool supervisor is draining.");
+            }
+
+            PruneDeadStandbyLocked();
+
+            ManagedWorker? readyWorker = FindHealthyStandbyLocked(version);
+            if (readyWorker is not null)
+            {
+                AssignWorkerToActiveLocked(readyWorker);
+                return new WorkerAssignment(readyWorker, readyWorker.Process!, readyWorker.PipeClient!);
+            }
+
+            pending = new PendingWorkItem(version, preferredWorkerId, bootTimeout);
+            _pendingQueue.Add(pending);
+            ScheduleLocked(bootTimeout);
+        }
+
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        // Allow an in-flight worker boot's own BootTimeout to trigger and clean up first so its
+        // richer pipe/startup diagnostic message surfaces instead of a generic queue wait timeout.
+        timeoutCts.CancelAfter(bootTimeout + TimeSpan.FromMilliseconds(250));
+
+        try
+        {
+            return await pending.AssignmentTcs.Task.WaitAsync(timeoutCts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            await CancelPendingWorkItemAsync(pending).ConfigureAwait(false);
+            throw new TimeoutException(
+                $"Timed out after {bootTimeout.TotalSeconds:F1}s waiting for a ready Revit {version} worker.");
+        }
+        catch (OperationCanceledException)
+        {
+            await CancelPendingWorkItemAsync(pending).ConfigureAwait(false);
+            throw;
+        }
+    }
+
+    internal Task ReleaseAndTerminateConsumedWorkerAsync(ManagedWorker worker)
+    {
+        return TerminateWorkerOnceAsync(worker, bootFailureError: null, isBootCancellation: false);
+    }
+
+    private async Task CancelPendingWorkItemAsync(PendingWorkItem pending)
+    {
+        WorkerAssignment? raceAssignment = null;
+        lock (_sync)
+        {
+            pending.Cancelled = true;
+            _pendingQueue.Remove(pending);
+            if (pending.AssignmentTcs.Task.IsCompletedSuccessfully)
+            {
+                raceAssignment = pending.AssignmentTcs.Task.Result;
+            }
+        }
+
+        if (raceAssignment is not null)
+        {
+            await ReleaseAndTerminateConsumedWorkerAsync(raceAssignment.Worker).ConfigureAwait(false);
+        }
+    }
+
+    private void ApplyLazyLatestPolicyOnDispatch(int version)
+    {
+        int latestVersion;
+        try
+        {
+            latestVersion = _currentLatestVersionProvider();
+        }
+        catch (Exception)
+        {
+            return;
+        }
+
+        if (version != latestVersion)
+        {
+            return;
+        }
+
+        lock (_sync)
+        {
+            if (_draining || _disposed)
+            {
+                return;
+            }
+
+            int currentTarget = _standbyTargets.GetValueOrDefault(latestVersion);
+            if (currentTarget < 1)
+            {
+                _standbyTargets[latestVersion] = 1;
+            }
+        }
+    }
+
+    private void ScheduleLocked(TimeSpan? overrideBootTimeout = null)
+    {
+        if (_draining || _disposed)
+        {
+            return;
+        }
+
+        PruneDeadStandbyLocked();
+
+        // 1. Dispatch any ready standby workers to matching queued items.
+        for (int i = 0; i < _pendingQueue.Count;)
+        {
+            PendingWorkItem pending = _pendingQueue[i];
+            if (pending.Cancelled)
+            {
+                _pendingQueue.RemoveAt(i);
+                continue;
+            }
+
+            ManagedWorker? ready = FindHealthyStandbyLocked(pending.Version);
+            if (ready is not null)
+            {
+                _pendingQueue.RemoveAt(i);
+                AssignWorkerToActiveLocked(ready);
+                pending.AssignmentTcs.TrySetResult(new WorkerAssignment(ready, ready.Process!, ready.PipeClient!));
+                continue;
+            }
+
+            i++;
+        }
+
+        // 2. Ensure queued items have booting workers (or evict idle wrong-version standby if at cap).
+        var accountedBooting = new Dictionary<int, int>();
+        foreach (ManagedWorker worker in _workers)
+        {
+            if (worker.State == WorkerState.Booting)
+            {
+                accountedBooting[worker.Version] = accountedBooting.GetValueOrDefault(worker.Version) + 1;
+            }
+        }
+
+        foreach (PendingWorkItem pending in _pendingQueue)
+        {
+            if (pending.Cancelled)
+            {
+                continue;
+            }
+
+            int existingBooting = accountedBooting.GetValueOrDefault(pending.Version);
+            if (existingBooting > 0)
+            {
+                accountedBooting[pending.Version] = existingBooting - 1;
+                continue;
+            }
+
+            if (CountTotalSlotsLocked() < _options.MaxActiveWorkers)
+            {
+                LaunchWorkerLocked(
+                    pending.Version,
+                    pending.PreferredWorkerId,
+                    pending.BootTimeout,
+                    isStandbyTargetBoot: false);
+            }
+            else if (CountActiveLocked() < _options.MaxActiveWorkers)
+            {
+                // Reclaim one idle standby worker from another version so active execution can use all cap slots.
+                if (TryEvictIdleStandbyForOtherVersionLocked())
+                {
+                    // Eviction transitions the victim to Terminating and re-triggers ScheduleLocked upon exit.
+                    break;
+                }
+            }
+        }
+
+        // 3. Replenish background standby targets only when no pending item is starving for slots.
+        if (_pendingQueue.Count == 0)
+        {
+            foreach ((int version, int targetCount) in _standbyTargets.OrderBy(kvp => kvp.Key))
+            {
+                if (targetCount <= 0)
+                {
+                    continue;
+                }
+
+                int currentStandbyAndBooting = _workers.Count(w =>
+                    w.Version == version &&
+                    w.State is WorkerState.Booting or WorkerState.ReadyStandby);
+
+                while (currentStandbyAndBooting < targetCount &&
+                       CountTotalSlotsLocked() < _options.MaxActiveWorkers)
+                {
+                    LaunchWorkerLocked(
+                        version,
+                        preferredWorkerId: null,
+                        overrideBootTimeout ?? _options.DefaultBootTimeout,
+                        isStandbyTargetBoot: true);
+                    currentStandbyAndBooting++;
+                }
+            }
+        }
+    }
+
+    private bool TryEvictIdleStandbyForOtherVersionLocked()
+    {
+        HashSet<int> queuedVersions = _pendingQueue.Select(p => p.Version).ToHashSet();
+        ManagedWorker? victim = _workers.FirstOrDefault(w =>
+            w.State == WorkerState.ReadyStandby && !queuedVersions.Contains(w.Version));
+
+        if (victim is null)
+        {
+            return false;
+        }
+
+        victim.State = WorkerState.Terminating;
+        DetachDisconnectHandlerLocked(victim);
+        Log($"[supervisor] Evicting idle standby worker PID={victim.Process?.ProcessId} (Revit {victim.Version}) to free cap slot.");
+
+        TrackBackgroundTask(Task.Run(() => TerminateAndRemoveWorkerAsync(victim)));
+        return true;
+    }
+
+    private void PruneDeadStandbyLocked()
+    {
+        for (int i = _workers.Count - 1; i >= 0; i--)
+        {
+            ManagedWorker worker = _workers[i];
+            if (worker.State != WorkerState.ReadyStandby)
+            {
+                continue;
+            }
+
+            bool alive = worker.Process is { HasExited: false } &&
+                         worker.PipeClient is { IsConnected: true };
+            if (!alive)
+            {
+                worker.State = WorkerState.Terminating;
+                DetachDisconnectHandlerLocked(worker);
+                TrackBackgroundTask(Task.Run(() => TerminateAndRemoveWorkerAsync(worker)));
+            }
+        }
+    }
+
+    private ManagedWorker? FindHealthyStandbyLocked(int version)
+    {
+        return _workers.FirstOrDefault(w =>
+            w.Version == version &&
+            w.State == WorkerState.ReadyStandby &&
+            w.Process is { HasExited: false } &&
+            w.PipeClient is { IsConnected: true });
+    }
+
+    private void AssignWorkerToActiveLocked(ManagedWorker worker)
+    {
+        worker.State = WorkerState.Active;
+        DetachDisconnectHandlerLocked(worker);
+    }
+
+    private void LaunchWorkerLocked(
+        int version,
+        string? preferredWorkerId,
+        TimeSpan bootTimeout,
+        bool isStandbyTargetBoot)
+    {
+        RevitInstallation? installation = _discovery.TryFindInstallation(version);
+        if (installation is null)
+        {
+            var missingEx = new DirectoryNotFoundException(
+                $"Autodesk Revit {version} installation was not found.");
+            FailOnePendingLocked(version, missingEx);
+            return;
+        }
+
+        string workerId = string.IsNullOrWhiteSpace(preferredWorkerId)
+            ? WorkerLaunchRequest.CreateWorkerId()
+            : preferredWorkerId.Trim();
+
+        string projectRoot = TestExecutionHelper.ResolveProjectRoot(_options.ProjectRoot, installation.ExecutablePath);
+        var linkedBootCts = CancellationTokenSource.CreateLinkedTokenSource(_supervisorCts.Token);
+
+        var worker = new ManagedWorker(
+            version,
+            workerId,
+            installation.ExecutablePath,
+            projectRoot,
+            bootTimeout,
+            isStandbyTargetBoot,
+            linkedBootCts);
+
+        _workers.Add(worker);
+        Log($"[supervisor] Launching worker (Revit {version}, workerId={workerId}, standbyIntent={isStandbyTargetBoot}).");
+
+        TrackBackgroundTask(Task.Run(() => BootWorkerAsync(worker)));
+    }
+
+    private async Task BootWorkerAsync(ManagedWorker worker)
+    {
+        try
+        {
+            var launchRequest = new WorkerLaunchRequest
+            {
+                RevitVersion = worker.Version,
+                ExecutablePath = worker.ExecutablePath,
+                Arguments = "/nosplash",
+                WorkerId = worker.WorkerId,
+                ProjectRoot = worker.ProjectRoot
+            };
+
+            LaunchedWorkerProcess process = await _launcher
+                .LaunchAsync(launchRequest, worker.BootCts.Token)
+                .ConfigureAwait(false);
+
+            bool shouldAbort;
+            lock (_sync)
+            {
+                worker.Process = process;
+                shouldAbort = _draining || _disposed || worker.State == WorkerState.Terminating || worker.BootCts.IsCancellationRequested;
+                if (shouldAbort)
+                {
+                    worker.State = WorkerState.Terminating;
+                }
+            }
+
+            if (shouldAbort)
+            {
+                await CleanupFailedBootAsync(worker, new OperationCanceledException("Worker boot cancelled during drain.")).ConfigureAwait(false);
+                return;
+            }
+
+            IPipeTestClient pipeClient = _pipeClientFactory.CreateClient(process);
+            lock (_sync)
+            {
+                worker.PipeClient = pipeClient;
+                shouldAbort = _draining || _disposed || worker.State == WorkerState.Terminating || worker.BootCts.IsCancellationRequested;
+                if (shouldAbort)
+                {
+                    worker.State = WorkerState.Terminating;
+                }
+            }
+
+            if (shouldAbort)
+            {
+                await CleanupFailedBootAsync(worker, new OperationCanceledException("Worker boot cancelled during drain.")).ConfigureAwait(false);
+                return;
+            }
+
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(worker.BootCts.Token);
+            timeoutCts.CancelAfter(worker.BootTimeout);
+
+            try
+            {
+                await pipeClient.ConnectAndWaitForReadyAsync(process, worker.BootTimeout, timeoutCts.Token)
+                    .ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !worker.BootCts.IsCancellationRequested)
+            {
+                throw new TimeoutException(
+                    $"Worker PID {process.ProcessId} pipe '{process.PipeName}' did not report ServerMessage.IsBusy == false within {worker.BootTimeout.TotalSeconds:F1}s.");
+            }
+
+            lock (_sync)
+            {
+                if (_draining || _disposed || worker.State == WorkerState.Terminating || worker.BootCts.IsCancellationRequested)
+                {
+                    worker.State = WorkerState.Terminating;
+                }
+                else
+                {
+                    PendingWorkItem? matched = DequeuePendingForVersionLocked(worker.Version);
+                    if (matched is not null)
+                    {
+                        worker.State = WorkerState.Active;
+                        matched.AssignmentTcs.TrySetResult(new WorkerAssignment(worker, process, pipeClient));
+                        worker.WarmWaitTcs.TrySetResult(true);
+                        Log($"[supervisor] Worker PID={process.ProcessId} (Revit {worker.Version}) ready ({worker.State}).");
+                        return;
+                    }
+
+                    int standbyTarget = _standbyTargets.GetValueOrDefault(worker.Version);
+                    int existingReady = _workers.Count(w =>
+                        w != worker &&
+                        w.Version == worker.Version &&
+                        w.State == WorkerState.ReadyStandby);
+
+                    if (existingReady < standbyTarget)
+                    {
+                        worker.State = WorkerState.ReadyStandby;
+                        AttachDisconnectHandlerLocked(worker, pipeClient);
+                        worker.WarmWaitTcs.TrySetResult(true);
+                        Log($"[supervisor] Worker PID={process.ProcessId} (Revit {worker.Version}) ready ({worker.State}).");
+                        return;
+                    }
+
+                    worker.State = WorkerState.Terminating;
+                    worker.WarmWaitTcs.TrySetResult(true);
+                    Log($"[supervisor] Worker PID={process.ProcessId} (Revit {worker.Version}) unneeded upon ready (target={standbyTarget}); terminating.");
+                }
+            }
+
+            await CleanupUnneededOrCancelledBootAsync(
+                worker,
+                isCancellation: _draining || _disposed || worker.BootCts.IsCancellationRequested).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            await CleanupFailedBootAsync(worker, ex).ConfigureAwait(false);
+        }
+    }
+
+    private Task CleanupUnneededOrCancelledBootAsync(ManagedWorker worker, bool isCancellation)
+    {
+        return TerminateWorkerOnceAsync(
+            worker,
+            bootFailureError: isCancellation ? new OperationCanceledException("Worker boot cancelled during drain.") : null,
+            isBootCancellation: isCancellation);
+    }
+
+    private Task CleanupFailedBootAsync(ManagedWorker worker, Exception error)
+    {
+        bool isCancellation;
+        lock (_sync)
+        {
+            bool bootCancelled = false;
+            try
+            {
+                bootCancelled = worker.BootCts.IsCancellationRequested;
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+
+            isCancellation = _draining || _disposed || (error is OperationCanceledException && bootCancelled);
+        }
+
+        return TerminateWorkerOnceAsync(worker, error, isCancellation);
+    }
+
+    private Task TerminateAndRemoveWorkerAsync(ManagedWorker worker)
+    {
+        return TerminateWorkerOnceAsync(worker, bootFailureError: null, isBootCancellation: false);
+    }
+
+    private Task TerminateWorkerOnceAsync(
+        ManagedWorker worker,
+        Exception? bootFailureError,
+        bool isBootCancellation)
+    {
+        Task terminationTask;
+        lock (_sync)
+        {
+            if (worker.TerminationTask is not null)
+            {
+                terminationTask = worker.TerminationTask;
+            }
+            else
+            {
+                worker.State = WorkerState.Terminating;
+                DetachDisconnectHandlerLocked(worker);
+                LaunchedWorkerProcess? process = worker.Process;
+                IPipeTestClient? pipeClient = worker.PipeClient;
+
+                terminationTask = ExecuteWorkerTerminationAsync(
+                    worker,
+                    process,
+                    pipeClient,
+                    bootFailureError,
+                    isBootCancellation);
+                worker.TerminationTask = terminationTask;
+            }
+        }
+
+        return terminationTask;
+    }
+
+    private async Task ExecuteWorkerTerminationAsync(
+        ManagedWorker worker,
+        LaunchedWorkerProcess? process,
+        IPipeTestClient? pipeClient,
+        Exception? bootFailureError,
+        bool isBootCancellation)
+    {
+        await TestExecutionHelper.TerminateAndDisposeWorkerAsync(process, pipeClient, _diagnosticLogger)
+            .ConfigureAwait(false);
+
+        lock (_sync)
+        {
+            if (_workers.Remove(worker))
+            {
+                _totalTerminatedWorkers++;
+            }
+
+            try
+            {
+                worker.BootCts.Dispose();
+            }
+            catch (ObjectDisposedException)
+            {
+            }
+
+            if (isBootCancellation)
+            {
+                worker.WarmWaitTcs.TrySetCanceled();
+            }
+            else if (bootFailureError is not null)
+            {
+                worker.WarmWaitTcs.TrySetException(bootFailureError);
+                FailOnePendingLocked(worker.Version, bootFailureError);
+            }
+
+            if (!_draining && !_disposed)
+            {
+                ScheduleLocked();
+            }
+        }
+    }
+
+    private async Task<DrainResult> ExecuteDrainAsync()
+    {
+        Log("[supervisor] Draining Worker Pool...");
+
+        SupervisorIpcServer? ipcServer;
+        List<ManagedWorker> workersToStop;
+
+        var readyStandbyToStop = new List<ManagedWorker>();
+
+        lock (_sync)
+        {
+            ipcServer = _ipcServer;
+            _standbyTargets.Clear();
+
+            foreach (PendingWorkItem pending in _pendingQueue)
+            {
+                pending.Cancelled = true;
+                pending.AssignmentTcs.TrySetCanceled();
+            }
+            _pendingQueue.Clear();
+
+            workersToStop = new List<ManagedWorker>(_workers);
+            foreach (ManagedWorker worker in workersToStop)
+            {
+                if (worker.State == WorkerState.ReadyStandby)
+                {
+                    worker.State = WorkerState.Terminating;
+                    DetachDisconnectHandlerLocked(worker);
+                    readyStandbyToStop.Add(worker);
+                }
+                else if (worker.State == WorkerState.Booting)
+                {
+                    worker.State = WorkerState.Terminating;
+                    DetachDisconnectHandlerLocked(worker);
+                    try
+                    {
+                        worker.BootCts.Cancel();
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                    }
+                }
+            }
+
+            _idleTimer?.Dispose();
+            _idleTimer = null;
+        }
+
+        ipcServer?.StopAcceptingNewConnections();
+
+        // Terminate idle ready standby workers immediately; booting workers unwind via BootWorkerAsync.
+        if (readyStandbyToStop.Count > 0)
+        {
+            List<Task> immediateStops = readyStandbyToStop
+                .Select(TerminateAndRemoveWorkerAsync)
+                .ToList();
+            await Task.WhenAll(immediateStops).ConfigureAwait(false);
+        }
+
+        // Allow active tests a brief grace window to complete cleanly before cancelling them.
+        List<ActiveRunTracking> activeRuns = _activeRunTasks.Values.ToList();
+        if (activeRuns.Count > 0)
+        {
+            if (_options.DrainGraceTimeout > TimeSpan.Zero)
+            {
+                DateTime deadline = DateTime.UtcNow + _options.DrainGraceTimeout;
+                while (!_activeRunTasks.IsEmpty && DateTime.UtcNow < deadline)
+                {
+                    await Task.Delay(25).ConfigureAwait(false);
+                }
+            }
+
+            foreach (ActiveRunTracking active in _activeRunTasks.Values)
+            {
+                try
+                {
+                    active.ExecutionCts.Cancel();
+                }
+                catch (ObjectDisposedException)
+                {
+                }
+            }
+        }
+
+        try
+        {
+            _supervisorCts.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+
+        // Wait until all active runs and background boot/termination tasks finish disposing workers.
+        DateTime drainWaitDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(15);
+        while (DateTime.UtcNow < drainWaitDeadline)
+        {
+            Task[] remainingBg = _backgroundTasks.Keys.ToArray();
+            if (remainingBg.Length > 0)
+            {
+                try
+                {
+                    await Task.WhenAll(remainingBg).WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                }
+                catch (Exception)
+                {
+                }
+            }
+
+            bool empty;
+            lock (_sync)
+            {
+                empty = _workers.Count == 0 && _inFlightRuns == 0;
+            }
+
+            if (empty)
+            {
+                break;
+            }
+
+            await Task.Delay(20).ConfigureAwait(false);
+        }
+
+        // Force-cleanup any stubborn worker remnants if active execution didn't unwind cleanly.
+        List<ManagedWorker> remnants;
+        lock (_sync)
+        {
+            remnants = new List<ManagedWorker>(_workers);
+        }
+
+        foreach (ManagedWorker remnant in remnants)
+        {
+            await TerminateAndRemoveWorkerAsync(remnant).ConfigureAwait(false);
+        }
+
+        int terminatedCount;
+        PoolStatusSnapshot finalStatus;
+        lock (_sync)
+        {
+            _bundleLease?.Dispose();
+            _bundleLease = null;
+            terminatedCount = _totalTerminatedWorkers;
+            finalStatus = GetStatusLocked();
+        }
+
+        _shutdownTcs.TrySetResult(true);
+        Log($"[supervisor] Drain complete (terminatedWorkers={terminatedCount}).");
+
+        return new DrainResult
+        {
+            Success = true,
+            ExitCode = 0,
+            TerminatedWorkers = terminatedCount,
+            Status = finalStatus
+        };
+    }
+
+    private PendingWorkItem? DequeuePendingForVersionLocked(int version)
+    {
+        for (int i = 0; i < _pendingQueue.Count; i++)
+        {
+            PendingWorkItem candidate = _pendingQueue[i];
+            if (candidate.Cancelled)
+            {
+                _pendingQueue.RemoveAt(i);
+                i--;
+                continue;
+            }
+
+            if (candidate.Version == version)
+            {
+                _pendingQueue.RemoveAt(i);
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private void FailOnePendingLocked(int version, Exception error)
+    {
+        PendingWorkItem? pending = DequeuePendingForVersionLocked(version);
+        if (pending is not null)
+        {
+            pending.AssignmentTcs.TrySetException(error);
+        }
+    }
+
+    private void AttachDisconnectHandlerLocked(ManagedWorker worker, IPipeTestClient pipeClient)
+    {
+        void OnDisconnected()
+        {
+            lock (_sync)
+            {
+                if (_draining || _disposed || worker.State != WorkerState.ReadyStandby)
+                {
+                    return;
+                }
+
+                worker.State = WorkerState.Terminating;
+                DetachDisconnectHandlerLocked(worker);
+                Log($"[supervisor] Standby worker PID={worker.Process?.ProcessId} (Revit {worker.Version}) disconnected unexpectedly; replacing.");
+                TrackBackgroundTask(Task.Run(() => TerminateAndRemoveWorkerAsync(worker)));
+            }
+        }
+
+        worker.DisconnectHandler = OnDisconnected;
+        pipeClient.Disconnected += OnDisconnected;
+    }
+
+    private static void DetachDisconnectHandlerLocked(ManagedWorker worker)
+    {
+        if (worker.PipeClient is not null && worker.DisconnectHandler is not null)
+        {
+            worker.PipeClient.Disconnected -= worker.DisconnectHandler;
+            worker.DisconnectHandler = null;
+        }
+    }
+
+    private int CountTotalSlotsLocked()
+    {
+        return _workers.Count;
+    }
+
+    private int CountActiveLocked()
+    {
+        return _workers.Count(w => w.State == WorkerState.Active);
+    }
+
+    private void EnsureStartedLocked(string? initialAssemblyDir)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        EnsureBundleLeaseAcquiredLocked(initialAssemblyDir);
+
+        if (!_started)
+        {
+            _started = true;
+            _lastActivityUtc = _timeProvider.GetUtcNow();
+            ArmOrResetIdleTimerLocked();
+        }
+    }
+
+    private void EnsureBundleLeaseAcquiredLocked(string? assemblyDir)
+    {
+        if (_bundleLease is null)
+        {
+            _bundleLease = _bundleLeaseFactory(assemblyDir);
+        }
+    }
+
+    private void TouchActivityLocked()
+    {
+        _lastActivityUtc = _timeProvider.GetUtcNow();
+        ArmOrResetIdleTimerLocked();
+    }
+
+    private void ArmOrResetIdleTimerLocked()
+    {
+        if (_draining || _disposed || _options.IdleTimeout <= TimeSpan.Zero || _options.IdleTimeout == Timeout.InfiniteTimeSpan)
+        {
+            return;
+        }
+
+        if (_idleTimer is null)
+        {
+            _idleTimer = _timeProvider.CreateTimer(
+                OnIdleTimerElapsed,
+                state: null,
+                dueTime: _options.IdleTimeout,
+                period: Timeout.InfiniteTimeSpan);
+        }
+        else
+        {
+            _idleTimer.Change(_options.IdleTimeout, Timeout.InfiniteTimeSpan);
+        }
+    }
+
+    private void OnIdleTimerElapsed(object? state)
+    {
+        bool shouldDrain = false;
+        lock (_sync)
+        {
+            if (_draining || _disposed)
+            {
+                return;
+            }
+
+            bool hasActiveWork = _inFlightRuns > 0 ||
+                                 _activeWarmCalls > 0 ||
+                                 _pendingQueue.Count > 0 ||
+                                 _workers.Any(w => w.State == WorkerState.Active);
+
+            if (hasActiveWork)
+            {
+                ArmOrResetIdleTimerLocked();
+                return;
+            }
+
+            TimeSpan elapsed = _timeProvider.GetUtcNow() - _lastActivityUtc;
+            if (elapsed < _options.IdleTimeout)
+            {
+                TimeSpan remaining = _options.IdleTimeout - elapsed;
+                _idleTimer?.Change(remaining > TimeSpan.Zero ? remaining : TimeSpan.FromMilliseconds(1), Timeout.InfiniteTimeSpan);
+                return;
+            }
+
+            shouldDrain = true;
+        }
+
+        if (shouldDrain)
+        {
+            Log($"[supervisor] Idle TTL ({_options.IdleTimeout}) elapsed with zero active work; scaling to zero.");
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await DrainAsync(CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _diagnosticLogger?.Invoke($"[supervisor] Idle drain error: {ex.Message}");
+                }
+            });
+        }
+    }
+
+    private PoolStatusSnapshot GetStatusLocked()
+    {
+        int booting = 0;
+        int readyStandby = 0;
+        int active = 0;
+
+        var perVersion = new Dictionary<int, (int Target, int Booting, int ReadyStandby, int Active)>();
+
+        foreach ((int version, int target) in _standbyTargets)
+        {
+            if (target > 0)
+            {
+                perVersion[version] = (target, 0, 0, 0);
+            }
+        }
+
+        foreach (ManagedWorker worker in _workers)
+        {
+            if (worker.State == WorkerState.Terminating)
+            {
+                continue;
+            }
+
+            (int target, int b, int r, int a) = perVersion.GetValueOrDefault(worker.Version);
+            switch (worker.State)
+            {
+                case WorkerState.Booting:
+                    booting++;
+                    b++;
+                    break;
+                case WorkerState.ReadyStandby:
+                    readyStandby++;
+                    r++;
+                    break;
+                case WorkerState.Active:
+                    active++;
+                    a++;
+                    break;
+            }
+
+            perVersion[worker.Version] = (target, b, r, a);
+        }
+
+        var versionDtos = new SortedDictionary<int, VersionWorkerStatus>();
+        foreach ((int version, (int target, int b, int r, int a)) in perVersion)
+        {
+            versionDtos[version] = new VersionWorkerStatus
+            {
+                Version = version,
+                StandbyTarget = target,
+                Booting = b,
+                ReadyStandby = r,
+                Active = a,
+                TotalResident = b + r + a
+            };
+        }
+
+        return new PoolStatusSnapshot
+        {
+            Running = !_draining && !_disposed,
+            SupervisorPid = Environment.ProcessId,
+            PipeName = _options.PipeName,
+            ShimEnabled = _options.ShimEnabled,
+            Draining = _draining,
+            Booting = booting,
+            ReadyStandby = readyStandby,
+            Active = active,
+            TotalResident = booting + readyStandby + active,
+            ActiveCap = _options.MaxActiveWorkers,
+            QueuedRuns = _pendingQueue.Count,
+            LastActivityUtc = _lastActivityUtc,
+            Versions = versionDtos
+        };
+    }
+
+    private void TrackBackgroundTask(Task task)
+    {
+        _backgroundTasks[task] = 0;
+        _ = task.ContinueWith(
+            t => _backgroundTasks.TryRemove(t, out _),
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    private int ResolveDefaultLatestVersion()
+    {
+        return _options.CurrentLatestVersion
+            ?? RevitInstallationDiscovery.ReadCurrentLatestVersion(_options.ProjectRoot);
+    }
+
+    private IDisposable DefaultAcquireBundleLease(string? assemblyDir)
+    {
+        var searchDirs = new List<string>();
+        if (!string.IsNullOrWhiteSpace(assemblyDir))
+        {
+            searchDirs.Add(assemblyDir);
+        }
+
+        searchDirs.Add(AppContext.BaseDirectory);
+        return RicaunBundleLease.Acquire(testAdapterSearchDirectories: searchDirs);
+    }
+
+    private void Log(string message)
+    {
+        _diagnosticLogger?.Invoke(message);
+    }
+
+    internal sealed record WorkerAssignment(
+        ManagedWorker Worker,
+        LaunchedWorkerProcess Process,
+        IPipeTestClient PipeClient);
+
+    internal enum WorkerState
+    {
+        Booting,
+        ReadyStandby,
+        Active,
+        Terminating
+    }
+
+    internal sealed class ManagedWorker
+    {
+        public ManagedWorker(
+            int version,
+            string workerId,
+            string executablePath,
+            string projectRoot,
+            TimeSpan bootTimeout,
+            bool isStandbyTargetBoot,
+            CancellationTokenSource bootCts)
+        {
+            Version = version;
+            WorkerId = workerId;
+            ExecutablePath = executablePath;
+            ProjectRoot = projectRoot;
+            BootTimeout = bootTimeout;
+            IsStandbyTargetBoot = isStandbyTargetBoot;
+            BootCts = bootCts;
+            State = WorkerState.Booting;
+        }
+
+        public Guid SlotId { get; } = Guid.NewGuid();
+
+        public int Version { get; }
+
+        public string WorkerId { get; }
+
+        public string ExecutablePath { get; }
+
+        public string ProjectRoot { get; }
+
+        public TimeSpan BootTimeout { get; }
+
+        public bool IsStandbyTargetBoot { get; }
+
+        public CancellationTokenSource BootCts { get; }
+
+        public TaskCompletionSource<bool> WarmWaitTcs { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public WorkerState State { get; set; }
+
+        public LaunchedWorkerProcess? Process { get; set; }
+
+        public IPipeTestClient? PipeClient { get; set; }
+
+        public Action? DisconnectHandler { get; set; }
+
+        public Task? TerminationTask { get; set; }
+    }
+
+    private sealed class PendingWorkItem
+    {
+        public PendingWorkItem(int version, string? preferredWorkerId, TimeSpan bootTimeout)
+        {
+            Version = version;
+            PreferredWorkerId = preferredWorkerId;
+            BootTimeout = bootTimeout;
+        }
+
+        public int Version { get; }
+
+        public string? PreferredWorkerId { get; }
+
+        public TimeSpan BootTimeout { get; }
+
+        public bool Cancelled { get; set; }
+
+        public TaskCompletionSource<WorkerAssignment> AssignmentTcs { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    private sealed record ActiveRunTracking(CancellationTokenSource ExecutionCts);
+}

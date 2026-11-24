@@ -1,10 +1,11 @@
 using System;
 using System.Collections.Generic;
+using RevitWorkerPool.Ipc;
 
 namespace RevitWorkerPool.Execution;
 
 /// <summary>
-/// Options controlling a one-shot test execution against a single worker process.
+/// Options controlling a test execution against a single worker or the Worker Pool supervisor.
 /// </summary>
 public sealed class OneShotRunOptions
 {
@@ -24,9 +25,15 @@ public sealed class OneShotRunOptions
 
     public string? ProjectRoot { get; init; }
 
+    public string PipeName { get; init; } = SupervisorIpcConstants.DefaultPipeName;
+
+    public int IdleTtlMinutes { get; init; } = SupervisorIpcConstants.DefaultIdleTtlMinutes;
+
+    public bool NoShim { get; init; }
+
     public bool Diagnostics { get; init; }
 
     public bool JsonOutput { get; init; }
 
-    public bool OneShot { get; init; } = true;
+    public bool OneShot { get; init; }
 }
