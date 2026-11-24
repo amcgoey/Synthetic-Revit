@@ -29,6 +29,8 @@ public sealed class SupervisorOptions
 
     public string? ProjectRoot { get; init; }
 
+    public string? TimingCacheDirectory { get; init; }
+
     public int? CurrentLatestVersion { get; init; }
 
     public bool Diagnostics { get; init; }

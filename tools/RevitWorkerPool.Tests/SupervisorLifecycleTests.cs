@@ -91,7 +91,8 @@ public class SupervisorLifecycleTests
             {
                 PipeName = pipeName,
                 CurrentLatestVersion = 2026,
-                IdleTimeout = TimeSpan.FromMinutes(25)
+                IdleTimeout = TimeSpan.FromMinutes(25),
+                TimingCacheDirectory = Path.Combine(_tempRoot, "timing_cache")
             },
             _discovery,
             launcher,
@@ -203,7 +204,7 @@ public class SupervisorLifecycleTests
 
         // 1. First run for CURRENT_LATEST_VERSION (2026) sets lazy target=1 and replenishes asynchronously.
         string trx1 = Path.Combine(_tempRoot, "out", "run1.trx");
-        SupervisorIpcResponse run1 = await SendRunAsync(pipeName, 2026, trx1);
+        SupervisorIpcResponse run1 = await SendRunAsync(pipeName, 2026, trx1, shards: 1);
 
         Assert.That(run1.Success, Is.True, run1.Error);
         Assert.That(run1.ExitCode, Is.EqualTo(0));
@@ -226,7 +227,7 @@ public class SupervisorLifecycleTests
 
         // 2. Second run for 2026 dispatches immediately to the waiting standby worker, terminates it, and replenishes.
         string trx2 = Path.Combine(_tempRoot, "out", "run2.trx");
-        SupervisorIpcResponse run2 = await SendRunAsync(pipeName, 2026, trx2);
+        SupervisorIpcResponse run2 = await SendRunAsync(pipeName, 2026, trx2, shards: 1);
 
         Assert.That(run2.Success, Is.True, run2.Error);
         Assert.That(run2.RunResult!.WorkerIds.Single(), Is.EqualTo(prewarmedStandbyId));
@@ -239,7 +240,7 @@ public class SupervisorLifecycleTests
 
         // 3. Older version (2024) runs on demand, terminates immediately, and leaves 0 persistent standbys.
         string trx2024 = Path.Combine(_tempRoot, "out", "run2024.trx");
-        SupervisorIpcResponse run2024 = await SendRunAsync(pipeName, 2024, trx2024);
+        SupervisorIpcResponse run2024 = await SendRunAsync(pipeName, 2024, trx2024, shards: 1);
 
         Assert.That(run2024.Success, Is.True, run2024.Error);
         Assert.That(run2024.RunResult!.Version, Is.EqualTo(2024));
@@ -299,7 +300,11 @@ public class SupervisorLifecycleTests
         Assert.That(launcher.Workers.Count, Is.EqualTo(1));
         string bootingWorkerId = launcher.Workers.Single().WorkerId;
 
-        SupervisorIpcResponse runResp = await SendRunAsync(pipeName, 2026, Path.Combine(_tempRoot, "out", "booting.trx"));
+        SupervisorIpcResponse runResp = await SendRunAsync(
+            pipeName,
+            2026,
+            Path.Combine(_tempRoot, "out", "booting.trx"),
+            shards: 1);
         await warmTask;
 
         Assert.That(runResp.Success, Is.True, runResp.Error);
@@ -439,7 +444,11 @@ public class SupervisorLifecycleTests
         await using (var sup1 = CreateSupervisor(pipe1, launcher1, currentLatestVersion: 2026))
         await using (var srv1 = StartServer(pipe1, sup1))
         {
-            SupervisorIpcResponse failResp = await SendRunAsync(pipe1, 2024, Path.Combine(_tempRoot, "out", "fail.trx"));
+            SupervisorIpcResponse failResp = await SendRunAsync(
+                pipe1,
+                2024,
+                Path.Combine(_tempRoot, "out", "fail.trx"),
+                shards: 1);
             Assert.That(failResp.ExitCode, Is.EqualTo(1));
             Assert.That(failResp.Success, Is.False);
             Assert.That(failResp.RunResult!.FailedTests, Is.EqualTo(1));
@@ -481,7 +490,8 @@ public class SupervisorLifecycleTests
                 pipe2,
                 2026,
                 Path.Combine(_tempRoot, "out", "hung.trx"),
-                bootTimeoutSeconds: 0.1);
+                bootTimeoutSeconds: 0.1,
+                shards: 1);
 
             Assert.That(hungResp.ExitCode, Is.EqualTo(2));
             Assert.That(hungResp.Success, Is.False);
@@ -558,7 +568,8 @@ public class SupervisorLifecycleTests
             {
                 PipeName = pipeName,
                 CurrentLatestVersion = 2026,
-                IdleTimeout = TimeSpan.FromMinutes(25)
+                IdleTimeout = TimeSpan.FromMinutes(25),
+                TimingCacheDirectory = Path.Combine(_tempRoot, "timing_cache")
             },
             _discovery,
             launcher,
@@ -579,7 +590,8 @@ public class SupervisorLifecycleTests
         {
             RevitVersion = 2026,
             AssemblyPath = _fakeAssemblyPath,
-            TrxPath = Path.Combine(_tempRoot, "out", "ttl.trx")
+            TrxPath = Path.Combine(_tempRoot, "out", "ttl.trx"),
+            Shards = 1
         });
         await execStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
 
@@ -721,7 +733,8 @@ public class SupervisorLifecycleTests
             {
                 PipeName = pipeName,
                 CurrentLatestVersion = 2026,
-                IdleTimeout = TimeSpan.FromMilliseconds(50)
+                IdleTimeout = TimeSpan.FromMilliseconds(50),
+                TimingCacheDirectory = Path.Combine(_tempRoot, "timing_cache")
             },
             _discovery,
             launcher,
@@ -890,7 +903,8 @@ public class SupervisorLifecycleTests
             pipeName,
             2026,
             multiCatTrx,
-            categories: new[] { "RevitSmoke", "RevitAdapter" });
+            categories: new[] { "RevitSmoke", "RevitAdapter" },
+            shards: 1);
 
         Assert.That(multiCatResp.Success, Is.True, multiCatResp.Error);
         Assert.That(multiCatResp.ExitCode, Is.EqualTo(0));
@@ -916,7 +930,8 @@ public class SupervisorLifecycleTests
             {
                 PipeName = pipeName,
                 CurrentLatestVersion = currentLatestVersion,
-                IdleTimeout = TimeSpan.FromMinutes(25)
+                IdleTimeout = TimeSpan.FromMinutes(25),
+                TimingCacheDirectory = Path.Combine(_tempRoot, "timing_cache")
             },
             _discovery,
             launcher,
@@ -945,6 +960,7 @@ public class SupervisorLifecycleTests
         string? category = null,
         IReadOnlyList<string>? categories = null,
         double bootTimeoutSeconds = 5,
+        int? shards = null,
         CancellationToken cancellationToken = default)
     {
         return SupervisorIpcClient.SendAsync(
@@ -961,7 +977,8 @@ public class SupervisorLifecycleTests
                     Category = category,
                     Categories = categories ?? Array.Empty<string>(),
                     BootTimeoutSeconds = bootTimeoutSeconds,
-                    ExecutionTimeoutSeconds = 10
+                    ExecutionTimeoutSeconds = 10,
+                    Shards = shards
                 }
             },
             TimeSpan.FromSeconds(5),

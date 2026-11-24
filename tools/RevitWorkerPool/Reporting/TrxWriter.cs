@@ -35,6 +35,12 @@ public static class TrxWriter
     private static readonly Guid DefaultTestListId =
         Guid.Parse("8c84fa94-04c1-424b-9868-57a2d4851a1d");
 
+    internal readonly record struct CollectedTrxTest(
+        string ClassName,
+        TestModel Test,
+        int ShardIndex = 0,
+        DateTimeOffset? ShardStartTime = null);
+
     public static TrxSummary Write(
         string trxPath,
         string assemblyPath,
@@ -43,10 +49,36 @@ public static class TrxWriter
         DateTimeOffset? startTime = null,
         DateTimeOffset? finishTime = null)
     {
+        DateTimeOffset runStart = startTime ?? DateTimeOffset.UtcNow;
+        DateTimeOffset runFinish = finishTime ?? DateTimeOffset.UtcNow;
+        if (runFinish < runStart)
+        {
+            runFinish = runStart;
+        }
+
+        List<(string ClassName, TestModel Test)> rawTests = CollectTests(assemblyModel, streamedTests);
+        var collected = new List<CollectedTrxTest>(rawTests.Count);
+        foreach ((string className, TestModel test) in rawTests)
+        {
+            collected.Add(new CollectedTrxTest(className, test, ShardIndex: 0, ShardStartTime: runStart));
+        }
+
+        return WriteCollectedTests(trxPath, assemblyPath, collected, runStart, runFinish);
+    }
+
+    internal static TrxSummary WriteCollectedTests(
+        string trxPath,
+        string assemblyPath,
+        IReadOnlyList<CollectedTrxTest> collectedTests,
+        DateTimeOffset runStart,
+        DateTimeOffset runFinish)
+    {
         if (string.IsNullOrWhiteSpace(trxPath))
         {
             throw new ArgumentException("TRX output path must not be empty.", nameof(trxPath));
         }
+
+        ArgumentNullException.ThrowIfNull(collectedTests);
 
         string fullTrxPath = Path.GetFullPath(trxPath);
         string? trxDir = Path.GetDirectoryName(fullTrxPath);
@@ -59,14 +91,10 @@ public static class TrxWriter
             ? string.Empty
             : Path.GetFullPath(assemblyPath);
 
-        DateTimeOffset runStart = startTime ?? DateTimeOffset.UtcNow;
-        DateTimeOffset runFinish = finishTime ?? DateTimeOffset.UtcNow;
         if (runFinish < runStart)
         {
             runFinish = runStart;
         }
-
-        List<(string ClassName, TestModel Test)> collectedTests = CollectTests(assemblyModel, streamedTests);
 
         int passed = 0;
         int failed = 0;
@@ -75,12 +103,16 @@ public static class TrxWriter
         var resultsElement = new XElement(TrxNamespace + "Results");
         var testDefinitionsElement = new XElement(TrxNamespace + "TestDefinitions");
         var testEntriesElement = new XElement(TrxNamespace + "TestEntries");
+        var seenTestDefinitionIds = new HashSet<Guid>();
+        var shardCursors = new Dictionary<int, DateTimeOffset>();
 
-        DateTimeOffset cursor = runStart;
         string computerName = Environment.MachineName;
 
-        foreach ((string className, TestModel test) in collectedTests)
+        foreach (CollectedTrxTest entry in collectedTests)
         {
+            string className = entry.ClassName;
+            TestModel test = entry.Test;
+
             string fullName = !string.IsNullOrWhiteSpace(test.FullName)
                 ? test.FullName
                 : (!string.IsNullOrWhiteSpace(test.Name) ? test.Name : "UnnamedTest");
@@ -94,12 +126,17 @@ public static class TrxWriter
             Guid testId = CreateDeterministicGuid($"{normalizedAssemblyPath}::{fullName}");
             Guid executionId = Guid.NewGuid();
 
+            if (!shardCursors.TryGetValue(entry.ShardIndex, out DateTimeOffset cursor))
+            {
+                cursor = entry.ShardStartTime ?? runStart;
+            }
+
             // CRITICAL: TestModel.Time in ricaun.NUnit 1.5.0 is in milliseconds, NOT seconds.
             double clampedMs = double.IsFinite(test.Time) && test.Time > 0 ? test.Time : 0d;
             TimeSpan duration = TimeSpan.FromMilliseconds(clampedMs);
             DateTimeOffset testStart = cursor;
             DateTimeOffset testEnd = testStart + duration;
-            cursor = testEnd;
+            shardCursors[entry.ShardIndex] = testEnd;
 
             string outcome;
             if (test.Skipped)
@@ -140,21 +177,24 @@ public static class TrxWriter
 
             resultsElement.Add(unitTestResult);
 
-            var unitTestDefinition = new XElement(
-                TrxNamespace + "UnitTest",
-                new XAttribute("name", SanitizeXmlString(fullName)),
-                new XAttribute("storage", SanitizeXmlString(normalizedAssemblyPath)),
-                new XAttribute("id", testId.ToString("D")),
-                new XElement(
-                    TrxNamespace + "Execution",
-                    new XAttribute("id", executionId.ToString("D"))),
-                new XElement(
-                    TrxNamespace + "TestMethod",
-                    new XAttribute("codeBase", SanitizeXmlString(normalizedAssemblyPath)),
-                    new XAttribute("adapterTypeName", "executor://ricaun.RevitTest.TestAdapter"),
-                    new XAttribute("className", SanitizeXmlString(resolvedClassName)),
-                    new XAttribute("name", SanitizeXmlString(methodName))));
-            testDefinitionsElement.Add(unitTestDefinition);
+            if (seenTestDefinitionIds.Add(testId))
+            {
+                var unitTestDefinition = new XElement(
+                    TrxNamespace + "UnitTest",
+                    new XAttribute("name", SanitizeXmlString(fullName)),
+                    new XAttribute("storage", SanitizeXmlString(normalizedAssemblyPath)),
+                    new XAttribute("id", testId.ToString("D")),
+                    new XElement(
+                        TrxNamespace + "Execution",
+                        new XAttribute("id", executionId.ToString("D"))),
+                    new XElement(
+                        TrxNamespace + "TestMethod",
+                        new XAttribute("codeBase", SanitizeXmlString(normalizedAssemblyPath)),
+                        new XAttribute("adapterTypeName", "executor://ricaun.RevitTest.TestAdapter"),
+                        new XAttribute("className", SanitizeXmlString(resolvedClassName)),
+                        new XAttribute("name", SanitizeXmlString(methodName))));
+                testDefinitionsElement.Add(unitTestDefinition);
+            }
 
             testEntriesElement.Add(new XElement(
                 TrxNamespace + "TestEntry",
@@ -251,7 +291,7 @@ public static class TrxWriter
             subSecondTicks);
     }
 
-    private static List<(string ClassName, TestModel Test)> CollectTests(
+    internal static List<(string ClassName, TestModel Test)> CollectTests(
         TestAssemblyModel? assemblyModel,
         IReadOnlyList<TestModel>? streamedTests)
     {

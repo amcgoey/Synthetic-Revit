@@ -8,6 +8,7 @@ using RevitWorkerPool.Discovery;
 using RevitWorkerPool.Launching;
 using RevitWorkerPool.Pipe;
 using RevitWorkerPool.Reporting;
+using RevitWorkerPool.Sharding;
 using RevitWorkerPool.Startup;
 using RevitWorkerPool.Windowing;
 
@@ -22,8 +23,24 @@ internal readonly record struct FilterPreparationResult(
     OneShotRunResult? ImmediateResult);
 
 /// <summary>
-/// Shared execution, discovery/filter preparation, TRX generation, failure result, and worker teardown helpers
-/// used by both <see cref="OneShotTestRunner"/> and <c>WorkerPoolSupervisor</c>.
+/// Result of pre-dispatch ECMA-335 discovery and duration-weighted LPT fixture sharding.
+/// </summary>
+internal readonly record struct RunPlanPreparationResult(
+    bool ShouldExecute,
+    IReadOnlyList<TestShardPlan> Shards,
+    OneShotRunResult? ImmediateResult);
+
+/// <summary>
+/// Completed pipe execution outcome and wall-clock timestamps for a single shard.
+/// </summary>
+internal readonly record struct ShardExecutionOutcome(
+    PipeTestExecutionResult Execution,
+    DateTimeOffset StartTime,
+    DateTimeOffset FinishTime);
+
+/// <summary>
+/// Shared execution, discovery/filter preparation, sharding plan, TRX generation, failure result,
+/// and worker teardown helpers used by both <see cref="OneShotTestRunner"/> and <c>WorkerPoolSupervisor</c>.
 /// </summary>
 internal static class TestExecutionHelper
 {
@@ -45,8 +62,8 @@ internal static class TestExecutionHelper
 
     /// <summary>
     /// Expands CLI <paramref name="filters"/> and <paramref name="category"/>/<paramref name="categories"/>
-    /// against ECMA-335 metadata prior to consuming or booting a worker, returning an immediate zero-match
-    /// or infrastructure-failure <see cref="OneShotRunResult"/> when execution should short-circuit.
+    /// against ECMA-335 metadata prior to consuming or booting a single one-shot worker, returning an
+    /// immediate zero-match or infrastructure-failure <see cref="OneShotRunResult"/> when execution should short-circuit.
     /// </summary>
     public static FilterPreparationResult PrepareExecutionFilters(
         int revitVersion,
@@ -59,7 +76,224 @@ internal static class TestExecutionHelper
         Action<string>? logger)
     {
         bool hasFilter = filters is not null && filters.Any(f => !string.IsNullOrWhiteSpace(f));
+        List<string> effectiveCategories = NormalizeCategories(category, categories);
+        if (!hasFilter && effectiveCategories.Count == 0)
+        {
+            return new FilterPreparationResult(
+                ShouldExecute: true,
+                ResolvedTestFilters: Array.Empty<string>(),
+                ImmediateResult: null);
+        }
 
+        (TestDiscoveryResult? discoveryResult, OneShotRunResult? immediate) = DiscoverMatchingTests(
+            revitVersion,
+            fullAssemblyPath,
+            fullTrxPath,
+            filters,
+            effectiveCategories,
+            shimEnabled,
+            logger);
+
+        if (immediate is not null || discoveryResult is null)
+        {
+            return new FilterPreparationResult(
+                ShouldExecute: false,
+                ResolvedTestFilters: Array.Empty<string>(),
+                ImmediateResult: immediate);
+        }
+
+        return new FilterPreparationResult(
+            ShouldExecute: true,
+            ResolvedTestFilters: discoveryResult.RicaunTestFilters.ToArray(),
+            ImmediateResult: null);
+    }
+
+    /// <summary>
+    /// Always discovers all concrete <c>[TestFixture]</c> classes (even when <paramref name="filters"/>
+    /// and categories are omitted) and partitions matched fixtures via <see cref="DurationWeightedLptSharder"/>
+    /// using historical durations from <paramref name="timingCache"/>.
+    /// </summary>
+    public static RunPlanPreparationResult PrepareRunPlan(
+        int revitVersion,
+        string fullAssemblyPath,
+        string fullTrxPath,
+        IReadOnlyList<string>? filters,
+        string? category,
+        IReadOnlyList<string>? categories,
+        int? requestedShards,
+        int maxActiveWorkers,
+        FixtureTimingCache timingCache,
+        bool shimEnabled,
+        Action<string>? logger)
+    {
+        ArgumentNullException.ThrowIfNull(timingCache);
+
+        if (requestedShards.HasValue && requestedShards.Value <= 0)
+        {
+            return new RunPlanPreparationResult(
+                ShouldExecute: false,
+                Shards: Array.Empty<TestShardPlan>(),
+                ImmediateResult: InfrastructureFailureResult(
+                    revitVersion,
+                    fullTrxPath,
+                    Array.Empty<string>(),
+                    shimEnabled,
+                    $"Shard count must be >= 1 (got {requestedShards.Value}).",
+                    shardCount: 0));
+        }
+
+        List<string> effectiveCategories = NormalizeCategories(category, categories);
+        (TestDiscoveryResult? discoveryResult, OneShotRunResult? immediate) = DiscoverMatchingTests(
+            revitVersion,
+            fullAssemblyPath,
+            fullTrxPath,
+            filters,
+            effectiveCategories,
+            shimEnabled,
+            logger);
+
+        if (immediate is not null || discoveryResult is null)
+        {
+            return new RunPlanPreparationResult(
+                ShouldExecute: false,
+                Shards: Array.Empty<TestShardPlan>(),
+                ImmediateResult: immediate);
+        }
+
+        IReadOnlyDictionary<string, double> historicalDurations =
+            timingCache.LoadFixtureDurations(revitVersion);
+
+        IReadOnlyList<TestShardPlan> shards = DurationWeightedLptSharder.CreatePlan(
+            discoveryResult.Fixtures,
+            historicalDurations,
+            requestedShards,
+            maxActiveWorkers);
+
+        logger?.Invoke(
+            $"[runner] Planned {shards.Count} shard(s) across {discoveryResult.Fixtures.Count} fixture(s) " +
+            $"({discoveryResult.TestFullNames.Count} test method(s)).");
+
+        return new RunPlanPreparationResult(
+            ShouldExecute: true,
+            Shards: shards,
+            ImmediateResult: null);
+    }
+
+    public static async Task<OneShotRunResult> ExecuteOnReadyWorkerAsync(
+        int revitVersion,
+        LaunchedWorkerProcess worker,
+        IPipeTestClient pipeClient,
+        string fullAssemblyPath,
+        string fullTrxPath,
+        IReadOnlyList<string> resolvedTestFilters,
+        TimeSpan executionTimeout,
+        bool shimEnabled,
+        Action<string>? logger,
+        CancellationToken cancellationToken)
+    {
+        ShardExecutionOutcome outcome = await ExecuteShardOnReadyWorkerAsync(
+            worker,
+            pipeClient,
+            fullAssemblyPath,
+            resolvedTestFilters,
+            executionTimeout,
+            logger,
+            cancellationToken).ConfigureAwait(false);
+
+        TrxSummary summary = TrxWriter.Write(
+            fullTrxPath,
+            fullAssemblyPath,
+            outcome.Execution.AssemblyResult,
+            outcome.Execution.StreamedTests,
+            outcome.StartTime,
+            outcome.FinishTime);
+
+        bool zeroMatches = summary.TotalTests == 0;
+        bool success = summary.FailedTests == 0;
+        int exitCode = success ? 0 : 1;
+
+        return new OneShotRunResult
+        {
+            Success = success,
+            ExitCode = exitCode,
+            Version = revitVersion,
+            TrxPath = summary.TrxPath,
+            WorkerIds = new[] { worker.WorkerId },
+            ShardCount = 1,
+            TotalTests = summary.TotalTests,
+            PassedTests = summary.PassedTests,
+            FailedTests = summary.FailedTests,
+            SkippedTests = summary.SkippedTests,
+            ZeroMatches = zeroMatches,
+            ShimEnabled = shimEnabled,
+            Error = null
+        };
+    }
+
+    public static async Task<ShardExecutionOutcome> ExecuteShardOnReadyWorkerAsync(
+        LaunchedWorkerProcess worker,
+        IPipeTestClient pipeClient,
+        string shardAssemblyPath,
+        IReadOnlyList<string> resolvedTestFilters,
+        TimeSpan executionTimeout,
+        Action<string>? logger,
+        CancellationToken cancellationToken)
+    {
+        DateTimeOffset runStart = DateTimeOffset.UtcNow;
+        string[] testFilters = resolvedTestFilters is null || resolvedTestFilters.Count == 0
+            ? Array.Empty<string>()
+            : resolvedTestFilters as string[] ?? resolvedTestFilters.ToArray();
+
+        var testRequest = new TestRequest
+        {
+            TestPathFile = shardAssemblyPath,
+            TestFilters = testFilters,
+            Info = $"WorkerId={worker.WorkerId}"
+        };
+
+        PipeTestExecutionResult execution = await pipeClient.ExecuteTestsAsync(
+            testRequest,
+            worker,
+            executionTimeout,
+            onTestCompleted: test =>
+            {
+                string status = test.Skipped ? "SKIP" : (test.Success ? "PASS" : "FAIL");
+                logger?.Invoke($"[test] {status}: {test.FullName} ({test.Time:F1}ms)");
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        DateTimeOffset runFinish = DateTimeOffset.UtcNow;
+        return new ShardExecutionOutcome(execution, runStart, runFinish);
+    }
+
+    public static OneShotRunResult InfrastructureFailureResult(
+        int version,
+        string trxPath,
+        IReadOnlyList<string> workerIds,
+        bool shimEnabled,
+        string error,
+        int shardCount = 1)
+    {
+        return new OneShotRunResult
+        {
+            Success = false,
+            ExitCode = 2,
+            Version = version,
+            TrxPath = trxPath,
+            WorkerIds = workerIds,
+            ShardCount = shardCount,
+            TotalTests = 0,
+            PassedTests = 0,
+            FailedTests = 0,
+            SkippedTests = 0,
+            ZeroMatches = false,
+            ShimEnabled = shimEnabled,
+            Error = error
+        };
+    }
+
+    private static List<string> NormalizeCategories(string? category, IReadOnlyList<string>? categories)
+    {
         var effectiveCategories = new List<string>();
         var seenCategories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -89,15 +323,18 @@ internal static class TestExecutionHelper
             }
         }
 
-        bool hasCategory = effectiveCategories.Count > 0;
-        if (!hasFilter && !hasCategory)
-        {
-            return new FilterPreparationResult(
-                ShouldExecute: true,
-                ResolvedTestFilters: Array.Empty<string>(),
-                ImmediateResult: null);
-        }
+        return effectiveCategories;
+    }
 
+    private static (TestDiscoveryResult? DiscoveryResult, OneShotRunResult? ImmediateResult) DiscoverMatchingTests(
+        int revitVersion,
+        string fullAssemblyPath,
+        string fullTrxPath,
+        IReadOnlyList<string>? filters,
+        IReadOnlyList<string> effectiveCategories,
+        bool shimEnabled,
+        Action<string>? logger)
+    {
         DateTimeOffset runStart = DateTimeOffset.UtcNow;
         TestDiscoveryResult discoveryResult;
         try
@@ -114,15 +351,13 @@ internal static class TestExecutionHelper
         }
         catch (Exception ex)
         {
-            return new FilterPreparationResult(
-                ShouldExecute: false,
-                ResolvedTestFilters: Array.Empty<string>(),
-                ImmediateResult: InfrastructureFailureResult(
-                    revitVersion,
-                    fullTrxPath,
-                    Array.Empty<string>(),
-                    shimEnabled,
-                    $"Failed to inspect test assembly metadata '{fullAssemblyPath}': {ex.Message}"));
+            return (null, InfrastructureFailureResult(
+                revitVersion,
+                fullTrxPath,
+                Array.Empty<string>(),
+                shimEnabled,
+                $"Failed to inspect test assembly metadata '{fullAssemblyPath}': {ex.Message}",
+                shardCount: 0));
         }
 
         if (!discoveryResult.HasMatches)
@@ -140,15 +375,13 @@ internal static class TestExecutionHelper
             }
             catch (Exception ex)
             {
-                return new FilterPreparationResult(
-                    ShouldExecute: false,
-                    ResolvedTestFilters: Array.Empty<string>(),
-                    ImmediateResult: InfrastructureFailureResult(
-                        revitVersion,
-                        fullTrxPath,
-                        Array.Empty<string>(),
-                        shimEnabled,
-                        $"Failed to write empty TRX '{fullTrxPath}': {ex.Message}"));
+                return (null, InfrastructureFailureResult(
+                    revitVersion,
+                    fullTrxPath,
+                    Array.Empty<string>(),
+                    shimEnabled,
+                    $"Failed to write empty TRX '{fullTrxPath}': {ex.Message}",
+                    shardCount: 0));
             }
 
             string categoryDesc = string.Join(",", effectiveCategories);
@@ -158,126 +391,29 @@ internal static class TestExecutionHelper
                 $"(category='{categoryDesc}', filters={filterCount}); " +
                 $"skipping worker launch and wrote empty TRX '{emptySummary.TrxPath}'.");
 
-            return new FilterPreparationResult(
-                ShouldExecute: false,
-                ResolvedTestFilters: Array.Empty<string>(),
-                ImmediateResult: new OneShotRunResult
-                {
-                    Success = true,
-                    ExitCode = 0,
-                    Version = revitVersion,
-                    TrxPath = emptySummary.TrxPath,
-                    WorkerIds = Array.Empty<string>(),
-                    ShardCount = 0,
-                    TotalTests = 0,
-                    PassedTests = 0,
-                    FailedTests = 0,
-                    SkippedTests = 0,
-                    ZeroMatches = true,
-                    ShimEnabled = false,
-                    Error = null
-                });
+            return (null, new OneShotRunResult
+            {
+                Success = true,
+                ExitCode = 0,
+                Version = revitVersion,
+                TrxPath = emptySummary.TrxPath,
+                WorkerIds = Array.Empty<string>(),
+                ShardCount = 0,
+                TotalTests = 0,
+                PassedTests = 0,
+                FailedTests = 0,
+                SkippedTests = 0,
+                ZeroMatches = true,
+                ShimEnabled = false,
+                Error = null
+            });
         }
 
         logger?.Invoke(
             $"[runner] ECMA-335 discovery matched {discoveryResult.TestFullNames.Count} test(s) " +
             $"across {discoveryResult.Fixtures.Count} fixture(s).");
 
-        return new FilterPreparationResult(
-            ShouldExecute: true,
-            ResolvedTestFilters: discoveryResult.RicaunTestFilters.ToArray(),
-            ImmediateResult: null);
-    }
-
-    public static async Task<OneShotRunResult> ExecuteOnReadyWorkerAsync(
-        int revitVersion,
-        LaunchedWorkerProcess worker,
-        IPipeTestClient pipeClient,
-        string fullAssemblyPath,
-        string fullTrxPath,
-        IReadOnlyList<string> resolvedTestFilters,
-        TimeSpan executionTimeout,
-        bool shimEnabled,
-        Action<string>? logger,
-        CancellationToken cancellationToken)
-    {
-        DateTimeOffset runStart = DateTimeOffset.UtcNow;
-        string[] testFilters = resolvedTestFilters is null || resolvedTestFilters.Count == 0
-            ? Array.Empty<string>()
-            : resolvedTestFilters as string[] ?? resolvedTestFilters.ToArray();
-
-        var testRequest = new TestRequest
-        {
-            TestPathFile = fullAssemblyPath,
-            TestFilters = testFilters,
-            Info = $"WorkerId={worker.WorkerId}"
-        };
-
-        PipeTestExecutionResult execution = await pipeClient.ExecuteTestsAsync(
-            testRequest,
-            worker,
-            executionTimeout,
-            onTestCompleted: test =>
-            {
-                string status = test.Skipped ? "SKIP" : (test.Success ? "PASS" : "FAIL");
-                logger?.Invoke($"[test] {status}: {test.FullName} ({test.Time:F1}ms)");
-            },
-            cancellationToken).ConfigureAwait(false);
-
-        DateTimeOffset runFinish = DateTimeOffset.UtcNow;
-        TrxSummary summary = TrxWriter.Write(
-            fullTrxPath,
-            fullAssemblyPath,
-            execution.AssemblyResult,
-            execution.StreamedTests,
-            runStart,
-            runFinish);
-
-        bool zeroMatches = summary.TotalTests == 0;
-        bool success = summary.FailedTests == 0;
-        int exitCode = success ? 0 : 1;
-
-        return new OneShotRunResult
-        {
-            Success = success,
-            ExitCode = exitCode,
-            Version = revitVersion,
-            TrxPath = summary.TrxPath,
-            WorkerIds = new[] { worker.WorkerId },
-            ShardCount = 1,
-            TotalTests = summary.TotalTests,
-            PassedTests = summary.PassedTests,
-            FailedTests = summary.FailedTests,
-            SkippedTests = summary.SkippedTests,
-            ZeroMatches = zeroMatches,
-            ShimEnabled = shimEnabled,
-            Error = null
-        };
-    }
-
-    public static OneShotRunResult InfrastructureFailureResult(
-        int version,
-        string trxPath,
-        IReadOnlyList<string> workerIds,
-        bool shimEnabled,
-        string error)
-    {
-        return new OneShotRunResult
-        {
-            Success = false,
-            ExitCode = 2,
-            Version = version,
-            TrxPath = trxPath,
-            WorkerIds = workerIds,
-            ShardCount = 1,
-            TotalTests = 0,
-            PassedTests = 0,
-            FailedTests = 0,
-            SkippedTests = 0,
-            ZeroMatches = false,
-            ShimEnabled = shimEnabled,
-            Error = error
-        };
+        return (discoveryResult, null);
     }
 
     public static async Task TerminateAndDisposeWorkerAsync(

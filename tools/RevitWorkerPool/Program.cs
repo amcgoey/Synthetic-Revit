@@ -421,6 +421,7 @@ public static class Program
                     ExecutionTimeoutSeconds = options.ExecutionTimeout.TotalSeconds,
                     WorkerId = options.WorkerId,
                     ProjectRoot = resolvedProjectRoot,
+                    Shards = options.Shards,
                     Diagnostics = options.Diagnostics
                 }
             };
@@ -649,6 +650,7 @@ public static class Program
         string? category = null;
         int? timeoutSeconds = null;
         int? bootTimeoutSeconds = null;
+        int? shards = null;
         string? workerId = null;
         string? projectRoot = null;
         string pipeName = SupervisorIpcConstants.DefaultPipeName;
@@ -732,6 +734,12 @@ public static class Program
                     bootTimeoutSeconds = parsedBoot;
                     break;
 
+                case "--shards":
+                    if (!TryParsePositiveIntOption(args, ref i, arg, out int parsedShards, out error))
+                        return false;
+                    shards = parsedShards;
+                    break;
+
                 case "--worker-id":
                     if (!TryConsumeValue(args, ref i, arg, out workerId, out error))
                         return false;
@@ -785,6 +793,7 @@ public static class Program
             ExecutionTimeout = executionTimeout,
             WorkerId = workerId,
             ProjectRoot = projectRoot,
+            Shards = shards,
             PipeName = pipeName,
             IdleTtlMinutes = idleTtlMinutes,
             NoShim = noShim,
@@ -1119,7 +1128,7 @@ public static class Program
             outWriter.WriteLine(
                 $"[RevitWorkerPool] Revit {result.Version} run completed: " +
                 $"Total={result.TotalTests}, Passed={result.PassedTests}, Failed={result.FailedTests}, " +
-                $"Skipped={result.SkippedTests}, WorkerId={string.Join(",", result.WorkerIds)}, TRX='{result.TrxPath}'");
+                $"Skipped={result.SkippedTests}, Shards={result.ShardCount}, WorkerId={string.Join(",", result.WorkerIds)}, TRX='{result.TrxPath}'");
         }
         else
         {
@@ -1154,7 +1163,7 @@ public static class Program
             "[--pipe-name <Name>] [--idle-ttl-minutes <20-30>] [--no-shim] [--project-root <Path>] [--json] [--diagnostics]");
         writer.WriteLine(
             "  RevitWorkerPool run --version <Year> --assembly <DllPath> --trx <TrxPath> " +
-            "[--filter <Fragment>] [--category <Name>] [--timeout-seconds <Sec>] [--boot-timeout-seconds <Sec>] " +
+            "[--filter <Fragment>] [--category <Name>] [--shards <N>] [--timeout-seconds <Sec>] [--boot-timeout-seconds <Sec>] " +
             "[--worker-id <Id>] [--project-root <Path>] [--pipe-name <Name>] [--idle-ttl-minutes <20-30>] [--no-shim] [--one-shot] [--json] [--diagnostics]");
         writer.WriteLine(
             "  RevitWorkerPool status [--pipe-name <Name>] [--json] [--diagnostics]");
