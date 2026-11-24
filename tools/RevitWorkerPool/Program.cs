@@ -118,6 +118,7 @@ public static class Program
         string? assemblyPath = null;
         string? trxPath = null;
         var filters = new List<string>();
+        string? category = null;
         int? timeoutSeconds = null;
         int? bootTimeoutSeconds = null;
         string? workerId = null;
@@ -158,6 +159,15 @@ public static class Program
                     if (!string.IsNullOrWhiteSpace(filterVal))
                     {
                         filters.Add(filterVal);
+                    }
+                    break;
+
+                case "--category":
+                    if (!TryConsumeValue(args, ref i, arg, out string? categoryVal, out error))
+                        return false;
+                    if (!string.IsNullOrWhiteSpace(categoryVal))
+                    {
+                        category = categoryVal.Trim();
                     }
                     break;
 
@@ -246,6 +256,7 @@ public static class Program
             AssemblyPath = assemblyPath,
             TrxPath = trxPath,
             Filters = filters,
+            Category = category,
             BootTimeout = bootTimeout,
             ExecutionTimeout = executionTimeout,
             WorkerId = workerId,
@@ -281,7 +292,7 @@ public static class Program
     {
         Console.Error.WriteLine(
             "Usage: RevitWorkerPool run --version <Year> --assembly <DllPath> --trx <TrxPath> " +
-            "[--filter <Fragment>] [--timeout-seconds <Sec>] [--boot-timeout-seconds <Sec>] " +
+            "[--filter <Fragment>] [--category <Name>] [--timeout-seconds <Sec>] [--boot-timeout-seconds <Sec>] " +
             "[--worker-id <Id>] [--project-root <Path>] [--one-shot] [--json] [--diagnostics]");
     }
 

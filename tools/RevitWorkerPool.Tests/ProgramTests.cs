@@ -15,6 +15,7 @@ public class ProgramTests
             "--assembly", @"C:\temp\Synthetic.RevitTests.2026.dll",
             "--trx", @"C:\temp\out.trx",
             "--filter", "BootstrapWorkerIsolationRevitTests",
+            "--category", "RevitSmoke",
             "--timeout-seconds", "90",
             "--boot-timeout-seconds", "45",
             "--worker-id", "w_cli_1",
@@ -33,6 +34,7 @@ public class ProgramTests
         Assert.That(options.AssemblyPath, Is.EqualTo(@"C:\temp\Synthetic.RevitTests.2026.dll"));
         Assert.That(options.TrxPath, Is.EqualTo(@"C:\temp\out.trx"));
         Assert.That(options.Filters, Is.EqualTo(new[] { "BootstrapWorkerIsolationRevitTests" }));
+        Assert.That(options.Category, Is.EqualTo("RevitSmoke"));
         Assert.That(options.ExecutionTimeout.TotalSeconds, Is.EqualTo(90));
         Assert.That(options.BootTimeout.TotalSeconds, Is.EqualTo(45));
         Assert.That(options.WorkerId, Is.EqualTo("w_cli_1"));
@@ -69,5 +71,10 @@ public class ProgramTests
             Program.TryParseRunArguments(new[] { "--version", "2026", "--assembly", "a.dll", "--trx", "a.trx", "--timeout-seconds", "0" }, out _, out string? err5),
             Is.False);
         Assert.That(err5, Does.Contain("--timeout-seconds"));
+
+        Assert.That(
+            Program.TryParseRunArguments(new[] { "--version", "2026", "--assembly", "a.dll", "--trx", "a.trx", "--category" }, out _, out string? err6),
+            Is.False);
+        Assert.That(err6, Does.Contain("--category"));
     }
 }
