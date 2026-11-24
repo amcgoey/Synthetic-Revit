@@ -151,6 +151,112 @@ class TestJournalResolution(unittest.TestCase):
         resolved = rjt.resolve_journal_path("2026", journals_dir=self.journals_dir)
         self.assertEqual(os.path.abspath(resolved), os.path.abspath(newest))
 
+    def test_worker_id_selects_exact_worker_journal_over_newer_concurrent_session(self):
+        worker = self._write_journal(
+            "journal.0601.txt",
+            "' 0:< SYNTHETIC_WORKER_ID:w-42\n' 0:< ricaun.RevitTest: Execute Total: 00:00:01.0\n",
+            mtime_offset=-10,
+        )
+        self._write_journal(
+            "journal.0602.txt",
+            "' 0:< SYNTHETIC_WORKER_ID:w-99\n",
+            mtime_offset=10,
+        )
+        resolved = rjt.resolve_journal_path(
+            "2026", worker_id="w-42", journals_dir=self.journals_dir
+        )
+        self.assertEqual(os.path.abspath(resolved), os.path.abspath(worker))
+
+    def test_worker_id_takes_priority_over_run_id_and_file_wins_over_both(self):
+        self._write_journal(
+            "journal.0611.txt",
+            "' 0:< SYNTHETIC_TEST_RUN:run-a\n",
+            mtime_offset=10,
+        )
+        worker = self._write_journal(
+            "journal.0612.txt",
+            "' 0:< SYNTHETIC_WORKER_ID:w-b\n",
+            mtime_offset=-5,
+        )
+        explicit = self._write_journal("explicit.txt", "' explicit\n", mtime_offset=-20)
+
+        resolved_worker = rjt.resolve_journal_path(
+            "2026",
+            run_id="run-a",
+            worker_id="w-b",
+            journals_dir=self.journals_dir,
+        )
+        self.assertEqual(os.path.abspath(resolved_worker), os.path.abspath(worker))
+
+        resolved_file = rjt.resolve_journal_path(
+            "2026",
+            file_path=explicit,
+            run_id="run-a",
+            worker_id="w-b",
+            journals_dir=self.journals_dir,
+        )
+        self.assertEqual(os.path.abspath(resolved_file), os.path.abspath(explicit))
+
+    def test_worker_id_does_not_match_prefix_of_longer_worker_id(self):
+        self._write_journal(
+            "journal.0621.txt",
+            "' 0:< SYNTHETIC_WORKER_ID:worker-10\n",
+            mtime_offset=0,
+        )
+        self._write_journal(
+            "journal.0622.txt",
+            "' 0:< SYNTHETIC_WORKER_ID:worker-1_extra\n",
+            mtime_offset=5,
+        )
+        self._write_journal(
+            "journal.0623.txt",
+            "' 0:< SYNTHETIC_WORKER_ID:worker-1.2\n",
+            mtime_offset=10,
+        )
+        self._write_journal(
+            "journal.0624.txt",
+            "' 0:< SYNTHETIC_WORKER_ID:worker-1-a\n",
+            mtime_offset=15,
+        )
+        self.assertFalse(rjt._contains_worker_id("' 0:< SYNTHETIC_WORKER_ID:worker-10\n", "worker-1"))
+        self.assertTrue(rjt._contains_worker_id("' 0:< SYNTHETIC_WORKER_ID:worker-1\n", "worker-1"))
+        resolved = rjt.resolve_journal_path(
+            "2026", worker_id="worker-1", journals_dir=self.journals_dir
+        )
+        self.assertIsNone(resolved)
+
+    def test_unmatched_worker_id_returns_none_without_fallback_to_run_id_or_latest(self):
+        existing = self._write_journal(
+            "journal.0631.txt",
+            "' 0:< SYNTHETIC_TEST_RUN:run-a\n",
+            mtime_offset=-5,
+        )
+        self._write_journal(
+            "journal.0632.txt",
+            "' 0:< Unknown new journal\n",
+            mtime_offset=10,
+        )
+        snapshot_path = os.path.join(self.journals_dir, "known_worker.txt")
+        with open(snapshot_path, "w", encoding="utf-8") as f:
+            f.write(f"{existing}\n")
+
+        resolved = rjt.resolve_journal_path(
+            "2026",
+            worker_id="missing-worker",
+            run_id="run-a",
+            known_journals_file=snapshot_path,
+            journals_dir=self.journals_dir,
+        )
+        self.assertIsNone(resolved)
+
+        resolved_empty = rjt.resolve_journal_path(
+            "2026",
+            worker_id="   ",
+            run_id="run-a",
+            journals_dir=self.journals_dir,
+        )
+        self.assertIsNone(resolved_empty)
+
     def test_reads_utf16_and_utf8_bom_journals(self):
         p16 = self._write_journal(
             "journal.0501.txt", "' 0:< SYNTHETIC_TEST_RUN:utf16-run\n", encoding="utf-16"
@@ -254,6 +360,7 @@ class TestTransactionSeamAndExceptions(unittest.TestCase):
         res = self._analyze(
             [
                 "' 0:< SYNTHETIC_TEST_RUN:run-99",
+                "' 0:< SYNTHETIC_WORKER_ID:worker-99-error-fail-Exception",
                 "' 0:< API_ERROR { : Assembly version conflict in some references in Synthetic2026.dll assembly",
                 "' 0:< false=isProcessUserModeExceptionPolicyDisabledForCallbackFilter",
                 "' 0:< API_SUCCESS { Registering DocumentOpened event by application Synthetic. }",
@@ -267,9 +374,26 @@ class TestTransactionSeamAndExceptions(unittest.TestCase):
                 "'Parameter name: key) was thrown by application Enscape 4.22.0. }",
             ]
         )
+        self.assertFalse(
+            any("SYNTHETIC_WORKER_ID:" in msg for _, msg in res["state"]["warnings"])
+        )
         self.assertEqual(res["synthetic_exceptions"], [])
         self.assertEqual(len(res["state"]["exceptions"]), 1)
         self.assertTrue(res["is_clean"])
+
+    def test_worker_id_marker_filtered_as_benign_in_analyze_and_assert_clean(self):
+        res = self._analyze(
+            [
+                "' 0:< SYNTHETIC_WORKER_ID:pool-error-fail-SystemException",
+                "' 0:< ricaun.RevitTest: Execute Total: 00:00:01.0",
+            ]
+        )
+        self.assertEqual(res["state"]["warnings"], [])
+        self.assertEqual(res["state"]["exceptions"], [])
+        self.assertEqual(res["synthetic_exceptions"], [])
+        self.assertTrue(res["is_clean"])
+        self.assertIn("Potential Error/Warning Logs Found: 0", res["report"])
+        self.assertIn("Total Managed Exceptions: 0", res["report"])
 
     def test_captures_synthetic_and_synthetictests_exception_blocks(self):
         res = self._analyze(
@@ -393,6 +517,60 @@ class TestCliInvocation(unittest.TestCase):
         )
         self.assertEqual(proc_missing.returncode, 1)
         self.assertIn("No journal matching run ID", proc_missing.stderr)
+
+    def test_cli_worker_id_resolution_analyze_and_assert_clean(self):
+        clean_worker_j = os.path.join(self.tmp.name, "journal.0010.txt")
+        with open(clean_worker_j, "w", encoding="utf-8") as f:
+            f.write(
+                "' 0:< SYNTHETIC_WORKER_ID:cli-worker-1\n"
+                "' 0:< SYNTHETIC_WORKER_ID:cli-worker-1-error-Exception\n"
+                "'inTransaction APITransactionIdentity_1:-1 GoodWorkerTx\n"
+                '        "Transaction Successful"  , "GoodWorkerTx"\n'
+                "' 0:< ricaun.RevitTest: Execute Total: 00:00:02.0\n"
+            )
+
+        dirty_worker_j = os.path.join(self.tmp.name, "journal.0011.txt")
+        with open(dirty_worker_j, "w", encoding="utf-8") as f:
+            f.write(
+                "' 0:< SYNTHETIC_WORKER_ID:cli-worker-10\n"
+                "'inTransaction APITransactionIdentity_1:-1 LeakedWorkerTx\n"
+            )
+
+        run_fallback_j = os.path.join(self.tmp.name, "journal.0012.txt")
+        with open(run_fallback_j, "w", encoding="utf-8") as f:
+            f.write("' 0:< SYNTHETIC_TEST_RUN:run-fallback\n")
+
+        proc_clean = self._run_cli(
+            "--journals-dir", self.tmp.name, "--worker-id", "cli-worker-1", "--assert-clean"
+        )
+        self.assertEqual(proc_clean.returncode, 0, proc_clean.stdout + proc_clean.stderr)
+        self.assertIn("Cleanliness Gate Result: CLEAN", proc_clean.stdout)
+        self.assertIn("journal.0010.txt", proc_clean.stdout)
+
+        proc_analyze = self._run_cli(
+            "--journals-dir", self.tmp.name, "--worker-id", "cli-worker-1", "--analyze"
+        )
+        self.assertEqual(proc_analyze.returncode, 0, proc_analyze.stdout + proc_analyze.stderr)
+        self.assertIn("Potential Error/Warning Logs Found: 0", proc_analyze.stdout)
+        self.assertIn("Total Managed Exceptions: 0", proc_analyze.stdout)
+
+        proc_dirty = self._run_cli(
+            "--journals-dir", self.tmp.name, "--worker-id", "cli-worker-10", "--assert-clean"
+        )
+        self.assertEqual(proc_dirty.returncode, 1)
+        self.assertIn("Cleanliness Gate Result: DIRTY", proc_dirty.stdout)
+
+        proc_unmatched = self._run_cli(
+            "--journals-dir",
+            self.tmp.name,
+            "--worker-id",
+            "cli-worker",
+            "--run-id",
+            "run-fallback",
+            "--assert-clean",
+        )
+        self.assertNotEqual(proc_unmatched.returncode, 0)
+        self.assertIn("No journal matching worker ID", proc_unmatched.stderr)
 
 
 if __name__ == "__main__":
