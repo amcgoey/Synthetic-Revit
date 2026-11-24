@@ -1,0 +1,191 @@
+using System;
+using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Win32.SafeHandles;
+using RevitWorkerPool.Containment;
+
+namespace RevitWorkerPool.Launching;
+
+/// <summary>
+/// Represents a running worker process and owns its containment lifecycle.
+/// </summary>
+public sealed class LaunchedWorkerProcess : IAsyncDisposable, IDisposable
+{
+    private const uint WaitObject0 = 0x00000000;
+
+    private readonly SafeProcessHandle? _processHandle;
+    private readonly JobObjectContainer? _jobObject;
+    private readonly Func<bool>? _stubHasExited;
+    private readonly Func<int?>? _stubExitCode;
+    private readonly Func<CancellationToken, Task>? _stubTerminateAsync;
+    private readonly Action? _stubDispose;
+    private int _disposed;
+
+    /// <summary>
+    /// Initializes a handle-backed OS worker process inside a <see cref="JobObjectContainer"/>.
+    /// </summary>
+    [SupportedOSPlatform("windows")]
+    public LaunchedWorkerProcess(
+        int processId,
+        string processName,
+        string workerId,
+        SafeProcessHandle processHandle,
+        JobObjectContainer jobObject)
+    {
+        ProcessId = processId;
+        ProcessName = processName ?? throw new ArgumentNullException(nameof(processName));
+        WorkerId = workerId ?? throw new ArgumentNullException(nameof(workerId));
+        _processHandle = processHandle ?? throw new ArgumentNullException(nameof(processHandle));
+        _jobObject = jobObject ?? throw new ArgumentNullException(nameof(jobObject));
+    }
+
+    /// <summary>
+    /// Initializes an in-process stub worker representation for headless tests.
+    /// </summary>
+    public LaunchedWorkerProcess(
+        int processId,
+        string processName,
+        string workerId,
+        Func<bool> hasExited,
+        Func<int?> exitCode,
+        Func<CancellationToken, Task> terminateAsync,
+        Action? onDispose = null)
+    {
+        ProcessId = processId;
+        ProcessName = processName ?? throw new ArgumentNullException(nameof(processName));
+        WorkerId = workerId ?? throw new ArgumentNullException(nameof(workerId));
+        _stubHasExited = hasExited ?? throw new ArgumentNullException(nameof(hasExited));
+        _stubExitCode = exitCode ?? throw new ArgumentNullException(nameof(exitCode));
+        _stubTerminateAsync = terminateAsync ?? throw new ArgumentNullException(nameof(terminateAsync));
+        _stubDispose = onDispose;
+    }
+
+    public int ProcessId { get; }
+
+    public string ProcessName { get; }
+
+    public string WorkerId { get; }
+
+    public string PipeName => $"ricaun.{ProcessName}.{ProcessId}";
+
+    public bool HasExited
+    {
+        get
+        {
+            if (_stubHasExited is not null)
+            {
+                return _stubHasExited();
+            }
+
+            if (_processHandle is null || _processHandle.IsInvalid || _processHandle.IsClosed)
+            {
+                return true;
+            }
+
+            return NativeMethods.WaitForSingleObject(_processHandle, 0) == WaitObject0;
+        }
+    }
+
+    public int? ExitCode
+    {
+        get
+        {
+            if (_stubExitCode is not null)
+            {
+                return _stubExitCode();
+            }
+
+            if (!HasExited || _processHandle is null || _processHandle.IsInvalid || _processHandle.IsClosed)
+            {
+                return null;
+            }
+
+            return NativeMethods.GetExitCodeProcess(_processHandle, out uint code)
+                ? unchecked((int)code)
+                : null;
+        }
+    }
+
+    public async Task WaitForExitAsync(CancellationToken cancellationToken = default)
+    {
+        while (!HasExited)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            await Task.Delay(25, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    public async Task TerminateAsync(CancellationToken cancellationToken = default)
+    {
+        if (_stubTerminateAsync is not null)
+        {
+            await _stubTerminateAsync(cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        if (_disposed != 0)
+        {
+            return;
+        }
+
+        if (!HasExited)
+        {
+            _jobObject?.Terminate(1);
+
+            using var waitCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            waitCts.CancelAfter(TimeSpan.FromSeconds(5));
+            try
+            {
+                await WaitForExitAsync(waitCts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                // Fallback direct process termination if WaitForExit timed out.
+                if (_processHandle is not null && !_processHandle.IsInvalid && !_processHandle.IsClosed)
+                {
+                    NativeMethods.TerminateProcess(_processHandle, 1);
+                }
+            }
+        }
+    }
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
+        _stubDispose?.Invoke();
+        _jobObject?.Dispose();
+        _processHandle?.Dispose();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await TerminateAsync(CancellationToken.None).ConfigureAwait(false);
+        }
+        finally
+        {
+            Dispose();
+        }
+    }
+
+    private static class NativeMethods
+    {
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern uint WaitForSingleObject(SafeProcessHandle hHandle, uint dwMilliseconds);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool GetExitCodeProcess(SafeProcessHandle hProcess, out uint lpExitCode);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool TerminateProcess(SafeProcessHandle hProcess, uint uExitCode);
+    }
+}
