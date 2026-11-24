@@ -198,3 +198,11 @@ _Avoid_: Sun snapshot, hourly render
 **Shadow Composite**:
 A summary diagram produced for a single view and study date by Multiply-blending its aligned **Shadow Frames** so cumulative shadow duration maps from lightest (least shadow) to darkest (most shadow).
 _Avoid_: Merged shadow image, shadow overlay
+
+**Multi-Model PDF Export**:
+A multi-document native Revit PDF export workflow that exports selected **Print Sets** across the active project, loaded linked models, and open projects without third-party printer drivers.
+_Avoid_: Batch print, multi-doc print, Bluebeam batch, batch plotter
+
+**PDF Export Setup**:
+A named Revit PDF export configuration (or the built-in default sheet-size fallback) defining paper format, processing mode, color depth, visibility filters, and file naming rules for native PDF export.
+_Avoid_: Print setting, Bluebeam profile, PDF preset
