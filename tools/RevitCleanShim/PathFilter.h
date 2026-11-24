@@ -35,7 +35,8 @@ namespace synthetic::shim
             std::wstring_view year,
             std::wstring_view appDataRoot,
             std::wstring_view programDataRoot,
-            std::wstring_view programFilesRoot);
+            std::wstring_view programFilesRoot,
+            std::wstring_view profileRoot = {});
 
         bool HasValidYear() const noexcept { return m_hasValidYear; }
 
@@ -48,6 +49,15 @@ namespace synthetic::shim
         /// Evaluates whether a path is visible to the shimmed worker process.
         /// </summary>
         bool IsPathAllowed(std::wstring_view rawPath, std::optional<bool> isDirectory = std::nullopt) const;
+
+        /// <summary>
+        /// Resolves per-PID virtualized paths for AddInsSettings.json and AdminSettings.json.
+        /// Returns true if <paramref name="rawPath"/> must be redirected to <paramref name="virtualPathOut"/>.
+        /// </summary>
+        bool TryResolveVirtualizedPath(
+            std::wstring_view rawPath,
+            std::wstring& virtualPathOut,
+            std::wstring& seedJsonOut) const;
 
         /// <summary>
         /// Evaluates whether a FindFirstFile/FindNextFile entry inside <paramref name="canonicalSearchDir"/> is visible.
@@ -65,6 +75,11 @@ namespace synthetic::shim
         /// </summary>
         static std::wstring CanonicalizePath(std::wstring_view rawPath);
 
+        /// <summary>
+        /// Converts a canonical Win32 DOS or UNC path into an NT object path (\??\...).
+        /// </summary>
+        static std::wstring ToNtPath(std::wstring_view canonicalWin32Path);
+
         static bool EqualsOrdinalIgnoreCase(std::wstring_view left, std::wstring_view right) noexcept;
 
     private:
@@ -73,8 +88,13 @@ namespace synthetic::shim
         void ResolveKnownFolderFallbacks();
         static BOOL CALLBACK InitOnceCallback(PINIT_ONCE initOnce, PVOID parameter, PVOID* context);
 
+        bool IsAllowedApplicationPluginsPath(std::wstring_view canonical) const;
+        bool IsHiddenAllUsersAddinsPath(std::wstring_view canonical, std::wstring_view addinsRoot) const;
+        bool IsFilteredAddinsYearDirectory(std::wstring_view canonicalDir, std::wstring_view addinsRoot) const;
+
         static bool TryGetEnvironmentVar(const wchar_t* name, std::wstring& value);
         static std::wstring ResolveKnownFolder(const GUID& folderId, const wchar_t* fallbackEnvVar);
+        static std::wstring ResolveDefaultProfileRoot();
         static std::wstring NormalizeRoot(std::wstring_view rawRoot);
         static bool IsValidFourDigitYear(std::wstring_view text) noexcept;
         static bool TryGetRelativeSubpath(
@@ -95,18 +115,28 @@ namespace synthetic::shim
         std::wstring m_envAppDataRoot;
         std::wstring m_envProgramDataRoot;
         std::wstring m_envProgramFilesRoot;
+        std::wstring m_envProfileRoot;
 
         std::wstring m_appDataRoot;
         std::wstring m_programDataRoot;
         std::wstring m_programFilesRoot;
+        std::wstring m_profileRoot;
+        std::wstring m_profilePidDir;
 
         std::wstring m_appDataAddinsRoot;
         std::wstring m_appDataAddinsYearDir;
         std::wstring m_programDataAddinsRoot;
         std::wstring m_programDataAddinsYearDir;
+        std::wstring m_programFilesAddinsRoot;
+        std::wstring m_programFilesAddinsYearDir;
         std::wstring m_appDataPluginsRoot;
         std::wstring m_programDataPluginsRoot;
+        std::wstring m_programFilesPluginsRoot;
         std::wstring m_programFilesRevitInternalAddinsDir;
         std::wstring m_programFilesETransmitDir;
+
+        std::wstring m_appDataSettingsRoot;
+        std::wstring m_programDataAdminRoot;
+        std::wstring m_programFilesAdminRoot;
     };
 }

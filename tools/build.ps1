@@ -174,6 +174,8 @@ $poolProjectPath = Join-Path $toolsDir 'RevitWorkerPool\RevitWorkerPool.csproj'
 $poolOutDir = Join-Path $toolsDir 'bin\RevitWorkerPool'
 $probeProjectPath = Join-Path $toolsDir 'RevitCleanShim.Probes\Net48Probe\Net48Probe.csproj'
 $probeOutDir = Join-Path $toolsDir 'bin\Probes\Net48Probe'
+$net8ProbeProjectPath = Join-Path $toolsDir 'RevitCleanShim.Probes\Net8Probe\Net8Probe.csproj'
+$net8ProbeOutDir = Join-Path $toolsDir 'bin\Probes\Net8Probe'
 
 Write-Host "[build] Using dotnet: $($dotnet.Exe) (DOTNET_ROOT=$($env:DOTNET_ROOT))"
 Write-Host "[build] Building $solutionPath ($Configuration)..."
@@ -212,6 +214,23 @@ if (Test-Path -LiteralPath $probeProjectPath -PathType Leaf) {
     $probeExe = Join-Path $probeOutDir 'Net48Probe.exe'
     if (-not (Test-Path -LiteralPath $probeExe -PathType Leaf)) {
         throw "Expected Net48Probe executable was not produced: $probeExe"
+    }
+}
+
+if (Test-Path -LiteralPath $net8ProbeProjectPath -PathType Leaf) {
+    Write-Host "[build] Building Net8Probe ($Configuration) to $net8ProbeOutDir..."
+    if (Test-Path -LiteralPath $net8ProbeOutDir) {
+        Remove-Item -LiteralPath $net8ProbeOutDir -Recurse -Force
+    }
+
+    & $dotnet.Exe build $net8ProbeProjectPath -c $Configuration -o $net8ProbeOutDir --nologo
+    if ($LASTEXITCODE -ne 0) {
+        exit $LASTEXITCODE
+    }
+
+    $net8ProbeExe = Join-Path $net8ProbeOutDir 'Net8Probe.exe'
+    if (-not (Test-Path -LiteralPath $net8ProbeExe -PathType Leaf)) {
+        throw "Expected Net8Probe executable was not produced: $net8ProbeExe"
     }
 }
 

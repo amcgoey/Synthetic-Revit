@@ -199,12 +199,16 @@ public sealed class CleanDetoursProcessLauncher : IWorkerProcessLauncher
             }
 
             string processName = Path.GetFileNameWithoutExtension(fullExePath);
+            string pidProfileDir = Path.Combine(
+                ResolveProfileRootDirectory(request),
+                unchecked((int)rawProcessId).ToString(CultureInfo.InvariantCulture));
             var launched = new LaunchedWorkerProcess(
                 unchecked((int)rawProcessId),
                 processName,
                 workerId,
                 processHandle,
-                job);
+                job,
+                onDispose: () => TryDeleteDirectoryBestEffort(pidProfileDir));
 
             processHandle = null!;
             job = null!;
@@ -232,6 +236,44 @@ public sealed class CleanDetoursProcessLauncher : IWorkerProcessLauncher
             {
                 NativeMethods.CloseHandle(rawThreadHandle);
             }
+        }
+    }
+
+    internal static string ResolveProfileRootDirectory(WorkerLaunchRequest request)
+    {
+        string? raw = null;
+        if (request.AdditionalEnvironmentVariables is not null &&
+            request.AdditionalEnvironmentVariables.TryGetValue("SYNTHETIC_CLEAN_SHIM_PROFILE_DIR", out string? overrideValue))
+        {
+            raw = overrideValue;
+        }
+        else
+        {
+            raw = Environment.GetEnvironmentVariable("SYNTHETIC_CLEAN_SHIM_PROFILE_DIR");
+        }
+
+        if (!string.IsNullOrWhiteSpace(raw))
+        {
+            return Path.GetFullPath(raw.Trim());
+        }
+
+        return Path.Combine(Path.GetTempPath(), "SyntheticCleanProfile");
+    }
+
+    private static void TryDeleteDirectoryBestEffort(string directoryPath)
+    {
+        if (string.IsNullOrWhiteSpace(directoryPath) || !Directory.Exists(directoryPath))
+        {
+            return;
+        }
+
+        try
+        {
+            Directory.Delete(directoryPath, recursive: true);
+        }
+        catch
+        {
+            // Best-effort cleanup of disposable per-PID profile folder.
         }
     }
 

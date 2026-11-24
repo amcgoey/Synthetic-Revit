@@ -11,8 +11,12 @@ namespace synthetic::shim
         constexpr wchar_t kEnvAppDataRoot[] = L"SYNTHETIC_CLEAN_SHIM_APPDATA_ROOT";
         constexpr wchar_t kEnvProgramDataRoot[] = L"SYNTHETIC_CLEAN_SHIM_PROGRAMDATA_ROOT";
         constexpr wchar_t kEnvProgramFilesRoot[] = L"SYNTHETIC_CLEAN_SHIM_PROGRAMFILES_ROOT";
+        constexpr wchar_t kEnvProfileDir[] = L"SYNTHETIC_CLEAN_SHIM_PROFILE_DIR";
         constexpr wchar_t kAllowedBundleName[] = L"ricaun.RevitTest.Application.bundle";
         constexpr wchar_t kETransmitDbName[] = L"eTransmitForRevitDB.dll";
+        constexpr wchar_t kAddInsSettingsSeed[] = L"{\"DisableAllAddIns\":false,\"AddInItemSettings\":[]}";
+        constexpr wchar_t kAdminSettingsSeed[] = L"{\"DisableAllAddIns\":false}";
+        constexpr wchar_t kDefaultProfileSubdir[] = L"SyntheticCleanProfile";
 
         bool IsDriveRoot(std::wstring_view path) noexcept
         {
@@ -72,15 +76,18 @@ namespace synthetic::shim
         std::wstring appData;
         std::wstring programData;
         std::wstring programFiles;
+        std::wstring profileDir;
         (void)TryGetEnvironmentVar(kEnvAppDataRoot, appData);
         (void)TryGetEnvironmentVar(kEnvProgramDataRoot, programData);
         (void)TryGetEnvironmentVar(kEnvProgramFilesRoot, programFiles);
+        (void)TryGetEnvironmentVar(kEnvProfileDir, profileDir);
 
         m_envAppDataRoot = NormalizeRoot(appData);
         m_envProgramDataRoot = NormalizeRoot(programData);
         m_envProgramFilesRoot = NormalizeRoot(programFiles);
+        m_envProfileRoot = NormalizeRoot(profileDir);
 
-        Configure(year, m_envAppDataRoot, m_envProgramDataRoot, m_envProgramFilesRoot);
+        Configure(year, m_envAppDataRoot, m_envProgramDataRoot, m_envProgramFilesRoot, m_envProfileRoot);
     }
 
     void PathFilter::EnsureInitialized()
@@ -112,14 +119,19 @@ namespace synthetic::shim
             ? m_envProgramFilesRoot
             : ResolveKnownFolder(FOLDERID_ProgramFiles, L"ProgramFiles");
 
-        Configure(m_year, appData, programData, programFiles);
+        std::wstring profileRoot = !m_envProfileRoot.empty()
+            ? m_envProfileRoot
+            : ResolveDefaultProfileRoot();
+
+        Configure(m_year, appData, programData, programFiles, profileRoot);
     }
 
     void PathFilter::Configure(
         std::wstring_view year,
         std::wstring_view appDataRoot,
         std::wstring_view programDataRoot,
-        std::wstring_view programFilesRoot)
+        std::wstring_view programFilesRoot,
+        std::wstring_view profileRoot)
     {
         // Trim whitespace around year value.
         while (!year.empty() && (year.front() == L' ' || year.front() == L'\t'))
@@ -145,6 +157,10 @@ namespace synthetic::shim
         m_appDataRoot = NormalizeRoot(appDataRoot);
         m_programDataRoot = NormalizeRoot(programDataRoot);
         m_programFilesRoot = NormalizeRoot(programFilesRoot);
+        m_profileRoot = NormalizeRoot(profileRoot);
+        m_profilePidDir = m_profileRoot.empty()
+            ? std::wstring()
+            : JoinPath(m_profileRoot, std::to_wstring(GetCurrentProcessId()));
 
         m_appDataAddinsRoot = m_appDataRoot.empty()
             ? std::wstring()
@@ -160,12 +176,22 @@ namespace synthetic::shim
             ? std::wstring()
             : JoinPath(m_programDataAddinsRoot, m_year);
 
+        m_programFilesAddinsRoot = m_programFilesRoot.empty()
+            ? std::wstring()
+            : JoinPath(m_programFilesRoot, L"Autodesk\\Revit\\Addins");
+        m_programFilesAddinsYearDir = (m_programFilesAddinsRoot.empty() || !m_hasValidYear)
+            ? std::wstring()
+            : JoinPath(m_programFilesAddinsRoot, m_year);
+
         m_appDataPluginsRoot = m_appDataRoot.empty()
             ? std::wstring()
             : JoinPath(m_appDataRoot, L"Autodesk\\ApplicationPlugins");
         m_programDataPluginsRoot = m_programDataRoot.empty()
             ? std::wstring()
             : JoinPath(m_programDataRoot, L"Autodesk\\ApplicationPlugins");
+        m_programFilesPluginsRoot = m_programFilesRoot.empty()
+            ? std::wstring()
+            : JoinPath(m_programFilesRoot, L"Autodesk\\ApplicationPlugins");
 
         if (!m_programFilesRoot.empty() && m_hasValidYear)
         {
@@ -177,6 +203,35 @@ namespace synthetic::shim
             m_programFilesRevitInternalAddinsDir.clear();
             m_programFilesETransmitDir.clear();
         }
+
+        m_appDataSettingsRoot = m_appDataRoot.empty()
+            ? std::wstring()
+            : JoinPath(m_appDataRoot, L"Autodesk\\Revit");
+        m_programDataAdminRoot = m_programDataRoot.empty()
+            ? std::wstring()
+            : JoinPath(m_programDataRoot, L"Autodesk");
+        m_programFilesAdminRoot = m_programFilesRoot.empty()
+            ? std::wstring()
+            : JoinPath(m_programFilesRoot, L"Autodesk\\Revit\\Admin");
+    }
+
+    bool PathFilter::IsFilteredAddinsYearDirectory(std::wstring_view canonicalDir, std::wstring_view addinsRoot) const
+    {
+        if (addinsRoot.empty())
+        {
+            return false;
+        }
+
+        std::wstring_view rel;
+        if (!TryGetRelativeSubpath(canonicalDir, addinsRoot, rel) || rel.empty())
+        {
+            return false;
+        }
+
+        std::wstring_view first;
+        std::wstring_view rest;
+        SplitFirstSegment(rel, first, rest);
+        return rest.empty() && IsValidFourDigitYear(first);
     }
 
     bool PathFilter::IsDirectoryFiltered(std::wstring_view canonicalDir) const
@@ -186,53 +241,78 @@ namespace synthetic::shim
             return false;
         }
 
-        if (!m_appDataPluginsRoot.empty() && EqualsOrdinalIgnoreCase(canonicalDir, m_appDataPluginsRoot))
-        {
-            return true;
-        }
-
-        if (!m_programDataPluginsRoot.empty() && EqualsOrdinalIgnoreCase(canonicalDir, m_programDataPluginsRoot))
+        if ((!m_appDataPluginsRoot.empty() && EqualsOrdinalIgnoreCase(canonicalDir, m_appDataPluginsRoot)) ||
+            (!m_programDataPluginsRoot.empty() && EqualsOrdinalIgnoreCase(canonicalDir, m_programDataPluginsRoot)) ||
+            (!m_programFilesPluginsRoot.empty() && EqualsOrdinalIgnoreCase(canonicalDir, m_programFilesPluginsRoot)))
         {
             return true;
         }
 
         if (m_hasValidYear)
         {
-            if (!m_appDataAddinsYearDir.empty() && EqualsOrdinalIgnoreCase(canonicalDir, m_appDataAddinsYearDir))
-            {
-                return true;
-            }
-            if (!m_programDataAddinsYearDir.empty() && EqualsOrdinalIgnoreCase(canonicalDir, m_programDataAddinsYearDir))
-            {
-                return true;
-            }
-            return false;
+            return (!m_appDataAddinsYearDir.empty() && EqualsOrdinalIgnoreCase(canonicalDir, m_appDataAddinsYearDir)) ||
+                (!m_programDataAddinsYearDir.empty() && EqualsOrdinalIgnoreCase(canonicalDir, m_programDataAddinsYearDir)) ||
+                (!m_programFilesAddinsYearDir.empty() && EqualsOrdinalIgnoreCase(canonicalDir, m_programFilesAddinsYearDir));
         }
 
         // Fail-closed mode when year is missing/invalid: filter any year folder under Addins roots.
+        return IsFilteredAddinsYearDirectory(canonicalDir, m_appDataAddinsRoot) ||
+            IsFilteredAddinsYearDirectory(canonicalDir, m_programDataAddinsRoot) ||
+            IsFilteredAddinsYearDirectory(canonicalDir, m_programFilesAddinsRoot);
+    }
+
+    bool PathFilter::IsHiddenAllUsersAddinsPath(std::wstring_view canonical, std::wstring_view addinsRoot) const
+    {
         std::wstring_view rel;
-        if (!m_appDataAddinsRoot.empty() && TryGetRelativeSubpath(canonicalDir, m_appDataAddinsRoot, rel) && !rel.empty())
+        if (addinsRoot.empty() || !TryGetRelativeSubpath(canonical, addinsRoot, rel))
         {
-            std::wstring_view first;
-            std::wstring_view rest;
-            SplitFirstSegment(rel, first, rest);
-            if (rest.empty() && IsValidFourDigitYear(first))
-            {
-                return true;
-            }
-        }
-        if (!m_programDataAddinsRoot.empty() && TryGetRelativeSubpath(canonicalDir, m_programDataAddinsRoot, rel) && !rel.empty())
-        {
-            std::wstring_view first;
-            std::wstring_view rest;
-            SplitFirstSegment(rel, first, rest);
-            if (rest.empty() && IsValidFourDigitYear(first))
-            {
-                return true;
-            }
+            return false;
         }
 
-        return false;
+        if (rel.empty())
+        {
+            return false;
+        }
+
+        std::wstring_view firstSeg;
+        std::wstring_view rest;
+        SplitFirstSegment(rel, firstSeg, rest);
+
+        if (!m_hasValidYear)
+        {
+            return IsValidFourDigitYear(firstSeg) && !rest.empty();
+        }
+
+        return EqualsOrdinalIgnoreCase(firstSeg, m_year) && !rest.empty();
+    }
+
+    bool PathFilter::IsAllowedApplicationPluginsPath(std::wstring_view canonical) const
+    {
+        for (const std::wstring* root : { &m_appDataPluginsRoot, &m_programDataPluginsRoot, &m_programFilesPluginsRoot })
+        {
+            std::wstring_view rel;
+            if (root->empty() || !TryGetRelativeSubpath(canonical, *root, rel))
+            {
+                continue;
+            }
+
+            if (rel.empty())
+            {
+                return true;
+            }
+
+            if (!m_hasValidYear)
+            {
+                return false;
+            }
+
+            std::wstring_view firstSeg;
+            std::wstring_view rest;
+            SplitFirstSegment(rel, firstSeg, rest);
+            return EqualsOrdinalIgnoreCase(firstSeg, kAllowedBundleName);
+        }
+
+        return true;
     }
 
     bool PathFilter::IsPathAllowed(std::wstring_view rawPath, std::optional<bool> isDirectory) const
@@ -303,62 +383,115 @@ namespace synthetic::shim
             return true;
         }
 
-        // Rule 2: %ProgramData%\Autodesk\Revit\Addins\<Year> -> hide ALL entries (including stale Synthetic<Year>.addin and bundles)
-        if (!m_programDataAddinsRoot.empty() && TryGetRelativeSubpath(canonical, m_programDataAddinsRoot, rel))
+        // Rule 2: %ProgramData%\Autodesk\Revit\Addins\<Year> and %ProgramFiles%\Autodesk\Revit\Addins\<Year>
+        // -> hide ALL entries (including stale Synthetic<Year>.addin, third-party manifests, and subfolders).
+        if (IsHiddenAllUsersAddinsPath(canonical, m_programDataAddinsRoot) ||
+            IsHiddenAllUsersAddinsPath(canonical, m_programFilesAddinsRoot))
         {
-            if (rel.empty())
-            {
-                return true;
-            }
+            return false;
+        }
 
-            std::wstring_view firstSeg;
-            std::wstring_view rest;
-            SplitFirstSegment(rel, firstSeg, rest);
+        // Rule 3: Across user, ProgramData, and Program Files ApplicationPlugins bundle directories,
+        // expose ONLY ricaun.RevitTest.Application.bundle (and descendants).
+        return IsAllowedApplicationPluginsPath(canonical);
+    }
 
-            if (!m_hasValidYear)
+    bool PathFilter::TryResolveVirtualizedPath(
+        std::wstring_view rawPath,
+        std::wstring& virtualPathOut,
+        std::wstring& seedJsonOut) const
+    {
+        virtualPathOut.clear();
+        seedJsonOut.clear();
+
+        if (m_profilePidDir.empty())
+        {
+            return false;
+        }
+
+        const std::wstring canonical = CanonicalizePath(rawPath);
+        if (canonical.empty())
+        {
+            return false;
+        }
+
+        auto matchesTargetYear = [this](std::wstring_view candidate) noexcept -> bool
+        {
+            return m_hasValidYear
+                ? EqualsOrdinalIgnoreCase(candidate, m_year)
+                : IsValidFourDigitYear(candidate);
+        };
+
+        std::wstring_view rel;
+
+        // 1. %APPDATA%\Autodesk\Revit\Autodesk Revit <Year>\AddinsData\AddInsSettings.json
+        if (!m_appDataSettingsRoot.empty() && TryGetRelativeSubpath(canonical, m_appDataSettingsRoot, rel) && !rel.empty())
+        {
+            std::wstring_view seg1;
+            std::wstring_view rem1;
+            SplitFirstSegment(rel, seg1, rem1);
+
+            constexpr std::wstring_view kAppDataPrefix = L"Autodesk Revit ";
+            if (seg1.size() > kAppDataPrefix.size() &&
+                EqualsOrdinalIgnoreCase(seg1.substr(0, kAppDataPrefix.size()), kAppDataPrefix) &&
+                matchesTargetYear(seg1.substr(kAppDataPrefix.size())) &&
+                !rem1.empty())
             {
-                if (IsValidFourDigitYear(firstSeg) && !rest.empty())
+                std::wstring_view seg2;
+                std::wstring_view rem2;
+                SplitFirstSegment(rem1, seg2, rem2);
+                if (EqualsOrdinalIgnoreCase(seg2, L"AddinsData") &&
+                    EqualsOrdinalIgnoreCase(rem2, L"AddInsSettings.json"))
                 {
-                    return false;
+                    virtualPathOut = JoinPath(m_profilePidDir, L"AddInsSettings.json");
+                    seedJsonOut = kAddInsSettingsSeed;
+                    return true;
                 }
+            }
+        }
+
+        // 2. %ProgramData%\Autodesk\RVT <Year>\Admin\AdminSettings.json
+        if (!m_programDataAdminRoot.empty() && TryGetRelativeSubpath(canonical, m_programDataAdminRoot, rel) && !rel.empty())
+        {
+            std::wstring_view seg1;
+            std::wstring_view rem1;
+            SplitFirstSegment(rel, seg1, rem1);
+
+            constexpr std::wstring_view kRvtPrefix = L"RVT ";
+            if (seg1.size() > kRvtPrefix.size() &&
+                EqualsOrdinalIgnoreCase(seg1.substr(0, kRvtPrefix.size()), kRvtPrefix) &&
+                matchesTargetYear(seg1.substr(kRvtPrefix.size())) &&
+                !rem1.empty())
+            {
+                std::wstring_view seg2;
+                std::wstring_view rem2;
+                SplitFirstSegment(rem1, seg2, rem2);
+                if (EqualsOrdinalIgnoreCase(seg2, L"Admin") &&
+                    EqualsOrdinalIgnoreCase(rem2, L"AdminSettings.json"))
+                {
+                    virtualPathOut = JoinPath(m_profilePidDir, L"AdminSettings.json");
+                    seedJsonOut = kAdminSettingsSeed;
+                    return true;
+                }
+            }
+        }
+
+        // 3. %ProgramFiles%\Autodesk\Revit\Admin\<Year>\AdminSettings.json
+        if (!m_programFilesAdminRoot.empty() && TryGetRelativeSubpath(canonical, m_programFilesAdminRoot, rel) && !rel.empty())
+        {
+            std::wstring_view seg1;
+            std::wstring_view rem1;
+            SplitFirstSegment(rel, seg1, rem1);
+            if (matchesTargetYear(seg1) &&
+                EqualsOrdinalIgnoreCase(rem1, L"AdminSettings.json"))
+            {
+                virtualPathOut = JoinPath(m_profilePidDir, L"AdminSettings.json");
+                seedJsonOut = kAdminSettingsSeed;
                 return true;
             }
-
-            if (EqualsOrdinalIgnoreCase(firstSeg, m_year))
-            {
-                return rest.empty();
-            }
-
-            return true;
         }
 
-        // Rule 3: %APPDATA%\Autodesk\ApplicationPlugins -> allow ONLY ricaun.RevitTest.Application.bundle (and descendants)
-        if (!m_appDataPluginsRoot.empty() && TryGetRelativeSubpath(canonical, m_appDataPluginsRoot, rel))
-        {
-            if (rel.empty())
-            {
-                return true;
-            }
-
-            if (!m_hasValidYear)
-            {
-                return false;
-            }
-
-            std::wstring_view firstSeg;
-            std::wstring_view rest;
-            SplitFirstSegment(rel, firstSeg, rest);
-
-            return EqualsOrdinalIgnoreCase(firstSeg, kAllowedBundleName);
-        }
-
-        // Rule 4: %ProgramData%\Autodesk\ApplicationPlugins -> hide ALL entries
-        if (!m_programDataPluginsRoot.empty() && TryGetRelativeSubpath(canonical, m_programDataPluginsRoot, rel))
-        {
-            return rel.empty();
-        }
-
-        return true;
+        return false;
     }
 
     bool PathFilter::IsFindDataAllowed(std::wstring_view canonicalSearchDir, const WIN32_FIND_DATAW& findData) const
@@ -434,7 +567,9 @@ namespace synthetic::shim
         }
 
         // Strip Win32 extended-length or NT object prefixes before resolution.
-        if (working.size() >= 8 && EqualsOrdinalIgnoreCase(std::wstring_view(working).substr(0, 8), L"\\\\?\\UNC\\"))
+        if (working.size() >= 8 &&
+            (EqualsOrdinalIgnoreCase(std::wstring_view(working).substr(0, 8), L"\\\\?\\UNC\\") ||
+             EqualsOrdinalIgnoreCase(std::wstring_view(working).substr(0, 8), L"\\??\\UNC\\")))
         {
             working = L"\\\\" + working.substr(8);
         }
@@ -493,6 +628,30 @@ namespace synthetic::shim
         }
 
         return collapsed;
+    }
+
+    std::wstring PathFilter::ToNtPath(std::wstring_view canonicalWin32Path)
+    {
+        if (canonicalWin32Path.empty())
+        {
+            return std::wstring();
+        }
+
+        if (canonicalWin32Path.size() >= 2 &&
+            canonicalWin32Path[0] == L'\\' &&
+            canonicalWin32Path[1] == L'\\')
+        {
+            if (canonicalWin32Path.size() >= 4 &&
+                canonicalWin32Path[2] == L'?' &&
+                canonicalWin32Path[3] == L'\\')
+            {
+                return L"\\??\\" + std::wstring(canonicalWin32Path.substr(4));
+            }
+
+            return L"\\??\\UNC\\" + std::wstring(canonicalWin32Path.substr(2));
+        }
+
+        return L"\\??\\" + std::wstring(canonicalWin32Path);
     }
 
     bool PathFilter::EqualsOrdinalIgnoreCase(std::wstring_view left, std::wstring_view right) noexcept
@@ -555,6 +714,36 @@ namespace synthetic::shim
         if (fallbackEnvVar != nullptr && TryGetEnvironmentVar(fallbackEnvVar, fallback))
         {
             return NormalizeRoot(fallback);
+        }
+
+        return std::wstring();
+    }
+
+    std::wstring PathFilter::ResolveDefaultProfileRoot()
+    {
+        DWORD required = GetTempPathW(0, nullptr);
+        if (required > 0)
+        {
+            std::vector<wchar_t> buffer(required + 1, L'\0');
+            const DWORD written = GetTempPathW(required, buffer.data());
+            if (written > 0 && written < buffer.size())
+            {
+                const std::wstring normalizedTemp = NormalizeRoot(std::wstring_view(buffer.data(), written));
+                if (!normalizedTemp.empty())
+                {
+                    return JoinPath(normalizedTemp, kDefaultProfileSubdir);
+                }
+            }
+        }
+
+        std::wstring envTemp;
+        if (TryGetEnvironmentVar(L"TEMP", envTemp) || TryGetEnvironmentVar(L"TMP", envTemp))
+        {
+            const std::wstring normalizedTemp = NormalizeRoot(envTemp);
+            if (!normalizedTemp.empty())
+            {
+                return JoinPath(normalizedTemp, kDefaultProfileSubdir);
+            }
         }
 
         return std::wstring();
