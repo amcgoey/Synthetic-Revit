@@ -208,9 +208,9 @@ namespace SyntheticTests.Features.SharedCoordinates
                 .FirstOrDefault(loc => string.Equals(loc.Name, "Floor_3_Test", StringComparison.OrdinalIgnoreCase));
             Assert.IsNotNull(linkLoc, "ProjectLocation 'Floor_3_Test' must exist in linked document.");
 
-            Transform expected = SharedCoordinatesMath.ComputeExpectedTransform(
-                hostDoc.ActiveProjectLocation.GetTotalTransform(),
-                linkLoc.GetTotalTransform());
+            RigidTransform3D expected = SharedCoordinatesMath.ComputeExpectedTransform(
+                ToRigidTransform3D(hostDoc.ActiveProjectLocation.GetTotalTransform()),
+                ToRigidTransform3D(linkLoc.GetTotalTransform()));
             Transform actual = linkInstance.GetTransform();
 
             Assert.AreEqual(expected.Origin.X, actual.Origin.X, 1e-3, "Origin.X mismatch");
@@ -220,6 +220,15 @@ namespace SyntheticTests.Features.SharedCoordinates
             Assert.AreEqual(expected.BasisX.Y, actual.BasisX.Y, 1e-3, "BasisX.Y mismatch");
             Assert.AreEqual(expected.BasisY.X, actual.BasisY.X, 1e-3, "BasisY.X mismatch");
             Assert.AreEqual(expected.BasisY.Y, actual.BasisY.Y, 1e-3, "BasisY.Y mismatch");
+        }
+
+        private static RigidTransform3D ToRigidTransform3D(Transform transform)
+        {
+            return new RigidTransform3D(
+                new Vector3D(transform.Origin.X, transform.Origin.Y, transform.Origin.Z),
+                new Vector3D(transform.BasisX.X, transform.BasisX.Y, transform.BasisX.Z),
+                new Vector3D(transform.BasisY.X, transform.BasisY.Y, transform.BasisY.Z),
+                new Vector3D(transform.BasisZ.X, transform.BasisZ.Y, transform.BasisZ.Z));
         }
     }
 }

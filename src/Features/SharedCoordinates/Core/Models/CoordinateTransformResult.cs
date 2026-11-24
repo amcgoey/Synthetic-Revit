@@ -1,6 +1,3 @@
-using System;
-using Autodesk.Revit.DB;
-
 namespace Synthetic.Features.SharedCoordinates.Models
 {
     /// <summary>
@@ -11,14 +8,14 @@ namespace Synthetic.Features.SharedCoordinates.Models
     {
         /// <summary>
         /// Gets or sets the expected placement transform derived from:
-        /// T_expected = T_hostToShared^-1 * T_linkToShared
+        /// T_expected = T_hostTotal * T_linkTotal^-1
         /// </summary>
-        public Transform ExpectedTransform { get; set; } = Transform.Identity;
+        public RigidTransform3D ExpectedTransform { get; set; } = RigidTransform3D.Identity;
 
         /// <summary>
         /// Gets or sets the link instance's current placement transform in the host model.
         /// </summary>
-        public Transform CurrentTransform { get; set; } = Transform.Identity;
+        public RigidTransform3D CurrentTransform { get; set; } = RigidTransform3D.Identity;
 
         /// <summary>
         /// Gets or sets the rotation delta around the Z axis in radians, normalized to (-pi, pi].
@@ -29,16 +26,12 @@ namespace Synthetic.Features.SharedCoordinates.Models
         /// Gets or sets the 3D translation delta vector in feet:
         /// deltaP = ExpectedTransform.Origin - CurrentTransform.Origin
         /// </summary>
-        public XYZ DeltaTranslation { get; set; } = XYZ.Zero;
+        public Vector3D DeltaTranslation { get; set; } = Vector3D.Zero;
 
         /// <summary>
         /// Gets the Euclidean length of the 3D translation delta vector in feet.
         /// </summary>
-        public double DeltaTranslationLength => DeltaTranslation != null
-            ? Math.Sqrt(DeltaTranslation.X * DeltaTranslation.X +
-                        DeltaTranslation.Y * DeltaTranslation.Y +
-                        DeltaTranslation.Z * DeltaTranslation.Z)
-            : 0.0;
+        public double DeltaTranslationLength => DeltaTranslation.Length;
 
         /// <summary>
         /// Gets or sets a value indicating whether the instance is out of sync with its expected Shared Site transform
