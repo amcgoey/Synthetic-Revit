@@ -43,6 +43,26 @@ _Avoid_: Tier 2 tests, Tier 3 integration tests
 Automated structural checks enforcing codebase partition boundaries, dependency direction, settings parity, test categories, and legacy quarantine ceilings.
 _Avoid_: Tier 3 tests, lint checks, partition tests
 
+**Worker Pool**:
+An on-demand local supervisor that maintains pre-booted **Standby Workers** for automated **Revit Tests**, dispatches isolated test runs across them, and scales back to zero when idle.
+_Avoid_: Test daemon, Revit service, warm host
+
+**Standby Worker**:
+A pre-booted, single-use Revit process waiting idle with **Add-In Bootstrap** startup bypassed so a test run executes immediately and terminates that process upon completion.
+_Avoid_: Warm daemon, persistent Revit, pooled instance
+
+**Clean-Launch Shim**:
+A per-process isolation layer applied only to automated test worker launches so third-party add-ins remain hidden from the worker while interactive Revit sessions load them normally.
+_Avoid_: Add-in blocker, manifest renamer, sandbox wrapper
+
+**Startup Gate**:
+A per-**Revit Version** synchronization lock that serializes concurrent Revit startup windows while allowing test execution to proceed in parallel once initialization completes.
+_Avoid_: Boot sleep, launch stagger, global test lock
+
+**Test Shard**:
+A fixture-level subset of **Revit Tests** dispatched concurrently across multiple **Standby Workers** and merged into one unified run result.
+_Avoid_: Test chunk, parallel split, worker batch
+
 **Firmwide Settings**:
 Shared studio configuration templates and project-stored settings synchronized across workstations via an external linked settings JSON file.
 _Avoid_: Global config, studio JSON, shared config
