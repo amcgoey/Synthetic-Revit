@@ -25,7 +25,7 @@ Spend disproportionate effort here. **Be aggressive. Be creative. Refuse to give
 
 1. **Headless Logic Test (`Synthetic.LogicTests`)** via `python .agents/skills/revit-tests/scripts/test_executor.py --version Logic --filter "<TestName>"` for bugs in `Core/` modules, ViewModels, **RevitDOM** POCOs, or `ArchitectureFitnessTests`. Runs across `net48` and `net8.0-windows8.0` in seconds.
 2. **Live Revit Test (`Synthetic.RevitTests.<Year>`)** via `python .agents/skills/revit-tests/scripts/test_executor.py --version 2026 --filter "<TestName>"` for bugs requiring a live Revit `Document` or active database transaction.
-3. **Revit Journal telemetry loop** (`revit-journal-telemetry`) via `python .agents/skills/revit-journal-telemetry/scripts/revit_journal_tool.py --analyze` / `--search "<pattern>"` / `--watch` to inspect unhandled managed exceptions, `DBG_WARN`, orphaned transactions, memory stats, and the `[REPRODUCTION TRAIL]` preceding a crash.
+3. **Revit Journal telemetry loop** (`revit-journal-telemetry`) via `python .agents/skills/revit-journal-telemetry/scripts/revit_journal_tool.py --analyze` / `--search "<pattern>"` / `--watch` to inspect unhandled managed exceptions, `DBG_WARN`, orphaned transactions, **RAM Statistics**, and the `[REPRODUCTION TRAIL]` preceding a crash.
 4. **Replay a captured template / `RevitDOM` payload.** Save a failing JSON template or element payload to disk; replay it through the translation or merge pipeline in isolation.
 5. **Differential multi-version loop** (`test_executor.py` omitting `--version` or targeting `2023`–`2026`) when the bug is version-specific (`revit-multi-versions`).
 6. **Interactive Visual Studio + Revit debugger (`revit-debug-by-user`)** via `powershell -File .agents/skills/revit-debug-by-user/scripts/start_debugging.ps1` or `scripts/hitl-loop.template.sh` as last resort when a human must click in the Revit/WPF UI.
@@ -48,7 +48,7 @@ The goal is not a clean repro but a **higher reproduction rate**. Loop the trigg
 
 ### When you genuinely cannot build a loop
 
-Stop and say so explicitly. List what you tried. Ask the user for: (a) access to whatever environment reproduces it, (b) a redacted captured artifact (journal file, dump file, test model `.rvt`, screen recording with timestamps), or (c) permission to add temporary telemetry. Do **not** proceed to hypothesise without a loop.
+Stop and say so explicitly. List what you tried. Ask the user for: (a) access to whatever environment reproduces it, (b) a redacted captured artifact (**Revit Journal**, **Crash Dump**, test model `.rvt`, screen recording with timestamps), or (c) permission to add temporary telemetry. Do **not** proceed to hypothesise without a loop.
 
 ### Completion criterion: a tight loop that goes red
 

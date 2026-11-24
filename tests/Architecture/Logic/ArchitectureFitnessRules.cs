@@ -2324,7 +2324,22 @@ namespace SyntheticTests.Architecture
 
             if (enclosingUsingHeader != null)
             {
-                return ContainsFailureGuardInvocation(enclosingUsingHeader.Statement, creationNode, allTxCreationNodes);
+                if (enclosingUsingHeader.Statement is BlockSyntax usingBlock)
+                {
+                    return ScanBlockStatementsForFailureGuard(
+                        usingBlock.Statements,
+                        startIndex: 0,
+                        treatStartIndexAsTargetStatement: false,
+                        creationNode,
+                        allTxCreationNodes,
+                        stopOnUsingStatement: false);
+                }
+
+                return ContainsFailureGuardInvocation(
+                    enclosingUsingHeader.Statement,
+                    creationNode,
+                    allTxCreationNodes,
+                    stopOnUsingStatement: false);
             }
 
             StatementSyntax? enclosingStatement = creationNode.Ancestors().OfType<StatementSyntax>().FirstOrDefault();
@@ -2335,46 +2350,68 @@ namespace SyntheticTests.Architecture
 
             if (enclosingStatement.Parent is BlockSyntax parentBlock)
             {
-                bool started = false;
-                foreach (StatementSyntax sibling in parentBlock.Statements)
+                int startIndex = parentBlock.Statements.IndexOf(enclosingStatement);
+                if (startIndex < 0)
                 {
-                    if (!started)
-                    {
-                        if (sibling == enclosingStatement)
-                        {
-                            started = true;
-                            if (ContainsFailureGuardInvocation(sibling, creationNode, allTxCreationNodes))
-                            {
-                                return true;
-                            }
-                        }
-                        continue;
-                    }
-
-                    if (StatementStartsAnotherTransaction(sibling, creationNode, allTxCreationNodes))
-                    {
-                        break;
-                    }
-
-                    if (ContainsFailureGuardInvocation(sibling, creationNode, allTxCreationNodes))
-                    {
-                        return true;
-                    }
+                    return false;
                 }
 
-                return false;
+                return ScanBlockStatementsForFailureGuard(
+                    parentBlock.Statements,
+                    startIndex,
+                    treatStartIndexAsTargetStatement: true,
+                    creationNode,
+                    allTxCreationNodes,
+                    stopOnUsingStatement: true);
             }
 
-            return ContainsFailureGuardInvocation(enclosingStatement, creationNode, allTxCreationNodes);
+            return ContainsFailureGuardInvocation(
+                enclosingStatement,
+                creationNode,
+                allTxCreationNodes,
+                stopOnUsingStatement: true);
+        }
+
+        private static bool ScanBlockStatementsForFailureGuard(
+            SyntaxList<StatementSyntax> statements,
+            int startIndex,
+            bool treatStartIndexAsTargetStatement,
+            SyntaxNode currentCreationNode,
+            HashSet<SyntaxNode> allTxCreationNodes,
+            bool stopOnUsingStatement)
+        {
+            for (int i = startIndex; i < statements.Count; i++)
+            {
+                StatementSyntax stmt = statements[i];
+                bool isTargetStatement = treatStartIndexAsTargetStatement && i == startIndex;
+                if (!isTargetStatement &&
+                    StatementStartsAnotherTransaction(stmt, currentCreationNode, allTxCreationNodes, stopOnUsingStatement))
+                {
+                    break;
+                }
+
+                if (ContainsFailureGuardInvocation(stmt, currentCreationNode, allTxCreationNodes, stopOnUsingStatement))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static bool StatementStartsAnotherTransaction(
             StatementSyntax statement,
             SyntaxNode currentCreationNode,
-            HashSet<SyntaxNode> allTxCreationNodes)
+            HashSet<SyntaxNode> allTxCreationNodes,
+            bool stopOnUsingStatement)
         {
             if (statement is UsingStatementSyntax usingStmt)
             {
+                if (!stopOnUsingStatement)
+                {
+                    return false;
+                }
+
                 return (usingStmt.Declaration != null && ContainsOtherTxCreation(usingStmt.Declaration, currentCreationNode, allTxCreationNodes)) ||
                        (usingStmt.Expression != null && ContainsOtherTxCreation(usingStmt.Expression, currentCreationNode, allTxCreationNodes));
             }
@@ -2399,8 +2436,20 @@ namespace SyntheticTests.Architecture
         private static bool ContainsFailureGuardInvocation(
             SyntaxNode root,
             SyntaxNode currentCreationNode,
-            HashSet<SyntaxNode> allTxCreationNodes)
+            HashSet<SyntaxNode> allTxCreationNodes,
+            bool stopOnUsingStatement)
         {
+            if (root is BlockSyntax rootBlock)
+            {
+                return ScanBlockStatementsForFailureGuard(
+                    rootBlock.Statements,
+                    startIndex: 0,
+                    treatStartIndexAsTargetStatement: false,
+                    currentCreationNode,
+                    allTxCreationNodes,
+                    stopOnUsingStatement);
+            }
+
             foreach (SyntaxNode node in root.DescendantNodesAndSelf(n =>
             {
                 if (n is UsingStatementSyntax nestedUsing)
@@ -2414,9 +2463,37 @@ namespace SyntheticTests.Architecture
                     }
                 }
 
+                if (n != root && n is BlockSyntax)
+                {
+                    return false;
+                }
+
+                if (n != root &&
+                    (n is LocalDeclarationStatementSyntax || n is ExpressionStatementSyntax) &&
+                    ContainsOtherTxCreation(n, currentCreationNode, allTxCreationNodes))
+                {
+                    return false;
+                }
+
                 return true;
             }))
             {
+                if (node != root && node is BlockSyntax nestedBlock)
+                {
+                    if (ScanBlockStatementsForFailureGuard(
+                        nestedBlock.Statements,
+                        startIndex: 0,
+                        treatStartIndexAsTargetStatement: false,
+                        currentCreationNode,
+                        allTxCreationNodes,
+                        stopOnUsingStatement))
+                    {
+                        return true;
+                    }
+
+                    continue;
+                }
+
                 if (node is InvocationExpressionSyntax inv)
                 {
                     string methodName = inv.Expression switch

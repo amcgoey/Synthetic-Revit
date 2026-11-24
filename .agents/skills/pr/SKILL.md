@@ -60,7 +60,7 @@ ExecuteCommand
   NotifyUiCompleted
 ```
 
-- Show UI structure as a component tree, including state and module boundaries that matter:
+- Show UI structure as a UI control tree, including state and module boundaries that matter:
 
 ```text
 <ExampleWindow> (src/Features/Example/Addin/Views/ExampleWindow.xaml)
@@ -74,11 +74,11 @@ ExecuteCommand
 
 ```text
 src/Features/Example/
-├── Core/             # pure ViewModels, models, services, and IExampleAdapter
+├── Core/             # pure ViewModels, models, domain logic, and IExampleAdapter
 └── Addin/            # commands, RevitExampleAdapter, and WPF .xaml views
 ```
 
-- Show component interaction, control flow, or data flow with Mermaid:
+- Show module interaction, control flow, or data flow with Mermaid:
 
 ```mermaid
 sequenceDiagram
@@ -95,7 +95,7 @@ sequenceDiagram
 
 - Use `diff` when the point is what changes and the surrounding shape already exists. Match the diff shape to the topic.
 
-For a component change:
+For a UI control change:
 
 ```diff
  <ExampleWindow>

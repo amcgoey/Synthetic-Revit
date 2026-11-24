@@ -614,6 +614,148 @@ namespace SyntheticTests.Features.SharedCoordinates
             CollectionAssert.Contains(summary.SkippedInstanceNames, inst3.Name);
         }
 
+        [Test]
+        public void GetAssignedSiteName_GeoLocationAssignedInLinkDoc_ResolvesSiteName()
+        {
+            string unitPath = CreateSingleSiteUnitModel(out string singleSiteName);
+            Document hostDoc = NewTrackedProjectDocument(UnitSystem.Imperial);
+            RevitLinkInstance linkInst = CreateLinkedInstance(hostDoc, unitPath);
+
+            hostDoc.ExecuteTransaction("Acquire Shared Coordinates", FailurePipelines.ObserveOnly(), () =>
+            {
+                hostDoc.AcquireCoordinates(linkInst.Id);
+            });
+
+            var adapter = new RevitSharedCoordinatesAdapter(hostDoc);
+            Document? linkDoc = linkInst.GetLinkDocument();
+            Assert.IsNotNull(linkDoc, "Linked document must be loaded.");
+
+            string? resolved = adapter.GetAssignedSiteName(linkInst, linkDoc);
+            Assert.AreEqual(singleSiteName, resolved);
+        }
+
+        [Test]
+        public void GetAssignedSiteName_GeoLocationAssignedWithNullLinkDoc_ResolvesSiteNameFromHostOrValueString()
+        {
+            string unitPath = CreateSingleSiteUnitModel(out string singleSiteName);
+            Document hostDoc = NewTrackedProjectDocument(UnitSystem.Imperial);
+            RevitLinkInstance linkInst = CreateLinkedInstance(hostDoc, unitPath);
+
+            hostDoc.ExecuteTransaction("Acquire Shared Coordinates", FailurePipelines.ObserveOnly(), () =>
+            {
+                hostDoc.AcquireCoordinates(linkInst.Id);
+            });
+
+            var adapter = new RevitSharedCoordinatesAdapter(hostDoc);
+            string? resolved = adapter.GetAssignedSiteName(linkInst, null);
+            Assert.AreEqual(singleSiteName, resolved);
+        }
+
+        [Test]
+        public void GetAssignedSiteName_GeoLocationNotShared_FallsBackToInstanceNameLocation()
+        {
+            string unitPath = CreateMultiSiteUnitModel();
+            Document hostDoc = NewTrackedProjectDocument(UnitSystem.Imperial);
+            RevitLinkInstance linkInst = CreateLinkedInstance(hostDoc, unitPath);
+
+            hostDoc.ExecuteTransaction("Set Instance Name Location Fallback", FailurePipelines.ObserveOnly(), () =>
+            {
+                SetLinkInstanceMark(linkInst, "1 : location Floor 3");
+            });
+
+            Parameter? geoParam = linkInst.get_Parameter(BuiltInParameter.GEO_LOCATION);
+            Assert.IsTrue(
+                geoParam == null ||
+                geoParam.AsElementId() == ElementId.InvalidElementId ||
+                (geoParam.AsValueString()?.IndexOf("<Not Shared>", StringComparison.OrdinalIgnoreCase) ?? -1) >= 0,
+                "Unshared link instance must not report a shared GEO_LOCATION assignment.");
+
+            var adapter = new RevitSharedCoordinatesAdapter(hostDoc);
+            string? resolved = adapter.GetAssignedSiteName(linkInst, linkInst.GetLinkDocument());
+            Assert.AreEqual("Floor 3", resolved);
+        }
+
+        [Test]
+        public void GetAssignedSiteName_UnsharedInstanceWithoutLocationToken_ReturnsNull()
+        {
+            string unitPath = CreateMultiSiteUnitModel();
+            Document hostDoc = NewTrackedProjectDocument(UnitSystem.Imperial);
+            RevitLinkInstance linkInst = CreateLinkedInstance(hostDoc, unitPath);
+
+            hostDoc.ExecuteTransaction("Set Plain Unshared Instance Mark", FailurePipelines.ObserveOnly(), () =>
+            {
+                SetLinkInstanceMark(linkInst, "99");
+            });
+
+            Parameter? geoParam = linkInst.get_Parameter(BuiltInParameter.GEO_LOCATION);
+            Assert.IsTrue(
+                geoParam == null ||
+                geoParam.AsElementId() == ElementId.InvalidElementId ||
+                (geoParam.AsValueString()?.IndexOf("<Not Shared>", StringComparison.OrdinalIgnoreCase) ?? -1) >= 0,
+                "Unshared link instance must not report a shared GEO_LOCATION assignment.");
+
+            var adapter = new RevitSharedCoordinatesAdapter(hostDoc);
+            string? resolved = adapter.GetAssignedSiteName(linkInst, linkInst.GetLinkDocument());
+            Assert.IsNull(resolved);
+        }
+
+        private string CreateSingleSiteUnitModel(out string singleSiteName)
+        {
+            string capturedName = "Internal";
+            string unitPath = CreateSavedUnitModel(
+                "SharedCoordsSingleSiteUnit.rvt",
+                unitDoc =>
+                {
+                    unitDoc.ExecuteTransaction("Configure Single Unit Site", FailurePipelines.ObserveOnly(), () =>
+                    {
+                        ProjectLocation activeLoc = unitDoc.ActiveProjectLocation;
+                        Assert.IsNotNull(activeLoc, "New project document must have an ActiveProjectLocation.");
+
+                        activeLoc.SetProjectPosition(
+                            XYZ.Zero,
+                            CreateProjectPosition(unitDoc, 25.0, 15.0, 5.0, 0.0));
+                        capturedName = activeLoc.Name;
+                    });
+                    Assert.AreEqual(1, unitDoc.ProjectLocations.Size, "Single-site unit model must contain exactly one ProjectLocation.");
+                });
+
+            singleSiteName = capturedName;
+            return unitPath;
+        }
+
+        private string CreateMultiSiteUnitModel()
+        {
+            return CreateSavedUnitModel(
+                "SharedCoordsMultiSiteUnit.rvt",
+                unitDoc =>
+                {
+                    unitDoc.ExecuteTransaction("Seed Multi Unit Sites", FailurePipelines.ObserveOnly(), () =>
+                    {
+                        ProjectLocation activeLoc = unitDoc.ActiveProjectLocation;
+                        Assert.IsNotNull(activeLoc, "New project document must have an ActiveProjectLocation.");
+
+                        ProjectLocation floor2Loc = activeLoc.Duplicate("Floor 2");
+                        floor2Loc.SetProjectPosition(XYZ.Zero, CreateProjectPosition(unitDoc, 0.0, 0.0, 0.0, 0.0));
+
+                        ProjectLocation floor3Loc = activeLoc.Duplicate("Floor 3");
+                        floor3Loc.SetProjectPosition(XYZ.Zero, CreateProjectPosition(unitDoc, 10.0, 20.0, 30.0, 0.0));
+                    });
+                });
+        }
+
+        private static RevitLinkInstance CreateLinkedInstance(Document hostDoc, string unitPath)
+        {
+            RevitLinkInstance? linkInst = null;
+            hostDoc.ExecuteTransaction("Load And Place Link Instance", FailurePipelines.ObserveOnly(), () =>
+            {
+                ElementId linkTypeId = LoadLinkType(hostDoc, unitPath);
+                linkInst = RevitLinkInstance.Create(hostDoc, linkTypeId);
+            });
+
+            Assert.IsNotNull(linkInst);
+            return linkInst!;
+        }
+
         private string CreateSavedUnitModel(string fileNamePrefix, Action<Document>? configure = null)
         {
             string tempPath = GetTempFilePath($"{Path.GetFileNameWithoutExtension(fileNamePrefix)}_{Guid.NewGuid():N}.rvt");

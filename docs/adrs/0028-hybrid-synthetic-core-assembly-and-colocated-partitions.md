@@ -3,7 +3,7 @@
 Status: Accepted
 
 ## Context
-Historically, `SyntheticShared` compiled pure **RevitDOM** models and engines, feature ViewModels/services, WPF views, and `Autodesk.Revit.*` adapters directly into each versioned `Synthetic<Year>` add-in assembly (`Synthetic2023`–`Synthetic2026`). Even after migrating from `.shproj` to SDK-style wildcard globs over `src/SyntheticShared/`, compiling everything into a single assembly per **Revit Version** created four architectural pressures:
+Historically, `SyntheticShared` compiled pure **RevitDOM** models and engines, feature ViewModels and domain modules, WPF views, and `Autodesk.Revit.*` adapters directly into each versioned `Synthetic<Year>` add-in assembly (`Synthetic2023`–`Synthetic2026`). Even after migrating from `.shproj` to SDK-style wildcard globs over `src/SyntheticShared/`, compiling everything into a single assembly per **Revit Version** created four architectural pressures:
 
 1. **No Compiler-Enforced Purity Seam:** Pure logic could import `Autodesk.Revit.*` types or introduce `#if REVIT202*` preprocessor branches without any MSBuild error, silently coupling headless **RevitDOM** and domain logic to Revit or `RevitAPIMock`.
 2. **Incomplete Multi-TFM Headless Verification:** Running `SyntheticTests.Logic` solely against `Synthetic2026` (`net8.0-windows8.0` with `RevitAPIMock`) left `.NET Framework 4.8` (`net48`, **Revit Versions** `2023–2024`) incompatibilities in shared pure C# unverified until live Revit builds.

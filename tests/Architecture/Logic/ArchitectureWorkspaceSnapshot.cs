@@ -587,30 +587,7 @@ namespace SyntheticTests.Architecture
             {
                 var job = xmlJobs[i];
                 string rawText = File.ReadAllText(job.FullPath);
-                XDocument? doc = null;
-                if (!string.Equals(job.Ext, ".shproj", StringComparison.OrdinalIgnoreCase) &&
-                    !string.Equals(job.Ext, ".projitems", StringComparison.OrdinalIgnoreCase))
-                {
-                    try
-                    {
-                        doc = XDocument.Parse(rawText);
-                    }
-                    catch
-                    {
-                        doc = null;
-                    }
-                }
-                else
-                {
-                    try
-                    {
-                        doc = XDocument.Parse(rawText);
-                    }
-                    catch
-                    {
-                        doc = null;
-                    }
-                }
+                XDocument? doc = TryParseXmlDocument(rawText);
 
                 xmlResults[i] = new WorkspaceXmlFile(
                     job.Area,
@@ -625,33 +602,13 @@ namespace SyntheticTests.Architecture
             RibbonConfigSnapshot ribbonConfig = LoadRibbonConfig(srcRoot);
             SettingsTemplateSnapshot settingsTemplate = LoadSettingsTemplate(srcRoot);
 
-            var allSrcTypes = new List<TypeEntry>();
-            var allTestTypes = new List<TypeEntry>();
-            var srcByFull = new Dictionary<string, List<TypeEntry>>(StringComparer.Ordinal);
-            var srcBySimple = new Dictionary<string, List<TypeEntry>>(StringComparer.Ordinal);
-            var testByFull = new Dictionary<string, List<TypeEntry>>(StringComparer.Ordinal);
-
-            foreach (WorkspaceSourceFile file in sourceResults)
-            {
-                foreach (ParsedSyntaxVariant variant in file.Variants)
-                {
-                    foreach (TypeDeclarationRecord type in variant.Types)
-                    {
-                        var entry = new TypeEntry(file, variant, type);
-                        if (file.Area == SourceArea.Src)
-                        {
-                            allSrcTypes.Add(entry);
-                            AddToBucket(srcByFull, type.FullName, entry);
-                            AddToBucket(srcBySimple, type.Name, entry);
-                        }
-                        else
-                        {
-                            allTestTypes.Add(entry);
-                            AddToBucket(testByFull, type.FullName, entry);
-                        }
-                    }
-                }
-            }
+            BuildTypeIndexes(
+                sourceResults,
+                out var allSrcTypes,
+                out var allTestTypes,
+                out var srcByFull,
+                out var srcBySimple,
+                out var testByFull);
 
             var constantResolver = new RoslynConstantResolver(srcByFull, srcBySimple);
             stopwatch.Stop();
@@ -683,11 +640,57 @@ namespace SyntheticTests.Architecture
             SettingsTemplateSnapshot? settingsTemplate = null,
             string projectRoot = "synthetic://root")
         {
-            var allSrcTypes = new List<TypeEntry>();
-            var allTestTypes = new List<TypeEntry>();
-            var srcByFull = new Dictionary<string, List<TypeEntry>>(StringComparer.Ordinal);
-            var srcBySimple = new Dictionary<string, List<TypeEntry>>(StringComparer.Ordinal);
-            var testByFull = new Dictionary<string, List<TypeEntry>>(StringComparer.Ordinal);
+            BuildTypeIndexes(
+                sourceFiles,
+                out var allSrcTypes,
+                out var allTestTypes,
+                out var srcByFull,
+                out var srcBySimple,
+                out var testByFull);
+
+            return new ArchitectureWorkspaceSnapshot(
+                projectRoot,
+                Path.Combine(projectRoot, "src"),
+                Path.Combine(projectRoot, "tests"),
+                currentLatestVersion,
+                sourceFiles,
+                xamlFiles ?? Array.Empty<WorkspaceXamlFile>(),
+                projectAndBuildFiles ?? Array.Empty<WorkspaceXmlFile>(),
+                ribbonConfig ?? new RibbonConfigSnapshot(string.Empty, "{}", new JObject(), Array.Empty<RibbonEntryRecord>(), Array.Empty<string>()),
+                settingsTemplate ?? new SettingsTemplateSnapshot(string.Empty, "{}", new JObject(), Array.Empty<string>()),
+                allSrcTypes,
+                allTestTypes,
+                srcByFull,
+                testByFull,
+                new RoslynConstantResolver(srcByFull, srcBySimple),
+                TimeSpan.Zero);
+        }
+
+        private static XDocument? TryParseXmlDocument(string rawText)
+        {
+            try
+            {
+                return XDocument.Parse(rawText);
+            }
+            catch (System.Xml.XmlException)
+            {
+                return null;
+            }
+        }
+
+        private static void BuildTypeIndexes(
+            IEnumerable<WorkspaceSourceFile> sourceFiles,
+            out List<TypeEntry> allSrcTypes,
+            out List<TypeEntry> allTestTypes,
+            out Dictionary<string, List<TypeEntry>> srcByFull,
+            out Dictionary<string, List<TypeEntry>> srcBySimple,
+            out Dictionary<string, List<TypeEntry>> testByFull)
+        {
+            allSrcTypes = new List<TypeEntry>();
+            allTestTypes = new List<TypeEntry>();
+            srcByFull = new Dictionary<string, List<TypeEntry>>(StringComparer.Ordinal);
+            srcBySimple = new Dictionary<string, List<TypeEntry>>(StringComparer.Ordinal);
+            testByFull = new Dictionary<string, List<TypeEntry>>(StringComparer.Ordinal);
 
             foreach (WorkspaceSourceFile file in sourceFiles)
             {
@@ -710,23 +713,6 @@ namespace SyntheticTests.Architecture
                     }
                 }
             }
-
-            return new ArchitectureWorkspaceSnapshot(
-                projectRoot,
-                Path.Combine(projectRoot, "src"),
-                Path.Combine(projectRoot, "tests"),
-                currentLatestVersion,
-                sourceFiles,
-                xamlFiles ?? Array.Empty<WorkspaceXamlFile>(),
-                projectAndBuildFiles ?? Array.Empty<WorkspaceXmlFile>(),
-                ribbonConfig ?? new RibbonConfigSnapshot(string.Empty, "{}", new JObject(), Array.Empty<RibbonEntryRecord>(), Array.Empty<string>()),
-                settingsTemplate ?? new SettingsTemplateSnapshot(string.Empty, "{}", new JObject(), Array.Empty<string>()),
-                allSrcTypes,
-                allTestTypes,
-                srcByFull,
-                testByFull,
-                new RoslynConstantResolver(srcByFull, srcBySimple),
-                TimeSpan.Zero);
         }
 
         public static WorkspaceSourceFile CreateSyntheticSourceFile(

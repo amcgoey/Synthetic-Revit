@@ -64,10 +64,24 @@ namespace Synthetic.RevitDOM.Translation
             return model;
         }
 
+        internal static bool IsSolidLinePatternReference(ElementIdModel model)
+        {
+            return model.Id == -3000010 ||
+                   (string.Equals(model.Name, "Solid", StringComparison.OrdinalIgnoreCase) &&
+                    (string.Equals(model.Class, "Autodesk.Revit.DB.LinePatternElement", StringComparison.Ordinal) ||
+                     string.IsNullOrEmpty(model.Class)));
+        }
+
         public ElementId ResolveElementId(ElementIdModel model, Document doc)
         {
-            if (model == null) return ElementId.InvalidElementId;
-            if (model.Id == -3000010 || string.Equals(model.Name, "Solid", StringComparison.OrdinalIgnoreCase))
+            if (model == null ||
+                string.Equals(model.Name, "<None>", StringComparison.Ordinal) ||
+                string.Equals(model.Name, "<By Category>", StringComparison.Ordinal))
+            {
+                return ElementId.InvalidElementId;
+            }
+
+            if (IsSolidLinePatternReference(model))
             {
                 return LinePatternElement.GetSolidPatternId();
             }
@@ -80,7 +94,17 @@ namespace Synthetic.RevitDOM.Translation
             }
 
             var elem = ResolveElement(model, doc);
-            return elem?.Id ?? ElementId.InvalidElementId;
+            if (elem != null)
+            {
+                return elem.Id;
+            }
+
+            if (string.IsNullOrEmpty(model.Name) && model.Id < -1)
+            {
+                return CreateElementId(model.Id);
+            }
+
+            return ElementId.InvalidElementId;
         }
 
         public Element ResolveElement(ElementIdModel model, Document doc)

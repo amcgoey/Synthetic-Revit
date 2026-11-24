@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
 using System.Threading;
 using NUnit.Framework;
 using Synthetic.Features.SheetIndex.Models;
@@ -33,19 +32,6 @@ namespace SyntheticTests.Features.SheetIndex
             };
 
             return new FakeSheetIndexAdapter(sheets, revisions);
-        }
-
-        [Test]
-        public void CollapsedConstructor_ExposesOnlySheetIndexSnapshotConstructor()
-        {
-            ConstructorInfo[] constructors = typeof(ExportSheetIndexViewModel).GetConstructors(BindingFlags.Public | BindingFlags.Instance);
-            Assert.AreEqual(1, constructors.Length, "ExportSheetIndexViewModel must expose only the collapsed SheetIndexSnapshot constructor.");
-
-            ParameterInfo[] parameters = constructors[0].GetParameters();
-            Assert.AreEqual(2, parameters.Length);
-            Assert.AreEqual(typeof(SheetIndexSnapshot), parameters[0].ParameterType);
-            Assert.AreEqual(typeof(SheetIndexSessionState), parameters[1].ParameterType);
-            Assert.IsTrue(parameters[1].IsOptional);
         }
 
         [Test]

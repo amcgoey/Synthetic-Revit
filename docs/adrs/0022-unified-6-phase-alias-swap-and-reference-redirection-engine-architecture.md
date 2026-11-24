@@ -4,13 +4,13 @@ Status: Accepted
 
 ## Context
 
-Duplicate element merging and alias swapping in Revit require updating element instance types, writeable `ElementId` parameters, category default materials and line styles, compound structure layers (walls/floors/roofs/ceilings), view category graphic overrides, and view filter/element-level graphic overrides. Previously, instance remapping was handled inside `ProcessMergeEventHandler`, while property/style references were handled inside `AliasSwapEngine`.
+**Duplicate Merging** and **Alias Swapping** in Revit require updating element instance types, writeable `ElementId` parameters, category default materials and line styles, compound structure layers (walls/floors/roofs/ceilings), view category graphic overrides, and view filter/element-level graphic overrides. Previously, instance remapping was handled inside `ProcessMergeEventHandler`, while property/style references were handled inside `AliasSwapEngine`.
 
 ## Decision
 
 We unify all database reference redirection into a single 6-phase pipeline inside `Synthetic.RevitDOM.Operations.AliasSwapEngine`:
 1. **Phase 1 (Instance & Type Remapping):** Universal `elem.ChangeTypeId(newId)` with `elem.IsValidTypeId(newId)` checks for families, system types, annotation types, groups, and assemblies.
-2. **Phase 2 (Parameters):** Writeable `ElementId` parameter reference swapping across non-element-type and element-type elements.
+2. **Phase 2 (Parameters):** Writeable `ElementId` parameter **Alias Swapping** across non-element-type and element-type elements.
 3. **Phase 3 (Category Default Styles):** Category materials and cut/projection line pattern swapping.
 4. **Phase 4 (Compound Structures):** Layer materials and deck profile swapping for host types.
 5. **Phase 5 (View Category Overrides):** Category projection/cut line patterns and fill pattern overrides.

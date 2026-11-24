@@ -95,7 +95,7 @@ Enforced in **Logic Tests** (`python .agents/skills/revit-tests/scripts/test_exe
 | 6 | `SettingsRegistryTemplateParity` | Global `0%` | 1-to-1 `ModuleKey` parity across concrete `ISettingModule` types (excluding `SyncSettings`), `HostSettingsRegistrar`, and `SyntheticSettings.template.json`. |
 | 7 | `TestCategoryAndLegacyMockRatchet` | Global `0%` | Typed `[Category]` on every test class or 100% of test methods, zero `Tier1_*`/`Tier2_*` or retired symbols, exact `25`-file `Synthetic.LegacyMockTests` lock. |
 | 8 | `InteractiveSliceSeamPurity` | Ratcheted | Zero `Autodesk.Revit.*` inside `{ViewModels, Views, Models, Settings}` across all `14` feature slices. |
-| 9 | `TransactionPlacement` | Ratcheted | Raw `new Transaction` / `TransactionGroup` permitted only in `IExternalCommand`, `IExternalEventHandler`, `I*Adapter`, or `Platform/Revit/Addin`. |
+| 9 | `TransactionPlacement` | Ratcheted | Raw `new Transaction` permitted only in `IExternalCommand`, `IExternalEventHandler`, `I*Adapter`, or `Platform/Revit/Addin`; raw `new TransactionGroup` permitted only in `Platform/Revit/Addin` (`DocumentTransactionExtensions`). |
 | 10 | `TransactionFailureGuard` | Ratcheted | Every `new Transaction` outside `Platform/Revit/Addin` must attach `FailurePipelines` / `IFailuresPreprocessor` / `SetFailuresPreprocessor`. |
 | 11 | `ExternalEventAndDialogPurity` | Ratcheted | Zero `static ExternalEvent`, zero raw `DeleteAllWarnings()`, zero `ExternalEvent.Create` in `ViewModels/`, zero modal dialogs in restricted scopes. |
 | 12 | `SingleSchemaExtensibleStorage` | Ratcheted | `new SchemaBuilder(...)` permitted only in `Platform/Settings/Addin`. |

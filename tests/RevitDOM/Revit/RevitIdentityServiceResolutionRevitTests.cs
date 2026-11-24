@@ -4,9 +4,11 @@ using System.Linq;
 using NUnit.Framework;
 using Autodesk.Revit.UI;
 using Autodesk.Revit.DB;
+using Synthetic.Platform.Revit;
 using Synthetic.RevitDOM.Models;
 using Synthetic.RevitDOM.Translation;
 using Synthetic.RevitDOM.Operations;
+using Synthetic.RevitDOM.Operations.Diffing;
 using Synthetic.RevitDOM;
 using SyntheticTests.Fixtures;
 
@@ -355,6 +357,88 @@ namespace SyntheticTests.RevitDOM
                 var warnings = SerializationResultModel.CurrentThreadWarnings;
                 Assert.AreEqual(1, warnings.Count);
                 Assert.AreEqual("Dependency not found: Fictitious Level (Autodesk.Revit.DB.Level)", warnings[0]);
+            });
+        }
+
+        [Test]
+        public void ResolveElementId_SolidShortcut_OnlyMatchesLinePatternReferencesAndNotOtherElementsNamedSolid()
+        {
+            WithRolledBackDocument(doc =>
+            {
+                ElementId solidMatId = ElementId.InvalidElementId;
+                doc.ExecuteTransaction("Create Material Named Solid", FailurePipelines.ObserveOnly(), () =>
+                {
+                    solidMatId = Material.Create(doc, "Solid");
+                });
+
+                var service = new RevitIdentityService();
+
+                var materialModel = new ElementIdModel
+                {
+                    Name = "Solid",
+                    Class = "Autodesk.Revit.DB.Material",
+                    Id = 0
+                };
+                ElementId resolvedMaterialId = service.ResolveElementId(materialModel, doc);
+                Assert.AreEqual(solidMatId, resolvedMaterialId, "Non-LinePatternElement named 'Solid' must resolve to the Material, not Solid LinePattern.");
+
+                var diffMaterialParam = new ParameterModel
+                {
+                    Name = "Material",
+                    StorageType = "ElementId",
+                    ValueElemId = materialModel
+                };
+                Assert.AreEqual(
+                    GetElementIdValue(solidMatId).ToString(),
+                    PocoToRevitDiffEngine.GetJsonParameterValue(doc, diffMaterialParam, service));
+
+                var linePatternModel = new ElementIdModel
+                {
+                    Name = "Solid",
+                    Class = "Autodesk.Revit.DB.LinePatternElement",
+                    Id = 0
+                };
+                Assert.AreEqual(LinePatternElement.GetSolidPatternId(), service.ResolveElementId(linePatternModel, doc));
+
+                var unqualifiedSolidModel = new ElementIdModel
+                {
+                    Name = "Solid",
+                    Class = string.Empty,
+                    Id = 0
+                };
+                Assert.AreEqual(LinePatternElement.GetSolidPatternId(), service.ResolveElementId(unqualifiedSolidModel, doc));
+            });
+        }
+
+        [Test]
+        public void ResolveElementId_NegativeSentinelWithEmptyName_PreservesNegativeElementId()
+        {
+            WithRolledBackDocument(doc =>
+            {
+                var service = new RevitIdentityService();
+                long wallCatSentinel = (long)BuiltInCategory.OST_Walls;
+                var sentinelModel = new ElementIdModel
+                {
+                    Id = wallCatSentinel,
+                    Name = string.Empty,
+                    Class = string.Empty
+                };
+
+                ElementId resolvedId = service.ResolveElementId(sentinelModel, doc);
+                Assert.AreEqual(wallCatSentinel, GetElementIdValue(resolvedId));
+
+                var diffParam = new ParameterModel
+                {
+                    Name = "SentinelParam",
+                    StorageType = "ElementId",
+                    ValueElemId = sentinelModel
+                };
+                Assert.AreEqual(
+                    wallCatSentinel.ToString(),
+                    PocoToRevitDiffEngine.GetJsonParameterValue(doc, diffParam, service));
+
+                var noneModel = new ElementIdModel { Name = "<None>", Id = -1 };
+                Assert.AreEqual(ElementId.InvalidElementId, service.ResolveElementId(noneModel, doc));
             });
         }
 

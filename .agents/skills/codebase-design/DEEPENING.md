@@ -33,9 +33,9 @@ Keep multi-step BIM workflows split across `Core/` and `Addin/` (`SheetIndex`, `
 IReadOnlyList<LinkRepositionGroupItem> groups = _adapter.GetLinkRepositionGroups();
 
 // 2. Pure Plan in Core (zero Revit API; verified in Synthetic.LogicTests)
-CoordinateTransformResult delta = SharedCoordinatesMath.ComputeLinkAlignment(
-    currentLinkTransform,
-    expectedLinkTransform);
+CoordinateTransformResult delta = SharedCoordinatesMath.ComputeAlignmentFromExpected(
+    currentTransform,
+    expectedTransform);
 
 // 3. Atomic Apply at Revit<Slice>Adapter using DocumentTransactionExtensions
 bool committed = _doc.ExecuteCommittedBatchGroup("Move Links to Shared Sites", () =>
