@@ -1,0 +1,42 @@
+{
+  "FillPatternElements": {
+    "[Drafting]_Golden_Diagonal_Crosshatch": {
+      "Pattern": {
+        "Name": "Golden_Diagonal_Crosshatch",
+        "Target": "Drafting",
+        "HostOrientation": "ToHost",
+        "FillGrids": [
+          {
+            "Angle": 0.785398,
+            "Offset": 0.125,
+            "Origin": {
+              "U": 0.0,
+              "V": 0.0
+            },
+            "Shift": 0.0
+          },
+          {
+            "Angle": -0.785398,
+            "Offset": 0.125,
+            "Origin": {
+              "U": 0.0,
+              "V": 0.0
+            },
+            "Shift": 0.0
+          }
+        ]
+      },
+      "Class": "Autodesk.Revit.DB.FillPatternElement",
+      "Category": "",
+      "Name": "Golden_Diagonal_Crosshatch",
+      "Aliases": null,
+      "Id": 0,
+      "UniqueId": null,
+      "Parameters": [],
+      "InstanceCount": 0,
+      "Location": null,
+      "BoundingBox": null,
+      "NestedTypes": []
+    }
+  }
+}
