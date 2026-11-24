@@ -13,8 +13,6 @@ using System.IO;
 using View = Autodesk.Revit.DB.View;
 using TaskDialog = Autodesk.Revit.UI.TaskDialog;
 
-using Synthetic.Platform.UI;
-
 namespace Synthetic.Features.DetailItemFactory.Commands
 {
     /// <summary>

@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Events;
-using Synthetic.Platform.Revit;
 
 namespace Synthetic.Features.FamilyManagement.Utilities
 {

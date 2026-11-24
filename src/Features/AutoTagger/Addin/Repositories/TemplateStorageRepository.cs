@@ -12,8 +12,6 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.ExtensibleStorage;
 using Newtonsoft.Json;
 
-using Synthetic.Platform.IO;
-
 namespace Synthetic.Features.AutoTagger.Repositories
 {
     /// <summary>

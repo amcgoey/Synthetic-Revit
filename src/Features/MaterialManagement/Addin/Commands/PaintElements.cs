@@ -13,7 +13,6 @@ using System.Text;
 using Synthetic.Platform.UI;
 
 using Synthetic.Platform.Revit;
-using Synthetic.Platform.IO;
 
 namespace Synthetic.Features.MaterialManagement.Commands
 {

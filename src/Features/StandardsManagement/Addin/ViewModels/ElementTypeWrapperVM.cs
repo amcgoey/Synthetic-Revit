@@ -7,9 +7,7 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 
 using Synthetic.RevitDOM.Models;
-using Synthetic.Platform.IO;
 using Synthetic.Platform.UI;
-using Synthetic.Platform.Revit;
 
 namespace Synthetic.Features.StandardsManagement.ViewModels
 {
