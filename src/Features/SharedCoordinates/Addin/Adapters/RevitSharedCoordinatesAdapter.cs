@@ -368,9 +368,9 @@ namespace Synthetic.Features.SharedCoordinates.Adapters
                     Transform currentTransform = instance.GetTransform();
 
                     var alignment = SharedCoordinatesMath.ComputeAlignment(
-                        hostTotalTransform,
-                        linkTotalTransform,
-                        currentTransform);
+                        ToRigidTransform3D(hostTotalTransform),
+                        ToRigidTransform3D(linkTotalTransform),
+                        ToRigidTransform3D(currentTransform));
 
                     if (alignment.IsOutOfSync)
                     {
@@ -476,9 +476,9 @@ namespace Synthetic.Features.SharedCoordinates.Adapters
                         Transform currentTransform = instance.GetTransform();
 
                         var alignment = SharedCoordinatesMath.ComputeAlignment(
-                            hostTotalTransform,
-                            linkTotalTransform,
-                            currentTransform);
+                            ToRigidTransform3D(hostTotalTransform),
+                            ToRigidTransform3D(linkTotalTransform),
+                            ToRigidTransform3D(currentTransform));
 
                         if (!alignment.IsOutOfSync)
                         {
@@ -509,7 +509,7 @@ namespace Synthetic.Features.SharedCoordinates.Adapters
                                 }
 
                                 Transform postRotateTransform = instance.GetTransform();
-                                XYZ remainingTranslation = alignment.ExpectedTransform.Origin - postRotateTransform.Origin;
+                                XYZ remainingTranslation = ToXyz(alignment.ExpectedTransform.Origin) - postRotateTransform.Origin;
                                 double minMoveTolerance = Math.Max(SharedCoordinatesMath.Tolerance, _doc.Application?.ShortCurveTolerance ?? 1e-4);
 
                                 if (remainingTranslation.GetLength() > minMoveTolerance)
@@ -708,6 +708,19 @@ namespace Synthetic.Features.SharedCoordinates.Adapters
                 .OfClass(typeof(ProjectLocation))
                 .Cast<ProjectLocation>()
                 .FirstOrDefault(loc => string.Equals(loc.Name, siteName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static Vector3D ToVector3D(XYZ xyz) => new Vector3D(xyz.X, xyz.Y, xyz.Z);
+
+        private static XYZ ToXyz(Vector3D vector) => new XYZ(vector.X, vector.Y, vector.Z);
+
+        private static RigidTransform3D ToRigidTransform3D(Transform transform)
+        {
+            return new RigidTransform3D(
+                ToVector3D(transform.Origin),
+                ToVector3D(transform.BasisX),
+                ToVector3D(transform.BasisY),
+                ToVector3D(transform.BasisZ));
         }
     }
 }
