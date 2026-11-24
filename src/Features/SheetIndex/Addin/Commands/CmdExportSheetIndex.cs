@@ -1,10 +1,9 @@
 using System;
-using System.Collections.Generic;
-using System.Linq;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 
+using Synthetic.Features.SheetIndex.Adapters;
 using Synthetic.Features.SheetIndex.Models;
 using Synthetic.Features.SheetIndex.Services;
 using Synthetic.Features.SheetIndex.ViewModels;
@@ -22,6 +21,9 @@ namespace Synthetic.Features.SheetIndex.Commands
     {
         private static readonly SheetIndexSessionState _sessionState = new SheetIndexSessionState();
 
+        /// <summary>
+        /// Executes the Dot Sheet Index export command.
+        /// </summary>
         public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
         {
             try
@@ -34,192 +36,18 @@ namespace Synthetic.Features.SheetIndex.Commands
                     return Result.Failed;
                 }
 
-                // 1. Query sheets from Revit document
-                var sheetElements = new FilteredElementCollector(doc)
-                    .OfClass(typeof(ViewSheet))
-                    .Cast<ViewSheet>()
-                    .Where(s => !s.IsPlaceholder)
-                    .ToList();
+                // 1. Harvest project snapshot via single-query Revit adapter
+                ISheetIndexAdapter adapter = new RevitSheetIndexAdapter(doc);
+                SheetIndexSnapshot snapshot = adapter.LoadProjectSnapshot();
 
-                if (sheetElements.Count == 0)
+                if (snapshot.Sheets.Count == 0)
                 {
                     Autodesk.Revit.UI.TaskDialog.Show("Export Dot Sheet Index", "No valid sheets found in the current Revit document.");
                     return Result.Succeeded;
                 }
 
-                var sheetComparer = new AlphanumericComparer();
-                var sortedSheetElements = sheetElements
-                    .OrderBy(s => s.SheetNumber ?? string.Empty, sheetComparer)
-                    .ToList();
-
-                var sheetModels = new List<SheetIndexSheetModel>();
-                foreach (var sheet in sortedSheetElements)
-                {
-                    sheetModels.Add(CreateSheetModel(sheet, doc, null));
-                }
-
-                // 2. Query revisions from Revit document
-                var revisionElements = new FilteredElementCollector(doc)
-                    .OfCategory(BuiltInCategory.OST_Revisions)
-                    .OfClass(typeof(Revision))
-                    .Cast<Revision>()
-                    .ToList();
-
-                var revisionModels = new List<SheetIndexRevisionModel>();
-                foreach (var rev in revisionElements)
-                {
-                    string name = !string.IsNullOrWhiteSpace(rev.Description)
-                        ? rev.Description
-                        : $"Revision {rev.SequenceNumber}";
-
-                    string date = rev.RevisionDate ?? string.Empty;
-
-                    revisionModels.Add(new SheetIndexRevisionModel(
-                        rev.UniqueId,
-                        name,
-                        date,
-                        rev.SequenceNumber
-                    ));
-                }
-
-                // 2b. Query ViewSheetSets (Print Sets) and ViewSchedules (Sheet Schedules)
-                var printSetElements = new FilteredElementCollector(doc)
-                    .OfClass(typeof(ViewSheetSet))
-                    .WhereElementIsNotElementType()
-                    .Cast<ViewSheetSet>()
-                    .OrderBy(vs => vs.Name, StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-
-                var printSetModels = new List<SheetIndexPrintSetModel>();
-                var printSetSheetMap = new Dictionary<string, List<string>>();
-                foreach (var printSet in printSetElements)
-                {
-                    if (string.IsNullOrEmpty(printSet.Name)) continue;
-                    var sheetsInSet = new List<ViewSheet>();
-                    foreach (Autodesk.Revit.DB.View v in printSet.Views)
-                    {
-                        if (v is ViewSheet sheet && !sheet.IsPlaceholder)
-                        {
-                            sheetsInSet.Add(sheet);
-                        }
-                    }
-
-                    sheetsInSet = sheetsInSet
-                        .OrderBy(s => s.SheetNumber ?? string.Empty, sheetComparer)
-                        .ToList();
-
-                    var sheetIdsInSet = sheetsInSet.Select(s => s.UniqueId).ToList();
-
-                    printSetSheetMap[printSet.Name] = sheetIdsInSet;
-                    printSetModels.Add(new SheetIndexPrintSetModel(
-                        printSet.UniqueId,
-                        printSet.Name,
-                        sheetIdsInSet
-                    ));
-                }
-
-                // 3. Query ViewSchedule sheet schedules from Revit document
-                var scheduleElements = new FilteredElementCollector(doc)
-                    .OfClass(typeof(ViewSchedule))
-                    .WhereElementIsNotElementType()
-                    .Cast<ViewSchedule>()
-                    .Where(s => !s.IsTemplate && s.Definition != null && s.Definition.CategoryId == new ElementId(BuiltInCategory.OST_Sheets))
-                    .ToList();
-
-                var scheduleSheetMap = new Dictionary<string, List<string>>();
-                var scheduleModels = new List<SheetIndexScheduleModel>();
-
-                foreach (var schedule in scheduleElements)
-                {
-                    if (string.IsNullOrEmpty(schedule.Name)) continue;
-
-                    var scheduledSheets = new FilteredElementCollector(doc, schedule.Id)
-                        .OfClass(typeof(ViewSheet))
-                        .Cast<ViewSheet>()
-                        .Where(s => !s.IsPlaceholder)
-                        .ToList();
-
-                    var ids = scheduledSheets.Select(s => s.UniqueId).ToList();
-                    scheduleSheetMap[schedule.Name] = ids;
-
-                    if (scheduledSheets.Count == 0) continue;
-
-                    // Inspect schedule definition for section header grouping fields and sort order
-                    string? groupParamName = null;
-                    var sortGroupFields = schedule.Definition.GetSortGroupFields();
-                    foreach (var field in sortGroupFields)
-                    {
-                        if (field.ShowHeader && groupParamName == null)
-                        {
-                            var schedField = schedule.Definition.GetField(field.FieldId);
-                            groupParamName = schedField?.GetName();
-                        }
-                    }
-
-                    // Sort scheduled sheets according to all schedule sort/group fields if available
-                    if (sortGroupFields.Count > 0)
-                    {
-                        var comparer = new AlphanumericComparer();
-                        IOrderedEnumerable<ViewSheet>? orderedSheets = null;
-
-                        foreach (var field in sortGroupFields)
-                        {
-                            var schedField = schedule.Definition.GetField(field.FieldId);
-                            string? paramName = schedField?.GetName();
-                            if (string.IsNullOrEmpty(paramName)) continue;
-
-                            bool isAscending = field.SortOrder == ScheduleSortOrder.Ascending;
-
-                            if (orderedSheets == null)
-                            {
-                                orderedSheets = isAscending
-                                    ? scheduledSheets.OrderBy(s => s.LookupParameter(paramName)?.AsString() ?? string.Empty, comparer)
-                                    : scheduledSheets.OrderByDescending(s => s.LookupParameter(paramName)?.AsString() ?? string.Empty, comparer);
-                            }
-                            else
-                            {
-                                orderedSheets = isAscending
-                                    ? orderedSheets.ThenBy(s => s.LookupParameter(paramName)?.AsString() ?? string.Empty, comparer)
-                                    : orderedSheets.ThenByDescending(s => s.LookupParameter(paramName)?.AsString() ?? string.Empty, comparer);
-                            }
-                        }
-
-                        if (orderedSheets != null)
-                        {
-                            scheduledSheets = orderedSheets.ToList();
-                        }
-                    }
-
-                    var schedSheetModels = new List<SheetIndexSheetModel>();
-                    foreach (var sheet in scheduledSheets)
-                    {
-                        string? groupValue = null;
-                        if (!string.IsNullOrEmpty(groupParamName))
-                        {
-                            var param = sheet.LookupParameter(groupParamName);
-                            if (param != null && param.HasValue)
-                            {
-                                groupValue = param.AsString();
-                            }
-                        }
-
-                        schedSheetModels.Add(CreateSheetModel(sheet, doc, groupValue));
-                    }
-
-                    scheduleModels.Add(new SheetIndexScheduleModel(schedule.UniqueId, schedule.Name, schedSheetModels));
-                }
-
-                // 4. Launch WPF Selection UI
-                var viewModel = new ExportSheetIndexViewModel(
-                    sheetModels,
-                    revisionModels,
-                    printSetSheetMap.Keys,
-                    scheduleSheetMap.Keys,
-                    printSetSheetMap,
-                    scheduleSheetMap,
-                    scheduleModels,
-                    printSetModels,
-                    _sessionState);
+                // 2. Launch WPF Selection UI
+                var viewModel = new ExportSheetIndexViewModel(snapshot, _sessionState);
                 var window = new ExportSheetIndexWindow(viewModel, uiapp.MainWindowHandle);
 
                 bool? dialogResult = window.ShowDialog();
@@ -237,7 +65,7 @@ namespace Synthetic.Features.SheetIndex.Commands
                     return Result.Succeeded;
                 }
 
-                // 5. Prompt for Save File Path using Revit FileSaveDialog
+                // 3. Prompt for Save File Path using Revit FileSaveDialog
                 string? savePath = null;
                 using (var saveFileDialog = new FileSaveDialog("Excel Files (*.xlsx)|*.xlsx"))
                 {
@@ -256,17 +84,17 @@ namespace Synthetic.Features.SheetIndex.Commands
                     return Result.Cancelled;
                 }
 
-                // 6. Build 2D Sheet Index Matrix
+                // 4. Build 2D Sheet Index Matrix
                 var matrixBuilder = new SheetIndexMatrixBuilder();
                 var matrix = matrixBuilder.BuildMatrix(selectedSheets, selectedRevisions, preserveSheetOrder: viewModel.PreserveSheetOrder);
 
-                // 7. Export to Excel
+                // 5. Export to Excel
                 var exporterService = new SheetIndexExporterService();
-                exporterService.ExportToExcel(matrix, savePath);
+                exporterService.ExportToExcel(matrix, savePath!);
 
-                // 8. Show Post-Export Completion Dialog
+                // 6. Show Post-Export Completion Dialog
                 var completionViewModel = ExportCompletionViewModel.ForSingleFile(
-                    savePath,
+                    savePath!,
                     windowTitle: "Export Complete",
                     headerTitle: "Sheet Index Export Complete");
                 var completionWindow = new ExportCompletionWindow(completionViewModel, uiapp.MainWindowHandle);
@@ -279,21 +107,6 @@ namespace Synthetic.Features.SheetIndex.Commands
                 message = ex.Message + "\n" + ex.StackTrace;
                 return Result.Failed;
             }
-        }
-
-        private static SheetIndexSheetModel CreateSheetModel(ViewSheet sheet, Document doc, string? sectionGroup)
-        {
-            var revIds = sheet.GetAllRevisionIds()
-                .Select(id => doc.GetElement(id)?.UniqueId ?? id.ToString())
-                .Where(id => !string.IsNullOrEmpty(id))
-                .ToList();
-
-            return new SheetIndexSheetModel(
-                sheet.UniqueId,
-                sheet.SheetNumber,
-                sheet.Name,
-                revIds
-            ) { SectionGroup = sectionGroup };
         }
     }
 }
