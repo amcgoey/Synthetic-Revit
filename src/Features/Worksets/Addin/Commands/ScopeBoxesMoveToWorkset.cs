@@ -9,8 +9,6 @@ using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 
-using Synthetic.Platform.IO;
-
 using Synthetic.Platform.Revit;
 
 using Synthetic.Platform.UI;

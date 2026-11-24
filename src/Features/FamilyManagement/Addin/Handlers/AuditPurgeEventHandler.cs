@@ -8,7 +8,6 @@ using System.Linq;
 using System.Text;
 
 using Synthetic.Platform.UI;
-using Synthetic;
 
 using Synthetic.Features.FamilyManagement.Handlers;
 using Synthetic.Features.FamilyManagement.Utilities;
