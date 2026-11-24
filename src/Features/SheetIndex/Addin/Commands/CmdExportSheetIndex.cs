@@ -84,17 +84,26 @@ namespace Synthetic.Features.SheetIndex.Commands
                     return Result.Cancelled;
                 }
 
-                // 4. Build 2D Sheet Index Matrix
-                var matrixBuilder = new SheetIndexMatrixBuilder();
-                var matrix = matrixBuilder.BuildMatrix(selectedSheets, selectedRevisions, preserveSheetOrder: viewModel.PreserveSheetOrder);
-
-                // 5. Export to Excel
-                var exporterService = new SheetIndexExporterService();
-                exporterService.ExportToExcel(matrix, savePath!);
-
-                // 6. Show Post-Export Completion Dialog
-                var completionViewModel = ExportCompletionViewModel.ForSingleFile(
+                // 4. Build matrix and export Dot Sheet Index workbook
+                var exporter = new SheetIndexExporter();
+                SheetIndexExportOutcome outcome = exporter.Export(
+                    selectedSheets,
+                    selectedRevisions,
                     savePath!,
+                    preserveSheetOrder: viewModel.PreserveSheetOrder);
+
+                if (!outcome.Succeeded)
+                {
+                    string errorDetail = string.IsNullOrWhiteSpace(outcome.ErrorMessage)
+                        ? "Failed to export the Dot Sheet Index Excel file."
+                        : outcome.ErrorMessage!;
+                    Autodesk.Revit.UI.TaskDialog.Show("Export Dot Sheet Index - Export Failed", errorDetail);
+                    return Result.Failed;
+                }
+
+                // 5. Show Post-Export Completion Dialog
+                var completionViewModel = ExportCompletionViewModel.ForSingleFile(
+                    outcome.OutputFilePath,
                     windowTitle: "Export Complete",
                     headerTitle: "Sheet Index Export Complete");
                 var completionWindow = new ExportCompletionWindow(completionViewModel, uiapp.MainWindowHandle);
