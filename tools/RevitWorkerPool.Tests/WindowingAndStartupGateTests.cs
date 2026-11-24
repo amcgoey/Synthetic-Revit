@@ -160,6 +160,11 @@ public class WindowingAndStartupGateTests
         using var tracker = new OffScreenWindowTracker();
         using var stub = new StubWorkerProcessLauncher();
         using var launcher = new OffScreenWindowingLauncher(stub, tracker);
+        Assert.That(launcher.UsesCleanShim, Is.False);
+
+        using var shimmedStub = new StubWorkerProcessLauncher(usesCleanShim: true);
+        using var shimmedDecorator = new OffScreenWindowingLauncher(shimmedStub, tracker);
+        Assert.That(shimmedDecorator.UsesCleanShim, Is.True);
 
         bool innerHookCalled = false;
         var req = new WorkerLaunchRequest
@@ -845,6 +850,8 @@ public class WindowingAndStartupGateTests
             _pid = pid;
         }
 
+        public bool UsesCleanShim => false;
+
         public Task<LaunchedWorkerProcess> LaunchAsync(WorkerLaunchRequest request, CancellationToken cancellationToken = default)
         {
             request.OnProcessCreatedBeforeResume?.Invoke(_pid);
@@ -860,6 +867,8 @@ public class WindowingAndStartupGateTests
         {
             _fn = fn;
         }
+
+        public bool UsesCleanShim => false;
 
         public Task<LaunchedWorkerProcess> LaunchAsync(WorkerLaunchRequest request, CancellationToken cancellationToken = default)
         {

@@ -1,0 +1,4 @@
+Repository: https://github.com/microsoft/detours.git
+Pinned Commit: 1dbd4ea281d73d478aa8d09a8b83fbd265f715f7
+License: MIT (see LICENSE.md)
+Vendored Files (src/): detours.cpp, disasm.cpp, modules.cpp, image.cpp, creatwth.cpp, uimports.cpp, detours.h, detver.h, Makefile

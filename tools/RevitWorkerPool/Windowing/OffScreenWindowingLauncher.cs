@@ -41,6 +41,8 @@ public sealed class OffScreenWindowingLauncher : IWorkerProcessLauncher, IDispos
 
     public OffScreenWindowTracker Tracker { get; }
 
+    public bool UsesCleanShim => InnerLauncher.UsesCleanShim;
+
     public async Task<LaunchedWorkerProcess> LaunchAsync(
         WorkerLaunchRequest request,
         CancellationToken cancellationToken = default)
