@@ -11,6 +11,7 @@ using RevitWorkerPool.Execution;
 using RevitWorkerPool.Ipc;
 using RevitWorkerPool.Launching;
 using RevitWorkerPool.Pipe;
+using RevitWorkerPool.Startup;
 
 namespace RevitWorkerPool.Supervisor;
 
@@ -29,6 +30,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
     private readonly TimeProvider _timeProvider;
     private readonly Func<int> _currentLatestVersionProvider;
     private readonly Action<string>? _diagnosticLogger;
+    private readonly StartupBootProtector? _startupProtector;
 
     private readonly object _sync = new();
     private readonly List<ManagedWorker> _workers = new();
@@ -59,7 +61,8 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
         Func<string?, IDisposable>? bundleLeaseFactory = null,
         TimeProvider? timeProvider = null,
         Func<int>? currentLatestVersionProvider = null,
-        Action<string>? diagnosticLogger = null)
+        Action<string>? diagnosticLogger = null,
+        StartupBootProtector? startupProtector = null)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
         if (_options.MaxActiveWorkers <= 0)
@@ -74,6 +77,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
         _timeProvider = timeProvider ?? TimeProvider.System;
         _currentLatestVersionProvider = currentLatestVersionProvider ?? ResolveDefaultLatestVersion;
         _diagnosticLogger = diagnosticLogger;
+        _startupProtector = startupProtector;
         _lastActivityUtc = _timeProvider.GetUtcNow();
     }
 
@@ -944,56 +948,102 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                 ProjectRoot = worker.ProjectRoot
             };
 
-            LaunchedWorkerProcess process = await _launcher
-                .LaunchAsync(launchRequest, worker.BootCts.Token)
-                .ConfigureAwait(false);
+            LaunchedWorkerProcess process;
+            IPipeTestClient pipeClient;
+            StartupBootProtector? protector = TestExecutionHelper.ResolveStartupBootProtector(
+                _launcher,
+                _startupProtector,
+                _diagnosticLogger);
 
-            bool shouldAbort;
-            lock (_sync)
+            if (protector is not null && OperatingSystem.IsWindows())
             {
-                worker.Process = process;
-                shouldAbort = _draining || _disposed || worker.State == WorkerState.Terminating || worker.BootCts.IsCancellationRequested;
-                if (shouldAbort)
+                ProtectedWorkerBootOptions bootOptions = protector.DefaultOptions with
                 {
-                    worker.State = WorkerState.Terminating;
+                    BootTimeout = worker.BootTimeout
+                };
+
+                ProtectedWorkerBootResult bootResult = await protector.BootWorkerWithStartupProtectionAsync(
+                    _launcher,
+                    _pipeClientFactory,
+                    launchRequest,
+                    bootOptions,
+                    worker.BootCts.Token).ConfigureAwait(false);
+
+                process = bootResult.Worker;
+                pipeClient = bootResult.PipeClient;
+
+                bool shouldAbortProtected;
+                lock (_sync)
+                {
+                    worker.WorkerId = process.WorkerId;
+                    worker.Process = process;
+                    worker.PipeClient = pipeClient;
+                    shouldAbortProtected = _draining || _disposed || worker.State == WorkerState.Terminating || worker.BootCts.IsCancellationRequested;
+                    if (shouldAbortProtected)
+                    {
+                        worker.State = WorkerState.Terminating;
+                    }
+                }
+
+                if (shouldAbortProtected)
+                {
+                    await CleanupFailedBootAsync(worker, new OperationCanceledException("Worker boot cancelled during drain.")).ConfigureAwait(false);
+                    return;
                 }
             }
-
-            if (shouldAbort)
+            else
             {
-                await CleanupFailedBootAsync(worker, new OperationCanceledException("Worker boot cancelled during drain.")).ConfigureAwait(false);
-                return;
-            }
-
-            IPipeTestClient pipeClient = _pipeClientFactory.CreateClient(process);
-            lock (_sync)
-            {
-                worker.PipeClient = pipeClient;
-                shouldAbort = _draining || _disposed || worker.State == WorkerState.Terminating || worker.BootCts.IsCancellationRequested;
-                if (shouldAbort)
-                {
-                    worker.State = WorkerState.Terminating;
-                }
-            }
-
-            if (shouldAbort)
-            {
-                await CleanupFailedBootAsync(worker, new OperationCanceledException("Worker boot cancelled during drain.")).ConfigureAwait(false);
-                return;
-            }
-
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(worker.BootCts.Token);
-            timeoutCts.CancelAfter(worker.BootTimeout);
-
-            try
-            {
-                await pipeClient.ConnectAndWaitForReadyAsync(process, worker.BootTimeout, timeoutCts.Token)
+                process = await _launcher
+                    .LaunchAsync(launchRequest, worker.BootCts.Token)
                     .ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !worker.BootCts.IsCancellationRequested)
-            {
-                throw new TimeoutException(
-                    $"Worker PID {process.ProcessId} pipe '{process.PipeName}' did not report ServerMessage.IsBusy == false within {worker.BootTimeout.TotalSeconds:F1}s.");
+
+                bool shouldAbort;
+                lock (_sync)
+                {
+                    worker.Process = process;
+                    shouldAbort = _draining || _disposed || worker.State == WorkerState.Terminating || worker.BootCts.IsCancellationRequested;
+                    if (shouldAbort)
+                    {
+                        worker.State = WorkerState.Terminating;
+                    }
+                }
+
+                if (shouldAbort)
+                {
+                    await CleanupFailedBootAsync(worker, new OperationCanceledException("Worker boot cancelled during drain.")).ConfigureAwait(false);
+                    return;
+                }
+
+                pipeClient = _pipeClientFactory.CreateClient(process);
+                lock (_sync)
+                {
+                    worker.PipeClient = pipeClient;
+                    shouldAbort = _draining || _disposed || worker.State == WorkerState.Terminating || worker.BootCts.IsCancellationRequested;
+                    if (shouldAbort)
+                    {
+                        worker.State = WorkerState.Terminating;
+                    }
+                }
+
+                if (shouldAbort)
+                {
+                    await CleanupFailedBootAsync(worker, new OperationCanceledException("Worker boot cancelled during drain.")).ConfigureAwait(false);
+                    return;
+                }
+
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(worker.BootCts.Token);
+                timeoutCts.CancelAfter(worker.BootTimeout);
+
+                try
+                {
+                    await pipeClient.ConnectAndWaitForReadyAsync(process, worker.BootTimeout, timeoutCts.Token)
+                        .ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !worker.BootCts.IsCancellationRequested)
+                {
+                    throw new TimeoutException(
+                        $"Worker PID {process.ProcessId} pipe '{process.PipeName}' did not report ServerMessage.IsBusy == false within {worker.BootTimeout.TotalSeconds:F1}s.");
+                }
             }
 
             lock (_sync)
@@ -1625,7 +1675,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
 
         public int Version { get; }
 
-        public string WorkerId { get; }
+        public string WorkerId { get; set; }
 
         public string ExecutablePath { get; }
 

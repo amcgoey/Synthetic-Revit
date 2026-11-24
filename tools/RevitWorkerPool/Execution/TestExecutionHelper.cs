@@ -7,6 +7,8 @@ using RevitWorkerPool.Discovery;
 using RevitWorkerPool.Launching;
 using RevitWorkerPool.Pipe;
 using RevitWorkerPool.Reporting;
+using RevitWorkerPool.Startup;
+using RevitWorkerPool.Windowing;
 
 namespace RevitWorkerPool.Execution;
 
@@ -154,5 +156,31 @@ internal static class TestExecutionHelper
                 worker.Dispose();
             }
         }
+    }
+
+    public static StartupBootProtector? ResolveStartupBootProtector(
+        IWorkerProcessLauncher launcher,
+        StartupBootProtector? explicitProtector,
+        Action<string>? logger)
+    {
+        if (explicitProtector is not null)
+        {
+            return explicitProtector;
+        }
+
+        if (!OperatingSystem.IsWindows())
+        {
+            return null;
+        }
+
+        IWorkerProcessLauncher current = launcher;
+        while (current is OffScreenWindowingLauncher windowing)
+        {
+            current = windowing.InnerLauncher;
+        }
+
+        return current is StandardProcessLauncher
+            ? new StartupBootProtector(diagnosticLogger: logger)
+            : null;
     }
 }

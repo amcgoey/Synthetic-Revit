@@ -11,6 +11,7 @@ using RevitWorkerPool.Ipc;
 using RevitWorkerPool.Launching;
 using RevitWorkerPool.Pipe;
 using RevitWorkerPool.Supervisor;
+using RevitWorkerPool.Windowing;
 
 namespace RevitWorkerPool;
 
@@ -143,15 +144,23 @@ public static class Program
             ? msg => errWriter.WriteLine(msg)
             : null;
 
-        IWorkerProcessLauncher launcher;
+        IWorkerProcessLauncher baseLauncher;
         try
         {
-            launcher = CreateWorkerLauncher(cliOptions.NoShim);
+            baseLauncher = CreateWorkerLauncher(cliOptions.NoShim);
         }
         catch (CleanShimLaunchException ex)
         {
             errWriter.WriteLine($"[RevitWorkerPool] Clean-launch shim failed closed: {ex.Message}");
             return 2;
+        }
+
+        OffScreenWindowingLauncher? windowingLauncher = null;
+        IWorkerProcessLauncher effectiveLauncher = baseLauncher;
+        if (OperatingSystem.IsWindows() && baseLauncher is not OffScreenWindowingLauncher)
+        {
+            windowingLauncher = new OffScreenWindowingLauncher(baseLauncher, logger);
+            effectiveLauncher = windowingLauncher;
         }
 
         var discovery = new RevitInstallationDiscovery();
@@ -160,7 +169,7 @@ public static class Program
         {
             PipeName = cliOptions.PipeName,
             IdleTimeout = TimeSpan.FromMinutes(cliOptions.IdleTtlMinutes),
-            ShimEnabled = launcher.UsesCleanShim,
+            ShimEnabled = effectiveLauncher.UsesCleanShim,
             ProjectRoot = cliOptions.ProjectRoot,
             Diagnostics = cliOptions.Diagnostics
         };
@@ -168,7 +177,7 @@ public static class Program
         await using var supervisor = new WorkerPoolSupervisor(
             supervisorOptions,
             discovery,
-            launcher,
+            effectiveLauncher,
             clientFactory,
             diagnosticLogger: logger);
 
@@ -203,6 +212,7 @@ public static class Program
         finally
         {
             Console.CancelKeyPress -= cancelHandler;
+            windowingLauncher?.Dispose();
         }
     }
 
@@ -323,17 +333,25 @@ public static class Program
         if (options.OneShot || launcherFactory is not null || discoveryOverride is not null)
         {
             RevitInstallationDiscovery discovery = discoveryOverride ?? new RevitInstallationDiscovery();
-            IWorkerProcessLauncher? launcher = null;
+            IWorkerProcessLauncher? baseLauncher = null;
+            OffScreenWindowingLauncher? windowingLauncher = null;
             try
             {
-                launcher = launcherFactory is not null
+                baseLauncher = launcherFactory is not null
                     ? launcherFactory(options)
                     : CreateWorkerLauncher(options.NoShim);
+
+                IWorkerProcessLauncher effectiveLauncher = baseLauncher;
+                if (OperatingSystem.IsWindows() && baseLauncher is not OffScreenWindowingLauncher)
+                {
+                    windowingLauncher = new OffScreenWindowingLauncher(baseLauncher, logger);
+                    effectiveLauncher = windowingLauncher;
+                }
 
                 var clientFactory = new DiagnosticPipeClientFactory(logger);
                 var runner = new OneShotTestRunner(
                     discovery,
-                    launcher,
+                    effectiveLauncher,
                     clientFactory,
                     diagnosticLogger: logger);
 
@@ -343,7 +361,7 @@ public static class Program
             }
             catch (CleanShimLaunchException ex)
             {
-                bool shimEnabled = launcher?.UsesCleanShim ?? ShouldUseCleanShim(options.NoShim);
+                bool shimEnabled = baseLauncher?.UsesCleanShim ?? ShouldUseCleanShim(options.NoShim);
                 if (options.JsonOutput)
                 {
                     OneShotRunResult errorResult = TestExecutionHelper.InfrastructureFailureResult(
@@ -360,6 +378,10 @@ public static class Program
                 }
 
                 return 2;
+            }
+            finally
+            {
+                windowingLauncher?.Dispose();
             }
         }
 

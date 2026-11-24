@@ -7,6 +7,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RevitWorkerPool", "RevitWor
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "RevitWorkerPool.Tests", "RevitWorkerPool.Tests\RevitWorkerPool.Tests.csproj", "{C5E83922-304D-4F02-8B3C-200000000228}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "GuiFocusProbe", "RevitCleanShim.Probes\GuiFocusProbe\GuiFocusProbe.csproj", "{D6F94A33-415E-5013-9C4D-300000000229}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -31,6 +33,14 @@ Global
 		{C5E83922-304D-4F02-8B3C-200000000228}.Release|Any CPU.Build.0 = Release|Any CPU
 		{C5E83922-304D-4F02-8B3C-200000000228}.Release|x64.ActiveCfg = Release|Any CPU
 		{C5E83922-304D-4F02-8B3C-200000000228}.Release|x64.Build.0 = Release|Any CPU
+		{D6F94A33-415E-5013-9C4D-300000000229}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D6F94A33-415E-5013-9C4D-300000000229}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D6F94A33-415E-5013-9C4D-300000000229}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{D6F94A33-415E-5013-9C4D-300000000229}.Debug|x64.Build.0 = Debug|Any CPU
+		{D6F94A33-415E-5013-9C4D-300000000229}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D6F94A33-415E-5013-9C4D-300000000229}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D6F94A33-415E-5013-9C4D-300000000229}.Release|x64.ActiveCfg = Release|Any CPU
+		{D6F94A33-415E-5013-9C4D-300000000229}.Release|x64.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
