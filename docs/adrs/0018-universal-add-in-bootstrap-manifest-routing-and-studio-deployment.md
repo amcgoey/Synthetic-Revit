@@ -1,4 +1,4 @@
-# ADR 018 - Universal Add-In Bootstrap, Manifest Routing, and Studio Deployment
+# ADR 0018 - Universal Add-In Bootstrap, Manifest Routing, and Studio Deployment
 
 Status: Accepted
 

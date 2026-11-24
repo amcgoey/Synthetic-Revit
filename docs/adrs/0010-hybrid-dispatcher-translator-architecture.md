@@ -1,4 +1,4 @@
-## ADR 010 - Hybrid Dispatcher/Translator Architecture
+# ADR 0010 - Hybrid Dispatcher/Translator Architecture
 
 Status: Accepted
 The RevitSerialization generic PropertyRegistry and GenericElementModel caused configuration bloat and destroyed domain expressiveness. We decided to revert to strongly-typed RevitDOM POCOs, enforce them as 100% pure C# data containers, and orchestrate them via an internal Dispatcher pipeline.

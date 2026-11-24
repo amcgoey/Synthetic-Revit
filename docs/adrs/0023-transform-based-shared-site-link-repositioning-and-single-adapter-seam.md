@@ -1,0 +1,19 @@
+# ADR 0023 - Transform-Based Shared Site Link Repositioning and Single Adapter Seam
+
+Status: Accepted
+
+## Context
+
+In multi-story residential tower workflows, unit floor-plate models define **Level-Based Shared Sites** (`ProjectLocation` elements) corresponding to floor levels in the host (main) model. When floor elevations change in the host model and the **Level-Based Shared Sites** inside a unit model are updated via **Shared Site Sync**, simply calling `RevitLinkType.Reload()` in the host model does not automatically reposition existing `RevitLinkInstance` placements to reflect the modified `ProjectLocation` coordinates. Furthermore, the Revit API does not expose a method on `RevitLinkInstance` to trigger the UI's `"Move instance to <Site Name>"` operation directly, and `BuiltInParameter.GEO_LOCATION` cannot be mutated to force a transform recalculation on an already-assigned site.
+
+## Decision
+
+We implement **Shared Site Link Repositioning** by computing the exact 3D coordinate transformation between the host document's `ActiveProjectLocation` and the linked document's assigned `ProjectLocation` (resolved via a multi-tier fallback across `BuiltInParameter.GEO_LOCATION`—probing `linkDoc` then `_doc` when `StorageType.ElementId`—and the `: location <SiteName>` suffix of `RevitLinkInstance.Name` parsed via [`SharedSiteNameParser`](../../src/Features/SharedCoordinates/Core/Services/SharedSiteNameParser.cs)). Because `ProjectLocation.GetTotalTransform()` maps Shared Coordinates to Internal Coordinates ($P_{\text{internal}} = T_{\text{total}} \cdot P_{\text{shared}}$), the expected placement transform of a `RevitLinkInstance` in host internal coordinates is $T_{\text{expected}} = T_{\text{hostTotal}} \circ T_{\text{linkTotal}}^{-1}$. We derive the rotation and translation delta against the `RevitLinkInstance`'s current `GetTransform()` using pure `Core/` geometry types ([`Vector3D`](../../src/Features/SharedCoordinates/Core/Models/Vector3D.cs), [`RigidTransform3D`](../../src/Features/SharedCoordinates/Core/Models/RigidTransform3D.cs), and [`SharedCoordinatesMath`](../../src/Features/SharedCoordinates/Core/Models/SharedCoordinatesMath.cs)), apply the rotation first, re-read `GetTransform().Origin` to eliminate any pivot-induced drift before applying the remaining translation delta (treating post-rotation translation remainders $\le \text{Application.ShortCurveTolerance}$ as in sync to avoid `ArgumentException` from `ElementTransformUtils.MoveElement`), and execute each instance inside a per-item `Transaction` configured with `FailurePipelines.DeleteAllWarningsRecorded()` (surfacing any suppressed warnings or failure records in the post-execution summary dialog) wrapped in [`DocumentTransactionExtensions.ExecuteCommittedBatchGroup`](../../src/Platform/Revit/Addin/DocumentTransactionExtensions.cs) (automatically unpinning and re-pinning strictly within the per-item transaction).
+
+To maximize module depth and testability without proliferating abstractions, all Revit API database reads and writes for both **Shared Site Sync** and **Shared Site Link Repositioning** are isolated behind a single seam (`ISharedCoordinatesAdapter`), enabling end-to-end headless **Logic Tests** of both workflows and their 3D coordinate math in `Synthetic.LogicTests`.
+
+## Consequences
+
+- Host model `RevitLinkInstance` placements reliably align with updated **Level-Based Shared Sites** in full 3D (East/West, North/South, Elevation, and True North Angle) even when pinned.
+- Unassigned (`<Not Shared>`) link instances are safely skipped and surfaced in the post-execution summary.
+- Both commands (`Sync Shared Sites to Levels` and `Move Links to Shared Sites`) are testable through their top-level ViewModel interfaces against an in-memory `FakeSharedCoordinatesAdapter` without requiring a running Revit session.

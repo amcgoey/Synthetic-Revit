@@ -1,4 +1,6 @@
-# ADR 022 - Unified 6-Phase Alias Swap and Reference Redirection Engine Architecture
+# ADR 0022 - Unified 6-Phase Alias Swap and Reference Redirection Engine Architecture
+
+Status: Accepted
 
 ## Context
 
@@ -19,10 +21,6 @@ Transaction management uses a **Dual-Mode Transaction Strategy**:
 - Optional supplied `Transaction` parameter for single-transaction atomic callers.
 
 Telemetry return is refactored into a `RedirectionResultModel` maintaining existing count metrics and error logs for Step 6 merge execution summary reporting.
-
-## Status
-
-Accepted.
 
 ## Consequences
 
