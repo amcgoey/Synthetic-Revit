@@ -1049,7 +1049,7 @@ def build_test_filter(is_logic, target_class="", category="", tests_dir="", vers
 
 
 def probe_worker_pool(workspace_path, env=None):
-    """Probe for optional RevitWorkerPool command via env var or tools/RevitWorkerPool."""
+    """Probe for optional RevitWorkerPool command via env var, tools/bin/RevitWorkerPool, or tools/RevitWorkerPool."""
     env = os.environ if env is None else env
     env_cmd = env.get("SYNTHETIC_WORKER_POOL_CMD", "").strip()
     if env_cmd:
@@ -1057,6 +1057,7 @@ def probe_worker_pool(workspace_path, env=None):
 
     tools_dir = os.path.join(workspace_path, "tools")
     candidates = [
+        os.path.join(tools_dir, "bin", "RevitWorkerPool", "RevitWorkerPool.exe"),
         os.path.join(tools_dir, "RevitWorkerPool", "RevitWorkerPool.exe"),
         os.path.join(tools_dir, "RevitWorkerPool", "RevitWorkerPool.py"),
         os.path.join(tools_dir, "RevitWorkerPool.exe"),
@@ -1183,6 +1184,31 @@ def run_journal_cleanliness_gate(
         str(run_id),
         "--known-journals-file",
         snapshot_path,
+        "--assert-clean",
+    ]
+    res = runner(cmd, capture_output=True, text=True)
+    parts = [p.strip() for p in (res.stdout, res.stderr) if p and p.strip()]
+    return res.returncode == 0, "\n".join(parts)
+
+
+def run_worker_journal_cleanliness_gate(
+    version,
+    worker_id,
+    python_exe=sys.executable,
+    journal_tool_path=None,
+    runner=subprocess.run,
+):
+    """Run revit_journal_tool.py --worker-id <worker_id> --assert-clean for a pooled worker shard."""
+    if not worker_id or not str(worker_id).strip():
+        return False, "[-] Worker ID must be non-empty for --worker-id journal cleanliness gating."
+    tool_path = journal_tool_path or get_journal_tool_path()
+    cmd = [
+        python_exe,
+        tool_path,
+        "--version",
+        str(version),
+        "--worker-id",
+        str(worker_id).strip(),
         "--assert-clean",
     ]
     res = runner(cmd, capture_output=True, text=True)
@@ -1836,7 +1862,302 @@ def build_log_filename(version_key, tfm="", is_multi_tfm=False):
     return f"output_{version_key}.log"
 
 
-def run_test_suite(target_class="", target_version="", category="", no_pool=False, target_framework=""):
+def resolve_isolated_test_assembly_path(run_build_root, proj_name, run_id, tfm="", is_multi_tfm=False):
+    """Resolve the compiled test DLL inside the isolated per-run MSBuild output root."""
+    out_dir = os.path.join(run_build_root, "bin", f"{proj_name}_{run_id}")
+    if is_multi_tfm and tfm:
+        return os.path.join(out_dir, tfm, f"{proj_name}.dll")
+    direct_path = os.path.join(out_dir, f"{proj_name}.dll")
+    if tfm and not os.path.isfile(direct_path):
+        tfm_path = os.path.join(out_dir, tfm, f"{proj_name}.dll")
+        if os.path.isfile(tfm_path):
+            return tfm_path
+    return direct_path
+
+
+def get_next_revit_version_map(run_projects, target_framework=""):
+    """Map each Revit target key in run_projects to its subsequent Revit target key, or None."""
+    target_tfm = (target_framework or "").strip()
+    ordered_revit_keys = []
+    for ver, csproj_list in run_projects.items():
+        if ver.lower() in ("logic", "legacymock"):
+            continue
+        if target_tfm:
+            if isinstance(csproj_list, str):
+                csproj_list = [csproj_list]
+            has_matching_tfm = False
+            for csproj_path in csproj_list:
+                proj_tfms, _ = get_project_target_frameworks(csproj_path)
+                if any(t and t.casefold() == target_tfm.casefold() for t in proj_tfms):
+                    has_matching_tfm = True
+                    break
+            if not has_matching_tfm:
+                continue
+        ordered_revit_keys.append(ver)
+
+    next_map = {}
+    for idx, ver in enumerate(ordered_revit_keys):
+        next_map[ver] = ordered_revit_keys[idx + 1] if idx + 1 < len(ordered_revit_keys) else None
+    return next_map
+
+
+def build_worker_pool_run_command(
+    pool_cmd,
+    version,
+    assembly_path,
+    trx_path,
+    project_root,
+    target_class="",
+    category="",
+    shards=None,
+    no_shim=False,
+    next_version=None,
+    python_exe=sys.executable,
+):
+    """Build the RevitWorkerPool run CLI command passing raw filter/category for ECMA-335 discovery."""
+    if pool_cmd.casefold().endswith(".py"):
+        cmd = [python_exe, pool_cmd]
+    else:
+        cmd = [pool_cmd]
+
+    cmd.extend(
+        [
+            "run",
+            "--version",
+            str(version),
+            "--assembly",
+            assembly_path,
+            "--trx",
+            trx_path,
+            "--project-root",
+            project_root,
+            "--json",
+            "--diagnostics",
+        ]
+    )
+
+    clean_filter = (target_class or "").strip()
+    if clean_filter:
+        cmd.extend(["--filter", clean_filter])
+
+    clean_category = (category or "").strip()
+    if clean_category:
+        cmd.extend(["--category", clean_category])
+
+    if shards is not None:
+        cmd.extend(["--shards", str(shards)])
+
+    if no_shim:
+        cmd.append("--no-shim")
+
+    if next_version is not None and str(next_version).strip():
+        cmd.extend(["--next-version", str(next_version).strip()])
+
+    return cmd
+
+
+def parse_worker_pool_json_output(stdout_text):
+    """Extract and parse the last non-empty JSON object line from RevitWorkerPool stdout."""
+    if not stdout_text:
+        return None
+    lines = [ln.strip() for ln in stdout_text.splitlines() if ln.strip()]
+    for line in reversed(lines):
+        if line.startswith("{"):
+            try:
+                parsed = json.loads(line)
+                if isinstance(parsed, dict):
+                    return parsed
+            except ValueError:
+                continue
+    return None
+
+
+def _write_pool_log(out_file_path, pool_args, stderr_text, stdout_text, parsed_json):
+    """Write pool stderr diagnostics and structured summary to output_<ver>.log."""
+    with open(out_file_path, "w", encoding="utf-8") as out_f:
+        out_f.write(f"[POOL] Command: {' '.join(pool_args)}\n")
+        if stderr_text:
+            out_f.write("\n=== Worker Pool Diagnostics (stderr) ===\n")
+            out_f.write(stderr_text)
+            if not stderr_text.endswith("\n"):
+                out_f.write("\n")
+        out_f.write("\n=== Worker Pool Result Summary ===\n")
+        if parsed_json is not None:
+            out_f.write(json.dumps(parsed_json, indent=2) + "\n")
+        elif stdout_text:
+            out_f.write(stdout_text)
+            if not stdout_text.endswith("\n"):
+                out_f.write("\n")
+
+
+def execute_revit_tests_via_pool(
+    pool_cmd,
+    version,
+    dll_path,
+    trx_path,
+    workspace_path,
+    out_file_path,
+    target_class="",
+    category="",
+    shards=None,
+    no_shim=False,
+    next_version=None,
+    runner=None,
+    journal_gate_fn=None,
+    expect_shim=None,
+):
+    """
+    Execute a Revit test target via RevitWorkerPool run, enforcing fail-closed shim
+    semantics and per-shard --worker-id --assert-clean journal cleanliness gating.
+    Returns (executed_target, had_error, pool_returncode).
+    """
+    run_fn = subprocess.run if runner is None else runner
+    gate_fn = run_worker_journal_cleanliness_gate if journal_gate_fn is None else journal_gate_fn
+
+    pool_args = build_worker_pool_run_command(
+        pool_cmd=pool_cmd,
+        version=version,
+        assembly_path=dll_path,
+        trx_path=trx_path,
+        project_root=workspace_path,
+        target_class=target_class,
+        category=category,
+        shards=shards,
+        no_shim=no_shim,
+        next_version=next_version,
+    )
+
+    try:
+        res = run_fn(pool_args, capture_output=True, text=True)
+    except OSError as exc:
+        _write_pool_log(out_file_path, pool_args, str(exc), "", None)
+        print(f"[ERROR] Failed to invoke RevitWorkerPool for Revit {version}: {exc}")
+        return False, True, 2
+
+    pool_returncode = res.returncode
+    stderr_text = res.stderr or ""
+    stdout_text = res.stdout or ""
+    parsed_json = parse_worker_pool_json_output(stdout_text)
+    _write_pool_log(out_file_path, pool_args, stderr_text, stdout_text, parsed_json)
+
+    if parsed_json is None:
+        detail = stderr_text.strip() or stdout_text.strip() or "empty stdout"
+        print(
+            f"[ERROR] RevitWorkerPool run for Revit {version} exited with code {pool_returncode} "
+            f"without valid JSON output ({detail}). See {out_file_path}"
+        )
+        return False, True, pool_returncode if pool_returncode != 0 else 2
+
+    json_exit_code = parsed_json.get("exitCode")
+    json_success = parsed_json.get("success")
+    json_error = (parsed_json.get("error") or "").strip()
+    zero_matches = bool(parsed_json.get("zeroMatches"))
+    total_tests = int(parsed_json.get("totalTests") or 0)
+    raw_worker_ids = parsed_json.get("workerIds")
+    worker_ids = (
+        [str(w).strip() for w in raw_worker_ids if str(w).strip()]
+        if isinstance(raw_worker_ids, list)
+        else []
+    )
+
+    effective_rc = json_exit_code if json_exit_code is not None else pool_returncode
+    is_fail_closed = (
+        pool_returncode == 2
+        or json_exit_code == 2
+        or (effective_rc != 0 and total_tests == 0 and not zero_matches)
+        or (json_success is False and total_tests == 0 and not zero_matches)
+        or (zero_matches and (effective_rc != 0 or bool(json_error)))
+    )
+
+    if is_fail_closed:
+        err_detail = json_error or stderr_text.strip() or f"exitCode={effective_rc}"
+        print(
+            f"[ERROR] RevitWorkerPool run for Revit {version} failed closed "
+            f"(exitCode={effective_rc}): {err_detail}. See {out_file_path}"
+        )
+        if not zero_matches and worker_ids:
+            for wid in worker_ids:
+                is_clean, gate_output = gate_fn(version, wid)
+                if gate_output:
+                    print(gate_output)
+                if not is_clean:
+                    print(
+                        f"[ERROR] Revit {version} worker '{wid}' failed post-run journal "
+                        "cleanliness gate (--assert-clean)."
+                    )
+        return False, True, effective_rc
+
+    if zero_matches:
+        print(
+            f"[TESTS] 0 matching tests for {version} "
+            f"(filter: {target_class or '-'}, category: {category or '-'})."
+        )
+        return False, False, 0
+
+    resolved_expect_shim = (
+        not bool(no_shim or os.environ.get("SYNTHETIC_CLEAN_SHIM", "").strip() == "0")
+        if expect_shim is None
+        else bool(expect_shim)
+    )
+    if resolved_expect_shim and parsed_json.get("shimEnabled") is False:
+        print(
+            f"[ERROR] RevitWorkerPool reported shimEnabled=false for Revit {version} "
+            "while Clean-Launch Shim was required."
+        )
+        if worker_ids:
+            for wid in worker_ids:
+                is_clean, gate_output = gate_fn(version, wid)
+                if gate_output:
+                    print(gate_output)
+                if not is_clean:
+                    print(
+                        f"[ERROR] Revit {version} worker '{wid}' failed post-run journal "
+                        "cleanliness gate (--assert-clean)."
+                    )
+        return False, True, 2
+
+    had_error = False
+    if not worker_ids:
+        had_error = True
+        print(
+            f"[ERROR] Revit {version} worker pool run completed (totalTests={total_tests}) "
+            "without returning any workerIds for journal cleanliness gating."
+        )
+    else:
+        for wid in worker_ids:
+            is_clean, gate_output = gate_fn(version, wid)
+            if gate_output:
+                print(gate_output)
+            if not is_clean:
+                had_error = True
+                print(
+                    f"[ERROR] Revit {version} worker '{wid}' failed post-run journal "
+                    "cleanliness gate (--assert-clean)."
+                )
+
+    if pool_returncode != 0 and not os.path.exists(trx_path):
+        had_error = True
+        print(
+            f"[ERROR] RevitWorkerPool exited with code {pool_returncode} without generating "
+            f"{os.path.basename(trx_path)}. See {out_file_path}"
+        )
+
+    return True, had_error, pool_returncode
+
+
+def run_test_suite(
+    target_class="",
+    target_version="",
+    category="",
+    no_pool=False,
+    target_framework="",
+    no_shim=False,
+    shards=None,
+):
+    if shards is not None and shards < 1:
+        print(f"[ERROR] --shards must be >= 1 (got {shards}).")
+        sys.exit(2)
+
     workspace_path = os.getcwd()
     os.environ["SYNTHETIC_PROJECT_ROOT"] = workspace_path
     sdk_info = configure_dotnet_environment()
@@ -1870,9 +2191,13 @@ def run_test_suite(target_class="", target_version="", category="", no_pool=Fals
     run_results_dir = os.path.join(results_root, run_id)
 
     has_revit_targets = any(ver.lower() not in ("logic", "legacymock") for ver in run_projects)
+    worker_mode = "cold"
+    pool_cmd = None
     if has_revit_targets:
-        _, _, pool_msg = resolve_worker_mode(no_pool, workspace_path)
+        worker_mode, pool_cmd, pool_msg = resolve_worker_mode(no_pool, workspace_path)
         print(pool_msg)
+        if worker_mode == "cold" and shards is not None:
+            print("[TESTS] Note: --shards is only used in RevitWorkerPool mode; running single cold worker.")
 
     dotnet_exe = "dotnet"
     if sdk_info:
@@ -1882,7 +2207,9 @@ def run_test_suite(target_class="", target_version="", category="", no_pool=Fals
 
     executed_any = False
     had_execution_error = False
+    had_nonzero_pool_rc = False
     target_framework = (target_framework or "").strip()
+    next_revit_versions = get_next_revit_version_map(run_projects, target_framework=target_framework)
 
     for ver, csproj_list in run_projects.items():
         if isinstance(csproj_list, str):
@@ -1898,19 +2225,25 @@ def run_test_suite(target_class="", target_version="", category="", no_pool=Fals
             else:
                 selected_tfms = proj_tfms
 
-            filter_expr, matched_zero = build_test_filter(
-                is_logic=is_headless,
-                target_class=target_class,
-                category=category,
-                tests_dir=test_dir,
-                version=None if is_headless else ver,
-            )
+            if not is_headless and worker_mode == "pool":
+                # RevitWorkerPool performs authoritative cross-TFM ECMA-335 metadata discovery (#231).
+                filter_expr, matched_zero = "", False
+            else:
+                filter_expr, matched_zero = build_test_filter(
+                    is_logic=is_headless,
+                    target_class=target_class,
+                    category=category,
+                    tests_dir=test_dir,
+                    version=None if is_headless else ver,
+                )
 
             if matched_zero:
                 print(f"[TESTS] 0 matching tests for {ver} (category: {category}).")
                 continue
 
-            executed_any = True
+            if is_headless or worker_mode != "pool":
+                executed_any = True
+
             os.makedirs(run_build_root, exist_ok=True)
             os.makedirs(run_results_dir, exist_ok=True)
 
@@ -1941,9 +2274,55 @@ def run_test_suite(target_class="", target_version="", category="", no_pool=Fals
                 rotate_test_results(results_root)
                 sys.exit(1)
 
-            for tfm in selected_tfms:
+            for tfm_idx, tfm in enumerate(selected_tfms):
                 log_name = build_trx_filename(ver, tfm=tfm, is_multi_tfm=is_multi_tfm)
                 out_file_path = os.path.join(run_results_dir, build_log_filename(ver, tfm=tfm, is_multi_tfm=is_multi_tfm))
+
+                if not is_headless and worker_mode == "pool":
+                    trx_path = os.path.join(run_results_dir, log_name)
+                    dll_path = resolve_isolated_test_assembly_path(
+                        run_build_root,
+                        proj_name,
+                        run_id,
+                        tfm=tfm,
+                        is_multi_tfm=is_multi_tfm,
+                    )
+                    is_unshimmed = bool(no_shim or os.environ.get("SYNTHETIC_CLEAN_SHIM", "").strip() == "0")
+                    guid_whitelister.whitelist_existing_addins(ver)
+                    if is_unshimmed:
+                        check_legacy_programdata_manifest(ver)
+
+                    next_ver = (
+                        next_revit_versions.get(ver)
+                        if tfm_idx == len(selected_tfms) - 1
+                        else None
+                    )
+                    shard_label = f", shards={shards}" if shards is not None else ""
+                    shim_label = " [no-shim]" if is_unshimmed else ""
+                    next_label = f", next={next_ver}" if next_ver else ""
+                    print(f"[TESTS] Executing Revit {ver} tests via RevitWorkerPool{shim_label}{shard_label}{next_label}...")
+
+                    ran_pool, pool_err, pool_rc = execute_revit_tests_via_pool(
+                        pool_cmd=pool_cmd,
+                        version=ver,
+                        dll_path=dll_path,
+                        trx_path=trx_path,
+                        workspace_path=workspace_path,
+                        out_file_path=out_file_path,
+                        target_class=target_class,
+                        category=category,
+                        shards=shards,
+                        no_shim=no_shim,
+                        next_version=next_ver,
+                        expect_shim=not is_unshimmed,
+                    )
+                    if ran_pool:
+                        executed_any = True
+                        if pool_rc != 0:
+                            had_nonzero_pool_rc = True
+                    if pool_err:
+                        had_execution_error = True
+                    continue
 
                 if is_headless:
                     tfm_label = f" [{tfm}]" if is_multi_tfm and tfm else ""
@@ -2008,7 +2387,10 @@ def run_test_suite(target_class="", target_version="", category="", no_pool=Fals
                     had_execution_error = True
                     print(f"[ERROR] Test runner exited with code {proc_returncode} without generating {log_name}. See {out_file_path}")
 
-    if not executed_any:
+    if not executed_any and not had_execution_error:
+        shutil.rmtree(run_build_root, ignore_errors=True)
+        cleanup_revit_test_temp(run_id)
+        rotate_test_results(results_root)
         print("0 matching tests")
         sys.exit(0)
 
@@ -2060,6 +2442,10 @@ def run_test_suite(target_class="", target_version="", category="", no_pool=Fals
             had_execution_error = True
             print(f"[ERROR] Failed to parse TRX file '{trx_path}': {e}")
 
+    if had_nonzero_pool_rc and not failing_tests and total_failed == 0 and not had_execution_error:
+        had_execution_error = True
+        print("[ERROR] RevitWorkerPool reported test failures, but TRX recorded 0 failed tests.")
+
     rotate_test_results(results_root)
 
     # 4. Output Markdown formatted summary
@@ -2089,38 +2475,82 @@ def run_test_suite(target_class="", target_version="", category="", no_pool=Fals
         sys.exit(0)
 
 
-if __name__ == "__main__":
+def parse_cli_args(argv=None):
+    """Parse CLI arguments for test_executor.py."""
     import argparse as _ap
-    _parser = _ap.ArgumentParser(description="Run Synthetic test suite.")
-    _parser.add_argument("--filter", dest="target_class", default="",
-                         help="FullyQualifiedName filter (class or method name fragment)")
-    _parser.add_argument("--version", dest="target_version", default="",
-                         help="Revit version to target (e.g. 2026 or Logic). Omit to run all.")
-    _parser.add_argument("--category", dest="category", default="",
-                         help="NUnit [Category] filter")
-    _parser.add_argument("--framework", dest="target_framework", default="",
-                         help="Target framework to execute for multi-TFM test projects (e.g. net48 or net8.0-windows8.0)")
-    _parser.add_argument("--no-pool", dest="no_pool", action="store_true", default=False,
-                         help="Bypass optional RevitWorkerPool and use isolated cold Revit workers")
+
+    parser = _ap.ArgumentParser(description="Run Synthetic test suite.")
+    parser.add_argument(
+        "--filter",
+        dest="target_class",
+        default="",
+        help="FullyQualifiedName filter (class or method name fragment)",
+    )
+    parser.add_argument(
+        "--version",
+        dest="target_version",
+        default="",
+        help="Revit version to target (e.g. 2026 or Logic). Omit to run all.",
+    )
+    parser.add_argument(
+        "--category",
+        dest="category",
+        default="",
+        help="NUnit [Category] filter",
+    )
+    parser.add_argument(
+        "--framework",
+        dest="target_framework",
+        default="",
+        help="Target framework to execute for multi-TFM test projects (e.g. net48 or net8.0-windows8.0)",
+    )
+    parser.add_argument(
+        "--no-pool",
+        dest="no_pool",
+        action="store_true",
+        default=False,
+        help="Bypass optional RevitWorkerPool and use isolated cold Revit workers",
+    )
+    parser.add_argument(
+        "--no-shim",
+        dest="no_shim",
+        action="store_true",
+        default=False,
+        help="Disable Clean-Launch Shim in RevitWorkerPool mode (uses StandardProcessLauncher + Startup Gate)",
+    )
+    parser.add_argument(
+        "--shards",
+        dest="shards",
+        type=int,
+        default=None,
+        help="Override Test Shard worker count for RevitWorkerPool (>= 1)",
+    )
     # Legacy positional support: test_executor.py [class] [version]
-    _parser.add_argument("pos_class", nargs="?", default="")
-    _parser.add_argument("pos_version", nargs="?", default="")
-    _args = _parser.parse_args()
+    parser.add_argument("pos_class", nargs="?", default="")
+    parser.add_argument("pos_version", nargs="?", default="")
 
-    target_class   = (_args.target_class   or _args.pos_class   or "").strip()
-    target_version = (_args.target_version or _args.pos_version or "").strip()
-    category       = (_args.category or "").strip()
-    target_framework = (_args.target_framework or "").strip()
+    args = parser.parse_args(argv)
+    if args.shards is not None and args.shards < 1:
+        parser.error("--shards must be >= 1.")
 
-    # Treat legacy sentinel value as blank
-    if target_class == "DefaultAlignmentTests":
-        target_class = ""
+    args.target_class = (args.target_class or args.pos_class or "").strip()
+    args.target_version = (args.target_version or args.pos_version or "").strip()
+    args.category = (args.category or "").strip()
+    args.target_framework = (args.target_framework or "").strip()
+    if args.target_class == "DefaultAlignmentTests":
+        args.target_class = ""
+    return args
 
+
+if __name__ == "__main__":
+    _args = parse_cli_args()
     run_test_suite(
-        target_class,
-        target_version,
-        category=category,
+        _args.target_class,
+        _args.target_version,
+        category=_args.category,
         no_pool=_args.no_pool,
-        target_framework=target_framework,
+        target_framework=_args.target_framework,
+        no_shim=_args.no_shim,
+        shards=_args.shards,
     )
 
