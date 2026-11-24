@@ -14,8 +14,9 @@ using SyntheticTests.Helpers;
 namespace SyntheticTests.Architecture
 {
     /// <summary>
-    /// Single-parse Roslyn + XML/JSON Architecture Fitness Tests enforcing the global
-    /// 0%-allowlist <see cref="FitnessRule"/> gates across <c>src/</c> and <c>tests/</c>.
+    /// Single-parse Roslyn + XML/JSON Architecture Fitness Tests enforcing all 12
+    /// <see cref="FitnessRule"/> gates (7 global 0%-allowlist rules and 5 bi-directionally
+    /// ratcheted type-level rules) across <c>src/</c> and <c>tests/</c>.
     /// </summary>
     [TestFixture]
     [ArchitectureTest]
@@ -144,6 +145,59 @@ namespace SyntheticTests.Architecture
         {
             IReadOnlyList<string> violations = ArchitectureFitnessRules.EvaluateTestCategoryAndLegacyMockRatchet(Snapshot);
             Assert.IsEmpty(violations, string.Join(Environment.NewLine, violations));
+        }
+
+        [Test]
+        public void AllowlistRegistries_HaveZeroEntriesForExemplarSlicesDiagnosticsAndGlobalRules()
+        {
+            IReadOnlyList<string> integrityErrors = ArchitectureAllowlists.ValidateRegistryIntegrity(
+                ArchitectureAllowlists.TransitionalSpecBacklog,
+                ArchitectureAllowlists.DormantBoyScoutAllowlist);
+
+            Assert.IsEmpty(integrityErrors, string.Join(Environment.NewLine, integrityErrors));
+
+            foreach (string zeroSlice in new[] { "BatchPrint", "ShadowStudy", "SharedCoordinates", "SheetIndex", "Diagnostics", "Platform/Revit" })
+            {
+                Assert.AreEqual(
+                    0,
+                    ArchitectureAllowlists.AllEntries.Count(e => string.Equals(e.Slice, zeroSlice, StringComparison.Ordinal)),
+                    $"Slice '{zeroSlice}' must have 0 allowlist entries.");
+            }
+        }
+
+        [Test]
+        public void Rule08_InteractiveSliceSeamPurity_EnforcesUniformSeamPurityAndBiDirectionalRatchet()
+        {
+            IReadOnlyList<string> failures = ArchitectureFitnessRules.EvaluateInteractiveSliceSeamPurity(Snapshot);
+            Assert.IsEmpty(failures, string.Join(Environment.NewLine, failures));
+        }
+
+        [Test]
+        public void Rule09_TransactionPlacement_EnforcesPermittedRolesAndBiDirectionalRatchet()
+        {
+            IReadOnlyList<string> failures = ArchitectureFitnessRules.EvaluateTransactionPlacement(Snapshot);
+            Assert.IsEmpty(failures, string.Join(Environment.NewLine, failures));
+        }
+
+        [Test]
+        public void Rule10_TransactionFailureGuard_EnforcesPerTransactionFailureGuardsAndBiDirectionalRatchet()
+        {
+            IReadOnlyList<string> failures = ArchitectureFitnessRules.EvaluateTransactionFailureGuard(Snapshot);
+            Assert.IsEmpty(failures, string.Join(Environment.NewLine, failures));
+        }
+
+        [Test]
+        public void Rule11_ExternalEventAndDialogPurity_EnforcesPurityAndBiDirectionalRatchet()
+        {
+            IReadOnlyList<string> failures = ArchitectureFitnessRules.EvaluateExternalEventAndDialogPurity(Snapshot);
+            Assert.IsEmpty(failures, string.Join(Environment.NewLine, failures));
+        }
+
+        [Test]
+        public void Rule12_SingleSchemaExtensibleStorage_EnforcesPlatformSettingsOwnershipAndBiDirectionalRatchet()
+        {
+            IReadOnlyList<string> failures = ArchitectureFitnessRules.EvaluateSingleSchemaExtensibleStorage(Snapshot);
+            Assert.IsEmpty(failures, string.Join(Environment.NewLine, failures));
         }
     }
 }

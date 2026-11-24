@@ -104,31 +104,35 @@ namespace SyntheticTests.Architecture
 
     public sealed class MemberAccessRecord
     {
-        public MemberAccessRecord(string normalizedFullName, int lineNumber, MemberAccessExpressionSyntax node)
+        public MemberAccessRecord(string normalizedFullName, int lineNumber, string? enclosingTypeFullName, MemberAccessExpressionSyntax node)
         {
             NormalizedFullName = normalizedFullName;
             LineNumber = lineNumber;
+            EnclosingTypeFullName = enclosingTypeFullName;
             Node = node;
         }
 
         public string NormalizedFullName { get; }
         public int LineNumber { get; }
+        public string? EnclosingTypeFullName { get; }
         public MemberAccessExpressionSyntax Node { get; }
     }
 
     public sealed class InvocationRecord
     {
-        public InvocationRecord(string methodName, string normalizedTarget, int lineNumber, InvocationExpressionSyntax node)
+        public InvocationRecord(string methodName, string normalizedTarget, int lineNumber, string? enclosingTypeFullName, InvocationExpressionSyntax node)
         {
             MethodName = methodName;
             NormalizedTarget = normalizedTarget;
             LineNumber = lineNumber;
+            EnclosingTypeFullName = enclosingTypeFullName;
             Node = node;
         }
 
         public string MethodName { get; }
         public string NormalizedTarget { get; }
         public int LineNumber { get; }
+        public string? EnclosingTypeFullName { get; }
         public InvocationExpressionSyntax Node { get; }
     }
 
@@ -237,9 +241,11 @@ namespace SyntheticTests.Architecture
     {
         public TypeDeclarationRecord(
             string name,
+            string typeChainName,
             string fullName,
             string @namespace,
             string kind,
+            bool isNested,
             bool isAbstract,
             bool isStatic,
             IReadOnlyList<string> normalizedBaseTypes,
@@ -253,9 +259,11 @@ namespace SyntheticTests.Architecture
             SyntaxTree syntaxTree)
         {
             Name = name;
+            TypeChainName = typeChainName;
             FullName = fullName;
             Namespace = @namespace;
             Kind = kind;
+            IsNested = isNested;
             IsAbstract = isAbstract;
             IsStatic = isStatic;
             NormalizedBaseTypes = normalizedBaseTypes;
@@ -270,9 +278,11 @@ namespace SyntheticTests.Architecture
         }
 
         public string Name { get; }
+        public string TypeChainName { get; }
         public string FullName { get; }
         public string Namespace { get; }
         public string Kind { get; }
+        public bool IsNested { get; }
         public bool IsAbstract { get; }
         public bool IsStatic { get; }
         public IReadOnlyList<string> NormalizedBaseTypes { get; }
@@ -586,7 +596,8 @@ namespace SyntheticTests.Architecture
                         if (!string.IsNullOrEmpty(normalized))
                         {
                             int line = GetLineNumber(ma);
-                            memberAccesses.Add(new MemberAccessRecord(normalized, line, ma));
+                            var (enclosingType, _) = GetEnclosingContext(ma);
+                            memberAccesses.Add(new MemberAccessRecord(normalized, line, enclosingType, ma));
                             typeReferences.Add(new TypeReferenceRecord(normalized, line, isUsingDirective: false, isNamespaceDeclaration: false));
                         }
                         break;
@@ -731,7 +742,8 @@ namespace SyntheticTests.Architecture
                 return null;
             }
 
-            return new InvocationRecord(methodName, normalizedTarget, GetLineNumber(invocation), invocation);
+            var (enclosingType, _) = GetEnclosingContext(invocation);
+            return new InvocationRecord(methodName, normalizedTarget, GetLineNumber(invocation), enclosingType, invocation);
         }
 
         private static TypeDeclarationRecord AnalyzeTypeDeclaration(
@@ -741,7 +753,9 @@ namespace SyntheticTests.Architecture
         {
             string name = typeDecl.Identifier.ValueText;
             string ns = GetEnclosingNamespace(typeDecl);
-            string fullName = GetFullTypeName(typeDecl);
+            string typeChainName = GetTypeChainName(typeDecl);
+            string fullName = string.IsNullOrEmpty(ns) ? typeChainName : ns + "." + typeChainName;
+            bool isNested = typeDecl.Parent is TypeDeclarationSyntax;
             string kind = typeDecl switch
             {
                 ClassDeclarationSyntax => "class",
@@ -819,9 +833,11 @@ namespace SyntheticTests.Architecture
 
             return new TypeDeclarationRecord(
                 name,
+                typeChainName,
                 fullName,
                 ns,
                 kind,
+                isNested,
                 isAbstract,
                 isStatic,
                 normalizedBases,
@@ -1342,15 +1358,20 @@ namespace SyntheticTests.Architecture
             return string.Join(".", nsParts);
         }
 
-        private static string GetFullTypeName(TypeDeclarationSyntax typeDecl)
+        private static string GetTypeChainName(TypeDeclarationSyntax typeDecl)
         {
-            string ns = GetEnclosingNamespace(typeDecl);
             var typeChain = typeDecl.AncestorsAndSelf()
                 .OfType<TypeDeclarationSyntax>()
                 .Reverse()
                 .Select(t => t.Identifier.ValueText);
 
-            string nested = string.Join("+", typeChain);
+            return string.Join("+", typeChain);
+        }
+
+        private static string GetFullTypeName(TypeDeclarationSyntax typeDecl)
+        {
+            string ns = GetEnclosingNamespace(typeDecl);
+            string nested = GetTypeChainName(typeDecl);
             return string.IsNullOrEmpty(ns) ? nested : ns + "." + nested;
         }
 
