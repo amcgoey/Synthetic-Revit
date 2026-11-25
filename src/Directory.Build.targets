@@ -55,6 +55,10 @@
     <InternalsVisibleTo Include="Synthetic.LegacyMockTests" Condition="'$(RevitVersion)' == '2026'" />
   </ItemGroup>
 
+  <ItemGroup Condition="('$(IsRevitPayloadProject)' == 'true' Or '$(IsBootstrapProject)' == 'true') And '$(RevitVersion)' != ''">
+    <AssemblyMetadata Include="RevitVersion" Value="$(RevitVersion)" />
+  </ItemGroup>
+
   <ItemGroup Condition="'$(IsRevitPayloadProject)' == 'true' And '$(RevitVersion)' != ''">
     <Reference Include="eTransmitForRevitDB"
                Condition="Exists('C:\Program Files\Autodesk\eTransmit for Revit $(RevitVersion)\eTransmitForRevitDB.dll')">

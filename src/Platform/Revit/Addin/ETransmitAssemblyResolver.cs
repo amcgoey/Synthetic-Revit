@@ -59,11 +59,30 @@ namespace Synthetic.Platform.Revit
 
         /// <summary>
         /// Derives the four-digit Revit release year from the loaded <c>RevitAPI</c> assembly version,
-        /// falling back to the compile-time <c>REVIT202X</c> symbol when running against mocks.
+        /// falling back to compile-time <c>RevitVersion</c> assembly metadata when running against mocks.
         /// </summary>
         internal static string ResolveRevitYear()
         {
-            int? major = typeof(Document).Assembly.GetName().Version?.Major;
+            return ResolveRevitYear(typeof(Document).Assembly, typeof(ETransmitAssemblyResolver).Assembly);
+        }
+
+        /// <summary>
+        /// Derives the four-digit Revit release year from <paramref name="revitApiAssembly"/> first,
+        /// falling back to compile-time <c>RevitVersion</c> metadata on <paramref name="metadataAssembly"/>.
+        /// </summary>
+        internal static string ResolveRevitYear(Assembly revitApiAssembly, Assembly metadataAssembly)
+        {
+            if (revitApiAssembly == null)
+            {
+                throw new ArgumentNullException(nameof(revitApiAssembly));
+            }
+
+            if (metadataAssembly == null)
+            {
+                throw new ArgumentNullException(nameof(metadataAssembly));
+            }
+
+            int? major = revitApiAssembly.GetName().Version?.Major;
             if (major.HasValue)
             {
                 int value = major.Value;
@@ -72,21 +91,13 @@ namespace Synthetic.Platform.Revit
                     return (2000 + value).ToString(CultureInfo.InvariantCulture);
                 }
 
-                if (value >= 2000)
+                if (value >= 2000 && value <= 9999)
                 {
                     return value.ToString(CultureInfo.InvariantCulture);
                 }
             }
 
-#if REVIT2023
-            return "2023";
-#elif REVIT2024
-            return "2024";
-#elif REVIT2025
-            return "2025";
-#else
-            return "2026";
-#endif
+            return RevitVersionMetadata.ReadRevitYearString(metadataAssembly);
         }
 
         /// <summary>

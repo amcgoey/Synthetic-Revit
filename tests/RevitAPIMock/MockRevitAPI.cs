@@ -1358,6 +1358,17 @@ namespace Autodesk.Revit.ApplicationServices
 
         public event EventHandler<global::Autodesk.Revit.DB.Events.FailuresProcessingEventArgs>? FailuresProcessing;
     }
+
+    public class ControlledApplication : APIObject
+    {
+        public string VersionNumber { get; set; } = string.Empty;
+        public List<string> JournalComments { get; } = new List<string>();
+
+        public void WriteJournalComment(string comment, bool timeStamp)
+        {
+            JournalComments.Add(comment);
+        }
+    }
 }
 
 namespace Autodesk.Revit.DB

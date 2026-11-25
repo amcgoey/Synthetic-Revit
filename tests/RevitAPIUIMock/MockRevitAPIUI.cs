@@ -58,6 +58,8 @@ namespace Autodesk.Revit.UI
     public class UIControlledApplication
     {
         public IntPtr MainWindowHandle => IntPtr.Zero;
+        public Autodesk.Revit.ApplicationServices.ControlledApplication ControlledApplication { get; set; } =
+            new Autodesk.Revit.ApplicationServices.ControlledApplication();
     }
 
     public class ExternalCommandData

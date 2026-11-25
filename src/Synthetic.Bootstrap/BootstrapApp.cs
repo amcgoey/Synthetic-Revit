@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -18,6 +19,7 @@ namespace Synthetic.Bootstrap
     /// </summary>
     public class BootstrapApp : IExternalApplication
     {
+        private const string RevitVersionMetadataKey = "RevitVersion";
         private static readonly object ResolverLock = new object();
         private static bool _resolverRegistered;
         private static string _activeTargetDir = string.Empty;
@@ -33,22 +35,47 @@ namespace Synthetic.Bootstrap
         /// <inheritdoc />
         public Result OnStartup(UIControlledApplication appControlled)
         {
-            string? testWorker = Environment.GetEnvironmentVariable("SYNTHETIC_TEST_WORKER");
+            return OnStartupCore(appControlled, typeof(BootstrapApp).Assembly, hooks: null);
+        }
+
+        internal Result OnStartupCore(
+            UIControlledApplication? appControlled,
+            Assembly metadataAssembly,
+            ShadowCacheHooks? hooks = null)
+        {
+            if (metadataAssembly == null)
+            {
+                throw new ArgumentNullException(nameof(metadataAssembly));
+            }
+
+            Func<string, string?> getEnv = hooks?.GetEnvironmentVariable ?? Environment.GetEnvironmentVariable;
+            string? testWorker = getEnv("SYNTHETIC_TEST_WORKER");
             if (string.Equals(testWorker?.Trim(), "1", StringComparison.Ordinal))
             {
-                TryWriteEnvVarJournalComment(appControlled, "SYNTHETIC_TEST_RUN_ID", "SYNTHETIC_TEST_RUN");
-                TryWriteEnvVarJournalComment(appControlled, "SYNTHETIC_WORKER_ID", "SYNTHETIC_WORKER_ID");
+                TryWriteEnvVarJournalComment(appControlled, "SYNTHETIC_TEST_RUN_ID", "SYNTHETIC_TEST_RUN", getEnv);
+                TryWriteEnvVarJournalComment(appControlled, "SYNTHETIC_WORKER_ID", "SYNTHETIC_WORKER_ID", getEnv);
 
                 return Result.Succeeded;
             }
 
-            string revitVersion = ResolveRevitVersion(appControlled);
-            string bootstrapPath = typeof(BootstrapApp).Assembly.Location;
-            LaunchPlan plan = ShadowCacheManager.PrepareLaunch(bootstrapPath, revitVersion);
+            string? hostVersionNumber = appControlled?.ControlledApplication?.VersionNumber;
+            string bootstrapPath = metadataAssembly.Location;
+            LaunchPlan plan = PrepareHostLaunch(
+                hostVersionNumber,
+                metadataAssembly,
+                bootstrapPath,
+                out string revitVersion,
+                hooks);
 
             if (plan.Mode == LaunchMode.Failed)
             {
-                WriteBootstrapDiagnosticLog(revitVersion, plan.ErrorMessage, plan.Diagnostics, exception: null);
+                string logVersion = string.IsNullOrWhiteSpace(revitVersion) ? "unknown" : revitVersion;
+                WriteBootstrapDiagnosticLog(
+                    logVersion,
+                    plan.ErrorMessage,
+                    plan.Diagnostics,
+                    exception: null,
+                    localAppDataOverride: hooks?.LocalAppDataDir);
                 TryWriteJournalComment(appControlled, $"SYNTHETIC_BOOTSTRAP_ERROR: {plan.ErrorMessage}");
                 return Result.Failed;
             }
@@ -70,7 +97,7 @@ namespace Synthetic.Bootstrap
                     throw new InvalidOperationException($"Type '{hostType.FullName}' did not instantiate as IExternalApplication.");
                 }
 
-                Result startupResult = hostApp.OnStartup(appControlled);
+                Result startupResult = hostApp.OnStartup(appControlled!);
                 if (startupResult == Result.Succeeded)
                 {
                     _innerApp = hostApp;
@@ -89,7 +116,12 @@ namespace Synthetic.Bootstrap
                     TryDeleteDirectoryBestEffort(plan.ShadowDir);
                 }
 
-                WriteBootstrapDiagnosticLog(revitVersion, ex.Message, plan.Diagnostics, ex);
+                WriteBootstrapDiagnosticLog(
+                    revitVersion,
+                    ex.Message,
+                    plan.Diagnostics,
+                    ex,
+                    localAppDataOverride: hooks?.LocalAppDataDir);
                 TryWriteJournalComment(appControlled, $"SYNTHETIC_BOOTSTRAP_ERROR: {ex.Message}");
                 return Result.Failed;
             }
@@ -106,23 +138,115 @@ namespace Synthetic.Bootstrap
             return _innerApp.OnShutdown(appControlled);
         }
 
-        private static string ResolveRevitVersion(UIControlledApplication? appControlled)
+        internal static LaunchPlan PrepareHostLaunch(
+            string? hostVersionNumber,
+            Assembly metadataAssembly,
+            string bootstrapAssemblyPath,
+            out string resolvedRevitVersion,
+            ShadowCacheHooks? hooks = null)
         {
-            string? versionNumber = appControlled?.ControlledApplication?.VersionNumber;
-            if (!string.IsNullOrWhiteSpace(versionNumber))
+            if (metadataAssembly == null)
             {
-                return versionNumber.Trim();
+                throw new ArgumentNullException(nameof(metadataAssembly));
             }
 
-#if REVIT2023
-            return "2023";
-#elif REVIT2024
-            return "2024";
-#elif REVIT2025
-            return "2025";
-#else
-            return "2026";
-#endif
+            if (!TryResolveRevitVersion(hostVersionNumber, metadataAssembly, out resolvedRevitVersion, out string versionError))
+            {
+                resolvedRevitVersion = string.Empty;
+                return new LaunchPlan(
+                    LaunchMode.Failed,
+                    string.Empty,
+                    string.Empty,
+                    string.Empty,
+                    versionError,
+                    new[]
+                    {
+                        $"HostVersionNumber: {hostVersionNumber ?? "<null>"}",
+                        versionError
+                    });
+            }
+
+            return ShadowCacheManager.PrepareLaunch(bootstrapAssemblyPath, resolvedRevitVersion, hooks);
+        }
+
+        internal static bool TryResolveRevitVersion(
+            string? hostVersionNumber,
+            Assembly metadataAssembly,
+            out string revitVersion,
+            out string errorMessage)
+        {
+            if (metadataAssembly == null)
+            {
+                throw new ArgumentNullException(nameof(metadataAssembly));
+            }
+
+            if (TryParseRevitYear(hostVersionNumber, out string hostYear))
+            {
+                revitVersion = hostYear;
+                errorMessage = string.Empty;
+                return true;
+            }
+
+            return TryReadRevitVersionMetadata(metadataAssembly, out revitVersion, out errorMessage);
+        }
+
+        private static bool TryReadRevitVersionMetadata(Assembly assembly, out string revitVersion, out string errorMessage)
+        {
+            revitVersion = string.Empty;
+            errorMessage = string.Empty;
+
+            AssemblyMetadataAttribute? metadata = null;
+            foreach (AssemblyMetadataAttribute attr in assembly.GetCustomAttributes<AssemblyMetadataAttribute>())
+            {
+                if (string.Equals(attr.Key, RevitVersionMetadataKey, StringComparison.Ordinal))
+                {
+                    metadata = attr;
+                    break;
+                }
+            }
+
+            string assemblyName = assembly.GetName().Name ?? assembly.FullName ?? "<unknown>";
+            if (metadata == null)
+            {
+                errorMessage =
+                    $"Assembly '{assemblyName}' is missing required [AssemblyMetadata(\"{RevitVersionMetadataKey}\", \"<Year>\")] attribute.";
+                return false;
+            }
+
+            if (!TryParseRevitYear(metadata.Value, out string parsedYear))
+            {
+                errorMessage =
+                    $"Assembly '{assemblyName}' has unparseable '{RevitVersionMetadataKey}' metadata value '{metadata.Value ?? "<null>"}'. Expected a four-digit Revit release year.";
+                return false;
+            }
+
+            revitVersion = parsedYear;
+            return true;
+        }
+
+        private static bool TryParseRevitYear(string? rawValue, out string normalizedYear)
+        {
+            normalizedYear = string.Empty;
+            if (string.IsNullOrWhiteSpace(rawValue))
+            {
+                return false;
+            }
+
+            string trimmed = rawValue!.Trim();
+            if (trimmed.Length != 4)
+            {
+                return false;
+            }
+
+            if (!int.TryParse(trimmed, NumberStyles.None, CultureInfo.InvariantCulture, out int parsed) ||
+                parsed < 2000 ||
+                parsed > 9999)
+            {
+                return false;
+            }
+
+            normalizedYear = parsed.ToString(CultureInfo.InvariantCulture);
+            return true;
         }
 
         private static Assembly LoadPayloadIntoDefaultContext(string targetAssemblyPath)
@@ -298,9 +422,10 @@ namespace Synthetic.Bootstrap
         private static void TryWriteEnvVarJournalComment(
             UIControlledApplication? appControlled,
             string envVarName,
-            string markerPrefix)
+            string markerPrefix,
+            Func<string, string?> getEnvironmentVariable)
         {
-            string? value = Environment.GetEnvironmentVariable(envVarName);
+            string? value = getEnvironmentVariable(envVarName);
             if (!string.IsNullOrWhiteSpace(value))
             {
                 TryWriteJournalComment(appControlled, $"{markerPrefix}:{value!.Trim()}");
@@ -338,11 +463,12 @@ namespace Synthetic.Bootstrap
             string revitVersion,
             string errorMessage,
             IReadOnlyList<string>? diagnostics,
-            Exception? exception)
+            Exception? exception,
+            string? localAppDataOverride = null)
         {
             try
             {
-                string logsDir = ShadowCacheManager.ResolveDiagnosticLogsDir();
+                string logsDir = ShadowCacheManager.ResolveDiagnosticLogsDir(localAppDataOverride);
                 if (string.IsNullOrWhiteSpace(logsDir))
                 {
                     return;
