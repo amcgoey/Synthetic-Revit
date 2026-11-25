@@ -48,6 +48,7 @@
     <InternalsVisibleTo Include="Synthetic.RevitTests.2024" />
     <InternalsVisibleTo Include="Synthetic.RevitTests.2025" />
     <InternalsVisibleTo Include="Synthetic.RevitTests.2026" />
+    <InternalsVisibleTo Include="Synthetic.RevitTests.2027" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(IsRevitPayloadProject)' == 'true' And '$(RevitVersion)' != ''">

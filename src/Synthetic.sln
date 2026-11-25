@@ -11,6 +11,8 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Synthetic2023", "Synthetic2
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Synthetic2026", "Synthetic2026\Synthetic2026.csproj", "{24DC9B67-FEAE-4934-B92E-B77BC09D15EE}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Synthetic2027", "Synthetic2027\Synthetic2027.csproj", "{28A36EAD-9687-4F02-8247-715D6D37E4DF}"
+EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Synthetic.RevitTests.2023", "..\tests\Projects\Synthetic.RevitTests.2023\Synthetic.RevitTests.2023.csproj", "{D77A7548-393E-43F0-B698-68E04CFAB535}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Synthetic.RevitTests.2024", "..\tests\Projects\Synthetic.RevitTests.2024\Synthetic.RevitTests.2024.csproj", "{4F35384D-B5D8-415C-B0F1-77C59EDDBF97}"
@@ -18,6 +20,8 @@ EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Synthetic.RevitTests.2025", "..\tests\Projects\Synthetic.RevitTests.2025\Synthetic.RevitTests.2025.csproj", "{0B2B6882-9146-48F7-B265-3537C382833E}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Synthetic.RevitTests.2026", "..\tests\Projects\Synthetic.RevitTests.2026\Synthetic.RevitTests.2026.csproj", "{C026651B-DBE1-4829-83E3-75BFD5CAF0D3}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Synthetic.RevitTests.2027", "..\tests\Projects\Synthetic.RevitTests.2027\Synthetic.RevitTests.2027.csproj", "{5D3DD975-4B42-4763-8340-C6AA347ED2CC}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Synthetic.LegacyMockTests", "..\tests\Projects\Synthetic.LegacyMockTests\Synthetic.LegacyMockTests.csproj", "{E3372552-EDFE-4F03-994F-6B8A0C7E779C}"
 EndProject
@@ -32,6 +36,8 @@ EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Synthetic.Bootstrap2025", "Synthetic.Bootstrap2025\Synthetic.Bootstrap2025.csproj", "{7A3E1C03-2025-4A88-B103-100000002025}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Synthetic.Bootstrap2026", "Synthetic.Bootstrap2026\Synthetic.Bootstrap2026.csproj", "{7A3E1C04-2026-4A88-B104-100000002026}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Synthetic.Bootstrap2027", "Synthetic.Bootstrap2027\Synthetic.Bootstrap2027.csproj", "{7A3E1C05-2027-4A88-B105-100000002027}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Synthetic.Core", "Synthetic.Core\Synthetic.Core.csproj", "{8C0A1890-C04E-4B11-9001-000000000001}"
 EndProject
@@ -111,6 +117,18 @@ Global
 		{8C0A1890-7E57-4B11-9002-000000000002}.Debug|x64.Build.0 = Debug|x64
 		{8C0A1890-7E57-4B11-9002-000000000002}.Release|x64.ActiveCfg = Release|x64
 		{8C0A1890-7E57-4B11-9002-000000000002}.Release|x64.Build.0 = Release|x64
+		{28A36EAD-9687-4F02-8247-715D6D37E4DF}.Debug|x64.ActiveCfg = Debug|x64
+		{28A36EAD-9687-4F02-8247-715D6D37E4DF}.Debug|x64.Build.0 = Debug|x64
+		{28A36EAD-9687-4F02-8247-715D6D37E4DF}.Release|x64.ActiveCfg = Release|x64
+		{28A36EAD-9687-4F02-8247-715D6D37E4DF}.Release|x64.Build.0 = Release|x64
+		{5D3DD975-4B42-4763-8340-C6AA347ED2CC}.Debug|x64.ActiveCfg = Debug|x64
+		{5D3DD975-4B42-4763-8340-C6AA347ED2CC}.Debug|x64.Build.0 = Debug|x64
+		{5D3DD975-4B42-4763-8340-C6AA347ED2CC}.Release|x64.ActiveCfg = Release|x64
+		{5D3DD975-4B42-4763-8340-C6AA347ED2CC}.Release|x64.Build.0 = Release|x64
+		{7A3E1C05-2027-4A88-B105-100000002027}.Debug|x64.ActiveCfg = Debug|x64
+		{7A3E1C05-2027-4A88-B105-100000002027}.Debug|x64.Build.0 = Debug|x64
+		{7A3E1C05-2027-4A88-B105-100000002027}.Release|x64.ActiveCfg = Release|x64
+		{7A3E1C05-2027-4A88-B105-100000002027}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
