@@ -490,7 +490,26 @@ class TestRevitModelUpgraderStagingAndBatchExecution(unittest.TestCase):
         self.assertEqual(props_2027["TargetFramework"], "net10.0-windows8.0")
         self.assertEqual(props_2027["RevitApiPackageVersion"], "2027.2.0")
 
-    def test_dry_run_preset_on_repo_clean_clone_exits_zero(self):
+    def test_dry_run_preset_on_repo_and_clean_clone_exits_zero(self):
+        # 1. Deterministic clean-clone simulation (no gitignored studio models, no 2027 target yet)
+        models_dir = os.path.join(self.root, "tests", "Assets", "test_models")
+        _write_fake_model(os.path.join(models_dir, "TestTemplate2026.rvt"), 2026)
+
+        clean_buf = io.StringIO()
+        with contextlib.redirect_stdout(clean_buf):
+            clean_code, clean_summary = rmu.run_upgrader(
+                preset="test-models",
+                versions=["2027"],
+                dry_run=True,
+                repo_root=self.root,
+                installed_versions=[2026, 2027],
+            )
+        self.assertEqual(clean_code, 0)
+        self.assertTrue(clean_summary["DryRun"])
+        self.assertEqual(len(clean_summary["PlannedJobs"]), 1)
+        self.assertTrue(clean_summary["PlannedJobs"][0]["TargetPath"].endswith("TestTemplate2027.rvt"))
+
+        # 2. Live repo dry-run (handles both clean clones and workstations with gitignored studio models / 2027 targets)
         out_buf = io.StringIO()
         with contextlib.redirect_stdout(out_buf):
             code, summary = rmu.run_upgrader(
@@ -502,8 +521,11 @@ class TestRevitModelUpgraderStagingAndBatchExecution(unittest.TestCase):
             )
         self.assertEqual(code, 0)
         self.assertTrue(summary["DryRun"])
-        self.assertEqual(len(summary["PlannedJobs"]), 1)
-        self.assertTrue(summary["PlannedJobs"][0]["TargetPath"].endswith("TestTemplate2027.rvt"))
+        planned_targets = [job["TargetPath"] for job in summary["PlannedJobs"]]
+        self.assertTrue(all(path.endswith("2027.rvt") for path in planned_targets))
+        expected_template_2027 = os.path.join(REPO_ROOT, "tests", "Assets", "test_models", "TestTemplate2027.rvt")
+        if not os.path.exists(expected_template_2027):
+            self.assertIn(expected_template_2027, planned_targets)
 
 
 if __name__ == "__main__":
