@@ -127,5 +127,32 @@ namespace SyntheticTests.Features.MultiModelPdfExport
             Assert.Throws<ArgumentNullException>(() => store.Save(null!));
             Assert.IsFalse(File.Exists(prefsPath));
         }
+
+        [Test]
+        public void TrySave_RoundTripsValidPrefsAndReturnsFalseWhenPathIsUnwritable()
+        {
+            string prefsPath = Path.Combine(_tempDir, "trysave", "MultiModelPdfExportUserPrefs.json");
+            var store = new MultiModelPdfExportUserPrefsStore(prefsPath);
+
+            bool saved = store.TrySave(new MultiModelPdfExportUserPrefs
+            {
+                LastOutputFolder = @"D:\Projects\PDFs",
+                FileMode = MultiModelPdfFileMode.SeparatePerViewSheet,
+                PdfSetupName = "INC_FullSize",
+                LastBulkPrintSetName = "CD Set"
+            });
+
+            Assert.IsTrue(saved);
+            MultiModelPdfExportUserPrefs loaded = store.Load();
+            Assert.AreEqual(@"D:\Projects\PDFs", loaded.LastOutputFolder);
+            Assert.AreEqual(MultiModelPdfFileMode.SeparatePerViewSheet, loaded.FileMode);
+            Assert.AreEqual("INC_FullSize", loaded.PdfSetupName);
+            Assert.AreEqual("CD Set", loaded.LastBulkPrintSetName);
+
+            // Point FilePath at an existing directory so File.WriteAllText raises UnauthorizedAccessException/IOException
+            var directoryTargetStore = new MultiModelPdfExportUserPrefsStore(_tempDir);
+            Assert.IsFalse(directoryTargetStore.TrySave(new MultiModelPdfExportUserPrefs()));
+            Assert.Throws<ArgumentNullException>(() => store.TrySave(null!));
+        }
     }
 }

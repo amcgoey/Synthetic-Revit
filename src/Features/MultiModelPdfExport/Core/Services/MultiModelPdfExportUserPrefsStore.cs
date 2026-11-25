@@ -101,5 +101,36 @@ namespace Synthetic.Features.MultiModelPdfExport.Services
             string json = JsonConvert.SerializeObject(prefs, Formatting.Indented);
             File.WriteAllText(FilePath, json);
         }
+
+        /// <summary>
+        /// Attempts to save preferences to disk, returning <c>false</c> when I/O, path,
+        /// permission, or serialization failures occur.
+        /// </summary>
+        public bool TrySave(MultiModelPdfExportUserPrefs prefs)
+        {
+            if (prefs == null)
+            {
+                throw new ArgumentNullException(nameof(prefs));
+            }
+
+            try
+            {
+                Save(prefs);
+                return true;
+            }
+            catch (Exception ex) when (
+                ex is IOException ||
+                ex is UnauthorizedAccessException ||
+                ex is ArgumentException ||
+                ex is NotSupportedException ||
+                ex is System.Security.SecurityException ||
+                ex is JsonException)
+            {
+                // Local preferences persistence failure must never block export execution.
+                System.Diagnostics.Debug.WriteLine(
+                    $"[MultiModelPdfExport] Failed to save user preferences to '{FilePath}': {ex.Message}");
+                return false;
+            }
+        }
     }
 }

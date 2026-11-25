@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.IO;
 using System.Linq;
 using System.Windows.Input;
 using Synthetic.Features.MultiModelPdfExport.Adapters;
@@ -805,28 +804,13 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
                 return;
             }
 
-            try
+            _userPrefsStore.TrySave(new MultiModelPdfExportUserPrefs
             {
-                _userPrefsStore.Save(new MultiModelPdfExportUserPrefs
-                {
-                    LastOutputFolder = MultiModelPdfPathHelper.NormalizeFolderPath(OutputFolder),
-                    FileMode = FileMode,
-                    PdfSetupName = SelectedPdfSetup.IsDefault ? string.Empty : SelectedPdfSetup.DisplayName,
-                    LastBulkPrintSetName = ResolveBulkPrintSetNameForSave()
-                });
-            }
-            catch (Exception ex) when (
-                ex is IOException ||
-                ex is UnauthorizedAccessException ||
-                ex is ArgumentException ||
-                ex is NotSupportedException ||
-                ex is System.Security.SecurityException ||
-                ex is Newtonsoft.Json.JsonException)
-            {
-                // Local preferences persistence failure must never block export execution.
-                System.Diagnostics.Debug.WriteLine(
-                    $"[MultiModelPdfExport] Failed to save user preferences: {ex.Message}");
-            }
+                LastOutputFolder = MultiModelPdfPathHelper.NormalizeFolderPath(OutputFolder),
+                FileMode = FileMode,
+                PdfSetupName = SelectedPdfSetup.IsDefault ? string.Empty : SelectedPdfSetup.DisplayName,
+                LastBulkPrintSetName = ResolveBulkPrintSetNameForSave()
+            });
         }
 
         private string ResolveBulkPrintSetNameForSave()

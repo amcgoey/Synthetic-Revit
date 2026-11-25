@@ -278,22 +278,7 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
             get => _selectedPrintSetOption.IsPlaceholder ? null : _selectedPrintSetOption.Name;
             set
             {
-                MultiModelPdfPrintSetChoice match = _placeholderChoice;
-                if (!string.IsNullOrWhiteSpace(value))
-                {
-                    string target = value!.Trim();
-                    foreach (MultiModelPdfPrintSetChoice option in PrintSetOptions)
-                    {
-                        if (!option.IsPlaceholder &&
-                            string.Equals(option.Name, target, StringComparison.OrdinalIgnoreCase))
-                        {
-                            match = option;
-                            break;
-                        }
-                    }
-                }
-
-                SelectedPrintSetOption = match;
+                SelectedPrintSetOption = FindMatchingPrintSetChoice(value) ?? _placeholderChoice;
             }
         }
 
@@ -444,23 +429,34 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
 
         internal bool TryApplyMatchingPrintSet(string printSetName)
         {
-            if (string.IsNullOrWhiteSpace(printSetName))
+            MultiModelPdfPrintSetChoice? match = FindMatchingPrintSetChoice(printSetName);
+            if (match == null)
             {
                 return false;
             }
 
-            string target = printSetName.Trim();
+            ApplyBulkMatchedChoice(match);
+            return true;
+        }
+
+        private MultiModelPdfPrintSetChoice? FindMatchingPrintSetChoice(string? printSetName)
+        {
+            if (string.IsNullOrWhiteSpace(printSetName))
+            {
+                return null;
+            }
+
+            string target = printSetName!.Trim();
             foreach (MultiModelPdfPrintSetChoice option in PrintSetOptions)
             {
                 if (!option.IsPlaceholder &&
                     string.Equals(option.Name, target, StringComparison.OrdinalIgnoreCase))
                 {
-                    ApplyBulkMatchedChoice(option);
-                    return true;
+                    return option;
                 }
             }
 
-            return false;
+            return null;
         }
 
         internal void SetBulkMismatchAccent(bool hasMismatch)
