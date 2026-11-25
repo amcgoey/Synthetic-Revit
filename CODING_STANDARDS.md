@@ -9,7 +9,7 @@ Authoritative architecture, design, and review rules across `Synthetic.Core` (`n
 
 - Co-locate pure C# in `Core/` (`Synthetic.Core`) and Revit/XAML in `Addin/` (`Synthetic<Year>`) under `src/{Features/<Slice>, RevitDOM, Platform/<Submodule>}/`.
 - Omit `.Core`/`.Addin` from slice namespaces (`Synthetic.<Root>.<Slice>`), use distinct cross-assembly static names (`CS0433` prevention), and keep `CURRENT_LATEST_VERSION` ([revit-config.md](docs/agents/revit-config.md)) in unconditioned `#else` blocks.
-- **Direct Slices** (`BatchPrint`, `Diagnostics`, `ViewManagement`, `Worksets`, `FamilyManagement`, `MaterialManagement`) execute in `Addin/Commands/` + `Addin/Utilities/` (plus slice settings tabs in `Addin/Settings/`) without pass-through adapters.
+- **Direct Slices** (`MultiModelPdfExport`, `Diagnostics`, `ViewManagement`, `Worksets`, `FamilyManagement`, `MaterialManagement`) execute in `Addin/Commands/` + `Addin/Utilities/` (plus slice settings tabs in `Addin/Settings/`) without pass-through adapters.
 - **Interactive Slices** (`SheetIndex`, `SharedCoordinates`, `ShadowStudy`, migrating slices) isolate all Revit API access behind one narrow `I<Slice>Adapter` in `Core/Adapters/`, implemented by `Revit<Slice>Adapter` (`Addin/`) and `Fake<Slice>Adapter` (`tests/Fixtures/Shared/`).
 - Enforce the 4-band acyclic DAG (`Features` -> `Domain` -> `RevitDOM` -> `Platform/{Settings, UI, Revit, IO}`), isolate `Platform/Host`, and graduate shared code to `src/Domain/` only when `>= 2` sub-modules each serve `>= 2` slices.
 
@@ -100,7 +100,7 @@ Enforced in **Logic Tests** (`python .agents/skills/revit-tests/scripts/test_exe
 | 11 | `ExternalEventAndDialogPurity` | Ratcheted | Zero `static ExternalEvent`, zero raw `DeleteAllWarnings()`, zero `ExternalEvent.Create` in `ViewModels/`, zero modal dialogs in restricted scopes. |
 | 12 | `SingleSchemaExtensibleStorage` | Ratcheted | `new SchemaBuilder(...)` permitted only in `Platform/Settings/Addin`. |
 
-- **Global vs. Ratcheted Enforcement:** Rules `1–7` permit `0` debt repo-wide; rules `8–12` enforce exact `(Slice, FitnessRule, TypeName)` entries in `TransitionalSpecBacklog` and `DormantBoyScoutAllowlist` (`0` entries allowed in `BatchPrint`, `Diagnostics`, `ShadowStudy`, `SharedCoordinates`, `SheetIndex`, and `Platform/Revit`), failing on both unlisted violations (**ceiling lock**) and stale entries (**one-way ratchet**).
+- **Global vs. Ratcheted Enforcement:** Rules `1–7` permit `0` debt repo-wide; rules `8–12` enforce exact `(Slice, FitnessRule, TypeName)` entries in `TransitionalSpecBacklog` and `DormantBoyScoutAllowlist` (`0` entries allowed in `MultiModelPdfExport`, `Diagnostics`, `ShadowStudy`, `SharedCoordinates`, `SheetIndex`, and `Platform/Revit`), failing on both unlisted violations (**ceiling lock**) and stale entries (**one-way ratchet**).
 
 ## 4. 3-Tier Boy-Scout Trigger Rule
 

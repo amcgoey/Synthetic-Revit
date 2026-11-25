@@ -256,8 +256,8 @@ namespace SyntheticTests.Architecture
     {
         public static readonly IReadOnlyCollection<string> ExemplarZeroAllowlistSlices = new[]
         {
-            "BatchPrint",
             "Diagnostics",
+            "MultiModelPdfExport",
             "ShadowStudy",
             "SharedCoordinates",
             "SheetIndex",

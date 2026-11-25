@@ -23,12 +23,12 @@ namespace SyntheticTests.Architecture
         private static readonly string[] AllFourteenFeatureSlices =
         {
             "AutoTagger",
-            "BatchPrint",
             "DetailItemFactory",
             "Diagnostics",
             "FamilyManagement",
             "MaterialManagement",
             "MergeDuplicates",
+            "MultiModelPdfExport",
             "SettingsDashboard",
             "ShadowStudy",
             "SharedCoordinates",

@@ -260,10 +260,10 @@
       "items": [
         {
           "type": "PushButton",
-          "name": "Synthetic.Features.BatchPrint.Commands.PrintBatchMultiDoc",
-          "text": " Batch Print\nMulti Doc ",
-          "class": "Synthetic.Features.BatchPrint.Commands.PrintBatchMultiDoc",
-          "tooltip": "Prints a view set in multiple documents",
+          "name": "Synthetic.Features.MultiModelPdfExport.Commands.CmdMultiModelPdfExport",
+          "text": " Multi-Model\nPDF Export ",
+          "class": "Synthetic.Features.MultiModelPdfExport.Commands.CmdMultiModelPdfExport",
+          "tooltip": "Export Print Sets to PDF across the active model, linked models, and open projects.",
           "large_image": "print_32.png",
           "image": "print_16.png"
         },

@@ -91,7 +91,7 @@ if (!outcome.Succeeded)
 
 ## Seam discipline
 
-- **One adapter means a hypothetical seam. Two adapters means a real one.** Direct Slices (`BatchPrint`, `Diagnostics`, `ViewManagement`, `Worksets`) execute in `Addin/Commands/` + `Addin/Utilities/` with zero pass-through interfaces until UI state or math earns `Fake<Slice>Adapter`.
+- **One adapter means a hypothetical seam. Two adapters means a real one.** Direct Slices (`MultiModelPdfExport`, `Diagnostics`, `ViewManagement`, `Worksets`) execute in `Addin/Commands/` + `Addin/Utilities/` with zero pass-through interfaces until UI state or math earns `Fake<Slice>Adapter`.
 - **Internal seams vs external seams.** A deep module can compose internal helpers privately; keep the external seam small and test through it.
 
 ## Testing strategy: replace, don't layer
