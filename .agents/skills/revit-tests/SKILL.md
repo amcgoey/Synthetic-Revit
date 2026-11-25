@@ -11,15 +11,15 @@ Run **Logic Tests**, `LegacyMock`, and live **Revit Tests** via [test_executor.p
 
 Under [tdd](../tdd/SKILL.md), execute tests from fastest headless feedback to full cross-version validation:
 
-1. **Step 1 — Logic Tests:** Run headless unit and architecture checks (`Synthetic.LogicTests` across `net48` and `net8.0-windows8.0`, plus `Synthetic.LegacyMockTests`) directly via `dotnet test`:
+1. **Step 1 — Logic Tests:** Run headless unit and architecture checks (`Synthetic.LogicTests` across `net48`, `net8.0-windows8.0`, and `net10.0-windows8.0`, plus `Synthetic.LegacyMockTests` on `net10.0-windows8.0` / `Synthetic2027`) directly via `dotnet test`:
    ```powershell
    python .agents/skills/revit-tests/scripts/test_executor.py --version Logic
    ```
-2. **Step 2 — Latest Revit Tests:** Run live **Revit Tests** for `CURRENT_LATEST_VERSION` in [revit-config.md](../../../docs/agents/revit-config.md) (e.g. `2026`):
+2. **Step 2 — Latest Revit Tests:** Run live **Revit Tests** for `CURRENT_LATEST_VERSION` in [revit-config.md](../../../docs/agents/revit-config.md) (`2027`):
    ```powershell
-   python .agents/skills/revit-tests/scripts/test_executor.py --version 2026
+   python .agents/skills/revit-tests/scripts/test_executor.py --version 2027
    ```
-3. **Step 3 — Multi-Version Revit Tests:** Omit `--version` to run `Logic` (`LegacyMock` included) and all discovered **Revit Versions** (`2023–2026`), automatically pipelining `N -> N+1` **Standby Workers** across versions. Consult [revit-multi-versions](../revit-multi-versions/SKILL.md) for cross-version API or `#if` fixes:
+3. **Step 3 — Multi-Version Revit Tests:** Omit `--version` to run `Logic` (`LegacyMock` included) and all discovered **Revit Versions** (`2023–2027`), automatically pipelining `N -> N+1` **Standby Workers** across versions. Consult [revit-multi-versions](../revit-multi-versions/SKILL.md) for cross-version API or `#if` fixes:
    ```powershell
    python .agents/skills/revit-tests/scripts/test_executor.py
    ```
@@ -28,31 +28,32 @@ Under [tdd](../tdd/SKILL.md), execute tests from fastest headless feedback to fu
 
 ## 2. Test Executor CLI & Typed Categories
 
-Run commands from the repository root:
+Run commands from the repository root (requires `.NET 10.0` SDK `10.0.100+`; `test_executor.py` runs a read-only fail-fast SDK preflight before building):
 
 ```powershell
-# Headless Logic Tests (net48 + net8.0-windows8.0) plus LegacyMockTests
+# Headless Logic Tests (net48 + net8.0-windows8.0 + net10.0-windows8.0) plus LegacyMockTests
 python .agents/skills/revit-tests/scripts/test_executor.py --version Logic
 python .agents/skills/revit-tests/scripts/test_executor.py --version Logic --framework net48
 
 # Live Revit Tests routed automatically through Worker Pool (ECMA-335 discovery + LPT Test Shards)
-python .agents/skills/revit-tests/scripts/test_executor.py --version 2026 --category RevitAdapter --filter StandardSerializationEngine
-python .agents/skills/revit-tests/scripts/test_executor.py --version 2026 --shards 2
+python .agents/skills/revit-tests/scripts/test_executor.py --version 2027 --category RevitAdapter --filter StandardSerializationEngine
+python .agents/skills/revit-tests/scripts/test_executor.py --version 2027 --shards 2
 
 # Unshimmed Worker Pool (Startup Gate) or isolated cold dotnet test fallback
-python .agents/skills/revit-tests/scripts/test_executor.py --version 2026 --no-shim
-python .agents/skills/revit-tests/scripts/test_executor.py --version 2026 --no-pool
+python .agents/skills/revit-tests/scripts/test_executor.py --version 2027 --no-shim
+python .agents/skills/revit-tests/scripts/test_executor.py --version 2027 --no-pool
 ```
 
 | Flag | Default | Behavior |
 | :--- | :--- | :--- |
-| `--version <Target>` | All discovered targets | Targets `Logic` (`Synthetic.LogicTests` `net48` + `net8.0-windows8.0` and `Synthetic.LegacyMockTests`), `LegacyMock`, or a **Revit Version** (`2023`–`2026`). |
-| `--framework <TFM>` | All project TFMs | Targets a single framework on multi-TFM projects (e.g. `net48` or `net8.0-windows8.0`), skipping projects lacking that TFM. |
+| `--version <Target>` | All discovered targets | Targets `Logic` (`Synthetic.LogicTests` `net48` + `net8.0-windows8.0` + `net10.0-windows8.0` and `Synthetic.LegacyMockTests`), `LegacyMock`, or a **Revit Version** (`2023`–`2027`). |
+| `--framework <TFM>` | All project TFMs | Targets a single framework on multi-TFM projects (e.g. `net48`, `net8.0-windows8.0`, or `net10.0-windows8.0`), skipping projects lacking that TFM. |
 | `--filter <Fragment>` | None | Applies `FullyQualifiedName~<Fragment>` (combines with `--category` via `&`). |
 | `--category <Name>` | None | Applies `TestCategory=<Name>` for headless runs; in **Worker Pool** mode uses ECMA-335 assembly metadata (`PEReader`) across TFMs; in cold `--no-pool` mode scans C# sources under `tests/`. Exits `0` (`0 matching tests`) when empty. |
 | `--shards <N>` | Auto (`<= 4`) | Requests `N >= 1` **Test Shards** in **Worker Pool** mode (clamped to fixture count and host cap `4`); ignored with notice in cold mode. |
 | `--no-shim` | `False` | Disables the **Clean-Launch Shim** in **Worker Pool** mode (`StandardProcessLauncher` + **Startup Gate**; also set via `SYNTHETIC_CLEAN_SHIM=0`). Drain a running shimmed supervisor before switching modes. |
 | `--no-pool` | `False` | Bypasses **Worker Pool** probing (`SYNTHETIC_WORKER_POOL_CMD` / `tools/bin/RevitWorkerPool/RevitWorkerPool.exe`) and runs isolated cold `dotnet test` workers under **Startup Gate**. |
+| `--no-auto-upgrade` | `False` | Fail fast instead of invoking `RevitModelUpgrader` when `tests/Assets/test_models/TestTemplate<Year>.rvt` is missing. |
 
 ### Typed `[Category]` Attributes ([TypedCategoryAttributes.cs](../../../tests/Fixtures/Shared/TypedCategoryAttributes.cs))
 
@@ -90,7 +91,7 @@ tools/bin/RevitWorkerPool/RevitWorkerPool.exe drain   # Terminate all workers, r
 ### Clean-Launch Shim, Safety, & Unshimmed Fallbacks
 - **Fail-closed Clean-Launch Shim:** `CleanDetoursProcessLauncher` verifies `CN=Synthetic` Authenticode signatures on `RevitCleanShim.dll` and `RevitCleanLauncher.dll` and injects Detours hooks strictly into `Revit.exe` (preserving child processes such as `msedgewebview2.exe`), limiting `.addin` and `ApplicationPlugins` visibility to Autodesk built-ins, `Synthetic<Year>.addin`, and `ricaun.RevitTest.Application.bundle`. On signature, injection, or startup failure, `RevitWorkerPool.exe` exits `2` (`fail-closed`), while `test_executor.py` fails closed with exit `1` without downgrading or falling back to `--no-shim`/`--no-pool` (including when `shimEnabled=false` unexpectedly). Pass `--no-shim` explicitly when unshimmed execution is required.
 - **Zero host mutation & zero focus steal:** Shimmed workers virtualize `AddInsSettings.json` and `AdminSettings.json` per worker PID under `%TEMP%\SyntheticCleanProfile\<PID>\`, keeping host `AddInsSettings.json` and interactive Revit sessions untouched (startup also self-heals orphaned `.bak` files). Out-of-process `SW_SHOWMINNOACTIVE` and `SetWinEventHook` place worker windows off-screen (`-32000, -32000`, `SWP_NOACTIVATE`), keeping WPF `IsVisible == true` without stealing desktop focus.
-- **Readiness, `--no-shim` Startup Gate, & legacy preflight warning:** Workers report readiness only on named-pipe `ServerMessage.IsBusy == false`. Unshimmed runs (`--no-shim` or cold `--no-pool`) coordinate per **Revit Version** via Win32 **Startup Gate** (`Local\Synthetic_RevitStartupGate_<Year>`) plus a modal watchdog that kills and retries once on `TaskDialog_External_Tools_External_Tool_Failure`, and emit a read-only warning if any `%ProgramData%\Autodesk\Revit\Addins\<Year>\Synthetic*.addin` entry specifies `<FullClassName>` other than `Synthetic.Bootstrap.BootstrapApp`.
+- **Readiness, `--no-shim` Startup Gate, & legacy preflight warning:** Workers report readiness only on named-pipe `ServerMessage.IsBusy == false`. Unshimmed runs (`--no-shim` or cold `--no-pool`) coordinate per **Revit Version** via Win32 **Startup Gate** (`Local\Synthetic_RevitStartupGate_<Year>`) plus a modal watchdog that kills and retries once on `TaskDialog_External_Tools_External_Tool_Failure`, and emit a read-only warning if any machine-wide `Synthetic*.addin` entry (`%ProgramFiles%\Autodesk\Revit\Addins\<Year>\` primary + `%ProgramData%` secondary for `2027+`; `%ProgramData%\Autodesk\Revit\Addins\<Year>\` for `2023–2026`) specifies `<FullClassName>` other than `Synthetic.Bootstrap.BootstrapApp`.
 
 ## 4. Shared Fixtures & State Management
 
@@ -108,7 +109,8 @@ State-management design rationale lives in [ADR 0001](../../../docs/adrs/0001-hy
 ## 5. Build Isolation, Trust Leases, & Journal Gating
 
 - **Per-run MSBuild & temp isolation:** Each invocation generates `<RunId>` (`YYYYMMDD_HHMMSS_<pid>_<hex>`) and builds with `/p:SyntheticIsolatedBuildRoot=%TEMP%\SyntheticBuilds\<RunId>` and `/p:SyntheticRunId=<RunId>` ([tests/Directory.Build.props](../../../tests/Directory.Build.props), [src/Directory.Build.props](../../../src/Directory.Build.props), [tests/Directory.Build.targets](../../../tests/Directory.Build.targets)), keeping `output/Synthetic/` and **Local Deployment** (`%APPDATA%\Autodesk\Revit\Addins\`) intact. Logs and `.trx` reports write to `tests/TestResults/<RunId>/` (latest 10 runs kept). Passing runs remove `<SyntheticIsolatedBuildRoot>` and `%TEMP%\RevitTest\*<RunId>*`; failing runs preserve `<SyntheticIsolatedBuildRoot>`.
-- **Persistent `CodeSigning` & shared bundle lease:** [guid_whitelister.py](scripts/guid_whitelister.py) writes permanent `REG_DWORD=1` entries in `HKCU\Software\Autodesk\Revit\Autodesk Revit <ver>\CodeSigning` across add-in and `ApplicationPlugins` manifests. Active workers coordinate `%APPDATA%\Autodesk\ApplicationPlugins\ricaun.RevitTest.Application.bundle\PackageContents.xml` via `Local\Synthetic_RicaunBundleLease` (`FILE_SHARE_READ | FILE_SHARE_WRITE`, without `FILE_SHARE_DELETE`).
+- **Persistent `CodeSigning` & shared bundle lease:** [guid_whitelister.py](scripts/guid_whitelister.py) writes permanent `REG_DWORD=1` entries in `HKCU\Software\Autodesk\Revit\Autodesk Revit <ver>\CodeSigning` across add-in and `ApplicationPlugins` roots (`%APPDATA%`, `%ProgramData%`, and `%ProgramFiles%\Autodesk\ApplicationPlugins`). Active workers coordinate `%APPDATA%\Autodesk\ApplicationPlugins\ricaun.RevitTest.Application.bundle\PackageContents.xml` via `Local\Synthetic_RicaunBundleLease` (`FILE_SHARE_READ | FILE_SHARE_WRITE`, without `FILE_SHARE_DELETE`).
+- **Pre-run `TestTemplate` upgrade trigger (`--no-auto-upgrade`):** Before dispatching live **Revit Tests**, `test_executor.py` checks `tests/Assets/test_models/TestTemplate<Year>.rvt` (`< 1 ms` no-op when present). If missing and an earlier `TestTemplate*.rvt` exists, it acquires a Win32 mutex, invokes `tools/RevitModelUpgrader/revit_model_upgrader.py` into temp staging, and verifies the upgraded template before promotion (never auto-upgrading `INC Standards` models). Pass `--no-auto-upgrade` to fail fast instead.
 - **Automatic per-shard & cold journal gating:**
   - **Worker Pool runs:** **Add-In Bootstrap** ([BootstrapApp.cs](../../../src/Synthetic.Bootstrap/BootstrapApp.cs)) emits `SYNTHETIC_WORKER_ID:<WorkerId>` into each **Standby Worker**'s **Revit Journal** at boot (`TestWorkerJournalMarker` fallback). `test_executor.py` gates every returned `WorkerId` via [revit_journal_tool.py](../revit-journal-telemetry/scripts/revit_journal_tool.py):
     ```powershell

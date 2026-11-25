@@ -28,7 +28,7 @@ Run commands from the repository root with `.agents/skills/revit-journal-telemet
 
 ```powershell
 # Post-run cleanliness gate for a pooled Standby Worker / Test Shard
-python .agents/skills/revit-journal-telemetry/scripts/revit_journal_tool.py --version 2026 --worker-id <WorkerId> --assert-clean
+python .agents/skills/revit-journal-telemetry/scripts/revit_journal_tool.py --version 2027 --worker-id <WorkerId> --assert-clean
 
 # Post-run cleanliness gate for a cold --no-pool worker run
 python .agents/skills/revit-journal-telemetry/scripts/revit_journal_tool.py --run-id <RunId> --known-journals-file <SnapshotPath> --assert-clean
@@ -68,7 +68,7 @@ python .agents/skills/revit-journal-telemetry/scripts/revit_journal_tool.py --wa
 | `--limit-memory <N>` | `3` | Initial and latest **RAM Statistics** entries displayed in `--analyze`. |
 | `--limit-shutdown-scan <N>` | `200` | Trailing lines scanned for `ExitNativeInstance` and runner termination markers. |
 
-## 3. Verified 2023–2026 Journal Semantics
+## 3. Verified 2023–2027 Journal Semantics
 
 ### Transaction Seams
 - **Open:** `'inTransaction <source> <name>` opens `<name>` unless `<source>` matches native C++ `*.cpp:<digits>`.

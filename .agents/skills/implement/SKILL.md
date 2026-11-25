@@ -15,7 +15,7 @@ The issue tracker workflow is documented in [`docs/agents/issue-tracker.md`](../
 3. **Direct File Editing**: Follow [`.agents/AGENTS.md`](../../AGENTS.md) strictly. Use direct file-editing tools (`replace_file_content`, `multi_replace_file_content`, `write_to_file`). Do not run scripts or command-line one-liners to edit code files.
 4. **TDD Loop**: Drive the `tdd` skill at pre-agreed seams. Run tests via `revit-tests` (`python .agents/skills/revit-tests/scripts/test_executor.py`):
    - Run `--version Logic` regularly while working on slices.
-   - Run `--version <CURRENT_LATEST_VERSION>` (e.g. `2026`) when working across Revit API boundaries.
+   - Run `--version <CURRENT_LATEST_VERSION>` ([`revit-config.md`](../../../docs/agents/revit-config.md)) when working across Revit API boundaries.
    - Run the full multi-version test suite (`python .agents/skills/revit-tests/scripts/test_executor.py` with no `--version` flag) once implementation is complete.
 5. **Review**: Run `code-review` against the merge-base or start commit to verify Standards and Spec.
 6. **Commit**: Commit verified work to the current branch.

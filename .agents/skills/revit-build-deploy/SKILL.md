@@ -9,7 +9,7 @@ Architectural contract and rationale live in [ADR 0018](../../../docs/adrs/0018-
 
 ## 1. Platform & Output Layout
 
-Target `x64` (`src/Synthetic.sln` or `/p:Platform=x64`) across **Revit Versions**. Standard builds write to:
+Target `x64` (`src/Synthetic.sln` or `-p:Platform=x64`) across supported **Revit Versions** (`2023–2027`; see `CURRENT_LATEST_VERSION` in [revit-config.md](../../../docs/agents/revit-config.md)). Requires a `.NET 10.0` SDK (`10.0.100+`) via `dotnet build` (legacy `MSBuild.exe` cannot resolve `net10.0-windows8.0` SDK targets). Standard builds write to:
 
 - `output/Synthetic/Bootstrap/v1/`: `Synthetic.Bootstrap<Year>.dll` (**Add-In Bootstrap**)
 - `output/Synthetic/Payload/<Year>/`: `Synthetic<Year>.dll`, dependencies, assets, and settings templates
@@ -31,11 +31,11 @@ Automated test workers set `SYNTHETIC_TEST_WORKER=1` (and `SYNTHETIC_TEST_RUN_ID
 
 ## 4. Release Profile & UNC Staging
 
-`Release` assemblies are intentionally unsigned locally. `Release` manifests in `output/Manifest for Deploy/` route `<Assembly>` to `C:\ProgramData\Autodesk\Revit\Addins\Synthetic\Bootstrap\v1\Synthetic.Bootstrap<Year>.dll` for `2023–2026` and `C:\Program Files\Autodesk\Revit\Addins\Synthetic\Bootstrap\v1\Synthetic.Bootstrap<Year>.dll` for `2027+`.
+`Release` assemblies are intentionally unsigned locally. `Release` manifests in `output/Manifest for Deploy/` route `<Assembly>` to `C:\ProgramData\Autodesk\Revit\Addins\Synthetic\Bootstrap\v1\Synthetic.Bootstrap<Year>.dll` for `2023–2026` (`< 2027`) and `C:\Program Files\Autodesk\Revit\Addins\Synthetic\Bootstrap\v1\Synthetic.Bootstrap<Year>.dll` for `2027+` (`>= 2027`).
 
-1. Compile `Release|x64`:
+1. Compile `Release|x64` via the `.NET 10` CLI:
    ```powershell
-   & "<Path-To-MSBuild>\MSBuild.exe" src/Synthetic.sln /t:Build /p:Configuration=Release /p:Platform=x64
+   dotnet build src/Synthetic.sln -c Release -p:Platform=x64
    ```
 2. Stage to the studio UNC share using [Deploy-To-INC-Server.template.bat](../../../build/Deploy-To-INC-Server.template.bat) (set `LOCAL_OUTPUT_PATH`, `UNC_SERVER_PATH`, and `NO_PAUSE=1` for unattended runs). The script mirrors `Bootstrap/v1/` and `Payload/<Year>/` (`/MIR /XF *.addin`), copies `Release` `.addin` manifests to `Manifest for Deploy\`, and overlays `%LOCAL_OUTPUT_PATH%\INC Settings` into every 4-digit `Payload/<Year>/` folder (`/E`, preserving per-year binaries).
 
