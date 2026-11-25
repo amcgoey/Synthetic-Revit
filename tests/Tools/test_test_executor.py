@@ -2692,5 +2692,587 @@ namespace SyntheticTests.Platform.Host
         self.assertIn("0 matching tests", out_ok.getvalue())
 
 
+class TestPreRunTestTemplateTrigger(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = self.tmp.name
+        self.tests_dir = os.path.join(self.root, "tests")
+        self.models_dir = os.path.join(self.tests_dir, "Assets", "test_models")
+        os.makedirs(self.models_dir, exist_ok=True)
+
+        # Create Logic, 2026, and 2027 test projects
+        for rel_dir, proj_name, tfm in (
+            ("Synthetic.LogicTests", "Synthetic.LogicTests", "net10.0-windows8.0"),
+            ("Synthetic.RevitTests.2026", "Synthetic.RevitTests.2026", "net8.0-windows8.0"),
+            ("Synthetic.RevitTests.2027", "Synthetic.RevitTests.2027", "net10.0-windows8.0"),
+        ):
+            pdir = os.path.join(self.tests_dir, "Projects", rel_dir)
+            os.makedirs(pdir, exist_ok=True)
+            with open(os.path.join(pdir, f"{proj_name}.csproj"), "w", encoding="utf-8") as f:
+                f.write(
+                    f'<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup>'
+                    f"<TargetFramework>{tfm}</TargetFramework></PropertyGroup></Project>"
+                )
+
+        smoke_dir = os.path.join(self.tests_dir, "Platform", "Host", "Revit")
+        os.makedirs(smoke_dir, exist_ok=True)
+        with open(os.path.join(smoke_dir, "SmokeRevitTests.cs"), "w", encoding="utf-8") as f:
+            f.write(
+                """
+using NUnit.Framework;
+namespace SyntheticTests.Platform.Host
+{
+    [TestFixture]
+    [RevitSmokeTest]
+    public class SmokeRevitTests
+    {
+        [Test]
+        public void Smoke() {}
+    }
+}
+"""
+            )
+
+        pool_bin_dir = os.path.join(self.root, "tools", "bin", "RevitWorkerPool")
+        os.makedirs(pool_bin_dir, exist_ok=True)
+        self.pool_exe = os.path.join(pool_bin_dir, "RevitWorkerPool.exe")
+        with open(self.pool_exe, "w", encoding="utf-8") as f:
+            f.write("")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    @staticmethod
+    def _write_fake_model(path, format_year):
+        os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+        header = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+        info_block = f"Worksharing: Not enabled\r\nFormat: {format_year}\r\n".encode("utf-16-le")
+        with open(path, "wb") as f:
+            f.write(header + b"\x00" * 32 + info_block)
+        return path
+
+    @staticmethod
+    def _write_trx(trx_path, passed_names=("Smoke",)):
+        TestWorkerPoolRoutingAndShardedJournalGating._write_trx(
+            trx_path, passed_names=passed_names
+        )
+
+    def test_cli_parses_no_auto_upgrade_and_help_documents_it(self):
+        parsed_default = te.parse_cli_args([])
+        self.assertFalse(parsed_default.no_auto_upgrade)
+
+        parsed_flag = te.parse_cli_args(["--version", "2027", "--no-auto-upgrade"])
+        self.assertEqual(parsed_flag.target_version, "2027")
+        self.assertTrue(parsed_flag.no_auto_upgrade)
+
+        help_res = subprocess.run(
+            [sys.executable, SCRIPT_PATH, "--help"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(help_res.returncode, 0, msg=help_res.stderr)
+        self.assertIn("--no-auto-upgrade", help_res.stdout)
+
+    def test_existing_test_template_takes_noop_fast_path_without_lock_or_upgrader(self):
+        import contextlib
+        from unittest import mock
+
+        self._write_fake_model(os.path.join(self.models_dir, "TestTemplate2026.rvt"), 2026)
+
+        def fail_if_locked(*args, **kwargs):
+            raise AssertionError("Lock should not be acquired when TestTemplate exists.")
+
+        def fail_if_upgraded(*args, **kwargs):
+            raise AssertionError("RevitModelUpgrader should not run when TestTemplate exists.")
+
+        t0 = time.perf_counter()
+        upgraded = te.ensure_test_template_ready(
+            "2026",
+            workspace_path=self.root,
+            no_auto_upgrade=False,
+            lock_factory=fail_if_locked,
+            upgrader_runner=fail_if_upgraded,
+        )
+        elapsed_ms = (time.perf_counter() - t0) * 1000.0
+        self.assertFalse(upgraded)
+        self.assertLess(elapsed_ms, 50.0)
+
+        # Also a no-op with --no-auto-upgrade when template exists
+        self.assertFalse(
+            te.ensure_test_template_ready(
+                "2026",
+                workspace_path=self.root,
+                no_auto_upgrade=True,
+                lock_factory=fail_if_locked,
+                upgrader_runner=fail_if_upgraded,
+            )
+        )
+
+        # End-to-end run_test_suite dispatches directly without invoking upgrader
+        temp_build_root = os.path.join(self.root, "temp_root")
+        os.makedirs(temp_build_root, exist_ok=True)
+        seen_cmds = []
+
+        def fake_subproc_run(cmd, **kwargs):
+            seen_cmds.append(list(cmd))
+            if cmd[0] == self.pool_exe:
+                trx_path = cmd[cmd.index("--trx") + 1]
+                self._write_trx(trx_path, passed_names=["Smoke"])
+                payload = {
+                    "success": True,
+                    "exitCode": 0,
+                    "version": 2026,
+                    "trxPath": trx_path,
+                    "workerIds": ["w_fast_2026"],
+                    "shardCount": 1,
+                    "totalTests": 1,
+                    "passedTests": 1,
+                    "failedTests": 0,
+                    "skippedTests": 0,
+                    "zeroMatches": False,
+                    "shimEnabled": True,
+                    "error": None,
+                }
+                return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(payload), stderr="")
+            return subprocess.CompletedProcess(cmd, 0)
+
+        out_buf = io.StringIO()
+        with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root}, clear=False), \
+             mock.patch("os.getcwd", return_value=self.root), \
+             mock.patch.object(te.tempfile, "gettempdir", return_value=temp_build_root), \
+             mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
+             mock.patch.object(te.guid_whitelister, "whitelist_existing_addins"), \
+             mock.patch.object(te, "run_worker_journal_cleanliness_gate", return_value=(True, "CLEAN")), \
+             mock.patch.object(te.subprocess, "run", side_effect=fake_subproc_run), \
+             contextlib.redirect_stdout(out_buf):
+            with self.assertRaises(SystemExit) as ctx:
+                te.run_test_suite(target_version="2026")
+
+        self.assertEqual(ctx.exception.code, 0)
+        self.assertFalse(any("revit_model_upgrader.py" in " ".join(c) for c in seen_cmds))
+        self.assertTrue(any(c[0] == self.pool_exe for c in seen_cmds))
+
+    def test_missing_template_acquires_lock_logs_loudly_stages_atomically_and_never_upgrades_inc_standards(self):
+        import contextlib
+        from unittest import mock
+
+        src_2025 = self._write_fake_model(os.path.join(self.models_dir, "TestTemplate2025.rvt"), 2025)
+        src_2026 = self._write_fake_model(os.path.join(self.models_dir, "TestTemplate2026.rvt"), 2026)
+        self._write_fake_model(
+            os.path.join(self.models_dir, "INC Standards - Assemblies & Details2026.rvt"),
+            2026,
+        )
+        target_2027 = os.path.join(self.models_dir, "TestTemplate2027.rvt")
+        inc_2027 = os.path.join(self.models_dir, "INC Standards - Assemblies & Details2027.rvt")
+        self.assertFalse(os.path.exists(target_2027))
+
+        temp_build_root = os.path.join(self.root, "temp_root")
+        os.makedirs(temp_build_root, exist_ok=True)
+        events = []
+
+        def fake_subproc_run(cmd, **kwargs):
+            if any("revit_model_upgrader.py" in str(part) for part in cmd):
+                events.append(("upgrader", list(cmd)))
+                self.assertNotIn("--preset", cmd)
+                self.assertIn(os.path.abspath(src_2026), [os.path.abspath(p) for p in cmd])
+                self.assertNotIn(os.path.abspath(src_2025), [os.path.abspath(p) for p in cmd])
+                self.assertEqual(cmd[cmd.index("--versions") + 1], "2027")
+                staging_dir = cmd[cmd.index("--output-dir") + 1]
+                report_path = cmd[cmd.index("--report") + 1]
+                # Target must not exist yet before atomic promotion
+                self.assertFalse(os.path.exists(target_2027))
+                staged_file = os.path.join(staging_dir, "TestTemplate2027.rvt")
+                self._write_fake_model(staged_file, 2027)
+                with open(report_path, "w", encoding="utf-8") as rf:
+                    json.dump(
+                        {
+                            "DryRun": False,
+                            "Batches": [
+                                {
+                                    "TargetVersion": "2027",
+                                    "JournalClean": True,
+                                    "Jobs": [
+                                        {
+                                            "SourcePath": src_2026,
+                                            "TargetPath": staged_file,
+                                            "Success": True,
+                                            "VerifiedFormat": "2027",
+                                            "LoadableFamilyCount": 3,
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                        rf,
+                    )
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            if cmd[0] == self.pool_exe:
+                # Template must already exist and be verified before worker dispatch
+                self.assertTrue(os.path.isfile(target_2027))
+                events.append(("pool", list(cmd)))
+                trx_path = cmd[cmd.index("--trx") + 1]
+                self._write_trx(trx_path, passed_names=["Smoke2027"])
+                payload = {
+                    "success": True,
+                    "exitCode": 0,
+                    "version": 2027,
+                    "trxPath": trx_path,
+                    "workerIds": ["w_2027_1"],
+                    "shardCount": 1,
+                    "totalTests": 1,
+                    "passedTests": 1,
+                    "failedTests": 0,
+                    "skippedTests": 0,
+                    "zeroMatches": False,
+                    "shimEnabled": True,
+                    "error": None,
+                }
+                return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(payload), stderr="")
+            events.append(("build", list(cmd)))
+            return subprocess.CompletedProcess(cmd, 0)
+
+        out_buf = io.StringIO()
+        with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root}, clear=False), \
+             mock.patch("os.getcwd", return_value=self.root), \
+             mock.patch.object(te.tempfile, "gettempdir", return_value=temp_build_root), \
+             mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
+             mock.patch.object(te.guid_whitelister, "whitelist_existing_addins"), \
+             mock.patch.object(te, "run_worker_journal_cleanliness_gate", return_value=(True, "CLEAN")), \
+             mock.patch.object(te.subprocess, "run", side_effect=fake_subproc_run), \
+             contextlib.redirect_stdout(out_buf):
+            with self.assertRaises(SystemExit) as ctx:
+                te.run_test_suite(target_version="2027")
+
+        self.assertEqual(ctx.exception.code, 0)
+        self.assertTrue(os.path.isfile(target_2027))
+        self.assertEqual(te.inspect_model_format_year(target_2027), 2027)
+        self.assertFalse(os.path.exists(inc_2027))
+        self.assertEqual(
+            [e for e in os.listdir(self.models_dir) if ".staging_" in e],
+            [],
+        )
+        event_kinds = [e[0] for e in events]
+        self.assertEqual(event_kinds, ["upgrader", "build", "pool"])
+        stdout_text = out_buf.getvalue()
+        self.assertIn("[PRE-RUN UPGRADE]", stdout_text)
+        self.assertIn("TestTemplate2027.rvt", stdout_text)
+        self.assertIn("RevitModelUpgrader", stdout_text)
+
+    def test_missing_template_double_checked_locking_and_lock_release_on_failure(self):
+        import contextlib
+
+        self._write_fake_model(os.path.join(self.models_dir, "TestTemplate2026.rvt"), 2026)
+        target_2027 = os.path.join(self.models_dir, "TestTemplate2027.rvt")
+        lock_events = []
+
+        class RaceSimLock:
+            def __init__(self, create_on_enter=False):
+                self.create_on_enter = create_on_enter
+
+            def __enter__(self):
+                lock_events.append("enter")
+                if self.create_on_enter:
+                    TestPreRunTestTemplateTrigger._write_fake_model(target_2027, 2027)
+                return self
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                lock_events.append("exit")
+
+        def fail_if_called(cmd):
+            raise AssertionError("Upgrader must not run if peer created template while waiting on lock.")
+
+        out_race = io.StringIO()
+        with contextlib.redirect_stdout(out_race):
+            upgraded = te.ensure_test_template_ready(
+                "2027",
+                workspace_path=self.root,
+                lock_factory=lambda *_: RaceSimLock(create_on_enter=True),
+                upgrader_runner=fail_if_called,
+            )
+        self.assertFalse(upgraded)
+        self.assertEqual(lock_events, ["enter", "exit"])
+
+        # Lock must still release if upgrader fails
+        os.remove(target_2027)
+        lock_events.clear()
+
+        def failing_upgrader(cmd):
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="boom")
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaises(RuntimeError):
+                te.ensure_test_template_ready(
+                    "2027",
+                    workspace_path=self.root,
+                    lock_factory=lambda *_: RaceSimLock(create_on_enter=False),
+                    upgrader_runner=failing_upgrader,
+                )
+        self.assertEqual(lock_events, ["enter", "exit"])
+        self.assertFalse(os.path.exists(target_2027))
+
+    def test_missing_template_upgrade_verification_failures_fail_cleanly_before_worker_dispatch(self):
+        import contextlib
+        from unittest import mock
+
+        src_2026 = self._write_fake_model(os.path.join(self.models_dir, "TestTemplate2026.rvt"), 2026)
+        target_2027 = os.path.join(self.models_dir, "TestTemplate2027.rvt")
+        temp_build_root = os.path.join(self.root, "temp_root")
+        os.makedirs(temp_build_root, exist_ok=True)
+
+        failure_modes = ("nonzero_exit", "missing_staged", "wrong_format", "dirty_report")
+        for mode in failure_modes:
+            with self.subTest(mode=mode):
+                if os.path.exists(target_2027):
+                    os.remove(target_2027)
+                worker_dispatched = []
+
+                def run_with_mode(cmd, **kwargs):
+                    if any("revit_model_upgrader.py" in str(part) for part in cmd):
+                        staging_dir = cmd[cmd.index("--output-dir") + 1]
+                        report_path = cmd[cmd.index("--report") + 1]
+                        staged_file = os.path.join(staging_dir, "TestTemplate2027.rvt")
+                        if mode == "nonzero_exit":
+                            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="upgrader failed")
+                        if mode == "wrong_format":
+                            self._write_fake_model(staged_file, 2026)
+                        elif mode == "dirty_report":
+                            self._write_fake_model(staged_file, 2027)
+                            with open(report_path, "w", encoding="utf-8") as rf:
+                                json.dump(
+                                    {
+                                        "DryRun": False,
+                                        "Batches": [
+                                            {
+                                                "TargetVersion": "2027",
+                                                "JournalClean": False,
+                                                "Jobs": [
+                                                    {
+                                                        "SourcePath": src_2026,
+                                                        "TargetPath": staged_file,
+                                                        "Success": True,
+                                                    }
+                                                ],
+                                            }
+                                        ],
+                                    },
+                                    rf,
+                                )
+                        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+                    worker_dispatched.append(list(cmd))
+                    return subprocess.CompletedProcess(cmd, 0)
+
+                out_buf = io.StringIO()
+                with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root}, clear=False), \
+                     mock.patch("os.getcwd", return_value=self.root), \
+                     mock.patch.object(te.tempfile, "gettempdir", return_value=temp_build_root), \
+                     mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
+                     mock.patch.object(te.subprocess, "run", side_effect=run_with_mode), \
+                     contextlib.redirect_stdout(out_buf):
+                    with self.assertRaises(SystemExit) as ctx:
+                        te.run_test_suite(target_version="2027")
+
+                self.assertEqual(ctx.exception.code, 1)
+                self.assertEqual(worker_dispatched, [])
+                self.assertFalse(os.path.exists(target_2027))
+                self.assertIn("[ERROR]", out_buf.getvalue())
+
+    def test_no_auto_upgrade_fails_fast_with_remediation_without_invoking_upgrader(self):
+        import contextlib
+        from unittest import mock
+
+        self._write_fake_model(os.path.join(self.models_dir, "TestTemplate2026.rvt"), 2026)
+        target_2027 = os.path.join(self.models_dir, "TestTemplate2027.rvt")
+        temp_build_root = os.path.join(self.root, "temp_root")
+        os.makedirs(temp_build_root, exist_ok=True)
+        subproc_calls = []
+
+        out_buf = io.StringIO()
+        with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root}, clear=False), \
+             mock.patch("os.getcwd", return_value=self.root), \
+             mock.patch.object(te.tempfile, "gettempdir", return_value=temp_build_root), \
+             mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
+             mock.patch.object(te.subprocess, "run", side_effect=lambda cmd, **kw: subproc_calls.append(cmd)), \
+             contextlib.redirect_stdout(out_buf):
+            with self.assertRaises(SystemExit) as ctx:
+                te.run_test_suite(target_version="2027", no_auto_upgrade=True)
+
+        self.assertEqual(ctx.exception.code, 1)
+        self.assertEqual(subproc_calls, [])
+        self.assertFalse(os.path.exists(target_2027))
+        output = out_buf.getvalue()
+        self.assertIn("[ERROR]", output)
+        self.assertIn("TestTemplate2027.rvt", output)
+        self.assertIn("--no-auto-upgrade", output)
+        self.assertIn("revit_model_upgrader.py", output)
+
+        # Headless Logic run must succeed even with no_auto_upgrade=True and missing templates
+        logic_out = io.StringIO()
+        logic_trx = os.path.join(temp_build_root, "logic.trx")
+        with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root}, clear=False), \
+             mock.patch("os.getcwd", return_value=self.root), \
+             mock.patch.object(te.tempfile, "gettempdir", return_value=temp_build_root), \
+             mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
+             mock.patch.object(te.subprocess, "run", return_value=subprocess.CompletedProcess(["dotnet"], 0)), \
+             contextlib.redirect_stdout(logic_out):
+            with self.assertRaises(SystemExit) as logic_ctx:
+                te.run_test_suite(target_version="Logic", no_auto_upgrade=True)
+        self.assertEqual(logic_ctx.exception.code, 0)
+
+    def test_cold_nopool_dispatch_triggers_pre_run_upgrade_and_real_win32_mutex_serializes_concurrent_runners(self):
+        import contextlib
+        from unittest import mock
+
+        src_2026 = self._write_fake_model(os.path.join(self.models_dir, "TestTemplate2026.rvt"), 2026)
+        target_2027 = os.path.join(self.models_dir, "TestTemplate2027.rvt")
+        temp_build_root = os.path.join(self.root, "temp_root")
+        os.makedirs(temp_build_root, exist_ok=True)
+
+        # 1. Real Win32 mutex serialization + double-checked locking across threads
+        worker_entered = threading.Event()
+        allow_release = threading.Event()
+        upgrader_invocations = []
+
+        def slow_upgrader(cmd):
+            upgrader_invocations.append(list(cmd))
+            worker_entered.set()
+            self.assertTrue(allow_release.wait(timeout=10.0))
+            staging_dir = cmd[cmd.index("--output-dir") + 1]
+            self._write_fake_model(os.path.join(staging_dir, "TestTemplate2027.rvt"), 2027)
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+        results = {}
+
+        def run_first():
+            with contextlib.redirect_stdout(io.StringIO()):
+                results["first"] = te.ensure_test_template_ready(
+                    "2027", workspace_path=self.root, upgrader_runner=slow_upgrader
+                )
+
+        def run_second():
+            self.assertTrue(worker_entered.wait(timeout=10.0))
+            with contextlib.redirect_stdout(io.StringIO()):
+                results["second"] = te.ensure_test_template_ready(
+                    "2027", workspace_path=self.root, upgrader_runner=slow_upgrader
+                )
+
+        t1 = threading.Thread(target=run_first)
+        t2 = threading.Thread(target=run_second)
+        t1.start()
+        t2.start()
+        self.assertTrue(worker_entered.wait(timeout=10.0))
+        time.sleep(0.1)
+        allow_release.set()
+        t1.join(timeout=10.0)
+        t2.join(timeout=10.0)
+
+        self.assertEqual(len(upgrader_invocations), 1)
+        self.assertTrue(results["first"])
+        self.assertFalse(results["second"])
+        self.assertTrue(os.path.isfile(target_2027))
+
+        # 2. Cold (--no-pool) run_test_suite triggers pre-run upgrade prior to execute_revit_test_with_startup_gate
+        os.remove(target_2027)
+        cold_events = []
+
+        def fake_cold_subproc(cmd, **kwargs):
+            if any("revit_model_upgrader.py" in str(part) for part in cmd):
+                cold_events.append("upgrader")
+                staging_dir = cmd[cmd.index("--output-dir") + 1]
+                self._write_fake_model(os.path.join(staging_dir, "TestTemplate2027.rvt"), 2027)
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            cold_events.append("build")
+            return subprocess.CompletedProcess(cmd, 0)
+
+        def fake_cold_gate_exec(cmd, out_f, worker_env, version, run_id, snapshot_path, timeout):
+            self.assertTrue(os.path.isfile(target_2027))
+            cold_events.append("cold_worker")
+            trx_name = cmd[cmd.index("--logger") + 1].split("LogFileName=", 1)[1]
+            results_dir = cmd[cmd.index("--results-directory") + 1]
+            self._write_trx(os.path.join(results_dir, trx_name), passed_names=["SmokeCold2027"])
+            return 0, False, run_id, False
+
+        class FakeLease:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                pass
+
+        out_cold = io.StringIO()
+        with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root}, clear=False), \
+             mock.patch("os.getcwd", return_value=self.root), \
+             mock.patch.object(te.tempfile, "gettempdir", return_value=temp_build_root), \
+             mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
+             mock.patch.object(te.guid_whitelister, "whitelist_existing_addins"), \
+             mock.patch.object(te, "check_legacy_programdata_manifest"), \
+             mock.patch.object(te, "snapshot_known_journals"), \
+             mock.patch.object(te, "RicaunBundleLease", FakeLease), \
+             mock.patch.object(te, "execute_revit_test_with_startup_gate", side_effect=fake_cold_gate_exec), \
+             mock.patch.object(te, "run_journal_cleanliness_gate", return_value=(True, "CLEAN")), \
+             mock.patch.object(te.subprocess, "run", side_effect=fake_cold_subproc), \
+             contextlib.redirect_stdout(out_cold):
+            with self.assertRaises(SystemExit) as cold_ctx:
+                te.run_test_suite(target_version="2027", no_pool=True)
+
+        self.assertEqual(cold_ctx.exception.code, 0)
+        self.assertEqual(cold_events, ["upgrader", "build", "cold_worker"])
+        self.assertEqual(te.inspect_model_format_year(target_2027), 2027)
+        self.assertIn(os.path.basename(src_2026), out_cold.getvalue())
+
+    def test_upgrader_cli_args_exclude_inc_standards_and_nested_worker_guard_blocks_launch(self):
+        import contextlib
+        from unittest import mock
+
+        src_2026 = self._write_fake_model(os.path.join(self.models_dir, "TestTemplate2026.rvt"), 2026)
+        self._write_fake_model(
+            os.path.join(self.models_dir, "INC Standards - Assemblies & Details2026.rvt"),
+            2026,
+        )
+        staging_dir = os.path.join(self.root, "stage_dry")
+        os.makedirs(staging_dir, exist_ok=True)
+        report_path = os.path.join(staging_dir, "dry_report.json")
+
+        # Verify real revit_model_upgrader.py CLI parses the exact flags used by ensure_test_template_ready
+        # and schedules ONLY TestTemplate2027.rvt (never INC Standards).
+        res = subprocess.run(
+            [
+                sys.executable,
+                te.get_model_upgrader_path(),
+                src_2026,
+                "--versions",
+                "2027",
+                "--output-dir",
+                staging_dir,
+                "--report",
+                report_path,
+                "--dry-run",
+            ],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(res.returncode, 0, msg=res.stdout + res.stderr)
+        with open(report_path, "r", encoding="utf-8") as rf:
+            report = json.load(rf)
+        self.assertEqual(len(report["PlannedJobs"]), 1)
+        self.assertEqual(
+            os.path.abspath(report["PlannedJobs"][0]["TargetPath"]),
+            os.path.abspath(os.path.join(staging_dir, "TestTemplate2027.rvt")),
+        )
+        self.assertEqual(report["PlannedJobs"][0]["MinLoadableFamilies"], 2)
+
+        # Nested Revit worker env must fail fast instead of launching RevitModelUpgrader
+        with mock.patch.dict(os.environ, {"SYNTHETIC_TEST_WORKER": "1"}, clear=False):
+            with contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaises(RuntimeError) as ctx:
+                    te.ensure_test_template_ready("2027", workspace_path=self.root)
+        self.assertIn("nested", str(ctx.exception).lower())
+
+
+
 if __name__ == "__main__":
     unittest.main()
