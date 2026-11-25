@@ -1,7 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
+using System.Linq;
 using System.Text;
+using Synthetic.Features.MultiModelPdfExport.Models;
 
 namespace Synthetic.Features.MultiModelPdfExport.Services
 {
@@ -232,6 +235,139 @@ namespace Synthetic.Features.MultiModelPdfExport.Services
                 throw new PathTooLongException(
                     $"Output path length ({fullPath.Length} characters) must be strictly less than {SafeMaxPathLength} characters: {fullPath}");
             }
+        }
+
+        /// <summary>
+        /// Deterministically resolves collision-free output filename tokens across participating projects under
+        /// <c>Active &gt; OpenStandalone &gt; Linked</c> priority, reserving all pre-existing and newly assigned
+        /// tokens (<c> (Link)</c> or <c>_2</c>, <c>_3</c>, ...) so no two documents ever share a path token.
+        /// </summary>
+        public static IReadOnlyDictionary<string, MultiModelPdfResolvedToken> ResolveOutputTokens(
+            IEnumerable<MultiModelPdfTokenCandidate>? candidates)
+        {
+            var resolvedByKey = new Dictionary<string, MultiModelPdfResolvedToken>(StringComparer.Ordinal);
+            if (candidates == null)
+            {
+                return new ReadOnlyDictionary<string, MultiModelPdfResolvedToken>(resolvedByKey);
+            }
+
+            var indexed = new List<IndexedTokenCandidate>();
+            var seenKeys = new HashSet<string>(StringComparer.Ordinal);
+            int index = 0;
+            foreach (MultiModelPdfTokenCandidate candidate in candidates)
+            {
+                if (candidate == null || !seenKeys.Add(candidate.DocumentKey))
+                {
+                    continue;
+                }
+
+                string baseToken = SanitizeDocumentTitleToken(candidate.DocumentTitle);
+                indexed.Add(new IndexedTokenCandidate(candidate, baseToken, index++));
+            }
+
+            if (indexed.Count == 0)
+            {
+                return new ReadOnlyDictionary<string, MultiModelPdfResolvedToken>(resolvedByKey);
+            }
+
+            List<IndexedTokenCandidate> ordered = indexed
+                .OrderBy(item => GetCollisionPriority(item.Candidate.Origin))
+                .ThenBy(item => item.OriginalIndex)
+                .ToList();
+
+            var reservedTokens = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var originsByBaseToken = new Dictionary<string, HashSet<MultiModelPdfDocumentOrigin>>(StringComparer.OrdinalIgnoreCase);
+            var nextSuffixByBaseToken = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            var collisions = new List<IndexedTokenCandidate>();
+
+            // Pass 1: Reserve each distinct base token for its highest-priority owner so pre-existing
+            // "_2" or " (Link)" model titles keep their natural filename without false collisions.
+            foreach (IndexedTokenCandidate item in ordered)
+            {
+                if (!reservedTokens.Contains(item.BaseToken))
+                {
+                    reservedTokens.Add(item.BaseToken);
+                    originsByBaseToken[item.BaseToken] = new HashSet<MultiModelPdfDocumentOrigin> { item.Candidate.Origin };
+                    resolvedByKey[item.Candidate.DocumentKey] = new MultiModelPdfResolvedToken(
+                        item.Candidate.DocumentKey,
+                        item.BaseToken,
+                        item.BaseToken,
+                        isCollisionDisambiguated: false);
+                }
+                else
+                {
+                    collisions.Add(item);
+                }
+            }
+
+            // Pass 2: Assign deterministic non-colliding suffixes for remaining colliding titles.
+            foreach (IndexedTokenCandidate item in collisions)
+            {
+                HashSet<MultiModelPdfDocumentOrigin> seenOrigins = originsByBaseToken[item.BaseToken];
+                string finalToken;
+
+                if (item.Candidate.Origin == MultiModelPdfDocumentOrigin.Linked &&
+                    !seenOrigins.Contains(MultiModelPdfDocumentOrigin.Linked))
+                {
+                    seenOrigins.Add(MultiModelPdfDocumentOrigin.Linked);
+                    string linkToken = item.BaseToken + " (Link)";
+                    finalToken = !reservedTokens.Contains(linkToken)
+                        ? linkToken
+                        : AllocateNumberedToken(item.BaseToken, reservedTokens, nextSuffixByBaseToken);
+                }
+                else
+                {
+                    seenOrigins.Add(item.Candidate.Origin);
+                    finalToken = AllocateNumberedToken(item.BaseToken, reservedTokens, nextSuffixByBaseToken);
+                }
+
+                reservedTokens.Add(finalToken);
+                resolvedByKey[item.Candidate.DocumentKey] = new MultiModelPdfResolvedToken(
+                    item.Candidate.DocumentKey,
+                    item.BaseToken,
+                    finalToken,
+                    isCollisionDisambiguated: true);
+            }
+
+            return new ReadOnlyDictionary<string, MultiModelPdfResolvedToken>(resolvedByKey);
+        }
+
+        private static string AllocateNumberedToken(
+            string baseToken,
+            HashSet<string> reservedTokens,
+            Dictionary<string, int> nextSuffixByBaseToken)
+        {
+            int suffix = nextSuffixByBaseToken.TryGetValue(baseToken, out int existing) ? existing : 2;
+            string candidate = $"{baseToken}_{suffix}";
+            while (reservedTokens.Contains(candidate))
+            {
+                suffix++;
+                candidate = $"{baseToken}_{suffix}";
+            }
+
+            nextSuffixByBaseToken[baseToken] = suffix + 1;
+            return candidate;
+        }
+
+        private static int GetCollisionPriority(MultiModelPdfDocumentOrigin origin) => origin switch
+        {
+            MultiModelPdfDocumentOrigin.Active => 0,
+            MultiModelPdfDocumentOrigin.OpenStandalone => 1,
+            _ => 2
+        };
+
+        private sealed class IndexedTokenCandidate
+        {
+            public IndexedTokenCandidate(MultiModelPdfTokenCandidate candidate, string baseToken, int originalIndex)
+            {
+                Candidate = candidate;
+                BaseToken = baseToken;
+                OriginalIndex = originalIndex;
+            }
+
+            public MultiModelPdfTokenCandidate Candidate { get; }
+            public string BaseToken { get; }
+            public int OriginalIndex { get; }
         }
 
         private static bool IsValidFolderSegment(string segment, bool checkReservedName, out string errorMessage)

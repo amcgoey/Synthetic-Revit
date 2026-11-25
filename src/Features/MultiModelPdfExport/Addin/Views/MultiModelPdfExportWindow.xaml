@@ -190,8 +190,14 @@
                                                             </TextBlock.Style>
                                                         </TextBlock>
 
-                                                        <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
-                                                            <Border BorderThickness="1" CornerRadius="3" Padding="5,1" Margin="0,0,6,0">
+                                                        <Grid Margin="0,2,0,0">
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="Auto"/>
+                                                                <ColumnDefinition Width="Auto"/>
+                                                                <ColumnDefinition Width="*"/>
+                                                            </Grid.ColumnDefinitions>
+
+                                                            <Border Grid.Column="0" BorderThickness="1" CornerRadius="3" Padding="5,1" Margin="0,0,6,0">
                                                                 <Border.Style>
                                                                     <Style TargetType="Border">
                                                                         <Setter Property="Background" Value="{DynamicResource Synthetic.Brushes.ControlSurfaceLighter}"/>
@@ -222,11 +228,24 @@
                                                                 </TextBlock>
                                                             </Border>
 
-                                                            <TextBlock Text="{Binding StorageDisplayText}"
+                                                            <TextBlock Grid.Column="1"
+                                                                       Text="{Binding StorageDisplayText}"
                                                                        FontSize="11"
                                                                        Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
                                                                        VerticalAlignment="Center"/>
-                                                        </StackPanel>
+
+                                                            <TextBlock Grid.Column="2"
+                                                                       Text="{Binding CollisionCueText}"
+                                                                       ToolTip="{Binding CollisionTooltipText}"
+                                                                       ToolTipService.ShowDuration="20000"
+                                                                       Background="Transparent"
+                                                                       FontSize="11"
+                                                                       Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
+                                                                       TextTrimming="CharacterEllipsis"
+                                                                       Margin="6,0,0,0"
+                                                                       VerticalAlignment="Center"
+                                                                       Visibility="{Binding IsCollisionDisambiguated, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                                        </Grid>
                                                     </StackPanel>
 
                                                     <!-- Print Set Selector or Disabled Reason -->

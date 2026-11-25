@@ -359,6 +359,459 @@ namespace SyntheticTests.Features.MultiModelPdfExport
             Assert.AreEqual(0, snapshot.Documents.Count, "Family documents must yield 0 project rows.");
         }
 
+        [Test]
+        public void CaptureSessionSnapshot_DiscoversOpenStandaloneTabs_ExcludesFamilyDocs_AndAvoidsUnsavedDetachedKeyThrow()
+        {
+            Document activeDoc = OpenIsolatedTestTemplateCopy();
+            SeedExportFixtureSuite(activeDoc);
+            string dirA = Path.Combine(CurrentTestTempDirectory, "TabA");
+            Directory.CreateDirectory(dirA);
+            activeDoc.SaveAs(Path.Combine(dirA, "SharedTitle.rvt"), new SaveAsOptions { OverwriteExistingFile = true });
+
+            Document openTab = OpenIsolatedTestTemplateCopy();
+            SeedSimpleSheetAndSet(openTab, "TAB-101", "OPEN TAB SHEET", "Tab Print Set");
+            string dirB = Path.Combine(CurrentTestTempDirectory, "TabB");
+            Directory.CreateDirectory(dirB);
+            openTab.SaveAs(Path.Combine(dirB, "SharedTitle.rvt"), new SaveAsOptions { OverwriteExistingFile = true });
+
+            Document unsavedTab1 = NewTrackedProjectDocument();
+            Document unsavedTab2 = NewTrackedProjectDocument();
+
+            Family editableFamily = new FilteredElementCollector(activeDoc)
+                .OfClass(typeof(Family))
+                .Cast<Family>()
+                .FirstOrDefault(f => f.IsEditable)
+                ?? throw new AssertionException("Expected at least one editable family in isolated test template.");
+            Document openFamilyDoc = TrackDocument(activeDoc.EditFamily(editableFamily));
+            Assert.IsTrue(openFamilyDoc.IsFamilyDocument);
+
+            int openDocsBefore = App.Documents.Size;
+
+            var adapter = new RevitMultiModelPdfExportAdapter(activeDoc, UiApp);
+            MultiModelPdfSessionSnapshot snapshot = adapter.CaptureSessionSnapshot();
+
+            Assert.AreEqual(openDocsBefore, App.Documents.Size, "CaptureSessionSnapshot must not close or open documents.");
+            Assert.IsFalse(activeDoc.IsModified);
+            Assert.IsFalse(openTab.IsModified);
+
+            Assert.AreEqual(MultiModelPdfDocumentOrigin.Active, snapshot.Documents[0].Origin);
+            Assert.AreEqual(activeDoc.Title, snapshot.Documents[0].DocumentTitle);
+
+            List<MultiModelPdfDocumentSnapshot> openSnapshots = snapshot.Documents
+                .Where(d => d.Origin == MultiModelPdfDocumentOrigin.OpenStandalone)
+                .ToList();
+            Assert.AreEqual(3, openSnapshots.Count, "Expected open standalone project tabs (saved + 2 unsaved) without .rfa family doc.");
+
+            Assert.IsFalse(
+                snapshot.Documents.Any(d => string.Equals(d.DocumentTitle, openFamilyDoc.Title, StringComparison.OrdinalIgnoreCase)),
+                "Open .rfa family document must be excluded from discovered project rows.");
+
+            MultiModelPdfDocumentSnapshot? openSharedSnapshot = openSnapshots
+                .FirstOrDefault(d => string.Equals(d.DisplayPath, openTab.PathName, StringComparison.OrdinalIgnoreCase));
+            Assert.IsNotNull(openSharedSnapshot, "Expected saved open standalone tab in snapshot.");
+            Assert.AreNotEqual(snapshot.Documents[0].DocumentKey, openSharedSnapshot!.DocumentKey);
+            Assert.AreEqual(MultiModelPdfStorageKind.Local, openSharedSnapshot.Storage);
+            Assert.AreEqual("Tab Print Set", openSharedSnapshot.PrintSets.Single(s => s.Name == "Tab Print Set").Name);
+
+            var unsavedKeys = openSnapshots
+                .Where(d => d.Storage == MultiModelPdfStorageKind.Unsaved)
+                .Select(d => d.DocumentKey)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+            Assert.AreEqual(2, unsavedKeys.Count, "Two unsaved open tabs must yield distinct deterministic DocumentKeys.");
+        }
+
+        [Test]
+        public void CaptureSessionSnapshot_DetachedWorksharedCopies_NeverThrowAndYieldDistinctKeys()
+        {
+            Document seedDoc = OpenIsolatedTestTemplateCopy();
+            Assert.IsTrue(seedDoc.CanEnableWorksharing(), "Isolated template should support enabling worksharing.");
+            seedDoc.EnableWorksharing("Shared Levels and Grids", "Workset1");
+
+            string centralPath = Path.Combine(CurrentTestTempDirectory, "CentralWorkshared.rvt");
+            var worksharingSave = new WorksharingSaveAsOptions { SaveAsCentral = true };
+            var saveOpts = new SaveAsOptions { OverwriteExistingFile = true };
+            saveOpts.SetWorksharingOptions(worksharingSave);
+            seedDoc.SaveAs(centralPath, saveOpts);
+            seedDoc.Close(false);
+
+            ModelPath modelPath = ModelPathUtils.ConvertUserVisiblePathToModelPath(centralPath);
+            var detachPreserveOpts = new OpenOptions
+            {
+                DetachFromCentralOption = DetachFromCentralOption.DetachAndPreserveWorksets
+            };
+
+            Document activeDetached = TrackDocument(App.OpenDocumentFile(modelPath, detachPreserveOpts));
+            Document openDetached = TrackDocument(App.OpenDocumentFile(modelPath, detachPreserveOpts));
+            Assert.IsTrue(activeDetached.IsWorkshared && activeDetached.IsDetached);
+            Assert.IsTrue(openDetached.IsWorkshared && openDetached.IsDetached);
+
+            var adapter = new RevitMultiModelPdfExportAdapter(activeDetached, UiApp);
+            MultiModelPdfSessionSnapshot snapshot = adapter.CaptureSessionSnapshot();
+
+            Assert.AreEqual(2, snapshot.Documents.Count, "Both detached workshared tabs must appear with distinct DocumentKeys.");
+            Assert.AreEqual(MultiModelPdfDocumentOrigin.Active, snapshot.Documents[0].Origin);
+            Assert.AreEqual(MultiModelPdfDocumentOrigin.OpenStandalone, snapshot.Documents[1].Origin);
+            Assert.AreNotEqual(snapshot.Documents[0].DocumentKey, snapshot.Documents[1].DocumentKey);
+            StringAssert.StartsWith("detached:", snapshot.Documents[0].DocumentKey);
+            StringAssert.StartsWith("detached:", snapshot.Documents[1].DocumentKey);
+        }
+
+        [Test]
+        public void ExportDocument_MultiTabCombinedAndSeparate_RemapsCustomNamingRule_WarnsOnMissingParam_AndNeverClosesOpenTabs()
+        {
+            string previousSharedParamFile = App.SharedParametersFilename;
+            string sharedParamPath = Path.Combine(CurrentTestTempDirectory, "TestSharedParams.txt");
+            File.WriteAllText(sharedParamPath, string.Empty, Encoding.UTF8);
+
+            try
+            {
+                App.SharedParametersFilename = sharedParamPath;
+                DefinitionFile defFile = App.OpenSharedParameterFile();
+                DefinitionGroup defGroup = defFile.Groups.Create("MultiModelPdfTests");
+
+                Guid guidPrimary = Guid.NewGuid();
+                Guid guidAltSameName = Guid.NewGuid();
+                Guid guidDummy = Guid.NewGuid();
+
+                var extDefPrimary = (ExternalDefinition)defGroup.Definitions.Create(
+                    new ExternalDefinitionCreationOptions("SynPdfTag", SpecTypeId.String.Text) { GUID = guidPrimary });
+                // Create a second group for the alternate-GUID parameter with the same Name.
+                DefinitionGroup altGroup = defFile.Groups.Create("MultiModelPdfTestsAlt");
+                var extDefSameNameDiffGuid = (ExternalDefinition)altGroup.Definitions.Create(
+                    new ExternalDefinitionCreationOptions("SynPdfTag", SpecTypeId.String.Text) { GUID = guidAltSameName });
+                var extDefDummy = (ExternalDefinition)altGroup.Definitions.Create(
+                    new ExternalDefinitionCreationOptions("SynOffsetDummy", SpecTypeId.String.Text) { GUID = guidDummy });
+
+                // Probe default PDFExportOptions naming rule in live Revit 2026
+                var probeOptions = new PDFExportOptions();
+                IList<TableCellCombinedParameterData> freshDefaultRule = probeOptions.GetNamingRule();
+                TestContext.Progress.WriteLine($"Probe fresh new PDFExportOptions().GetNamingRule().Count = {freshDefaultRule?.Count ?? -1}");
+                if (freshDefaultRule != null)
+                {
+                    foreach (TableCellCombinedParameterData cell in freshDefaultRule)
+                    {
+                        TestContext.Progress.WriteLine($"  DefaultRule entry: ParamId={cell.ParamId}, CategoryId={cell.CategoryId}, Sep='{cell.Separator}'");
+                    }
+                }
+
+                // 1. Active Doc: has SynPdfTag (guidPrimary) + ExportPDFSettings "SynCustomNamingSetup"
+                Document activeDoc = OpenIsolatedTestTemplateCopy();
+                SeedSimpleSheetAndSet(activeDoc, "ACT-101", "ACTIVE SHEET", "Tab Set");
+                SharedParameterElement activeParam = BindSheetSharedParamAndSetValue(activeDoc, extDefPrimary, "ACT-101", "ACTVAL");
+                SeedCustomNamingPdfSetup(activeDoc, "SynCustomNamingSetup", activeParam.Id);
+                string dirActive = Path.Combine(CurrentTestTempDirectory, "ProjActive");
+                Directory.CreateDirectory(dirActive);
+                activeDoc.SaveAs(Path.Combine(dirActive, "SameTitle.rvt"), new SaveAsOptions { OverwriteExistingFile = true });
+
+                // 2. Open Tab (GUID Match): binds dummy first so ElementId differs from activeDoc, then extDefPrimary (same GUID)
+                Document guidTab = OpenIsolatedTestTemplateCopy();
+                SeedSimpleSheetAndSet(guidTab, "GM-101", "GUID SHEET", "Tab Set");
+                BindSheetSharedParamAndSetValue(guidTab, extDefDummy, "GM-101", "IGNORED");
+                SharedParameterElement guidTabParam = BindSheetSharedParamAndSetValue(guidTab, extDefPrimary, "GM-101", "GUIDREMAPPED");
+                Assert.AreNotEqual(activeParam.Id, guidTabParam.Id, "Test requires distinct ElementId across documents to verify real remapping.");
+                string dirGuid = Path.Combine(CurrentTestTempDirectory, "ProjGuid");
+                Directory.CreateDirectory(dirGuid);
+                guidTab.SaveAs(Path.Combine(dirGuid, "SameTitle.rvt"), new SaveAsOptions { OverwriteExistingFile = true });
+
+                // 3. Open Tab (Name Match fallback): binds extDefSameNameDiffGuid (different GUID, same Definition.Name "SynPdfTag")
+                Document nameTab = OpenIsolatedTestTemplateCopy();
+                SeedSimpleSheetAndSet(nameTab, "NM-101", "NAME SHEET", "Tab Set");
+                BindSheetSharedParamAndSetValue(nameTab, extDefSameNameDiffGuid, "NM-101", "NAMEREMAPPED");
+                string dirName = Path.Combine(CurrentTestTempDirectory, "ProjName");
+                Directory.CreateDirectory(dirName);
+                nameTab.SaveAs(Path.Combine(dirName, "NameMatchDoc.rvt"), new SaveAsOptions { OverwriteExistingFile = true });
+
+                // 4. Open Tab (Missing Parameter): lacks SynPdfTag completely -> must fall back cleanly to default naming rule + warning
+                Document missingTab = OpenIsolatedTestTemplateCopy();
+                SeedSimpleSheetAndSet(missingTab, "MS-101", "MISSING FALLBACK SHEET", "Tab Set");
+                string dirMissing = Path.Combine(CurrentTestTempDirectory, "ProjMissing");
+                Directory.CreateDirectory(dirMissing);
+                missingTab.SaveAs(Path.Combine(dirMissing, "MissingParamDoc.rvt"), new SaveAsOptions { OverwriteExistingFile = true });
+
+                int openDocsBeforeExport = App.Documents.Size;
+                var adapter = new RevitMultiModelPdfExportAdapter(activeDoc, UiApp);
+                MultiModelPdfSessionSnapshot snapshot = adapter.CaptureSessionSnapshot();
+
+                MultiModelPdfDocumentSnapshot activeSnap = snapshot.Documents.Single(d => d.Origin == MultiModelPdfDocumentOrigin.Active);
+                MultiModelPdfDocumentSnapshot guidSnap = snapshot.Documents.Single(d => string.Equals(d.DisplayPath, guidTab.PathName, StringComparison.OrdinalIgnoreCase));
+                MultiModelPdfDocumentSnapshot nameSnap = snapshot.Documents.Single(d => string.Equals(d.DisplayPath, nameTab.PathName, StringComparison.OrdinalIgnoreCase));
+                MultiModelPdfDocumentSnapshot missingSnap = snapshot.Documents.Single(d => string.Equals(d.DisplayPath, missingTab.PathName, StringComparison.OrdinalIgnoreCase));
+
+                IReadOnlyDictionary<string, MultiModelPdfResolvedToken> tokens = MultiModelPdfPathHelper.ResolveOutputTokens(
+                    new[]
+                    {
+                        new MultiModelPdfTokenCandidate(activeSnap.DocumentKey, activeSnap.DocumentTitle, activeSnap.Origin),
+                        new MultiModelPdfTokenCandidate(guidSnap.DocumentKey, guidSnap.DocumentTitle, guidSnap.Origin),
+                        new MultiModelPdfTokenCandidate(nameSnap.DocumentKey, nameSnap.DocumentTitle, nameSnap.Origin),
+                        new MultiModelPdfTokenCandidate(missingSnap.DocumentKey, missingSnap.DocumentTitle, missingSnap.Origin)
+                    });
+
+                Assert.AreEqual("SameTitle", tokens[activeSnap.DocumentKey].FinalToken);
+                Assert.AreEqual("SameTitle_2", tokens[guidSnap.DocumentKey].FinalToken);
+
+                // Separate mode batch across all 4 open tabs
+                string separateOut = Path.Combine(CurrentTestTempDirectory, "MultiTabSeparateOut");
+                var separateJobs = new[]
+                {
+                    CreateJob(activeSnap, "Tab Set", "SynCustomNamingSetup", MultiModelPdfFileMode.SeparatePerViewSheet, separateOut, tokens[activeSnap.DocumentKey].FinalToken),
+                    CreateJob(guidSnap, "Tab Set", "SynCustomNamingSetup", MultiModelPdfFileMode.SeparatePerViewSheet, separateOut, tokens[guidSnap.DocumentKey].FinalToken),
+                    CreateJob(nameSnap, "Tab Set", "SynCustomNamingSetup", MultiModelPdfFileMode.SeparatePerViewSheet, separateOut, tokens[nameSnap.DocumentKey].FinalToken),
+                    CreateJob(missingSnap, "Tab Set", "SynCustomNamingSetup", MultiModelPdfFileMode.SeparatePerViewSheet, separateOut, tokens[missingSnap.DocumentKey].FinalToken)
+                };
+
+                var pipeline = new MultiModelPdfExportPipeline(adapter);
+                MultiModelPdfRunSummary separateSummary = pipeline.Execute(
+                    new MultiModelPdfRunRequest(separateJobs, separateOut, "SynCustomNamingSetup", MultiModelPdfFileMode.SeparatePerViewSheet));
+
+                Assert.IsTrue(separateSummary.FailedDocumentCount == 0, string.Join(" | ", separateSummary.Errors));
+                Assert.AreEqual(4, separateSummary.CompletedDocumentCount);
+                Assert.AreEqual(4, separateSummary.GeneratedCount);
+
+                AssertPdfHeaderValid(Path.Combine(separateOut, "SameTitle", "ACT-101_ACTVAL.pdf"));
+                AssertPdfHeaderValid(Path.Combine(separateOut, "SameTitle_2", "GM-101_GUIDREMAPPED.pdf"));
+                AssertPdfHeaderValid(Path.Combine(separateOut, "NameMatchDoc", "NM-101_NAMEREMAPPED.pdf"));
+
+                string missingPdf = separateSummary.DocumentOutcomes.Single(o => o.DocumentKey == missingSnap.DocumentKey).GeneratedFilePaths.Single();
+                AssertPdfHeaderValid(missingPdf);
+                Assert.AreEqual(
+                    "Sheet-MISSING FALLBACK SHEET.pdf",
+                    Path.GetFileName(missingPdf),
+                    "Expected fallback default naming rule to match Revit's built-in Separate-mode naming rule.");
+
+                Assert.AreEqual(1, separateSummary.Warnings.Count, "Expected exactly one missing-parameter fallback warning (only MissingParamDoc).");
+                StringAssert.Contains("MissingParamDoc", separateSummary.Warnings[0]);
+                StringAssert.Contains("SynPdfTag", separateSummary.Warnings[0]);
+                StringAssert.Contains("default", separateSummary.Warnings[0].ToLowerInvariant());
+
+                // Combined mode across colliding titles (Active + OpenStandalone)
+                string combinedOut = Path.Combine(CurrentTestTempDirectory, "MultiTabCombinedOut");
+                var combinedJobs = new[]
+                {
+                    CreateJob(activeSnap, "Tab Set", MultiModelPdfSetupOption.DefaultSetupId, MultiModelPdfFileMode.CombinedPerDocument, combinedOut, tokens[activeSnap.DocumentKey].FinalToken),
+                    CreateJob(guidSnap, "Tab Set", MultiModelPdfSetupOption.DefaultSetupId, MultiModelPdfFileMode.CombinedPerDocument, combinedOut, tokens[guidSnap.DocumentKey].FinalToken)
+                };
+                MultiModelPdfRunSummary combinedSummary = pipeline.Execute(
+                    new MultiModelPdfRunRequest(combinedJobs, combinedOut, MultiModelPdfSetupOption.DefaultSetupId, MultiModelPdfFileMode.CombinedPerDocument));
+
+                Assert.AreEqual(2, combinedSummary.CompletedDocumentCount);
+                Assert.AreEqual(0, combinedSummary.FailedDocumentCount);
+                AssertPdfHeaderValid(Path.Combine(combinedOut, "SameTitle.pdf"));
+                AssertPdfHeaderValid(Path.Combine(combinedOut, "SameTitle_2.pdf"));
+
+                // Zero accidental closure of pre-existing open standalone tabs
+                Assert.AreEqual(openDocsBeforeExport, App.Documents.Size, "Open standalone tabs must NEVER be closed by Multi-Model PDF Export.");
+                Assert.IsTrue(activeDoc.IsValidObject && !activeDoc.IsModified);
+                Assert.IsTrue(guidTab.IsValidObject && !guidTab.IsModified);
+                Assert.IsTrue(nameTab.IsValidObject && !nameTab.IsModified);
+                Assert.IsTrue(missingTab.IsValidObject && !missingTab.IsModified);
+            }
+            finally
+            {
+                App.SharedParametersFilename = previousSharedParamFile ?? string.Empty;
+            }
+        }
+
+        [Test]
+        public void ExportDocument_MultiTabFaultIsolation_ContinuesWhenLockedPdfOrMissingPrintSetOccurs()
+        {
+            Document activeDoc = OpenIsolatedTestTemplateCopy();
+            SeedSimpleSheetAndSet(activeDoc, "A-101", "ACTIVE", "Batch Set");
+            activeDoc.SaveAs(GetTempFilePath("FaultActive.rvt"), new SaveAsOptions { OverwriteExistingFile = true });
+
+            Document missingSetTab = OpenIsolatedTestTemplateCopy();
+            SeedSimpleSheetAndSet(missingSetTab, "B-101", "OTHER", "Different Set");
+            missingSetTab.SaveAs(GetTempFilePath("FaultMissingSet.rvt"), new SaveAsOptions { OverwriteExistingFile = true });
+
+            Document lockedTab = OpenIsolatedTestTemplateCopy();
+            SeedSimpleSheetAndSet(lockedTab, "C-101", "LOCKED", "Batch Set");
+            lockedTab.SaveAs(GetTempFilePath("FaultLocked.rvt"), new SaveAsOptions { OverwriteExistingFile = true });
+
+            Document healthyTab = OpenIsolatedTestTemplateCopy();
+            SeedSimpleSheetAndSet(healthyTab, "D-101", "HEALTHY", "Batch Set");
+            healthyTab.SaveAs(GetTempFilePath("FaultHealthy.rvt"), new SaveAsOptions { OverwriteExistingFile = true });
+
+            int docsBefore = App.Documents.Size;
+            var adapter = new RevitMultiModelPdfExportAdapter(activeDoc, UiApp);
+            MultiModelPdfSessionSnapshot snapshot = adapter.CaptureSessionSnapshot();
+
+            string outFolder = Path.Combine(CurrentTestTempDirectory, "FaultOut");
+            Directory.CreateDirectory(outFolder);
+
+            string lockedPdfPath = Path.Combine(outFolder, "FaultLocked.pdf");
+            byte[] sentinelBytes = Encoding.ASCII.GetBytes("%PDF-1.4 SENTINEL-TAB-LOCKED\n");
+            File.WriteAllBytes(lockedPdfPath, sentinelBytes);
+
+            MultiModelPdfDocumentSnapshot activeSnap = snapshot.Documents.Single(d => d.DocumentTitle.StartsWith("FaultActive", StringComparison.OrdinalIgnoreCase));
+            MultiModelPdfDocumentSnapshot missingSnap = snapshot.Documents.Single(d => d.DocumentTitle.StartsWith("FaultMissingSet", StringComparison.OrdinalIgnoreCase));
+            MultiModelPdfDocumentSnapshot lockedSnap = snapshot.Documents.Single(d => d.DocumentTitle.StartsWith("FaultLocked", StringComparison.OrdinalIgnoreCase));
+            MultiModelPdfDocumentSnapshot healthySnap = snapshot.Documents.Single(d => d.DocumentTitle.StartsWith("FaultHealthy", StringComparison.OrdinalIgnoreCase));
+
+            var jobs = new[]
+            {
+                CreateJob(activeSnap, "Batch Set", MultiModelPdfSetupOption.DefaultSetupId, MultiModelPdfFileMode.CombinedPerDocument, outFolder, "FaultActive"),
+                CreateJob(missingSnap, "Batch Set", MultiModelPdfSetupOption.DefaultSetupId, MultiModelPdfFileMode.CombinedPerDocument, outFolder, "FaultMissingSet"),
+                CreateJob(lockedSnap, "Batch Set", MultiModelPdfSetupOption.DefaultSetupId, MultiModelPdfFileMode.CombinedPerDocument, outFolder, "FaultLocked"),
+                CreateJob(healthySnap, "Batch Set", MultiModelPdfSetupOption.DefaultSetupId, MultiModelPdfFileMode.CombinedPerDocument, outFolder, "FaultHealthy")
+            };
+
+            MultiModelPdfRunSummary summary;
+            using (new FileStream(lockedPdfPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                var pipeline = new MultiModelPdfExportPipeline(adapter);
+                summary = pipeline.Execute(new MultiModelPdfRunRequest(
+                    jobs,
+                    outFolder,
+                    MultiModelPdfSetupOption.DefaultSetupId,
+                    MultiModelPdfFileMode.CombinedPerDocument));
+            }
+
+            Assert.AreEqual(2, summary.CompletedDocumentCount, "Healthy open tabs must finish even when sibling tabs fail.");
+            Assert.AreEqual(2, summary.FailedDocumentCount);
+            AssertPdfHeaderValid(Path.Combine(outFolder, "FaultActive.pdf"));
+            AssertPdfHeaderValid(Path.Combine(outFolder, "FaultHealthy.pdf"));
+            CollectionAssert.AreEqual(sentinelBytes, File.ReadAllBytes(lockedPdfPath), "Locked target PDF must stay intact.");
+            Assert.AreEqual(2, summary.Errors.Count);
+            Assert.IsTrue(summary.Errors.Any(e => e.Contains("Batch Set")));
+            Assert.AreEqual(docsBefore, App.Documents.Size, "Open tabs must remain open after fault-isolated export.");
+        }
+
+        private static MultiModelPdfDocumentJob CreateJob(
+            MultiModelPdfDocumentSnapshot docSnapshot,
+            string printSetName,
+            string pdfSetupId,
+            MultiModelPdfFileMode fileMode,
+            string outputFolder,
+            string outputFileToken)
+        {
+            return new MultiModelPdfDocumentJob(
+                documentKey: docSnapshot.DocumentKey,
+                documentTitle: docSnapshot.DocumentTitle,
+                origin: docSnapshot.Origin,
+                storage: docSnapshot.Storage,
+                printSetName: printSetName,
+                pdfSetupId: pdfSetupId,
+                fileMode: fileMode,
+                outputFolder: outputFolder,
+                outputFileToken: outputFileToken);
+        }
+
+        private static void SeedSimpleSheetAndSet(Document doc, string sheetNumber, string sheetName, string printSetName)
+        {
+            using (var tx = new Transaction(doc, "Seed Sheet and Print Set"))
+            {
+                tx.Start();
+                try
+                {
+                    ElementId titleBlockId = new FilteredElementCollector(doc)
+                        .OfCategory(BuiltInCategory.OST_TitleBlocks)
+                        .WhereElementIsElementType()
+                        .FirstElementId() ?? ElementId.InvalidElementId;
+
+                    ViewSheet sheet = ViewSheet.Create(doc, titleBlockId);
+                    sheet.SheetNumber = sheetNumber;
+                    sheet.Name = sheetName;
+
+                    PrintManager pm = doc.PrintManager;
+                    pm.PrintRange = PrintRange.Select;
+                    pm.Apply();
+                    ViewSheetSetting setting = pm.ViewSheetSetting;
+                    var viewSet = new ViewSet();
+                    viewSet.Insert(sheet);
+                    setting.CurrentViewSheetSet = setting.InSession;
+                    setting.CurrentViewSheetSet.Views = viewSet;
+                    Assert.IsTrue(setting.SaveAs(printSetName), $"Failed to save Print Set '{printSetName}'.");
+                    tx.Commit();
+                }
+                catch
+                {
+                    if (tx.HasStarted()) tx.RollBack();
+                    throw;
+                }
+            }
+        }
+
+        private static SharedParameterElement BindSheetSharedParamAndSetValue(
+            Document doc,
+            ExternalDefinition definition,
+            string sheetNumber,
+            string value)
+        {
+            using (var tx = new Transaction(doc, "Bind Shared Parameter and Set Sheet Value"))
+            {
+                tx.Start();
+                try
+                {
+                    CategorySet catSet = doc.Application.Create.NewCategorySet();
+                    Category sheetCat = doc.Settings.Categories.get_Item(BuiltInCategory.OST_Sheets);
+                    catSet.Insert(sheetCat);
+                    InstanceBinding binding = doc.Application.Create.NewInstanceBinding(catSet);
+
+#if REVIT2023 || REVIT2024
+                    bool bound = doc.ParameterBindings.Insert(definition, binding, BuiltInParameterGroup.PG_IDENTITY_DATA);
+#else
+                    bool bound = doc.ParameterBindings.Insert(definition, binding, GroupTypeId.IdentityData);
+#endif
+                    Assert.IsTrue(bound, $"Expected parameter binding for '{definition.Name}' to succeed.");
+
+                    ViewSheet sheet = new FilteredElementCollector(doc)
+                        .OfClass(typeof(ViewSheet))
+                        .Cast<ViewSheet>()
+                        .First(s => string.Equals(s.SheetNumber, sheetNumber, StringComparison.Ordinal));
+                    Parameter? param = sheet.LookupParameter(definition.Name);
+                    Assert.IsNotNull(param, $"Expected sheet '{sheetNumber}' to expose bound parameter '{definition.Name}'.");
+                    Assert.IsTrue(param!.Set(value), $"Failed to set '{definition.Name}' on sheet '{sheetNumber}'.");
+
+                    SharedParameterElement? sharedElem = SharedParameterElement.Lookup(doc, definition.GUID);
+                    Assert.IsNotNull(sharedElem, $"Expected SharedParameterElement for '{definition.Name}' ({definition.GUID}).");
+                    tx.Commit();
+                    return sharedElem!;
+                }
+                catch
+                {
+                    if (tx.HasStarted()) tx.RollBack();
+                    throw;
+                }
+            }
+        }
+
+        private static void SeedCustomNamingPdfSetup(Document doc, string setupName, ElementId customParamId)
+        {
+            using (var tx = new Transaction(doc, "Seed Custom Naming PDF Setup"))
+            {
+                tx.Start();
+                try
+                {
+                    TableCellCombinedParameterData sheetNumEntry = TableCellCombinedParameterData.Create();
+                    sheetNumEntry.ParamId = new ElementId(BuiltInParameter.SHEET_NUMBER);
+                    sheetNumEntry.CategoryId = new ElementId(BuiltInCategory.OST_Sheets);
+                    sheetNumEntry.Separator = "_";
+
+                    TableCellCombinedParameterData customEntry = TableCellCombinedParameterData.Create();
+                    customEntry.ParamId = customParamId;
+                    customEntry.CategoryId = new ElementId(BuiltInCategory.OST_Sheets);
+                    customEntry.Separator = string.Empty;
+
+                    var rule = new List<TableCellCombinedParameterData> { sheetNumEntry, customEntry };
+                    Assert.IsTrue(PDFExportOptions.IsValidNamingRule(rule), "Custom naming rule should be valid.");
+
+                    var opts = new PDFExportOptions
+                    {
+                        PaperFormat = ExportPaperFormat.Default,
+                        Combine = false
+                    };
+                    opts.SetNamingRule(rule);
+                    ExportPDFSettings.Create(doc, setupName, opts);
+                    tx.Commit();
+                }
+                catch
+                {
+                    if (tx.HasStarted()) tx.RollBack();
+                    throw;
+                }
+            }
+        }
+
         private static ExportFixtureSuite SeedExportFixtureSuite(Document doc)
         {
             using (var tx = new Transaction(doc, "Seed MultiModelPdfExport Fixture"))

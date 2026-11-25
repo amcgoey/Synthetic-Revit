@@ -428,5 +428,148 @@ namespace SyntheticTests.Features.MultiModelPdfExport
             Assert.IsTrue(row.HasSkippedViews);
             Assert.AreEqual("1 skip", row.SkippedBadgeText);
         }
+
+        [Test]
+        public void OpenStandaloneDefaultsUnchecked_OriginBadgesAndCollisionCuesUpdateDynamically()
+        {
+            var snapshot = new MultiModelPdfSessionSnapshot(
+                "Tower.rvt",
+                new[]
+                {
+                    new MultiModelPdfDocumentSnapshot(
+                        "active-tower",
+                        "Tower.rvt",
+                        @"C:\BIM\Active\Tower.rvt",
+                        MultiModelPdfDocumentOrigin.Active,
+                        MultiModelPdfStorageKind.Workshared,
+                        printSets: new[] { new MultiModelPdfSetSnapshot("CD Set", 2) }),
+                    new MultiModelPdfDocumentSnapshot(
+                        "open-tower",
+                        "Tower.rvt",
+                        @"C:\BIM\Open\Tower.rvt",
+                        MultiModelPdfDocumentOrigin.OpenStandalone,
+                        MultiModelPdfStorageKind.Local,
+                        printSets: new[] { new MultiModelPdfSetSnapshot("CD Set", 3) }),
+                    new MultiModelPdfDocumentSnapshot(
+                        "link-tower",
+                        "Tower.rvt",
+                        @"C:\BIM\Links\Tower.rvt",
+                        MultiModelPdfDocumentOrigin.Linked,
+                        MultiModelPdfStorageKind.Local,
+                        printSets: new[] { new MultiModelPdfSetSnapshot("CD Set", 1) })
+                },
+                new[] { MultiModelPdfSetupOption.CreateDefault() });
+
+            var vm = new MultiModelPdfExportViewModel(
+                new FakeMultiModelPdfExportAdapter(snapshot),
+                new FakeFolderDialogService(),
+                @"C:\Exports");
+
+            // Row order is Active -> Linked -> OpenStandalone; Active + Linked checked, OpenStandalone unchecked
+            Assert.AreEqual(3, vm.Rows.Count);
+            MultiModelPdfExportRowViewModel activeRow = vm.Rows[0];
+            MultiModelPdfExportRowViewModel linkedRow = vm.Rows[1];
+            MultiModelPdfExportRowViewModel openRow = vm.Rows[2];
+
+            Assert.AreEqual("ACTIVE", activeRow.OriginBadgeText);
+            Assert.IsTrue(activeRow.IsActiveOrigin);
+            Assert.IsFalse(activeRow.IsOpenOrigin);
+            Assert.IsTrue(activeRow.IsChecked);
+
+            Assert.AreEqual("LINKED", linkedRow.OriginBadgeText);
+            Assert.IsTrue(linkedRow.IsLinkedOrigin);
+            Assert.IsTrue(linkedRow.IsChecked);
+
+            Assert.AreEqual("OPEN", openRow.OriginBadgeText);
+            Assert.IsTrue(openRow.IsOpenOrigin);
+            Assert.IsFalse(openRow.IsChecked, "OpenStandalone row must start unchecked by default.");
+
+            // OpenStandalone is unchecked -> no collision cue on it yet; Linked collides with Active -> Tower (Link)
+            Assert.IsFalse(activeRow.IsCollisionDisambiguated);
+            Assert.AreEqual(string.Empty, activeRow.CollisionCueText);
+            Assert.IsFalse(openRow.IsCollisionDisambiguated);
+            Assert.AreEqual(string.Empty, openRow.CollisionCueText);
+            Assert.IsTrue(linkedRow.IsCollisionDisambiguated);
+            Assert.AreEqual("→ Tower (Link).pdf", linkedRow.CollisionCueText);
+            StringAssert.Contains("Tower (Link).pdf", linkedRow.CollisionTooltipText);
+
+            // Check OpenStandalone -> Active > OpenStandalone > Linked => Open gets Tower_2, Linked keeps Tower (Link)
+            activeRow.SelectedPrintSetName = "CD Set";
+            linkedRow.SelectedPrintSetName = "CD Set";
+            openRow.SelectedPrintSetName = "CD Set";
+            openRow.IsChecked = true;
+
+            Assert.IsFalse(activeRow.IsCollisionDisambiguated);
+            Assert.IsTrue(openRow.IsCollisionDisambiguated);
+            Assert.AreEqual("→ Tower_2.pdf", openRow.CollisionCueText);
+            StringAssert.Contains("Tower_2.pdf", openRow.CollisionTooltipText);
+            StringAssert.Contains(@"C:\BIM\Open\Tower.rvt", openRow.CollisionTooltipText);
+            StringAssert.Contains("Tower_2.pdf", openRow.RowTooltipText);
+
+            Assert.IsTrue(linkedRow.IsCollisionDisambiguated);
+            Assert.AreEqual("→ Tower (Link).pdf", linkedRow.CollisionCueText);
+
+            // Switch to Separate mode -> cues switch from .pdf to trailing backslash
+            vm.FileMode = MultiModelPdfFileMode.SeparatePerViewSheet;
+            Assert.AreEqual(@"→ Tower_2\", openRow.CollisionCueText);
+            Assert.AreEqual(@"→ Tower (Link)\", linkedRow.CollisionCueText);
+            StringAssert.Contains(@"Tower_2\", openRow.CollisionTooltipText);
+
+            // BuildRunRequest carries collision-disambiguated tokens
+            MultiModelPdfRunRequest request = vm.BuildRunRequest();
+            Assert.AreEqual("Tower", request.Jobs.Single(j => j.DocumentKey == "active-tower").OutputFileToken);
+            Assert.AreEqual("Tower (Link)", request.Jobs.Single(j => j.DocumentKey == "link-tower").OutputFileToken);
+            Assert.AreEqual("Tower_2", request.Jobs.Single(j => j.DocumentKey == "open-tower").OutputFileToken);
+
+            // Unchecking Active promotes OpenStandalone to un-disambiguated Tower
+            activeRow.IsChecked = false;
+            vm.FileMode = MultiModelPdfFileMode.CombinedPerDocument;
+            Assert.IsFalse(openRow.IsCollisionDisambiguated);
+            Assert.AreEqual("Tower", openRow.ResolvedOutputToken);
+            Assert.AreEqual("→ Tower (Link).pdf", linkedRow.CollisionCueText);
+        }
+
+        [Test]
+        public void CollisionSuffixExpandingPathTo255Chars_TriggersPathTooLongValidation()
+        {
+            string baseToken = new string('t', 238);
+            var snapshot = new MultiModelPdfSessionSnapshot(
+                baseToken + ".rvt",
+                new[]
+                {
+                    new MultiModelPdfDocumentSnapshot(
+                        "active",
+                        baseToken + ".rvt",
+                        @"C:\BIM\A.rvt",
+                        MultiModelPdfDocumentOrigin.Active,
+                        MultiModelPdfStorageKind.Local,
+                        printSets: new[] { new MultiModelPdfSetSnapshot("CD", 1) }),
+                    new MultiModelPdfDocumentSnapshot(
+                        "open",
+                        baseToken + ".rvt",
+                        @"C:\BIM\B.rvt",
+                        MultiModelPdfDocumentOrigin.OpenStandalone,
+                        MultiModelPdfStorageKind.Local,
+                        printSets: new[] { new MultiModelPdfSetSnapshot("CD", 1) })
+                },
+                new[] { MultiModelPdfSetupOption.CreateDefault() });
+
+            // OutputFolder len = 10 ("C:\Exports"), + "\" + 238 + ".pdf" (4) = 253 (< 255) for Active,
+            // while "_2" adds 2 chars => 255 (>= 255) for OpenStandalone!
+            var vm = new MultiModelPdfExportViewModel(
+                new FakeMultiModelPdfExportAdapter(snapshot),
+                new FakeFolderDialogService(),
+                @"C:\Exports");
+            vm.Rows[0].SelectedPrintSetName = "CD";
+            vm.Rows[1].SelectedPrintSetName = "CD";
+
+            Assert.IsTrue(vm.CanExport, "Active alone at 253 chars should be valid.");
+
+            vm.Rows[1].IsChecked = true;
+            Assert.IsFalse(vm.CanExport, "Disambiguated _2 pushing path to 255 chars must block export.");
+            Assert.IsTrue(vm.ValidationErrors.Any(e =>
+                e.Code == MultiModelPdfValidationCode.PathTooLong &&
+                e.TargetKey == "open"));
+        }
     }
 }
