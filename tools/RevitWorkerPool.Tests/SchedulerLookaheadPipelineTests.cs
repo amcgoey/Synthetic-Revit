@@ -729,6 +729,186 @@ public class SchedulerLookaheadPipelineTests
         Assert.That(cliSup.GetStatus().Versions.ContainsKey(2099), Is.False);
     }
 
+    [Test]
+    public async Task CrossVersionPipelining_DeferredPrewarmIsPrunedOnceTargetVersionRunsAndFinishes()
+    {
+        var bgRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var shard1Release = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var shardRestRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var three2024Active = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var bgEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var revit2025Done = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        int count2024 = 0;
+
+        using var launcher = new StubWorkerProcessLauncher((server, launchReq) =>
+        {
+            server.InitialIsBusy = false;
+            server.ExecutionHandler = async (req, emitTest, ct) =>
+            {
+                if (launchReq.RevitVersion == 2026)
+                {
+                    bgEntered.TrySetResult(true);
+                    await bgRelease.Task.WaitAsync(ct).ConfigureAwait(false);
+                    return BuildSuccessResult(req, emitTest);
+                }
+
+                if (launchReq.RevitVersion == 2024)
+                {
+                    int idx = Interlocked.Increment(ref count2024);
+                    if (idx == 3)
+                    {
+                        three2024Active.TrySetResult(true);
+                    }
+
+                    await (idx == 1 ? shard1Release.Task : shardRestRelease.Task).WaitAsync(ct).ConfigureAwait(false);
+                    return BuildSuccessResult(req, emitTest);
+                }
+
+                if (launchReq.RevitVersion == 2025)
+                {
+                    revit2025Done.TrySetResult(true);
+                    return BuildSuccessResult(req, emitTest);
+                }
+
+                return BuildSuccessResult(req, emitTest);
+            };
+        }, usesCleanShim: false);
+
+        await using var supervisor = CreateSupervisor(launcher, new StubMemoryProbe(0));
+
+        // 1. Occupy 1 cap slot on 2026 so 4-shard 2024 run fills slots 2..4 and queues its 4th (final) shard.
+        Task<OneShotRunResult> bg2026 = supervisor.RunAsync(new OneShotRunOptions
+        {
+            RevitVersion = 2026,
+            AssemblyPath = _singleFixtureDll,
+            TrxPath = Path.Combine(_tempRoot, "out", "stale_bg2026.trx"),
+            Shards = 1
+        });
+        await bgEntered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Task<OneShotRunResult> run2024 = supervisor.RunAsync(new OneShotRunOptions
+        {
+            RevitVersion = 2024,
+            NextVersion = 2025,
+            AssemblyPath = _multiShardDll,
+            TrxPath = Path.Combine(_tempRoot, "out", "stale_2024.trx"),
+            Shards = 4
+        });
+        await three2024Active.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await WaitForConditionAsync(() => supervisor.GetStatus() is { Active: 4, QueuedRuns: 1 });
+
+        // 2. Submit Revit 2025 run while 2024's final shard is still queued (so NextVersion=2025 prewarm has not booted yet).
+        Task<OneShotRunResult> run2025 = supervisor.RunAsync(new OneShotRunOptions
+        {
+            RevitVersion = 2025,
+            AssemblyPath = _singleFixtureDll,
+            TrxPath = Path.Combine(_tempRoot, "out", "stale_2025.trx"),
+            Shards = 1
+        });
+        await WaitForConditionAsync(() => supervisor.GetStatus().QueuedRuns == 2);
+
+        // 3. Free 2026 slot -> round-robin dispatches 2025 ahead of 2024's 4th shard! 2025 finishes cleanly.
+        bgRelease.TrySetResult(true);
+        Assert.That((await bg2026.WaitAsync(TimeSpan.FromSeconds(2))).Success, Is.True);
+        Assert.That((await run2025.WaitAsync(TimeSpan.FromSeconds(2))).Success, Is.True);
+        await revit2025Done.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        // 4. Now 2024's 4th (final) shard dispatches and finishes AFTER 2025 already ran and finished.
+        shard1Release.TrySetResult(true);
+        shardRestRelease.TrySetResult(true);
+        Assert.That((await run2024.WaitAsync(TimeSpan.FromSeconds(2))).Success, Is.True);
+
+        // Give scheduler a brief settle window and assert no stale 2025 standby worker was booted.
+        await Task.Delay(75);
+        PoolStatusSnapshot finalStatus = supervisor.GetStatus();
+        Assert.That(finalStatus.Versions.ContainsKey(2025), Is.False);
+        Assert.That(launcher.LaunchedRequests.Count(r => r.RevitVersion == 2025), Is.EqualTo(1));
+    }
+
+    [Test]
+    public async Task CrossVersionPipelining_QueuedPrewarmIsPrunedWhenTargetVersionRunRegistersAndCompletes()
+    {
+        var bgHold = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var revit2024Entered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var revit2024Hold = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        int bgCount = 0;
+        var threeBgActive = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        using var launcher = new StubWorkerProcessLauncher((server, launchReq) =>
+        {
+            server.InitialIsBusy = false;
+            server.ExecutionHandler = async (req, emitTest, ct) =>
+            {
+                if (launchReq.RevitVersion == 2026)
+                {
+                    if (Interlocked.Increment(ref bgCount) == 3)
+                    {
+                        threeBgActive.TrySetResult(true);
+                    }
+
+                    await bgHold.Task.WaitAsync(ct).ConfigureAwait(false);
+                    return BuildSuccessResult(req, emitTest);
+                }
+
+                if (launchReq.RevitVersion == 2024)
+                {
+                    revit2024Entered.TrySetResult(true);
+                    await revit2024Hold.Task.WaitAsync(ct).ConfigureAwait(false);
+                    return BuildSuccessResult(req, emitTest);
+                }
+
+                return BuildSuccessResult(req, emitTest);
+            };
+        }, usesCleanShim: false);
+
+        await using var supervisor = CreateSupervisor(launcher, new StubMemoryProbe(0));
+
+        // 1. Occupy 3 slots with 2026 and 1 slot with single-shard 2024 (NextVersion = 2025):
+        //    2024 enters its final shard while cap-4 is full, queuing PipelinePrewarmRequest(2025).
+        Task<OneShotRunResult>[] bgRuns = Enumerable.Range(1, 3)
+            .Select(i => supervisor.RunAsync(new OneShotRunOptions
+            {
+                RevitVersion = 2026,
+                AssemblyPath = _singleFixtureDll,
+                TrxPath = Path.Combine(_tempRoot, "out", $"prune_bg_{i}.trx"),
+                Shards = 1
+            }))
+            .ToArray();
+        await threeBgActive.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Task<OneShotRunResult> run2024 = supervisor.RunAsync(new OneShotRunOptions
+        {
+            RevitVersion = 2024,
+            NextVersion = 2025,
+            AssemblyPath = _singleFixtureDll,
+            TrxPath = Path.Combine(_tempRoot, "out", "prune_2024.trx"),
+            Shards = 1
+        });
+        await revit2024Entered.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await WaitForConditionAsync(() => supervisor.GetStatus().Active == 4);
+
+        // 2. Register 2025 while cap-4 is saturated, then release all work so 2025 runs and finishes.
+        Task<OneShotRunResult> run2025 = supervisor.RunAsync(new OneShotRunOptions
+        {
+            RevitVersion = 2025,
+            AssemblyPath = _singleFixtureDll,
+            TrxPath = Path.Combine(_tempRoot, "out", "prune_2025.trx"),
+            Shards = 1
+        });
+        await WaitForConditionAsync(() => supervisor.GetStatus().QueuedRuns == 1);
+
+        revit2024Hold.TrySetResult(true);
+        bgHold.TrySetResult(true);
+
+        OneShotRunResult[] allResults = await Task.WhenAll(bgRuns.Concat(new[] { run2024, run2025 })).WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.That(allResults.All(r => r.Success), Is.True);
+
+        await Task.Delay(75);
+        PoolStatusSnapshot finalStatus = supervisor.GetStatus();
+        Assert.That(finalStatus.Versions.ContainsKey(2025), Is.False);
+        Assert.That(launcher.LaunchedRequests.Count(r => r.RevitVersion == 2025), Is.EqualTo(1));
+    }
+
     private async Task AssertNoLookaheadAsync(
         int concurrentRuns,
         bool usesCleanShim,

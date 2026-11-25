@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.Versioning;
+using System.Security;
 using System.Text.RegularExpressions;
 using Microsoft.Win32;
 
@@ -47,13 +48,16 @@ public sealed class RevitInstallationDiscovery
 
     private readonly Func<IEnumerable<string>> _autodeskRootDirectoriesProvider;
     private readonly Func<IEnumerable<UninstallRegistryEntry>> _uninstallEntriesProvider;
+    private readonly Action<string>? _diagnosticLogger;
 
     /// <summary>
     /// Initializes discovery using default Windows Program Files and Uninstall registry providers.
     /// </summary>
-    public RevitInstallationDiscovery()
-        : this(GetDefaultAutodeskRootDirectories, ReadDefaultUninstallEntries)
+    public RevitInstallationDiscovery(Action<string>? diagnosticLogger = null)
     {
+        _autodeskRootDirectoriesProvider = GetDefaultAutodeskRootDirectories;
+        _uninstallEntriesProvider = () => ReadDefaultUninstallEntries(diagnosticLogger);
+        _diagnosticLogger = diagnosticLogger;
     }
 
     /// <summary>
@@ -61,12 +65,14 @@ public sealed class RevitInstallationDiscovery
     /// </summary>
     public RevitInstallationDiscovery(
         Func<IEnumerable<string>> autodeskRootDirectoriesProvider,
-        Func<IEnumerable<UninstallRegistryEntry>> uninstallEntriesProvider)
+        Func<IEnumerable<UninstallRegistryEntry>> uninstallEntriesProvider,
+        Action<string>? diagnosticLogger = null)
     {
         _autodeskRootDirectoriesProvider = autodeskRootDirectoriesProvider
             ?? throw new ArgumentNullException(nameof(autodeskRootDirectoriesProvider));
         _uninstallEntriesProvider = uninstallEntriesProvider
             ?? throw new ArgumentNullException(nameof(uninstallEntriesProvider));
+        _diagnosticLogger = diagnosticLogger;
     }
 
     /// <summary>
@@ -88,12 +94,10 @@ public sealed class RevitInstallationDiscovery
             {
                 subDirs = Directory.EnumerateDirectories(rootDir);
             }
-            catch (IOException)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                continue;
-            }
-            catch (UnauthorizedAccessException)
-            {
+                _diagnosticLogger?.Invoke(
+                    $"[discovery] Warning: failed to enumerate '{rootDir}': {ex.Message}");
                 continue;
             }
 
@@ -107,7 +111,7 @@ public sealed class RevitInstallationDiscovery
                     continue;
                 }
 
-                TryRecordCandidate(bestByVersion, version, subDir, priority: 2);
+                TryRecordCandidate(bestByVersion, version, subDir, priority: 2, _diagnosticLogger);
             }
         }
 
@@ -126,7 +130,7 @@ public sealed class RevitInstallationDiscovery
             }
 
             int priority = CanonicalRevitDisplayRegex.IsMatch(entry.DisplayName.Trim()) ? 3 : 1;
-            TryRecordCandidate(bestByVersion, version, entry.InstallLocation, priority);
+            TryRecordCandidate(bestByVersion, version, entry.InstallLocation, priority, _diagnosticLogger);
         }
 
         return bestByVersion.Values
@@ -236,7 +240,7 @@ public sealed class RevitInstallationDiscovery
         {
             fullPath = Path.GetFullPath(startingPath);
         }
-        catch (Exception)
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException or SecurityException or IOException)
         {
             return null;
         }
@@ -265,7 +269,8 @@ public sealed class RevitInstallationDiscovery
         IDictionary<int, (int Priority, RevitInstallation Installation)> bestByVersion,
         int version,
         string rawInstallDir,
-        int priority)
+        int priority,
+        Action<string>? diagnosticLogger)
     {
         string normalizedDir;
         try
@@ -273,8 +278,10 @@ public sealed class RevitInstallationDiscovery
             normalizedDir = Path.GetFullPath(rawInstallDir.Trim().Trim('"'))
                 .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         }
-        catch (Exception)
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException or SecurityException or IOException)
         {
+            diagnosticLogger?.Invoke(
+                $"[discovery] Warning: skipping invalid install directory candidate '{rawInstallDir}': {ex.Message}");
             return;
         }
 
@@ -313,14 +320,14 @@ public sealed class RevitInstallationDiscovery
     }
 
     [SupportedOSPlatform("windows")]
-    private static IEnumerable<UninstallRegistryEntry> ReadDefaultUninstallEntries()
+    private static IEnumerable<UninstallRegistryEntry> ReadDefaultUninstallEntries(Action<string>? diagnosticLogger)
     {
         var results = new List<UninstallRegistryEntry>();
         const string uninstallPath = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall";
 
-        ReadUninstallHive(RegistryHive.LocalMachine, RegistryView.Registry64, uninstallPath, results);
-        ReadUninstallHive(RegistryHive.LocalMachine, RegistryView.Registry32, uninstallPath, results);
-        ReadUninstallHive(RegistryHive.CurrentUser, RegistryView.Default, uninstallPath, results);
+        ReadUninstallHive(RegistryHive.LocalMachine, RegistryView.Registry64, uninstallPath, results, diagnosticLogger);
+        ReadUninstallHive(RegistryHive.LocalMachine, RegistryView.Registry32, uninstallPath, results, diagnosticLogger);
+        ReadUninstallHive(RegistryHive.CurrentUser, RegistryView.Default, uninstallPath, results, diagnosticLogger);
 
         return results;
     }
@@ -330,7 +337,8 @@ public sealed class RevitInstallationDiscovery
         RegistryHive hive,
         RegistryView view,
         string subKeyPath,
-        ICollection<UninstallRegistryEntry> results)
+        ICollection<UninstallRegistryEntry> results,
+        Action<string>? diagnosticLogger)
     {
         try
         {
@@ -360,15 +368,19 @@ public sealed class RevitInstallationDiscovery
                     string? installLocation = itemKey.GetValue("InstallLocation") as string;
                     results.Add(new UninstallRegistryEntry(displayName, installLocation));
                 }
-                catch (Exception)
+                catch (Exception ex) when (ex is UnauthorizedAccessException or SecurityException or IOException or ObjectDisposedException)
                 {
                     // Skip unreadable subkeys.
+                    diagnosticLogger?.Invoke(
+                        $"[discovery] Warning: skipping unreadable uninstall subkey '{subKeyName}': {ex.Message}");
                 }
             }
         }
-        catch (Exception)
+        catch (Exception ex) when (ex is UnauthorizedAccessException or SecurityException or IOException or ObjectDisposedException)
         {
             // Skip inaccessible registry hives.
+            diagnosticLogger?.Invoke(
+                $"[discovery] Warning: skipping inaccessible uninstall hive {hive}/{view}: {ex.Message}");
         }
     }
 }

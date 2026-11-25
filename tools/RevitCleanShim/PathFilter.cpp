@@ -336,7 +336,7 @@ namespace synthetic::shim
         {
             return true;
         }
-        if (ContainsCaseInsensitiveSegment(canonical, kETransmitDbName))
+        if (HasCaseInsensitiveFileName(canonical, kETransmitDbName))
         {
             return true;
         }
@@ -469,7 +469,7 @@ namespace synthetic::shim
                 if (EqualsOrdinalIgnoreCase(seg2, L"Admin") &&
                     EqualsOrdinalIgnoreCase(rem2, L"AdminSettings.json"))
                 {
-                    virtualPathOut = JoinPath(m_profilePidDir, L"AdminSettings.json");
+                    virtualPathOut = JoinPath(m_profilePidDir, L"ProgramData_AdminSettings.json");
                     seedJsonOut = kAdminSettingsSeed;
                     return true;
                 }
@@ -485,7 +485,7 @@ namespace synthetic::shim
             if (matchesTargetYear(seg1) &&
                 EqualsOrdinalIgnoreCase(rem1, L"AdminSettings.json"))
             {
-                virtualPathOut = JoinPath(m_profilePidDir, L"AdminSettings.json");
+                virtualPathOut = JoinPath(m_profilePidDir, L"ProgramFiles_AdminSettings.json");
                 seedJsonOut = kAdminSettingsSeed;
                 return true;
             }
@@ -849,7 +849,7 @@ namespace synthetic::shim
         }
     }
 
-    bool PathFilter::ContainsCaseInsensitiveSegment(std::wstring_view path, std::wstring_view needle) noexcept
+    bool PathFilter::HasCaseInsensitiveFileName(std::wstring_view path, std::wstring_view needle) noexcept
     {
         if (path.size() < needle.size() || needle.empty())
         {

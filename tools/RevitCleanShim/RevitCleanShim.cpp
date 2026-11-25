@@ -185,6 +185,8 @@ namespace
         ULONG ShareAccess,
         ULONG OpenOptions);
 
+    using PFN_NtClose = NTSTATUS(NTAPI*)(HANDLE Handle);
+
     DWORD g_reentrancyTlsIndex = TLS_OUT_OF_INDEXES;
     SRWLOCK g_activeSearchesLock = SRWLOCK_INIT;
     std::unordered_map<HANDLE, std::wstring>* g_activeSearches = nullptr;
@@ -240,6 +242,7 @@ namespace
     PFN_NtQueryDirectoryFileEx RealNtQueryDirectoryFileEx = nullptr;
     PFN_NtCreateFile RealNtCreateFile = nullptr;
     PFN_NtOpenFile RealNtOpenFile = nullptr;
+    PFN_NtClose RealNtClose = nullptr;
 
     void TrackFilteredSearchHandle(HANDLE hFind, std::wstring searchDir)
     {
@@ -819,6 +822,9 @@ namespace
     template <typename InvokeFn>
     NTSTATUS ExecuteFilteredDirectoryQuery(
         HANDLE fileHandle,
+        HANDLE event,
+        PVOID apcRoutine,
+        PVOID apcContext,
         PIO_STATUS_BLOCK ioStatusBlock,
         PVOID fileInformation,
         ULONG length,
@@ -864,10 +870,31 @@ namespace
 
         while (true)
         {
-            const NTSTATUS status = invokeReal(firstIteration);
+            NTSTATUS status = invokeReal(firstIteration);
             firstIteration = false;
 
-            if (!NT_SUCCESS(status) || status == kStatusPending)
+            if (status == kStatusPending)
+            {
+                if (apcRoutine != nullptr || apcContext != nullptr)
+                {
+                    return status;
+                }
+
+                const HANDLE waitHandle = (event != nullptr) ? event : fileHandle;
+                if (WaitForSingleObject(waitHandle, INFINITE) != WAIT_OBJECT_0)
+                {
+                    return status;
+                }
+
+                if (event != nullptr)
+                {
+                    SetEvent(event);
+                }
+
+                status = ioStatusBlock->Status;
+            }
+
+            if (!NT_SUCCESS(status))
             {
                 if (filteredOutAllEntries &&
                     (status == kStatusNoMoreFiles || status == kStatusNoSuchFile))
@@ -1272,6 +1299,9 @@ namespace
 
         return ExecuteFilteredDirectoryQuery(
             FileHandle,
+            Event,
+            reinterpret_cast<PVOID>(ApcRoutine),
+            ApcContext,
             IoStatusBlock,
             FileInformation,
             Length,
@@ -1324,6 +1354,9 @@ namespace
 
         return ExecuteFilteredDirectoryQuery(
             FileHandle,
+            Event,
+            reinterpret_cast<PVOID>(ApcRoutine),
+            ApcContext,
             IoStatusBlock,
             FileInformation,
             Length,
@@ -1501,6 +1534,17 @@ namespace
         return status;
     }
 
+    NTSTATUS NTAPI HookNtClose(HANDLE Handle)
+    {
+        ReentrancyGuard guard;
+        if (guard.Entered())
+        {
+            UntrackEnumeratedDirHandle(Handle);
+        }
+
+        return RealNtClose(Handle);
+    }
+
     BOOL ResolveNtHooks() noexcept
     {
         const HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
@@ -1517,10 +1561,13 @@ namespace
             GetProcAddress(ntdll, "NtCreateFile"));
         RealNtOpenFile = reinterpret_cast<PFN_NtOpenFile>(
             GetProcAddress(ntdll, "NtOpenFile"));
+        RealNtClose = reinterpret_cast<PFN_NtClose>(
+            GetProcAddress(ntdll, "NtClose"));
 
         return RealNtQueryDirectoryFile != nullptr &&
             RealNtCreateFile != nullptr &&
-            RealNtOpenFile != nullptr;
+            RealNtOpenFile != nullptr &&
+            RealNtClose != nullptr;
     }
 
     BOOL AttachHooks()
@@ -1530,22 +1577,38 @@ namespace
             return FALSE;
         }
 
-        DetourTransactionBegin();
-        DetourUpdateThread(GetCurrentThread());
-        DetourAttach(reinterpret_cast<PVOID*>(&RealFindFirstFileW), reinterpret_cast<PVOID>(HookFindFirstFileW));
-        DetourAttach(reinterpret_cast<PVOID*>(&RealFindFirstFileExW), reinterpret_cast<PVOID>(HookFindFirstFileExW));
-        DetourAttach(reinterpret_cast<PVOID*>(&RealFindNextFileW), reinterpret_cast<PVOID>(HookFindNextFileW));
-        DetourAttach(reinterpret_cast<PVOID*>(&RealFindClose), reinterpret_cast<PVOID>(HookFindClose));
-        DetourAttach(reinterpret_cast<PVOID*>(&RealCreateFileW), reinterpret_cast<PVOID>(HookCreateFileW));
-        DetourAttach(reinterpret_cast<PVOID*>(&RealGetFileAttributesW), reinterpret_cast<PVOID>(HookGetFileAttributesW));
-        DetourAttach(reinterpret_cast<PVOID*>(&RealGetFileAttributesExW), reinterpret_cast<PVOID>(HookGetFileAttributesExW));
-        DetourAttach(reinterpret_cast<PVOID*>(&RealNtQueryDirectoryFile), reinterpret_cast<PVOID>(HookNtQueryDirectoryFile));
-        if (RealNtQueryDirectoryFileEx != nullptr)
+        if (DetourTransactionBegin() != NO_ERROR)
         {
-            DetourAttach(reinterpret_cast<PVOID*>(&RealNtQueryDirectoryFileEx), reinterpret_cast<PVOID>(HookNtQueryDirectoryFileEx));
+            return FALSE;
         }
-        DetourAttach(reinterpret_cast<PVOID*>(&RealNtCreateFile), reinterpret_cast<PVOID>(HookNtCreateFile));
-        DetourAttach(reinterpret_cast<PVOID*>(&RealNtOpenFile), reinterpret_cast<PVOID>(HookNtOpenFile));
+
+        const auto attach = [](PVOID* ppReal, PVOID pHook) -> bool
+        {
+            return DetourAttach(ppReal, pHook) == NO_ERROR;
+        };
+
+        const bool attachedAll =
+            DetourUpdateThread(GetCurrentThread()) == NO_ERROR &&
+            attach(reinterpret_cast<PVOID*>(&RealFindFirstFileW), reinterpret_cast<PVOID>(HookFindFirstFileW)) &&
+            attach(reinterpret_cast<PVOID*>(&RealFindFirstFileExW), reinterpret_cast<PVOID>(HookFindFirstFileExW)) &&
+            attach(reinterpret_cast<PVOID*>(&RealFindNextFileW), reinterpret_cast<PVOID>(HookFindNextFileW)) &&
+            attach(reinterpret_cast<PVOID*>(&RealFindClose), reinterpret_cast<PVOID>(HookFindClose)) &&
+            attach(reinterpret_cast<PVOID*>(&RealCreateFileW), reinterpret_cast<PVOID>(HookCreateFileW)) &&
+            attach(reinterpret_cast<PVOID*>(&RealGetFileAttributesW), reinterpret_cast<PVOID>(HookGetFileAttributesW)) &&
+            attach(reinterpret_cast<PVOID*>(&RealGetFileAttributesExW), reinterpret_cast<PVOID>(HookGetFileAttributesExW)) &&
+            attach(reinterpret_cast<PVOID*>(&RealNtQueryDirectoryFile), reinterpret_cast<PVOID>(HookNtQueryDirectoryFile)) &&
+            (RealNtQueryDirectoryFileEx == nullptr ||
+             attach(reinterpret_cast<PVOID*>(&RealNtQueryDirectoryFileEx), reinterpret_cast<PVOID>(HookNtQueryDirectoryFileEx))) &&
+            attach(reinterpret_cast<PVOID*>(&RealNtCreateFile), reinterpret_cast<PVOID>(HookNtCreateFile)) &&
+            attach(reinterpret_cast<PVOID*>(&RealNtOpenFile), reinterpret_cast<PVOID>(HookNtOpenFile)) &&
+            attach(reinterpret_cast<PVOID*>(&RealNtClose), reinterpret_cast<PVOID>(HookNtClose));
+
+        if (!attachedAll)
+        {
+            DetourTransactionAbort();
+            return FALSE;
+        }
+
         return DetourTransactionCommit() == NO_ERROR;
     }
 
@@ -1575,6 +1638,10 @@ namespace
         if (RealNtOpenFile != nullptr)
         {
             DetourDetach(reinterpret_cast<PVOID*>(&RealNtOpenFile), reinterpret_cast<PVOID>(HookNtOpenFile));
+        }
+        if (RealNtClose != nullptr)
+        {
+            DetourDetach(reinterpret_cast<PVOID*>(&RealNtClose), reinterpret_cast<PVOID>(HookNtClose));
         }
         DetourTransactionCommit();
     }

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -7,6 +8,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading;
 using Microsoft.Win32.SafeHandles;
 
 namespace RevitCleanShim.Probes.Net8Probe
@@ -14,6 +16,7 @@ namespace RevitCleanShim.Probes.Net8Probe
     internal static class Program
     {
         private const uint StatusSuccess = 0x00000000;
+        private const uint StatusPending = 0x00000103;
         private const uint StatusNoMoreFiles = 0x80000006;
         private const uint StatusNoSuchFile = 0xC000000F;
         private const uint StatusObjectNameNotFound = 0xC0000034;
@@ -244,6 +247,16 @@ namespace RevitCleanShim.Probes.Net8Probe
                         out _,
                         out _);
                 }
+
+                report.NtQueryAsyncAppDataEntries = EnumerateViaNtQueryDirectoryFile(
+                    appDataAddinsYearDir,
+                    "*.addin",
+                    infoClass: 2,
+                    useEx: false,
+                    singleEntry: false,
+                    out _,
+                    out _,
+                    asyncIo: true);
             }
 
             if (Directory.Exists(programDataAddinsYearDir))
@@ -257,6 +270,17 @@ namespace RevitCleanShim.Probes.Net8Probe
                     out uint firstEmptyStatus,
                     out _);
                 report.NtQueryProgramDataEmptyFirstStatus = firstEmptyStatus;
+
+                _ = EnumerateViaNtQueryDirectoryFile(
+                    programDataAddinsYearDir,
+                    "*.addin",
+                    infoClass: 2,
+                    useEx: false,
+                    singleEntry: false,
+                    out uint asyncEmptyStatus,
+                    out _,
+                    asyncIo: true);
+                report.NtQueryAsyncProgramDataFirstStatus = asyncEmptyStatus;
             }
 
             if (Directory.Exists(programFilesAddinsYearDir))
@@ -345,6 +369,7 @@ namespace RevitCleanShim.Probes.Net8Probe
             string programFilesAdminWritePayload = $"{{\"DisableAllAddIns\":false,\"Source\":\"programfiles-{pid}\"}}";
             File.WriteAllText(programFilesAdminSettingsPath, programFilesAdminWritePayload, Encoding.UTF8);
             report.ProgramFilesAdminSettingsAfterWriteRead = TryReadAllText(programFilesAdminSettingsPath, out _);
+            report.ProgramDataAdminSettingsAfterBothWritesRead = TryReadAllText(programDataAdminSettingsPath, out _);
         }
 
         private static string? TryReadViaNtOpenFile(string win32Path)
@@ -386,12 +411,18 @@ namespace RevitCleanShim.Probes.Net8Probe
             bool useEx,
             bool singleEntry,
             out uint firstCallStatus,
-            out uint trailingCallStatus)
+            out uint trailingCallStatus,
+            bool asyncIo = false)
         {
             firstCallStatus = 0;
             trailingCallStatus = 0;
 
-            uint openStatus = TryNtOpenFile(IntPtr.Zero, ToNtPath(directoryPath), isDirectory: true, out SafeFileHandle? dirHandle);
+            uint openStatus = TryNtOpenFile(
+                IntPtr.Zero,
+                ToNtPath(directoryPath),
+                isDirectory: true,
+                out SafeFileHandle? dirHandle,
+                synchronous: !asyncIo);
             if (openStatus != StatusSuccess || dirHandle == null)
             {
                 firstCallStatus = openStatus;
@@ -399,11 +430,13 @@ namespace RevitCleanShim.Probes.Net8Probe
             }
 
             using (dirHandle)
+            using (ManualResetEvent? ioEvent = asyncIo ? new ManualResetEvent(false) : null)
             {
                 const int bufferSize = 4096;
                 IntPtr buffer = Marshal.AllocHGlobal(bufferSize);
                 IntPtr patternStrPtr = pattern != null ? Marshal.StringToHGlobalUni(pattern) : IntPtr.Zero;
                 IntPtr unicodeStringPtr = pattern != null ? Marshal.AllocHGlobal(Marshal.SizeOf<NativeMethods.UnicodeString>()) : IntPtr.Zero;
+                IntPtr eventHandle = ioEvent != null ? ioEvent.SafeWaitHandle.DangerousGetHandle() : IntPtr.Zero;
                 try
                 {
                     if (pattern != null)
@@ -421,6 +454,7 @@ namespace RevitCleanShim.Probes.Net8Probe
                     bool firstCall = true;
                     while (true)
                     {
+                        ioEvent?.Reset();
                         uint status;
                         NativeMethods.IoStatusBlock ioStatus;
                         if (useEx)
@@ -433,7 +467,7 @@ namespace RevitCleanShim.Probes.Net8Probe
 
                             status = NativeMethods.NtQueryDirectoryFileEx(
                                 dirHandle.DangerousGetHandle(),
-                                IntPtr.Zero,
+                                eventHandle,
                                 IntPtr.Zero,
                                 IntPtr.Zero,
                                 out ioStatus,
@@ -442,16 +476,12 @@ namespace RevitCleanShim.Probes.Net8Probe
                                 (uint)infoClass,
                                 flags,
                                 unicodeStringPtr);
-                            if (firstCall)
-                            {
-                                firstCallStatus = status;
-                            }
                         }
                         else
                         {
                             status = NativeMethods.NtQueryDirectoryFile(
                                 dirHandle.DangerousGetHandle(),
-                                IntPtr.Zero,
+                                eventHandle,
                                 IntPtr.Zero,
                                 IntPtr.Zero,
                                 out ioStatus,
@@ -461,10 +491,17 @@ namespace RevitCleanShim.Probes.Net8Probe
                                 singleEntry,
                                 unicodeStringPtr,
                                 firstCall);
-                            if (firstCall)
-                            {
-                                firstCallStatus = status;
-                            }
+                        }
+
+                        if (status == StatusPending && ioEvent != null)
+                        {
+                            ioEvent.WaitOne(TimeSpan.FromSeconds(5));
+                            status = unchecked((uint)ioStatus.PointerOrStatus.ToInt64());
+                        }
+
+                        if (firstCall)
+                        {
+                            firstCallStatus = status;
                         }
 
                         firstCall = false;
@@ -561,7 +598,12 @@ namespace RevitCleanShim.Probes.Net8Probe
             }
         }
 
-        private static uint TryNtOpenFile(IntPtr rootDirectory, string objectName, bool isDirectory, out SafeFileHandle? handle)
+        private static uint TryNtOpenFile(
+            IntPtr rootDirectory,
+            string objectName,
+            bool isDirectory,
+            out SafeFileHandle? handle,
+            bool synchronous = true)
         {
             handle = null;
             IntPtr nameBuf = Marshal.StringToHGlobalUni(objectName);
@@ -587,9 +629,9 @@ namespace RevitCleanShim.Probes.Net8Probe
                 };
 
                 uint access = isDirectory
-                    ? (FileListDirectory | Synchronize)
-                    : (FileReadData | FileReadAttributes | Synchronize);
-                uint options = FileSynchronousIoNonalert | (isDirectory ? FileDirectoryFile : FileNonDirectoryFile);
+                    ? (synchronous ? (FileListDirectory | Synchronize) : FileListDirectory)
+                    : (synchronous ? (FileReadData | FileReadAttributes | Synchronize) : (FileReadData | FileReadAttributes));
+                uint options = (synchronous ? FileSynchronousIoNonalert : 0) | (isDirectory ? FileDirectoryFile : FileNonDirectoryFile);
 
                 uint status = NativeMethods.NtOpenFile(
                     out IntPtr rawHandle,
@@ -721,8 +763,19 @@ namespace RevitCleanShim.Probes.Net8Probe
             string stderr = child.StandardError.ReadToEnd();
             if (!child.WaitForExit(15000))
             {
-                try { child.Kill(); } catch { /* Best-effort kill on timeout. */ }
-                report.GrandchildError = "Grandchild Net8Probe timed out.";
+                string? killError = null;
+                try
+                {
+                    child.Kill();
+                }
+                catch (Exception ex) when (ex is InvalidOperationException or Win32Exception)
+                {
+                    killError = ex.Message;
+                }
+
+                report.GrandchildError = killError is null
+                    ? "Grandchild Net8Probe timed out."
+                    : $"Grandchild Net8Probe timed out (kill failed: {killError}).";
                 return;
             }
 
@@ -1128,6 +1181,12 @@ namespace RevitCleanShim.Probes.Net8Probe
         [JsonPropertyName("ntQueryProgramFilesExEmptyFirstStatus")]
         public uint NtQueryProgramFilesExEmptyFirstStatus { get; set; }
 
+        [JsonPropertyName("ntQueryAsyncAppDataEntries")]
+        public string[] NtQueryAsyncAppDataEntries { get; set; } = Array.Empty<string>();
+
+        [JsonPropertyName("ntQueryAsyncProgramDataFirstStatus")]
+        public uint NtQueryAsyncProgramDataFirstStatus { get; set; }
+
         [JsonPropertyName("ntOpenAppDataSyntheticStatus")]
         public uint NtOpenAppDataSyntheticStatus { get; set; }
 
@@ -1172,6 +1231,9 @@ namespace RevitCleanShim.Probes.Net8Probe
 
         [JsonPropertyName("programFilesAdminSettingsAfterWriteRead")]
         public string? ProgramFilesAdminSettingsAfterWriteRead { get; set; }
+
+        [JsonPropertyName("programDataAdminSettingsAfterBothWritesRead")]
+        public string? ProgramDataAdminSettingsAfterBothWritesRead { get; set; }
 
         [JsonPropertyName("grandchildExitCode")]
         public int? GrandchildExitCode { get; set; }

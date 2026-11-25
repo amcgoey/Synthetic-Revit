@@ -105,7 +105,7 @@ namespace synthetic::shim
             std::wstring_view relativePath,
             std::wstring_view& firstSegmentOut,
             std::wstring_view& remainderOut) noexcept;
-        static bool ContainsCaseInsensitiveSegment(std::wstring_view path, std::wstring_view needle) noexcept;
+        static bool HasCaseInsensitiveFileName(std::wstring_view path, std::wstring_view needle) noexcept;
 
         INIT_ONCE m_knownFoldersInitOnce = INIT_ONCE_STATIC_INIT;
         bool m_hasValidYear = false;

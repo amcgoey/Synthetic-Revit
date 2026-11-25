@@ -117,7 +117,8 @@ public static class Program
         bool noShimFlag,
         Func<string, string?>? getEnvironmentVariable = null,
         string? shimDllPath = null,
-        string? launcherDllPath = null)
+        string? launcherDllPath = null,
+        Action<string>? diagnosticLogger = null)
     {
         if (!ShouldUseCleanShim(noShimFlag, getEnvironmentVariable))
         {
@@ -129,7 +130,7 @@ public static class Program
             throw new CleanShimLaunchException("CleanDetoursProcessLauncher requires Windows.");
         }
 
-        return new CleanDetoursProcessLauncher(shimDllPath, launcherDllPath);
+        return new CleanDetoursProcessLauncher(shimDllPath, launcherDllPath, diagnosticLogger);
     }
 
     private static async Task<int> ExecuteSupervisorCommandAsync(string[] args, TextWriter errWriter)
@@ -147,7 +148,7 @@ public static class Program
         IWorkerProcessLauncher baseLauncher;
         try
         {
-            baseLauncher = CreateWorkerLauncher(cliOptions.NoShim);
+            baseLauncher = CreateWorkerLauncher(cliOptions.NoShim, diagnosticLogger: logger);
         }
         catch (CleanShimLaunchException ex)
         {
@@ -163,7 +164,7 @@ public static class Program
             effectiveLauncher = windowingLauncher;
         }
 
-        var discovery = new RevitInstallationDiscovery();
+        var discovery = new RevitInstallationDiscovery(logger);
         var clientFactory = new DiagnosticPipeClientFactory(logger);
         var supervisorOptions = new SupervisorOptions
         {
@@ -335,14 +336,14 @@ public static class Program
 
         if (options.OneShot || launcherFactory is not null || discoveryOverride is not null)
         {
-            RevitInstallationDiscovery discovery = discoveryOverride ?? new RevitInstallationDiscovery();
+            RevitInstallationDiscovery discovery = discoveryOverride ?? new RevitInstallationDiscovery(logger);
             IWorkerProcessLauncher? baseLauncher = null;
             OffScreenWindowingLauncher? windowingLauncher = null;
             try
             {
                 baseLauncher = launcherFactory is not null
                     ? launcherFactory(options)
-                    : CreateWorkerLauncher(options.NoShim);
+                    : CreateWorkerLauncher(options.NoShim, diagnosticLogger: logger);
 
                 IWorkerProcessLauncher effectiveLauncher = baseLauncher;
                 if (OperatingSystem.IsWindows() && baseLauncher is not OffScreenWindowingLauncher)
@@ -380,6 +381,18 @@ public static class Program
                     errWriter.WriteLine($"[RevitWorkerPool] Clean-launch shim failed closed: {ex.Message}");
                 }
 
+                return 2;
+            }
+            catch (Exception ex)
+            {
+                bool shimEnabled = baseLauncher?.UsesCleanShim ?? ShouldUseCleanShim(options.NoShim);
+                OneShotRunResult errorResult = TestExecutionHelper.InfrastructureFailureResult(
+                    options.RevitVersion,
+                    options.TrxPath,
+                    Array.Empty<string>(),
+                    shimEnabled,
+                    ex.Message);
+                WriteRunOutput(errorResult, options.JsonOutput, outWriter, errWriter);
                 return 2;
             }
             finally
@@ -420,9 +433,11 @@ public static class Program
                     TrxPath = fullTrxPath,
                     Filters = options.Filters,
                     Category = options.Category,
-                    Categories = string.IsNullOrWhiteSpace(options.Category)
-                        ? Array.Empty<string>()
-                        : new[] { options.Category },
+                    Categories = options.Categories.Count > 0
+                        ? options.Categories
+                        : (string.IsNullOrWhiteSpace(options.Category)
+                            ? Array.Empty<string>()
+                            : new[] { options.Category }),
                     BootTimeoutSeconds = options.BootTimeout.TotalSeconds,
                     ExecutionTimeoutSeconds = options.ExecutionTimeout.TotalSeconds,
                     WorkerId = options.WorkerId,
@@ -704,7 +719,7 @@ public static class Program
         string? assemblyPath = null;
         string? trxPath = null;
         var filters = new List<string>();
-        string? category = null;
+        var categories = new List<string>();
         int? timeoutSeconds = null;
         int? bootTimeoutSeconds = null;
         int? shards = null;
@@ -776,7 +791,7 @@ public static class Program
                         return false;
                     if (!string.IsNullOrWhiteSpace(categoryVal))
                     {
-                        category = categoryVal.Trim();
+                        categories.Add(categoryVal.Trim());
                     }
                     break;
 
@@ -852,7 +867,8 @@ public static class Program
             AssemblyPath = assemblyPath,
             TrxPath = trxPath,
             Filters = filters,
-            Category = category,
+            Category = categories.Count > 0 ? categories[0] : null,
+            Categories = categories,
             BootTimeout = bootTimeout,
             ExecutionTimeout = executionTimeout,
             WorkerId = workerId,

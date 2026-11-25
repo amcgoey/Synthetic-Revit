@@ -12,6 +12,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Xml;
 using System.Xml.Linq;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -613,9 +614,10 @@ public class LiveRevitEndToEndSmokeTests
                     return true;
                 }
             }
-            catch (Exception)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or XmlException)
             {
                 // Ignore unparseable manifests during preflight discovery.
+                TestContext.Progress.WriteLine($"[smoke] Warning: failed to inspect manifest '{file}': {ex.Message}");
             }
         }
 
@@ -863,8 +865,10 @@ public class LiveRevitEndToEndSmokeTests
             using Process p = Process.GetProcessById(pid);
             return p.ProcessName;
         }
-        catch
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception)
         {
+            // Process may have exited between GetWindowThreadProcessId and GetProcessById.
+            _ = ex;
             return string.Empty;
         }
     }
@@ -1214,9 +1218,10 @@ public class LiveRevitEndToEndSmokeTests
             {
                 process.Kill(entireProcessTree: true);
             }
-            catch
+            catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
             {
                 // Best-effort process tree termination on test timeout.
+                TestContext.Progress.WriteLine($"[smoke] Warning: failed to kill timed-out process '{fileName}': {ex.Message}");
             }
 
             await process.WaitForExitAsync(CancellationToken.None).ConfigureAwait(false);

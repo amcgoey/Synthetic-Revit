@@ -476,7 +476,12 @@ namespace Synthetic.Features.MergeDuplicates.Handlers
                                         {
                                             File.WriteAllText(GetDeletionErrorLogPath(), ex.ToString());
                                         }
-                                        catch {}
+                                        catch (Exception logEx) when (logEx is IOException or UnauthorizedAccessException)
+                                        {
+                                            app.Application.WriteJournalComment(
+                                                $"{MergeWarningPrefix} Failed to write deletion error log '{GetDeletionErrorLogPath()}': {logEx.Message}",
+                                                true);
+                                        }
                                         report.ExecutionSuccessStatus = false;
                                         report.ErrorMessage = "Family deletion failed: " + ex.Message + " | " + ex.StackTrace;
                                     }
@@ -676,9 +681,9 @@ namespace Synthetic.Features.MergeDuplicates.Handlers
             return DiagnosticLogPaths.GetStep6ResultsLogPath(localAppDataOverride);
         }
 
-        internal static string GetDeletionErrorLogPath(int? processId = null)
+        internal static string GetDeletionErrorLogPath()
         {
-            return MergeDiagnosticPaths.GetDeletionErrorLogPath(processId);
+            return MergeDiagnosticPaths.GetDeletionErrorLogPath();
         }
 
         private string? ExportStep6ResultsSummary(List<MergeExecutionReport> summaries)
