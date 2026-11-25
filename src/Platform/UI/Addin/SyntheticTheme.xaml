@@ -348,18 +348,32 @@
                                 VerticalAlignment="Center"
                                 SnapsToDevicePixels="True">
 
-                            <!-- ── Checkmark vector path (hidden until Checked) ── -->
-                            <Path x:Name="CheckMark"
-                                  Data="M2,7 L6,11 L13,3"
-                                  Stroke="{StaticResource Synthetic.Brushes.TextDark}"
-                                  StrokeThickness="2"
-                                  StrokeLineJoin="Round"
-                                  StrokeStartLineCap="Round"
-                                  StrokeEndLineCap="Round"
-                                  Visibility="Collapsed"
-                                  HorizontalAlignment="Center"
-                                  VerticalAlignment="Center"
-                                  SnapsToDevicePixels="True"/>
+                            <Grid>
+                                <!-- ── Checkmark vector path (hidden until Checked) ── -->
+                                <Path x:Name="CheckMark"
+                                      Data="M2,7 L6,11 L13,3"
+                                      Stroke="{StaticResource Synthetic.Brushes.TextDark}"
+                                      StrokeThickness="2"
+                                      StrokeLineJoin="Round"
+                                      StrokeStartLineCap="Round"
+                                      StrokeEndLineCap="Round"
+                                      Visibility="Collapsed"
+                                      HorizontalAlignment="Center"
+                                      VerticalAlignment="Center"
+                                      SnapsToDevicePixels="True"/>
+
+                                <!-- ── Indeterminate dash vector path (hidden until IsChecked == null) ── -->
+                                <Path x:Name="IndeterminateMark"
+                                      Data="M0,0 H8"
+                                      Stroke="{StaticResource Synthetic.Brushes.AccentActive}"
+                                      StrokeThickness="2.2"
+                                      StrokeStartLineCap="Round"
+                                      StrokeEndLineCap="Round"
+                                      Visibility="Collapsed"
+                                      HorizontalAlignment="Center"
+                                      VerticalAlignment="Center"
+                                      SnapsToDevicePixels="True"/>
+                            </Grid>
                         </Border>
 
                         <!-- ── Label ── -->
@@ -380,10 +394,11 @@
                         </Trigger>
                         <!-- Indeterminate state -->
                         <Trigger Property="IsChecked" Value="{x:Null}">
-                            <Setter TargetName="CheckBorder" Property="Background"
+                            <Setter TargetName="CheckBorder"       Property="Background"
                                     Value="{StaticResource Synthetic.Brushes.ControlSurfaceLighter}"/>
-                            <Setter TargetName="CheckBorder" Property="BorderBrush"
+                            <Setter TargetName="CheckBorder"       Property="BorderBrush"
                                     Value="{StaticResource Synthetic.Brushes.AccentActive}"/>
+                            <Setter TargetName="IndeterminateMark" Property="Visibility" Value="Visible"/>
                         </Trigger>
                         <!-- Hover -->
                         <Trigger Property="IsMouseOver" Value="True">

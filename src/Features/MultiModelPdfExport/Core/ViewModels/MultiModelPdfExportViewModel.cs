@@ -29,18 +29,28 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
         private readonly IFolderDialogService _folderDialogService;
         private readonly ObservableCollection<MultiModelPdfExportRowViewModel> _rows =
             new ObservableCollection<MultiModelPdfExportRowViewModel>();
+        private readonly ObservableCollection<MultiModelPdfExportRowViewModel> _visibleRows =
+            new ObservableCollection<MultiModelPdfExportRowViewModel>();
+        private readonly ObservableCollection<MultiModelPdfBulkPrintSetOption> _bulkPrintSetOptions =
+            new ObservableCollection<MultiModelPdfBulkPrintSetOption>();
         private readonly ObservableCollection<MultiModelPdfSetupOption> _pdfSetups =
             new ObservableCollection<MultiModelPdfSetupOption>();
 
+        private MultiModelPdfBulkPrintSetOption? _selectedBulkPrintSetOption;
         private MultiModelPdfSetupOption _selectedPdfSetup;
         private MultiModelPdfFileMode _fileMode = MultiModelPdfFileMode.CombinedPerDocument;
         private string _outputFolder = string.Empty;
+        private string _filterText = string.Empty;
         private IReadOnlyList<MultiModelPdfValidationIssue> _validationErrors = Array.Empty<MultiModelPdfValidationIssue>();
         private int _checkedCount;
         private int _eligibleCount;
+        private int _hiddenCheckedCount;
         private int _totalPrintableViews;
         private int _totalSkippedViews;
         private bool _canExport;
+        private bool _hasVisibleEligibleRows;
+        private bool _hasNoVisibleRows;
+        private bool? _allVisibleChecked = false;
         private string _exportButtonText = "Export PDFs";
         private string _selectionSummaryText = "0 of 0 eligible";
         private string _outputPreviewText = string.Empty;
@@ -49,6 +59,10 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
         private bool _showFolderErrorBorder;
         private string _footerStatusText = "Select at least one project to export";
         private MultiModelPdfFooterStatusKind _footerStatusKind = MultiModelPdfFooterStatusKind.Muted;
+        private bool _hasBulkFeedbackBanner;
+        private MultiModelPdfBulkFeedbackKind _bulkFeedbackKind = MultiModelPdfBulkFeedbackKind.None;
+        private string _bulkFeedbackMessage = string.Empty;
+        private bool _showUncheckUnmatchedButton;
 
         /// <summary>
         /// Raised when the modal dialog should close (<c>true</c> = Export confirmed, <c>false</c> = Cancelled).
@@ -96,10 +110,25 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
             _selectedPdfSetup = _pdfSetups.FirstOrDefault(s => s.IsDefault) ?? _pdfSetups[0];
             _outputFolder = initialOutputFolder ?? string.Empty;
 
+            foreach (MultiModelPdfBulkPrintSetOption option in BuildBulkPrintSetOptions(_rows))
+            {
+                _bulkPrintSetOptions.Add(option);
+            }
+
+            _selectedBulkPrintSetOption = _bulkPrintSetOptions.FirstOrDefault();
+
+            ApplyBulkPrintSetCommand = new RelayCommand(ExecuteApplyBulkPrintSet, CanExecuteApplyBulkPrintSet);
+            UncheckUnmatchedProjectsCommand = new RelayCommand(_ => ExecuteUncheckUnmatchedProjects(), _ => ShowUncheckUnmatchedButton);
+            DismissBulkFeedbackCommand = new RelayCommand(_ => ExecuteDismissBulkFeedback(), _ => HasBulkFeedbackBanner);
+            ToggleAllVisibleCommand = new RelayCommand(_ => SetVisibleEligibleChecked(_allVisibleChecked != true), _ => HasVisibleEligibleRows);
+            SelectAllVisibleCommand = new RelayCommand(_ => SetVisibleEligibleChecked(true));
+            SelectActiveAndLinksVisibleCommand = new RelayCommand(_ => ExecuteSelectActiveAndLinksVisible());
+            SelectNoneVisibleCommand = new RelayCommand(_ => SetVisibleEligibleChecked(false));
             BrowseOutputFolderCommand = new RelayCommand(_ => ExecuteBrowseOutputFolder());
             ExportCommand = new RelayCommand(_ => ExecuteExport(), _ => CanExport);
             CancelCommand = new RelayCommand(_ => RequestClose?.Invoke(false));
 
+            RefreshVisibleRows(recompute: false);
             RecomputeValidationAndSummary();
         }
 
@@ -113,6 +142,86 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
 
         /// <summary>Gets all discovered project row ViewModels ordered Active, Linked, Open.</summary>
         public ObservableCollection<MultiModelPdfExportRowViewModel> Rows => _rows;
+
+        /// <summary>Gets the filtered subset of <see cref="Rows"/> currently visible in the table.</summary>
+        public ObservableCollection<MultiModelPdfExportRowViewModel> VisibleRows => _visibleRows;
+
+        /// <summary>Gets or sets the live project filter text matching title, origin, or storage kind.</summary>
+        public string FilterText
+        {
+            get => _filterText;
+            set
+            {
+                string next = value ?? string.Empty;
+                if (SetProperty(ref _filterText, next))
+                {
+                    RefreshVisibleRows(recompute: true);
+                }
+            }
+        }
+
+        /// <summary>Gets the count of checked project rows currently hidden by <see cref="FilterText"/>.</summary>
+        public int HiddenCheckedCount
+        {
+            get => _hiddenCheckedCount;
+            private set => SetProperty(ref _hiddenCheckedCount, value);
+        }
+
+        /// <summary>Gets whether at least one eligible project row is currently visible.</summary>
+        public bool HasVisibleEligibleRows
+        {
+            get => _hasVisibleEligibleRows;
+            private set
+            {
+                if (SetProperty(ref _hasVisibleEligibleRows, value))
+                {
+                    CommandManager.InvalidateRequerySuggested();
+                }
+            }
+        }
+
+        /// <summary>Gets whether the active <see cref="FilterText"/> matches zero project rows.</summary>
+        public bool HasNoVisibleRows
+        {
+            get => _hasNoVisibleRows;
+            private set => SetProperty(ref _hasNoVisibleRows, value);
+        }
+
+        /// <summary>
+        /// Gets or sets the tri-state master header selection across currently visible eligible rows
+        /// (<c>true</c> = all checked, <c>false</c> = none checked, <c>null</c> = partial/indeterminate).
+        /// </summary>
+        public bool? AllVisibleChecked
+        {
+            get => _allVisibleChecked;
+            set
+            {
+                bool targetChecked = value == true;
+                if (!SetVisibleEligibleChecked(targetChecked))
+                {
+                    OnPropertyChanged(nameof(AllVisibleChecked));
+                }
+            }
+        }
+
+        /// <summary>Gets bulk Print Set options sorted by active presence, match count descending, and name.</summary>
+        public ObservableCollection<MultiModelPdfBulkPrintSetOption> BulkPrintSetOptions => _bulkPrintSetOptions;
+
+        /// <summary>Gets a value indicating whether any eligible Print Set exists for bulk assignment.</summary>
+        public bool HasBulkPrintSetOptions => _bulkPrintSetOptions.Count > 0;
+
+        /// <summary>Gets or sets the selected bulk Print Set dropdown option.</summary>
+        public MultiModelPdfBulkPrintSetOption? SelectedBulkPrintSetOption
+        {
+            get => _selectedBulkPrintSetOption;
+            set
+            {
+                if (SetProperty(ref _selectedBulkPrintSetOption, value))
+                {
+                    CommandManager.InvalidateRequerySuggested();
+                }
+            }
+        }
 
         /// <summary>Gets available PDF Export Setup options.</summary>
         public ObservableCollection<MultiModelPdfSetupOption> PdfSetups => _pdfSetups;
@@ -262,6 +371,67 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
             private set => SetProperty(ref _footerStatusKind, value);
         }
 
+        /// <summary>Gets whether the inline dismissible bulk Print Set feedback banner is visible.</summary>
+        public bool HasBulkFeedbackBanner
+        {
+            get => _hasBulkFeedbackBanner;
+            private set
+            {
+                if (SetProperty(ref _hasBulkFeedbackBanner, value))
+                {
+                    CommandManager.InvalidateRequerySuggested();
+                }
+            }
+        }
+
+        /// <summary>Gets the semantic visual tone for the bulk Print Set feedback banner.</summary>
+        public MultiModelPdfBulkFeedbackKind BulkFeedbackKind
+        {
+            get => _bulkFeedbackKind;
+            private set => SetProperty(ref _bulkFeedbackKind, value);
+        }
+
+        /// <summary>Gets the message shown inside the bulk Print Set feedback banner.</summary>
+        public string BulkFeedbackMessage
+        {
+            get => _bulkFeedbackMessage;
+            private set => SetProperty(ref _bulkFeedbackMessage, value);
+        }
+
+        /// <summary>Gets whether the one-click <c>Uncheck unmatched</c> action button should be shown.</summary>
+        public bool ShowUncheckUnmatchedButton
+        {
+            get => _showUncheckUnmatchedButton;
+            private set
+            {
+                if (SetProperty(ref _showUncheckUnmatchedButton, value))
+                {
+                    CommandManager.InvalidateRequerySuggested();
+                }
+            }
+        }
+
+        /// <summary>Gets the command that applies the selected bulk Print Set across all matching eligible rows.</summary>
+        public ICommand ApplyBulkPrintSetCommand { get; }
+
+        /// <summary>Gets the command that unchecks checked rows mismatched by the last bulk Print Set operation.</summary>
+        public ICommand UncheckUnmatchedProjectsCommand { get; }
+
+        /// <summary>Gets the command that dismisses the bulk feedback banner and clears mismatch accent stripes.</summary>
+        public ICommand DismissBulkFeedbackCommand { get; }
+
+        /// <summary>Gets the command that toggles all visible eligible rows.</summary>
+        public ICommand ToggleAllVisibleCommand { get; }
+
+        /// <summary>Gets the command that checks all visible eligible rows.</summary>
+        public ICommand SelectAllVisibleCommand { get; }
+
+        /// <summary>Gets the command that checks visible eligible Active and Linked rows and unchecks visible Open tabs.</summary>
+        public ICommand SelectActiveAndLinksVisibleCommand { get; }
+
+        /// <summary>Gets the command that unchecks all visible rows.</summary>
+        public ICommand SelectNoneVisibleCommand { get; }
+
         /// <summary>Gets the command that opens the folder picker dialog.</summary>
         public ICommand BrowseOutputFolderCommand { get; }
 
@@ -307,6 +477,257 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
 
             return new MultiModelPdfRunRequest(jobs, normalizedFolder, SelectedPdfSetup.Id, FileMode);
         }
+
+        private bool CanExecuteApplyBulkPrintSet(object? parameter)
+        {
+            if (EligibleCount <= 0)
+            {
+                return false;
+            }
+
+            if (parameter is string setName)
+            {
+                return !string.IsNullOrWhiteSpace(setName);
+            }
+
+            return SelectedBulkPrintSetOption != null;
+        }
+
+        private void ExecuteApplyBulkPrintSet(object? parameter)
+        {
+            string? requestedName = parameter is string rawName && !string.IsNullOrWhiteSpace(rawName)
+                ? rawName.Trim()
+                : SelectedBulkPrintSetOption?.Name;
+
+            if (string.IsNullOrWhiteSpace(requestedName))
+            {
+                return;
+            }
+
+            MultiModelPdfBulkPrintSetOption? matchingOption = _bulkPrintSetOptions.FirstOrDefault(
+                o => string.Equals(o.Name, requestedName, StringComparison.OrdinalIgnoreCase));
+            if (matchingOption != null && !ReferenceEquals(_selectedBulkPrintSetOption, matchingOption))
+            {
+                _selectedBulkPrintSetOption = matchingOption;
+                OnPropertyChanged(nameof(SelectedBulkPrintSetOption));
+            }
+
+            string displaySetName = matchingOption?.Name ?? requestedName!;
+
+            int totalCheckedEligible = 0;
+            int matchedChecked = 0;
+            int matchedUnchecked = 0;
+            var unmatchedCheckedTitles = new List<string>();
+
+            foreach (MultiModelPdfExportRowViewModel row in _rows)
+            {
+                if (!row.IsEligible)
+                {
+                    row.SetBulkMismatchAccent(false);
+                    continue;
+                }
+
+                if (row.IsChecked)
+                {
+                    totalCheckedEligible++;
+                }
+
+                MultiModelPdfPrintSetChoice? matchChoice = row.PrintSetOptions.FirstOrDefault(
+                    c => !c.IsPlaceholder && string.Equals(c.Name, displaySetName, StringComparison.OrdinalIgnoreCase));
+
+                if (matchChoice != null)
+                {
+                    row.ApplyBulkMatchedChoice(matchChoice);
+                    if (row.IsChecked)
+                    {
+                        matchedChecked++;
+                    }
+                    else
+                    {
+                        matchedUnchecked++;
+                    }
+                }
+                else if (row.IsChecked)
+                {
+                    row.SetBulkMismatchAccent(true);
+                    unmatchedCheckedTitles.Add(row.DocumentTitle);
+                }
+                else
+                {
+                    row.SetBulkMismatchAccent(false);
+                }
+            }
+
+            string uncheckedSuffix = matchedUnchecked > 0 ? $" (+{matchedUnchecked} unchecked)" : string.Empty;
+
+            if (totalCheckedEligible > 0 && unmatchedCheckedTitles.Count == 0)
+            {
+                string projectWord = matchedChecked == 1 ? "project" : "projects";
+                BulkFeedbackKind = MultiModelPdfBulkFeedbackKind.Success;
+                BulkFeedbackMessage = $"Applied \"{displaySetName}\" to all {matchedChecked} checked {projectWord}{uncheckedSuffix}.";
+                HasBulkFeedbackBanner = true;
+            }
+            else if (totalCheckedEligible > 0)
+            {
+                BulkFeedbackKind = MultiModelPdfBulkFeedbackKind.Warning;
+                BulkFeedbackMessage = $"Applied \"{displaySetName}\" to {matchedChecked} checked{uncheckedSuffix}. No \"{displaySetName}\" in: {string.Join(", ", unmatchedCheckedTitles)}.";
+                HasBulkFeedbackBanner = true;
+            }
+            else if (matchedUnchecked > 0)
+            {
+                string projectWord = matchedUnchecked == 1 ? "project" : "projects";
+                BulkFeedbackKind = MultiModelPdfBulkFeedbackKind.Success;
+                BulkFeedbackMessage = $"Applied \"{displaySetName}\" to {matchedUnchecked} unchecked {projectWord} (0 checked).";
+                HasBulkFeedbackBanner = true;
+            }
+            else
+            {
+                BulkFeedbackKind = MultiModelPdfBulkFeedbackKind.Warning;
+                BulkFeedbackMessage = $"No eligible projects contain \"{displaySetName}\".";
+                HasBulkFeedbackBanner = true;
+            }
+
+            RecomputeValidationAndSummary();
+        }
+
+        private void ExecuteUncheckUnmatchedProjects()
+        {
+            foreach (MultiModelPdfExportRowViewModel row in _rows)
+            {
+                if (row.IsChecked && row.HasBulkMismatchAccent)
+                {
+                    row.SetCheckedBatch(false);
+                }
+                else
+                {
+                    row.SetBulkMismatchAccent(false);
+                }
+            }
+
+            ClearBulkFeedbackBanner();
+            RecomputeValidationAndSummary();
+        }
+
+        private void ExecuteDismissBulkFeedback()
+        {
+            foreach (MultiModelPdfExportRowViewModel row in _rows)
+            {
+                row.SetBulkMismatchAccent(false);
+            }
+
+            ClearBulkFeedbackBanner();
+            RecomputeValidationAndSummary();
+        }
+
+        private void ClearBulkFeedbackBanner()
+        {
+            HasBulkFeedbackBanner = false;
+            BulkFeedbackKind = MultiModelPdfBulkFeedbackKind.None;
+            BulkFeedbackMessage = string.Empty;
+        }
+
+        private bool SetVisibleEligibleChecked(bool isChecked)
+        {
+            bool anyChanged = false;
+            foreach (MultiModelPdfExportRowViewModel row in _visibleRows)
+            {
+                if (!row.IsEligible)
+                {
+                    continue;
+                }
+
+                if (row.SetCheckedBatch(isChecked))
+                {
+                    anyChanged = true;
+                }
+            }
+
+            if (anyChanged)
+            {
+                RecomputeValidationAndSummary();
+            }
+
+            return anyChanged;
+        }
+
+        private void ExecuteSelectActiveAndLinksVisible()
+        {
+            bool anyChanged = false;
+            foreach (MultiModelPdfExportRowViewModel row in _visibleRows)
+            {
+                if (!row.IsEligible)
+                {
+                    continue;
+                }
+
+                bool target = row.Origin == MultiModelPdfDocumentOrigin.Active ||
+                              row.Origin == MultiModelPdfDocumentOrigin.Linked;
+                if (row.SetCheckedBatch(target))
+                {
+                    anyChanged = true;
+                }
+            }
+
+            if (anyChanged)
+            {
+                RecomputeValidationAndSummary();
+            }
+        }
+
+        private void RefreshVisibleRows(bool recompute)
+        {
+            string query = FilterText.Trim();
+            var matching = _rows.Where(r => MatchesFilter(r, query)).ToList();
+
+            for (int i = _visibleRows.Count - 1; i >= 0; i--)
+            {
+                if (!matching.Contains(_visibleRows[i]))
+                {
+                    _visibleRows.RemoveAt(i);
+                }
+            }
+
+            for (int targetIndex = 0; targetIndex < matching.Count; targetIndex++)
+            {
+                MultiModelPdfExportRowViewModel item = matching[targetIndex];
+                if (targetIndex < _visibleRows.Count && ReferenceEquals(_visibleRows[targetIndex], item))
+                {
+                    continue;
+                }
+
+                int existingIndex = _visibleRows.IndexOf(item);
+                if (existingIndex >= 0)
+                {
+                    _visibleRows.Move(existingIndex, targetIndex);
+                }
+                else
+                {
+                    _visibleRows.Insert(targetIndex, item);
+                }
+            }
+
+            if (recompute)
+            {
+                RecomputeValidationAndSummary();
+            }
+        }
+
+        private static bool MatchesFilter(MultiModelPdfExportRowViewModel row, string trimmedQuery)
+        {
+            if (string.IsNullOrEmpty(trimmedQuery))
+            {
+                return true;
+            }
+
+            return ContainsIgnoreCase(row.DocumentTitle, trimmedQuery) ||
+                   ContainsIgnoreCase(row.OriginBadgeText, trimmedQuery) ||
+                   ContainsIgnoreCase(row.StorageDisplayText, trimmedQuery) ||
+                   ContainsIgnoreCase(row.Storage.ToString(), trimmedQuery);
+        }
+
+        private static bool ContainsIgnoreCase(string? source, string query) =>
+            !string.IsNullOrEmpty(source) &&
+            source!.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0;
 
         private void ExecuteBrowseOutputFolder()
         {
@@ -414,11 +835,50 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
                 }
             }
 
+            var visibleSet = new HashSet<MultiModelPdfExportRowViewModel>(_visibleRows);
+            int hiddenCheckedCount = checkedRows.Count(r => !visibleSet.Contains(r));
+            int visibleEligibleCount = 0;
+            int checkedVisibleEligibleCount = 0;
+            foreach (MultiModelPdfExportRowViewModel row in _visibleRows)
+            {
+                if (!row.IsEligible)
+                {
+                    continue;
+                }
+
+                visibleEligibleCount++;
+                if (row.IsChecked)
+                {
+                    checkedVisibleEligibleCount++;
+                }
+            }
+
+            bool hasVisibleEligibleRows = visibleEligibleCount > 0;
+            bool? nextAllVisibleChecked;
+            if (!hasVisibleEligibleRows || checkedVisibleEligibleCount == 0)
+            {
+                nextAllVisibleChecked = false;
+            }
+            else if (checkedVisibleEligibleCount == visibleEligibleCount)
+            {
+                nextAllVisibleChecked = true;
+            }
+            else
+            {
+                nextAllVisibleChecked = null;
+            }
+
             CheckedCount = checkedCount;
             EligibleCount = eligibleCount;
+            HiddenCheckedCount = hiddenCheckedCount;
+            HasVisibleEligibleRows = hasVisibleEligibleRows;
+            HasNoVisibleRows = _visibleRows.Count == 0;
+            SetProperty(ref _allVisibleChecked, nextAllVisibleChecked, nameof(AllVisibleChecked));
             TotalPrintableViews = totalPrintable;
             TotalSkippedViews = totalSkipped;
-            SelectionSummaryText = $"{checkedCount} of {eligibleCount} eligible";
+            SelectionSummaryText = hiddenCheckedCount > 0
+                ? $"{checkedCount} selected ({hiddenCheckedCount} hidden)"
+                : $"{checkedCount} of {eligibleCount} eligible";
             ValidationErrors = errors.AsReadOnly();
 
             var bannerErrors = errors
@@ -469,6 +929,11 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
             }
 
             OutputPreviewText = BuildOutputPreviewText(checkedRows, folderValid, totalPrintable);
+
+            ShowUncheckUnmatchedButton = HasBulkFeedbackBanner &&
+                                         BulkFeedbackKind == MultiModelPdfBulkFeedbackKind.Warning &&
+                                         _rows.Any(r => r.IsChecked && r.HasBulkMismatchAccent);
+            CommandManager.InvalidateRequerySuggested();
         }
 
         private string BuildOutputPreviewText(
@@ -506,5 +971,65 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
             MultiModelPdfDocumentOrigin.Linked => 1,
             _ => 2
         };
+
+        private static IReadOnlyList<MultiModelPdfBulkPrintSetOption> BuildBulkPrintSetOptions(
+            IReadOnlyList<MultiModelPdfExportRowViewModel> rows)
+        {
+            int totalCount = rows.Count;
+            if (totalCount == 0)
+            {
+                return Array.Empty<MultiModelPdfBulkPrintSetOption>();
+            }
+
+            var activeSetNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            MultiModelPdfExportRowViewModel? activeRow = rows.FirstOrDefault(r => r.Origin == MultiModelPdfDocumentOrigin.Active);
+            if (activeRow != null && activeRow.IsEligible)
+            {
+                foreach (MultiModelPdfSetSnapshot set in activeRow.PrintSets)
+                {
+                    activeSetNames.Add(set.Name);
+                }
+            }
+
+            var canonicalNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var matchCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (MultiModelPdfExportRowViewModel row in rows)
+            {
+                if (!row.IsEligible)
+                {
+                    continue;
+                }
+
+                var seenInRow = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (MultiModelPdfSetSnapshot set in row.PrintSets)
+                {
+                    if (!seenInRow.Add(set.Name))
+                    {
+                        continue;
+                    }
+
+                    if (!canonicalNames.ContainsKey(set.Name))
+                    {
+                        canonicalNames[set.Name] = set.Name;
+                        matchCounts[set.Name] = 0;
+                    }
+
+                    matchCounts[set.Name]++;
+                }
+            }
+
+            return canonicalNames.Values
+                .Select(name => new MultiModelPdfBulkPrintSetOption(
+                    name: name,
+                    matchCount: matchCounts[name],
+                    totalCount: totalCount,
+                    isInActiveDocument: activeSetNames.Contains(name)))
+                .OrderByDescending(o => o.IsInActiveDocument)
+                .ThenByDescending(o => o.MatchCount)
+                .ThenBy(o => o.Name, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(o => o.Name, StringComparer.Ordinal)
+                .ToList();
+        }
     }
 }

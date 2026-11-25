@@ -3,6 +3,7 @@ using System.Globalization;
 using System.IO;
 using System.Threading;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Markup;
 using System.Windows.Shell;
@@ -366,6 +367,50 @@ namespace SyntheticTests.Platform.UI
                 Assert.IsInstanceOf<System.Windows.Media.Geometry>(resource,
                     $"Resource '{key}' must be of type System.Windows.Media.Geometry.");
             }
+        }
+
+        [Test]
+        public void SyntheticTheme_CheckBoxStyle_ShowsIndeterminateMarkOnlyWhenIsCheckedNull()
+        {
+            var dict = LoadThemeDictionary();
+            var checkBoxStyle = dict[typeof(CheckBox)] as Style;
+            Assert.IsNotNull(checkBoxStyle, "Expected implicit CheckBox style in SyntheticTheme.xaml.");
+
+            var checkBox = new CheckBox
+            {
+                Style = checkBoxStyle,
+                IsThreeState = false,
+                IsChecked = null
+            };
+            checkBox.Resources = dict;
+            Assert.IsTrue(checkBox.ApplyTemplate(), "CheckBox ControlTemplate should apply cleanly.");
+            checkBox.Measure(new Size(100, 30));
+            checkBox.Arrange(new Rect(0, 0, 100, 30));
+            checkBox.UpdateLayout();
+
+            var checkMark = checkBox.Template.FindName("CheckMark", checkBox) as System.Windows.Shapes.Path;
+            var indeterminateMark = checkBox.Template.FindName("IndeterminateMark", checkBox) as System.Windows.Shapes.Path;
+            var checkBorder = checkBox.Template.FindName("CheckBorder", checkBox) as Border;
+
+            Assert.IsNotNull(checkMark, "Expected CheckMark inside CheckBox template.");
+            Assert.IsNotNull(indeterminateMark, "Expected IndeterminateMark inside CheckBox template.");
+            Assert.IsNotNull(checkBorder, "Expected CheckBorder inside CheckBox template.");
+
+            // Indeterminate (null) -> IndeterminateMark visible, CheckMark collapsed
+            Assert.AreEqual(Visibility.Visible, indeterminateMark!.Visibility);
+            Assert.AreEqual(Visibility.Collapsed, checkMark!.Visibility);
+
+            // Checked (true) -> CheckMark visible, IndeterminateMark collapsed
+            checkBox.IsChecked = true;
+            checkBox.UpdateLayout();
+            Assert.AreEqual(Visibility.Visible, checkMark.Visibility);
+            Assert.AreEqual(Visibility.Collapsed, indeterminateMark.Visibility);
+
+            // Unchecked (false) -> both collapsed
+            checkBox.IsChecked = false;
+            checkBox.UpdateLayout();
+            Assert.AreEqual(Visibility.Collapsed, checkMark.Visibility);
+            Assert.AreEqual(Visibility.Collapsed, indeterminateMark.Visibility);
         }
     }
 }
