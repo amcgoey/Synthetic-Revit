@@ -1,12 +1,14 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Collections.Generic;
 using Autodesk.Revit.UI;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 using Synthetic.Features.MultiModelPdfExport.Commands;
-using Synthetic.Features.MultiModelPdfExport.Utilities;
+using Synthetic.Features.MultiModelPdfExport.Models;
+using Synthetic.Features.MultiModelPdfExport.ViewModels;
+using Synthetic.Features.MultiModelPdfExport.Views;
 using Synthetic.Platform.Host;
 using Synthetic.Platform.UI;
 using SyntheticTests.Fixtures;
@@ -16,8 +18,8 @@ namespace SyntheticTests.Features.MultiModelPdfExport
 {
     /// <summary>
     /// Non-executing live Revit STA smoke tests verifying <see cref="CmdMultiModelPdfExport"/> command,
-    /// ribbon entry, selection ViewModel/View resolution, and document-leak safety without invoking
-    /// <see cref="CmdMultiModelPdfExport.Execute"/> or <see cref="BBPrinterSettingsUtils.SetRegistryKeys"/>.
+    /// ribbon entry, Variant A WPF view/ViewModel bindings, and document-leak safety without mutating
+    /// Revit documents or opening production modal loops.
     /// </summary>
     [TestFixture]
     [RevitSmokeTest]
@@ -25,6 +27,7 @@ namespace SyntheticTests.Features.MultiModelPdfExport
     {
         private UIApplication? _uiapp;
         private int _initialDocCount;
+        private bool _previousSuppressUi;
 
         [OneTimeSetUp]
         public void Setup(UIApplication uiapp)
@@ -47,6 +50,19 @@ namespace SyntheticTests.Features.MultiModelPdfExport
             }
         }
 
+        [SetUp]
+        public void SetUp()
+        {
+            _previousSuppressUi = ProgressCoordinator.SuppressUI;
+            ProgressCoordinator.SuppressUI = true;
+        }
+
+        [TearDown]
+        public void TearDown()
+        {
+            ProgressCoordinator.SuppressUI = _previousSuppressUi;
+        }
+
         [Test]
         public void RibbonCommand_CmdMultiModelPdfExport_ResolvesInAddinAssemblyAndRibbonConfig()
         {
@@ -61,11 +77,6 @@ namespace SyntheticTests.Features.MultiModelPdfExport
             object? instance = Activator.CreateInstance(cmdType);
             Assert.IsInstanceOf<CmdMultiModelPdfExport>(instance);
 
-            // Verify BBPrinterSettingsUtils resolves and constructs in-memory without touching Windows Registry.
-            var previewSettings = new BBPrinterSettingsUtils("0", "0", @"C:\Temp\SyntheticMultiModelPdfExportSmoke");
-            Assert.AreEqual("0", previewSettings.OpenInViewer);
-            Assert.AreEqual("0", previewSettings.PromptForFileName);
-
             string configPath = Path.Combine(TestPathHelper.GetProjectRoot(), "src", "Assets", "ribbon_config.json");
             Assert.IsTrue(File.Exists(configPath), $"Expected ribbon_config.json at '{configPath}'.");
 
@@ -79,46 +90,57 @@ namespace SyntheticTests.Features.MultiModelPdfExport
         }
 
         [Test]
-        public void MultiModelPdfExportSelectionViewModel_AndListByCheckboxView_ConstructShowAndBind_WithoutBindingOrResourceErrors()
+        public void MultiModelPdfExportWindow_ConstructShowAndBind_WithoutBindingOrResourceErrors()
         {
             Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
             IntPtr ownerHandle = _uiapp!.MainWindowHandle;
 
             using (var harness = new WpfBindingSmokeHarness())
             {
-                var docSelectionVm = new ListByCheckboxViewModel
-                {
-                    Title = "Select Documents",
-                    Instruction = "Select the Documents to print sheets from",
-                    IsSingleSelection = false
-                };
-                docSelectionVm.SetItems(new[] { "HostModel.rvt", "LinkedUnit.rvt" }, checkAll: false);
-                Assert.AreEqual(2, docSelectionVm.Items.Count);
-                Assert.IsFalse(docSelectionVm.OkCommand.CanExecute(null));
-                docSelectionVm.Items[0].IsChecked = true;
-                Assert.IsTrue(docSelectionVm.OkCommand.CanExecute(null));
-                CollectionAssert.AreEqual(new[] { "HostModel.rvt" }, docSelectionVm.CheckedItems);
+                // 1. Valid populated state (active model + Print Sets + skipped view footer warning)
+                var populatedAdapter = new FakeMultiModelPdfExportAdapter(
+                    FakeMultiModelPdfExportAdapter.CreateDefaultActiveSnapshot());
+                var populatedVm = new MultiModelPdfExportViewModel(
+                    populatedAdapter,
+                    new FakeFolderDialogService(),
+                    @"C:\PDFExports\Demo");
+                MultiModelPdfExportRowViewModel activeRow = populatedVm.Rows[0];
+                activeRow.SelectedPrintSetName = "Permit Set";
+                Assert.IsTrue(populatedVm.CanExport);
+                Assert.AreEqual("Export 1 PDF", populatedVm.ExportButtonText);
 
                 WpfBindingSmokeHarness.ExerciseWindow(
-                    new ListByCheckboxView(ownerHandle) { DataContext = docSelectionVm },
+                    new MultiModelPdfExportWindow(ownerHandle) { DataContext = populatedVm },
                     clearDataContextOnClose: true);
 
-                var printSetSelectionVm = new ListByCheckboxViewModel
-                {
-                    Title = "Select a Print List",
-                    Instruction = "The name of the selected print list will be used in each document",
-                    IsSingleSelection = true
-                };
-                printSetSelectionVm.SetItems(new[] { "CD Set", "Permit Set" }, checkAll: false);
-                printSetSelectionVm.Items[0].IsChecked = true;
-                printSetSelectionVm.Items[1].IsChecked = true;
-                CollectionAssert.AreEqual(new[] { "Permit Set" }, printSetSelectionVm.CheckedItems);
+                // 2. Disabled "No saved Print Sets" row state
+                var noSetsAdapter = new FakeMultiModelPdfExportAdapter(
+                    FakeMultiModelPdfExportAdapter.CreateDefaultActiveSnapshot(includePrintSets: false));
+                var noSetsVm = new MultiModelPdfExportViewModel(
+                    noSetsAdapter,
+                    new FakeFolderDialogService());
+                Assert.IsFalse(noSetsVm.Rows[0].IsEligible);
+                Assert.IsFalse(noSetsVm.CanExport);
 
                 WpfBindingSmokeHarness.ExerciseWindow(
-                    new ListByCheckboxView(ownerHandle) { DataContext = printSetSelectionVm },
+                    new MultiModelPdfExportWindow(ownerHandle) { DataContext = noSetsVm },
                     clearDataContextOnClose: true);
 
-                harness.AssertNoBindingErrors("MultiModelPdfExport selection ViewModel and ListByCheckboxView");
+                // 3. Coral Red error banner state (invalid output folder characters)
+                var errorAdapter = new FakeMultiModelPdfExportAdapter(
+                    FakeMultiModelPdfExportAdapter.CreateDefaultActiveSnapshot());
+                var errorVm = new MultiModelPdfExportViewModel(
+                    errorAdapter,
+                    new FakeFolderDialogService(),
+                    @"C:\PDFExports\Invalid|Folder");
+                errorVm.Rows[0].SelectedPrintSetName = "CD Set";
+                Assert.IsTrue(errorVm.HasErrorBanner);
+
+                WpfBindingSmokeHarness.ExerciseWindow(
+                    new MultiModelPdfExportWindow(ownerHandle) { DataContext = errorVm },
+                    clearDataContextOnClose: true);
+
+                harness.AssertNoBindingErrors("MultiModelPdfExportWindow Variant A states");
             }
 
             Assert.AreEqual(_initialDocCount, _uiapp.Application.Documents.Size, "Non-executing MultiModelPdfExport smoke test must not open or leak Revit documents.");

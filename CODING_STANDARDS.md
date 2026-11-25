@@ -9,8 +9,8 @@ Authoritative architecture, design, and review rules across `Synthetic.Core` (`n
 
 - Co-locate pure C# in `Core/` (`Synthetic.Core`) and Revit/XAML in `Addin/` (`Synthetic<Year>`) under `src/{Features/<Slice>, RevitDOM, Platform/<Submodule>}/`.
 - Omit `.Core`/`.Addin` from slice namespaces (`Synthetic.<Root>.<Slice>`), use distinct cross-assembly static names (`CS0433` prevention), and keep `CURRENT_LATEST_VERSION` ([revit-config.md](docs/agents/revit-config.md)) in unconditioned `#else` blocks.
-- **Direct Slices** (`MultiModelPdfExport`, `Diagnostics`, `ViewManagement`, `Worksets`, `FamilyManagement`, `MaterialManagement`) execute in `Addin/Commands/` + `Addin/Utilities/` (plus slice settings tabs in `Addin/Settings/`) without pass-through adapters.
-- **Interactive Slices** (`SheetIndex`, `SharedCoordinates`, `ShadowStudy`, migrating slices) isolate all Revit API access behind one narrow `I<Slice>Adapter` in `Core/Adapters/`, implemented by `Revit<Slice>Adapter` (`Addin/`) and `Fake<Slice>Adapter` (`tests/Fixtures/Shared/`).
+- **Direct Slices** (`Diagnostics`, `ViewManagement`, `Worksets`, `FamilyManagement`, `MaterialManagement`) execute in `Addin/Commands/` + `Addin/Utilities/` (plus slice settings tabs in `Addin/Settings/`) without pass-through adapters.
+- **Interactive Slices** (`MultiModelPdfExport`, `SheetIndex`, `SharedCoordinates`, `ShadowStudy`, migrating slices) isolate all Revit API access behind one narrow `I<Slice>Adapter` in `Core/Adapters/`, implemented by `Revit<Slice>Adapter` (`Addin/`) and `Fake<Slice>Adapter` (`tests/Fixtures/Shared/`).
 - Enforce the 4-band acyclic DAG (`Features` -> `Domain` -> `RevitDOM` -> `Platform/{Settings, UI, Revit, IO}`), isolate `Platform/Host`, and graduate shared code to `src/Domain/` only when `>= 2` sub-modules each serve `>= 2` slices.
 
 ### 2. Harvest -> Pure Plan -> Atomic Apply
@@ -87,7 +87,7 @@ Enforced in **Logic Tests** (`python .agents/skills/revit-tests/scripts/test_exe
 
 | # | `FitnessRule` | Scope | Enforced Invariant |
 | :--- | :--- | :--- | :--- |
-| 1 | `CoLocatedPartitionLayout` | Global `0%` | `Core/`/`Addin/` & `Logic/`/`Revit/` layout, dynamic `20\d{2}` heads, zero `.shproj`/`AssemblyInfo*`, `35` `SyntheticThemeDictionary` views. |
+| 1 | `CoLocatedPartitionLayout` | Global `0%` | `Core/`/`Addin/` & `Logic/`/`Revit/` layout, dynamic `20\d{2}` heads, zero `.shproj`/`AssemblyInfo*`, `36` `SyntheticThemeDictionary` views. |
 | 2 | `CorePurityAndZeroPreprocessor` | Global `0%` | Zero Revit API, XAML/BAML, `ProgressCoordinator`, Excel PIA DLL, or `#if REVIT*` in `Core/`/`Logic/`; zero `#if REVIT<CURRENT_LATEST_VERSION>` repo-wide. |
 | 3 | `FourBandDependencyGraph` | Global `0%` | Acyclic 4-band DAG across C# & XAML `xmlns:`, `Platform.Host` isolation, zero sibling feature imports, `App.AppControlled`/retired namespace bans. |
 | 4 | `DomainGraduationThreshold` | Global `0%` | Passes vacuously while `src/Domain/` is absent; otherwise requires `>= 2` sub-modules each used by `>= 2` slices, zero sibling `Domain` imports. |

@@ -1,301 +1,115 @@
+using System;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
-using Synthetic.Features.MultiModelPdfExport.Utilities;
-
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.IO;
-using Autodesk.Revit.DB.Events;
-
+using Synthetic.Features.MultiModelPdfExport.Adapters;
+using Synthetic.Features.MultiModelPdfExport.Models;
+using Synthetic.Features.MultiModelPdfExport.Services;
+using Synthetic.Features.MultiModelPdfExport.ViewModels;
+using Synthetic.Features.MultiModelPdfExport.Views;
 using Synthetic.Platform.UI;
 
 namespace Synthetic.Features.MultiModelPdfExport.Commands
 {
     /// <summary>
-    /// Exports selected Print Sets across multiple Revit documents.
+    /// External command launching the native Multi-Model PDF Export workflow
+    /// from the Publish ribbon panel.
     /// </summary>
     [Transaction(TransactionMode.Manual)]
     public class CmdMultiModelPdfExport : IExternalCommand
     {
         /// <summary>
-        /// Execute a Revit Command
+        /// Executes the Multi-Model PDF Export command.
         /// </summary>
-        /// <param name="commandData">commandData</param>
-        /// <param name="message">message</param>
-        /// <param name="elements">Currently selected elements</param>
-        /// <returns>A Autodesk.Revit.UI.Result</returns>
         public Result Execute(
-          ExternalCommandData commandData,
-          ref string message,
-          ElementSet elements)
+            ExternalCommandData commandData,
+            ref string message,
+            ElementSet elements)
         {
-            UIApplication uiapp = commandData.Application;
-            UIDocument uidoc = uiapp.ActiveUIDocument;
-            Autodesk.Revit.ApplicationServices.Application app = uiapp.Application;
-            Document doc = uidoc.Document;
-
-            ElementId elemIdActive = new FilteredElementCollector(doc, doc.ActiveView.Id).FirstElementId();
-
-            DocumentSet documents = uiapp.Application.Documents;
-            List<Document> selectedDocuments = SelectDocuments(documents, uiapp.MainWindowHandle);
-
-            FilteredElementCollector coll = new FilteredElementCollector(doc).OfClass(typeof(ViewSheetSet));
-            List<ViewSheetSet> viewSets = coll.Cast<ViewSheetSet>().ToList();
-
-            ViewSheetSet? selectedViewSheetSet = SelectViewSheetSet(viewSets, uiapp.MainWindowHandle);
-            string? viewSheetSetName = null;
-            if(selectedViewSheetSet != null)
+            try
             {
-                viewSheetSetName = selectedViewSheetSet.Name;
-            }
+                UIApplication uiapp = commandData.Application;
+                UIDocument? uidoc = uiapp.ActiveUIDocument;
+                Document? doc = uidoc?.Document;
 
-            IList<ElementId> settingIds = (IList<ElementId>)doc.GetPrintSettingIds();
-            List<PrintSetting> printSettings = new FilteredElementCollector(doc, settingIds)
-                .OfClass(typeof(PrintSetting))
-                .Cast<PrintSetting>()
-                .ToList();
-            PrintSetting? selectedPrintSetting = SelectPrintSetting(printSettings, uiapp.MainWindowHandle);
-            string? printSettingSetName = null;
-            if(selectedPrintSetting != null)
-            {
-                printSettingSetName = selectedPrintSetting.Name;
-            }
-
-            string? printPath = selectFolderPath(uiapp.MainWindowHandle);
-
-            BBPrinterSettingsUtils defaultBB = new BBPrinterSettingsUtils();
-
-            if (selectedDocuments != null && selectedDocuments.Count > 0 && selectedViewSheetSet != null && selectedPrintSetting != null && !string.IsNullOrEmpty(printPath))
-            {
-                BBPrinterSettingsUtils newBB = new BBPrinterSettingsUtils("0", "0", printPath!);
-                // Set the Bluebeam Printer Settings before printing.
-                newBB.SetRegistryKeys();
-
-                foreach (Document document in selectedDocuments)
+                if (doc == null)
                 {
-                    string? docTitle = document.Title;
-                    
-                    ViewSheetSet? viewSheetSet = new FilteredElementCollector(document)
-                        .OfClass(typeof(ViewSheetSet))
-                        .OfType<ViewSheetSet>()
-                        .FirstOrDefault(v => v.Name == viewSheetSetName);
-
-                    IList<ElementId>? nextSettingIds = (IList<ElementId>)document.GetPrintSettingIds();
-                    List<PrintSetting>? ps = new FilteredElementCollector(document, nextSettingIds)
-                        .OfClass(typeof(PrintSetting))
-                        .Cast<PrintSetting>()
-                        .ToList();
-                    PrintSetting? printSettting = ps.OfType<PrintSetting>().FirstOrDefault(p => p.Name == printSettingSetName);
-
-                    Document? currentDoc = document;
-                    if (document.IsLinked)
-                    {
-                        WorksetConfiguration configuration = new WorksetConfiguration(WorksetConfigurationOption.OpenAllWorksets);
-                        OpenOptions openOptions = new OpenOptions();
-                        openOptions.SetOpenWorksetsConfiguration(configuration);
-                        openOptions.AllowOpeningLocalByWrongUser = true;
-
-                        EventHandler<FailuresProcessingEventArgs> warningsHandler = ResolveWarnings;
-                        uiapp.Application.FailuresProcessing += warningsHandler;
-                        try
-                        {
-                            if (document.IsModelInCloud)
-                            {
-                                OpenFromCloudCallback cloudCallback = new OpenFromCloudCallback();
-                                currentDoc = uiapp.Application.OpenDocumentFile(document.GetCloudModelPath(), openOptions, cloudCallback);
-                            }
-                            else if (document.IsWorkshared)
-                            {
-                                openOptions.DetachFromCentralOption = DetachFromCentralOption.DetachAndPreserveWorksets;
-                                currentDoc = uiapp.Application.OpenDocumentFile(document.GetWorksharingCentralModelPath(), openOptions);
-                            }
-                            else
-                            {
-                                currentDoc = uiapp.Application.OpenDocumentFile(document.PathName);
-                            }
-                        }
-                        finally
-                        {
-                            uiapp.Application.FailuresProcessing -= warningsHandler;
-                        }
-                    }
-
-                    if (viewSheetSet != null && printSettting != null)
-                    {
-                        PrintManager printManager = currentDoc.PrintManager;
-                        printManager.SelectNewPrintDriver("Bluebeam PDF");
-                        printManager.PrintSetup.CurrentPrintSetting = printSettting;
-                        printManager.PrintRange = PrintRange.Select;
-                        printManager.ViewSheetSetting.CurrentViewSheetSet = viewSheetSet;
-                        printManager.CombinedFile = true;
-                        printManager.PrintToFile = true;
-                        string oldPrintToFileName = printManager.PrintToFileName;
-                        string fileName = currentDoc.Title + ".pdf";
-                        string printToFileName = Path.Combine(
-                            printPath,
-                            fileName);
-                        printManager.PrintToFileName = printToFileName;
-                        printManager.Apply();
-
-                        if (currentDoc != null)
-                        {
-                            if (File.Exists(printToFileName))
-                            {
-                                File.Delete(printToFileName);
-                            }
-                            printManager.SubmitPrint();
-
-                            if (currentDoc.Title != doc.Title)
-                            {
-                                currentDoc.Close(false);
-                            }
-                        }
-                    }
-
-                    // Reset
-                    docTitle = null;
-                    viewSheetSet = null;
-                    nextSettingIds = null;
-                    ps = null;
-                    printSettting = null;
-                    currentDoc = null;
+                    message = "No active document found.";
+                    return Result.Failed;
                 }
-            }
 
-            // Reset Bluebeam Printer settings back to what they were.
-            defaultBB.SetRegistryKeys();
-
-            return Result.Succeeded;
-        }
-
-        private void ResolveWarnings(object? sender, FailuresProcessingEventArgs e)
-        {
-            FailuresAccessor fa = e.GetFailuresAccessor();
-            IList<FailureMessageAccessor> failList = fa.GetFailureMessages();
-
-            if (failList == null || failList.Count == 0)
-            {
-                e.SetProcessingResult(FailureProcessingResult.Continue);
-                return;
-            }
-
-            bool deletedAny = false;
-            foreach (FailureMessageAccessor failure in failList)
-            {
-                FailureDefinitionId failID = failure.GetFailureDefinitionId();
-                if (failID == BuiltInFailures.RoomFailures.RoomNotEnclosed)
+                if (doc.IsFamilyDocument)
                 {
-                    fa.DeleteWarning(failure);
-                    deletedAny = true;
+                    Autodesk.Revit.UI.TaskDialog.Show(
+                        "Multi-Model PDF Export",
+                        "Multi-Model PDF Export supports Revit project documents (.rvt) only. Family documents (.rfa) cannot be exported.");
+                    return Result.Cancelled;
                 }
-            }
 
-            e.SetProcessingResult(deletedAny ? FailureProcessingResult.ProceedWithCommit : FailureProcessingResult.Continue);
-        }
-
-        internal string? selectFolderPath (IntPtr ownerHandle)
-        {
-            return FileDialogHelper.SelectFolder(ownerHandle, "Select Print Output Folder");
-        }
-
-        internal List<Document> SelectDocuments(DocumentSet docs, IntPtr mainWindowHandle)
-        {
-            List<string> itemList = new List<string>();
-            List<Document> docList = new List<Document>();
-            List<Document> selectedDocs = new List<Document>();
-
-            ListByCheckboxViewModel viewModel = new ListByCheckboxViewModel();
-            viewModel.Title = "Select Documents";
-            viewModel.Instruction = "Select the Documents to print sheets from";
-            viewModel.IsSingleSelection = false;
-
-            if (!docs.IsEmpty)
-            {
-                foreach (Document doc in docs)
+                var adapter = new RevitMultiModelPdfExportAdapter(doc, uiapp);
+                var folderService = new WindowsFolderDialogService(uiapp.MainWindowHandle);
+                var vm = new MultiModelPdfExportViewModel(adapter, folderService);
+                var window = new MultiModelPdfExportWindow(uiapp.MainWindowHandle)
                 {
-                    itemList.Add(doc.Title);
-                    docList.Add(doc);
-                }
-                viewModel.SetItems(itemList, false);
+                    DataContext = vm
+                };
 
-                ListByCheckboxView dialog = new ListByCheckboxView(mainWindowHandle) { DataContext = viewModel };
-                bool? dResult = dialog.ShowDialog();
-
-                if (dResult == true)
+                bool? dialogResult = window.ShowDialog();
+                if (dialogResult != true)
                 {
-                    List<string> selectedList = viewModel.CheckedItems;
-                    foreach (string selectedItem in selectedList)
-                    {
-                        Document d = docList.First(s => s.Title == selectedItem);
-                        selectedDocs.Add(d);
-                    }
+                    return Result.Cancelled;
                 }
+
+                MultiModelPdfRunRequest request = vm.BuildRunRequest();
+                ProgressCoordinator.Initialize(
+                    "Multi-Model PDF Export",
+                    "Exporting PDFs...",
+                    Math.Max(1, request.Jobs.Count));
+
+                MultiModelPdfRunSummary? summary = null;
+                bool cancelledWithZeroCompleted = false;
+
+                try
+                {
+                    IProgress<ProgressState> progress = ProgressCoordinator.AsSynchronousProgressReporter();
+                    var pipeline = new MultiModelPdfExportPipeline(adapter);
+                    summary = pipeline.Execute(request, progress, ProgressCoordinator.Token);
+                    bool wasCancelled = summary.WasCancelled || ProgressCoordinator.IsCancelled();
+                    cancelledWithZeroCompleted = wasCancelled && summary.CompletedDocumentCount == 0 && summary.GeneratedCount == 0;
+                }
+                finally
+                {
+                    ProgressCoordinator.Close();
+                }
+
+                if (cancelledWithZeroCompleted)
+                {
+                    return Result.Cancelled;
+                }
+
+                if (summary != null)
+                {
+                    var completionVm = ExportCompletionViewModel.ForBatch(
+                        outputFolder: summary.OutputFolder,
+                        generatedCount: summary.GeneratedCount,
+                        primaryFilePath: summary.PrimaryFilePath,
+                        outputNounPlural: "PDFs",
+                        primaryActionLabel: "Open First PDF",
+                        warningNotices: summary.CompletionNotices,
+                        windowTitle: "Multi-Model PDF Export Complete",
+                        headerTitle: summary.GeneratedCount > 0 ? "Multi-Model PDF Export Complete" : "Export Completed with Warnings");
+
+                    var completionWindow = new ExportCompletionWindow(completionVm, uiapp.MainWindowHandle);
+                    completionWindow.ShowDialog();
+                }
+
+                return Result.Succeeded;
             }
-            return selectedDocs;
-        }
-
-        internal ViewSheetSet? SelectViewSheetSet(List<ViewSheetSet> viewSheetSet, IntPtr mainWindowHandle)
-        {
-            List<string> itemList = new List<string>();
-            ViewSheetSet? selectedViewSheet = null;
-
-            ListByCheckboxViewModel viewModel = new ListByCheckboxViewModel();
-            viewModel.Title = "Select a Print List";
-            viewModel.Instruction = "The name of the selected print list will be used in each document";
-            viewModel.IsSingleSelection = true;
-
-            foreach (ViewSheetSet viewSet in viewSheetSet)
+            catch (Exception ex)
             {
-                itemList.Add(viewSet.Name);
+                message = ex.Message + "\n" + ex.StackTrace;
+                return Result.Failed;
             }
-            viewModel.SetItems(itemList, false);
-
-            ListByCheckboxView dialog = new ListByCheckboxView(mainWindowHandle) { DataContext = viewModel };
-            bool? dResult = dialog.ShowDialog();
-
-            if (dResult == true && viewModel.CheckedItems.Count > 0)
-            {
-                string selectedName = viewModel.CheckedItems[0];
-                selectedViewSheet = viewSheetSet.FirstOrDefault(s => s.Name == selectedName);
-            }
-            return selectedViewSheet;
-        }
-
-        internal PrintSetting? SelectPrintSetting(List<PrintSetting> printSettings, IntPtr mainWindowHandle)
-        {
-            List<string> itemList = new List<string>();
-            PrintSetting? selectedPrintSetting = null;
-
-            ListByCheckboxViewModel viewModel = new ListByCheckboxViewModel();
-            viewModel.Title = "Select a Print Setting";
-            viewModel.Instruction = "Select a print setting to use for all prints.  This setting must be in every document.";
-            viewModel.IsSingleSelection = true;
-
-            foreach (PrintSetting setting in printSettings)
-            {
-                itemList.Add(setting.Name);
-            }
-            viewModel.SetItems(itemList, false);
-
-            ListByCheckboxView dialog = new ListByCheckboxView(mainWindowHandle) { DataContext = viewModel };
-            bool? dResult = dialog.ShowDialog();
-
-            if (dResult == true && viewModel.CheckedItems.Count > 0)
-            {
-                string selectedName = viewModel.CheckedItems[0];
-                selectedPrintSetting = printSettings.FirstOrDefault(s => s.Name == selectedName);
-            }
-            return selectedPrintSetting;
-        }
-    }
-
-    class OpenFromCloudCallback : IOpenFromCloudCallback
-    {
-        public OpenConflictResult OnOpenConflict(OpenConflictScenario scenario)
-        {
-            return OpenConflictResult.DetachFromCentral;
         }
     }
 }

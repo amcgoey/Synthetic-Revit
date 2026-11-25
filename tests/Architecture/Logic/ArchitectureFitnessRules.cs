@@ -17,7 +17,7 @@ namespace SyntheticTests.Architecture
     /// </summary>
     public static class ArchitectureFitnessRules
     {
-        public const int ExpectedThemedXamlViewCount = 35;
+        public const int ExpectedThemedXamlViewCount = 36;
         public const int ExpectedLegacyMockTestFileCount = 25;
 
         private static readonly string[] AllFourteenFeatureSlices =
@@ -190,6 +190,8 @@ namespace SyntheticTests.Architecture
             RequireDirectory(Path.Combine(srcRoot, "Features", "SharedCoordinates", "Core"), "src/Features/SharedCoordinates/Core");
             RequireDirectory(Path.Combine(srcRoot, "Features", "ShadowStudy", "Core"), "src/Features/ShadowStudy/Core");
             RequireDirectory(Path.Combine(srcRoot, "Features", "ShadowStudy", "Addin"), "src/Features/ShadowStudy/Addin");
+            RequireDirectory(Path.Combine(srcRoot, "Features", "MultiModelPdfExport", "Core"), "src/Features/MultiModelPdfExport/Core");
+            RequireDirectory(Path.Combine(srcRoot, "Features", "MultiModelPdfExport", "Addin"), "src/Features/MultiModelPdfExport/Addin");
             RequireDirectory(Path.Combine(srcRoot, "Features", "MergeDuplicates", "Core"), "src/Features/MergeDuplicates/Core");
             RequireDirectory(Path.Combine(srcRoot, "Features", "StandardsManagement", "Core"), "src/Features/StandardsManagement/Core");
             RequireDirectory(Path.Combine(srcRoot, "RevitDOM", "Core"), "src/RevitDOM/Core");
@@ -212,6 +214,7 @@ namespace SyntheticTests.Architecture
             RequireDirectory(Path.Combine(testsRoot, "Platform", "Revit", "Revit"), "tests/Platform/Revit/Revit");
             RequireDirectory(Path.Combine(testsRoot, "Platform", "Settings", "Logic"), "tests/Platform/Settings/Logic");
             RequireDirectory(Path.Combine(testsRoot, "Features", "ShadowStudy", "Logic"), "tests/Features/ShadowStudy/Logic");
+            RequireDirectory(Path.Combine(testsRoot, "Features", "MultiModelPdfExport", "Logic"), "tests/Features/MultiModelPdfExport/Logic");
             RequireDirectory(Path.Combine(testsRoot, "Features", "SettingsDashboard", "Revit"), "tests/Features/SettingsDashboard/Revit");
             RequireDirectory(Path.Combine(testsRoot, "RevitDOM", "Logic"), "tests/RevitDOM/Logic");
             RequireDirectory(Path.Combine(testsRoot, "Architecture"), "tests/Architecture");
@@ -430,7 +433,7 @@ namespace SyntheticTests.Architecture
                 }
             }
 
-            // XAML placement + 35 SyntheticThemeDictionary checks
+            // XAML placement + 36 SyntheticThemeDictionary checks
             int themeMergeCount = 0;
             foreach (WorkspaceXamlFile xaml in snapshot.XamlFiles)
             {
