@@ -84,5 +84,21 @@ namespace SyntheticTests.Features.MultiModelPdfExport
             Assert.IsFalse(MultiModelPdfPathHelper.IsPathWithinSafeLimit(path255));
             Assert.Throws<PathTooLongException>(() => MultiModelPdfPathHelper.ValidateOutputPathLength(path255));
         }
+
+        [Test]
+        public void BuildCombinedPdfPath_HandlesDriveRootAndSanitizesToken()
+        {
+            Assert.AreEqual(@"C:\Host.pdf", MultiModelPdfPathHelper.BuildCombinedPdfPath(@"C:\", "Host"));
+            Assert.AreEqual(@"C:\Exports\TowerA_1.pdf", MultiModelPdfPathHelper.BuildCombinedPdfPath(@"C:\Exports\", "TowerA:1"));
+        }
+
+        [Test]
+        public void BuildSeparateDocumentFolderPath_BuildsSanitizedPerDocumentSubfolder()
+        {
+            Assert.AreEqual(@"C:\Exports\TowerA_Core", MultiModelPdfPathHelper.BuildSeparateDocumentFolderPath(@"C:\Exports\", "TowerA:Core"));
+            Assert.AreEqual(@"C:\Host", MultiModelPdfPathHelper.BuildSeparateDocumentFolderPath(@"C:\", "Host"));
+            Assert.AreEqual(@"C:\Exports\_CON", MultiModelPdfPathHelper.BuildSeparateDocumentFolderPath(@"C:\Exports", "CON"));
+            Assert.AreEqual(@"C:\Exports\Untitled", MultiModelPdfPathHelper.BuildSeparateDocumentFolderPath(@"C:\Exports", "   "));
+        }
     }
 }

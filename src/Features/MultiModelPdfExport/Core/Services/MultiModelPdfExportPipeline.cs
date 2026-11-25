@@ -46,11 +46,10 @@ namespace Synthetic.Features.MultiModelPdfExport.Services
 
             foreach (MultiModelPdfDocumentJob job in request.Jobs)
             {
-                if (job.FileMode == MultiModelPdfFileMode.CombinedPerDocument)
-                {
-                    string targetPdf = MultiModelPdfPathHelper.BuildCombinedPdfPath(job.OutputFolder, job.OutputFileToken);
-                    MultiModelPdfPathHelper.ValidateOutputPathLength(targetPdf);
-                }
+                string targetPath = job.FileMode == MultiModelPdfFileMode.CombinedPerDocument
+                    ? MultiModelPdfPathHelper.BuildCombinedPdfPath(job.OutputFolder, job.OutputFileToken)
+                    : MultiModelPdfPathHelper.BuildSeparateDocumentFolderPath(job.OutputFolder, job.OutputFileToken);
+                MultiModelPdfPathHelper.ValidateOutputPathLength(targetPath);
             }
 
             var generatedFiles = new List<string>();
@@ -167,6 +166,43 @@ namespace Synthetic.Features.MultiModelPdfExport.Services
                 completedCount,
                 failedCount,
                 wasCancelled);
+        }
+
+        /// <summary>
+        /// Formats a user-facing completion warning summarizing views/sheets skipped from a Print Set.
+        /// </summary>
+        public static string FormatSkippedViewsWarning(
+            string documentTitle,
+            string printSetName,
+            IReadOnlyList<MultiModelPdfSkippedViewInfo> skippedViews)
+        {
+            if (skippedViews == null || skippedViews.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            const int maxInlineDetails = 5;
+            int total = skippedViews.Count;
+            var details = new List<string>(Math.Min(total, maxInlineDetails) + 1);
+            for (int i = 0; i < total && i < maxInlineDetails; i++)
+            {
+                MultiModelPdfSkippedViewInfo item = skippedViews[i];
+                string itemLabel = string.IsNullOrWhiteSpace(item.DisplayCode)
+                    ? item.ViewName
+                    : $"{item.DisplayCode} {item.ViewName}";
+                details.Add(string.IsNullOrWhiteSpace(item.SkipReason)
+                    ? itemLabel
+                    : $"{itemLabel} ({item.SkipReason})");
+            }
+
+            if (total > maxInlineDetails)
+            {
+                details.Add($"+ {total - maxInlineDetails} more");
+            }
+
+            string docLabel = string.IsNullOrWhiteSpace(documentTitle) ? "Document" : documentTitle;
+            string noun = total == 1 ? "item" : "items";
+            return $"{docLabel} ({printSetName}): skipped {total} non-printable/placeholder {noun} — {string.Join("; ", details)}.";
         }
     }
 }

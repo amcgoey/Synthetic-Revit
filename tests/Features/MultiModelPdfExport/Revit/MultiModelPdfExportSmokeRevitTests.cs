@@ -2,7 +2,12 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Collections.Generic;
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media;
+using System.Windows.Threading;
 using Autodesk.Revit.UI;
+using WpfComboBox = System.Windows.Controls.ComboBox;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 using Synthetic.Features.MultiModelPdfExport.Commands;
@@ -97,9 +102,37 @@ namespace SyntheticTests.Features.MultiModelPdfExport
 
             using (var harness = new WpfBindingSmokeHarness())
             {
-                // 1. Valid populated state (active model + Print Sets + skipped view footer warning)
-                var populatedAdapter = new FakeMultiModelPdfExportAdapter(
-                    FakeMultiModelPdfExportAdapter.CreateDefaultActiveSnapshot());
+                // 1. Valid populated state (active model + Print Sets + 10 skipped items -> "+ 2 more" tooltip + mode toggle)
+                var tenSkipped = new List<MultiModelPdfSkippedViewInfo>
+                {
+                    new MultiModelPdfSkippedViewInfo("A900", "UNPLACED SIGNAGE", "Placeholder sheet"),
+                    new MultiModelPdfSkippedViewInfo("FloorPlan", "Working Template", "View template"),
+                    new MultiModelPdfSkippedViewInfo("Schedule", "Door Schedule", "Schedule — not printable")
+                };
+                for (int i = 4; i <= 10; i++)
+                {
+                    tenSkipped.Add(new MultiModelPdfSkippedViewInfo($"A90{i}", $"PLACEHOLDER {i}", "Placeholder sheet"));
+                }
+
+                var populatedSnapshot = new MultiModelPdfSessionSnapshot(
+                    "HostModel.rvt",
+                    new[]
+                    {
+                        new MultiModelPdfDocumentSnapshot(
+                            "active-host",
+                            "HostModel.rvt",
+                            @"C:\BIM\HostModel.rvt",
+                            MultiModelPdfDocumentOrigin.Active,
+                            MultiModelPdfStorageKind.Workshared,
+                            printSets: new[]
+                            {
+                                new MultiModelPdfSetSnapshot("CD Set", 3),
+                                new MultiModelPdfSetSnapshot("Permit Set", 2, tenSkipped)
+                            })
+                    },
+                    new[] { MultiModelPdfSetupOption.CreateDefault() });
+
+                var populatedAdapter = new FakeMultiModelPdfExportAdapter(populatedSnapshot);
                 var populatedVm = new MultiModelPdfExportViewModel(
                     populatedAdapter,
                     new FakeFolderDialogService(),
@@ -109,9 +142,59 @@ namespace SyntheticTests.Features.MultiModelPdfExport
                 Assert.IsTrue(populatedVm.CanExport);
                 Assert.AreEqual("Export 1 PDF", populatedVm.ExportButtonText);
 
-                WpfBindingSmokeHarness.ExerciseWindow(
-                    new MultiModelPdfExportWindow(ownerHandle) { DataContext = populatedVm },
-                    clearDataContextOnClose: true);
+                var populatedWindow = new MultiModelPdfExportWindow(ownerHandle) { DataContext = populatedVm };
+                try
+                {
+                    populatedWindow.Show();
+                    populatedWindow.UpdateLayout();
+                    Dispatcher.CurrentDispatcher.Invoke(DispatcherPriority.Loaded, new Action(() => { }));
+                    Assert.IsTrue(populatedWindow.IsVisible, "MultiModelPdfExportWindow should show cleanly.");
+
+                    // Verify Combined vs Separate RadioButtons
+                    List<RadioButton> radios = FindVisualChildren<RadioButton>(populatedWindow).ToList();
+                    RadioButton? combinedRadio = radios.FirstOrDefault(r => Equals(r.Content, "Combined PDF per document"));
+                    RadioButton? separateRadio = radios.FirstOrDefault(r => Equals(r.Content, "Separate PDFs per view/sheet"));
+                    Assert.IsNotNull(combinedRadio, "Expected 'Combined PDF per document' RadioButton in Variant A UI.");
+                    Assert.IsNotNull(separateRadio, "Expected 'Separate PDFs per view/sheet' RadioButton in Variant A UI.");
+                    Assert.IsTrue(combinedRadio!.IsChecked);
+                    Assert.IsFalse(separateRadio!.IsChecked);
+
+                    // Verify inline Print Set ComboBox dropdown labels
+                    List<WpfComboBox> comboBoxes = FindVisualChildren<WpfComboBox>(populatedWindow).ToList();
+                    WpfComboBox? rowSetCombo = comboBoxes.FirstOrDefault(cb => cb.ItemsSource is IEnumerable<MultiModelPdfPrintSetChoice>);
+                    Assert.IsNotNull(rowSetCombo, "Expected inline row Print Set ComboBox.");
+                    var dropdownLabels = rowSetCombo!.Items.Cast<MultiModelPdfPrintSetChoice>().Select(c => c.DisplayName).ToList();
+                    CollectionAssert.Contains(dropdownLabels, "Permit Set (2 views · 10 skip)");
+
+                    // Verify Sand Gold "10 skip" badge and 8-item "+ 2 more" hover tooltip
+                    TextBlock? skipBadgeText = FindVisualChildren<TextBlock>(populatedWindow)
+                        .FirstOrDefault(tb => string.Equals(tb.Text, "10 skip", StringComparison.Ordinal));
+                    Assert.IsNotNull(skipBadgeText, "Expected '10 skip' badge TextBlock in Views column.");
+                    Assert.AreEqual(Visibility.Visible, skipBadgeText!.Visibility);
+
+                    var skipContainer = VisualTreeHelper.GetParent(skipBadgeText) as FrameworkElement;
+                    Assert.IsNotNull(skipContainer);
+                    Assert.AreEqual(Visibility.Visible, skipContainer!.Visibility);
+                    string? tooltip = skipContainer.ToolTip as string;
+                    Assert.IsFalse(string.IsNullOrWhiteSpace(tooltip), "Expected hover tooltip on skip badge container.");
+                    StringAssert.Contains("• A900 UNPLACED SIGNAGE (Placeholder sheet)", tooltip!);
+                    StringAssert.Contains("• Schedule Door Schedule (Schedule — not printable)", tooltip!);
+                    StringAssert.Contains("+ 2 more", tooltip!);
+
+                    // Toggle Separate mode through UI RadioButton two-way binding
+                    separateRadio.IsChecked = true;
+                    populatedWindow.UpdateLayout();
+                    Dispatcher.CurrentDispatcher.Invoke(DispatcherPriority.Loaded, new Action(() => { }));
+                    Assert.AreEqual(MultiModelPdfFileMode.SeparatePerViewSheet, populatedVm.FileMode);
+                    Assert.IsFalse(combinedRadio.IsChecked);
+                    Assert.AreEqual("Export 2 PDFs", populatedVm.ExportButtonText);
+                    StringAssert.Contains(@"<NamingRule>.pdf (2 PDFs in 1 folder)", populatedVm.OutputPreviewText);
+                }
+                finally
+                {
+                    populatedWindow.DataContext = null;
+                    populatedWindow.Close();
+                }
 
                 // 2. Disabled "No saved Print Sets" row state
                 var noSetsAdapter = new FakeMultiModelPdfExportAdapter(
@@ -144,6 +227,24 @@ namespace SyntheticTests.Features.MultiModelPdfExport
             }
 
             Assert.AreEqual(_initialDocCount, _uiapp.Application.Documents.Size, "Non-executing MultiModelPdfExport smoke test must not open or leak Revit documents.");
+        }
+
+        private static IEnumerable<T> FindVisualChildren<T>(DependencyObject root) where T : DependencyObject
+        {
+            int count = VisualTreeHelper.GetChildrenCount(root);
+            for (int i = 0; i < count; i++)
+            {
+                DependencyObject child = VisualTreeHelper.GetChild(root, i);
+                if (child is T typed)
+                {
+                    yield return typed;
+                }
+
+                foreach (T descendant in FindVisualChildren<T>(child))
+                {
+                    yield return descendant;
+                }
+            }
         }
     }
 }

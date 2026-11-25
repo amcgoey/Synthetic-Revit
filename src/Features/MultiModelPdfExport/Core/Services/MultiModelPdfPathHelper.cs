@@ -198,11 +198,17 @@ namespace Synthetic.Features.MultiModelPdfExport.Services
         /// <summary>
         /// Builds the resolved Combined PDF destination path <c>&lt;OutputFolder&gt;\&lt;Token&gt;.pdf</c>.
         /// </summary>
-        public static string BuildCombinedPdfPath(string outputFolder, string outputFileToken)
+        public static string BuildCombinedPdfPath(string outputFolder, string outputFileToken) =>
+            BuildSeparateDocumentFolderPath(outputFolder, outputFileToken) + ".pdf";
+
+        /// <summary>
+        /// Builds the resolved Separate-PDFs document subfolder path <c>&lt;OutputFolder&gt;\&lt;Token&gt;</c>.
+        /// </summary>
+        public static string BuildSeparateDocumentFolderPath(string outputFolder, string outputFileToken)
         {
             string normalizedFolder = NormalizeFolderPath(outputFolder);
             string safeToken = SanitizeSegment(outputFileToken, FallbackDocumentToken);
-            return Path.Combine(normalizedFolder, safeToken + ".pdf");
+            return Path.Combine(normalizedFolder, safeToken);
         }
 
         /// <summary>

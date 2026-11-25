@@ -95,27 +95,32 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
                     $"Document '{job.DocumentTitle}' does not match the active Revit project.");
             }
 
+            string docTitle = _doc.Title ?? job.DocumentTitle;
             if (_doc.IsModifiable)
             {
                 return MultiModelPdfDocumentOutcome.Failure(
                     job.DocumentKey,
-                    _doc.Title ?? job.DocumentTitle,
-                    $"Document '{_doc.Title}' has an open transaction or uncommitted edits and cannot be exported.");
+                    docTitle,
+                    $"Document '{docTitle}' has an open transaction or uncommitted edits and cannot be exported.");
             }
 
             if (!MultiModelPdfPathHelper.TryValidateOutputFolder(job.OutputFolder, out string folderError))
             {
-                return MultiModelPdfDocumentOutcome.Failure(job.DocumentKey, _doc.Title ?? job.DocumentTitle, folderError);
+                return MultiModelPdfDocumentOutcome.Failure(job.DocumentKey, docTitle, folderError);
             }
 
+            bool isCombined = job.FileMode == MultiModelPdfFileMode.CombinedPerDocument;
             string normalizedFolder = MultiModelPdfPathHelper.NormalizeFolderPath(job.OutputFolder);
-            string destinationPdfPath = MultiModelPdfPathHelper.BuildCombinedPdfPath(normalizedFolder, job.OutputFileToken);
-            if (!MultiModelPdfPathHelper.IsPathWithinSafeLimit(destinationPdfPath))
+            string destinationTargetPath = isCombined
+                ? MultiModelPdfPathHelper.BuildCombinedPdfPath(normalizedFolder, job.OutputFileToken)
+                : MultiModelPdfPathHelper.BuildSeparateDocumentFolderPath(normalizedFolder, job.OutputFileToken);
+
+            if (!MultiModelPdfPathHelper.IsPathWithinSafeLimit(destinationTargetPath))
             {
                 return MultiModelPdfDocumentOutcome.Failure(
                     job.DocumentKey,
-                    _doc.Title ?? job.DocumentTitle,
-                    $"Output path exceeds {MultiModelPdfPathHelper.SafeMaxPathLength - 1} characters: {destinationPdfPath}");
+                    docTitle,
+                    $"Output path exceeds {MultiModelPdfPathHelper.SafeMaxPathLength - 1} characters: {destinationTargetPath}");
             }
 
             ViewSheetSet? printSet = new FilteredElementCollector(_doc)
@@ -128,27 +133,36 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
             {
                 return MultiModelPdfDocumentOutcome.Failure(
                     job.DocumentKey,
-                    _doc.Title ?? job.DocumentTitle,
-                    $"Print Set '{job.PrintSetName}' was not found in '{_doc.Title}'.");
+                    docTitle,
+                    $"Print Set '{job.PrintSetName}' was not found in '{docTitle}'.");
             }
 
             ExtractedPrintSetViews extracted = ExtractViewsFromPrintSet(printSet);
             var warnings = new List<string>();
             if (extracted.SkippedViews.Count > 0)
             {
-                warnings.Add($"{_doc.Title} ({printSet.Name}): skipped {extracted.SkippedViews.Count} non-printable/placeholder item(s).");
+                warnings.Add(MultiModelPdfExportPipeline.FormatSkippedViewsWarning(
+                    docTitle,
+                    printSet.Name,
+                    extracted.SkippedViews));
             }
 
             if (extracted.PrintableViewIds.Count == 0)
             {
                 return MultiModelPdfDocumentOutcome.Failure(
                     job.DocumentKey,
-                    _doc.Title ?? job.DocumentTitle,
-                    $"Print Set '{printSet.Name}' in '{_doc.Title}' has 0 printable views.",
+                    docTitle,
+                    $"Print Set '{printSet.Name}' in '{docTitle}' has 0 printable views.",
                     warnings);
             }
 
-            PDFExportOptions options = BuildPdfExportOptions(_doc, job.PdfSetupId, job.OutputFileToken, extracted.AllSheets, warnings);
+            PDFExportOptions options = BuildPdfExportOptions(
+                _doc,
+                job.PdfSetupId,
+                job.FileMode,
+                job.OutputFileToken,
+                extracted.AllSheets,
+                warnings);
 
             string stagingDir = Path.Combine(
                 Path.GetTempPath(),
@@ -163,6 +177,7 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
                 _uiapp.DialogBoxShowing += dialogHandler;
             }
 
+            string currentErrorTarget = destinationTargetPath;
             try
             {
                 Directory.CreateDirectory(stagingDir);
@@ -171,60 +186,66 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
                 {
                     return MultiModelPdfDocumentOutcome.Failure(
                         job.DocumentKey,
-                        _doc.Title ?? job.DocumentTitle,
-                        $"Revit PDF export failed for '{_doc.Title}' (Print Set '{printSet.Name}').",
+                        docTitle,
+                        $"Revit PDF export failed for '{docTitle}' (Print Set '{printSet.Name}').",
                         warnings);
                 }
 
-                string? stagedPdfPath = ResolveStagedPdfPath(stagingDir, job.OutputFileToken);
-                if (string.IsNullOrEmpty(stagedPdfPath) || !File.Exists(stagedPdfPath) || new FileInfo(stagedPdfPath!).Length == 0)
+                IReadOnlyList<string> promotedPaths = PromoteStagedExports(
+                    stagingDir,
+                    isCombined,
+                    destinationTargetPath,
+                    normalizedFolder,
+                    job.OutputFileToken,
+                    docTitle,
+                    ref currentErrorTarget,
+                    out string? validationFailure);
+
+                if (validationFailure != null)
                 {
                     return MultiModelPdfDocumentOutcome.Failure(
                         job.DocumentKey,
-                        _doc.Title ?? job.DocumentTitle,
-                        $"Revit PDF export produced no PDF file for '{_doc.Title}'.",
+                        docTitle,
+                        validationFailure,
                         warnings);
                 }
 
-                Directory.CreateDirectory(normalizedFolder);
-                AtomicallyPromotePdf(stagedPdfPath!, destinationPdfPath);
-
                 return MultiModelPdfDocumentOutcome.Success(
                     job.DocumentKey,
-                    _doc.Title ?? job.DocumentTitle,
-                    new[] { destinationPdfPath },
+                    docTitle,
+                    promotedPaths,
                     warnings);
             }
             catch (Autodesk.Revit.Exceptions.FileAccessException ex)
             {
                 return MultiModelPdfDocumentOutcome.Failure(
                     job.DocumentKey,
-                    _doc.Title ?? job.DocumentTitle,
-                    $"Cannot write '{destinationPdfPath}': {ex.Message}",
+                    docTitle,
+                    $"Cannot write '{currentErrorTarget}': {ex.Message}",
                     warnings);
             }
             catch (IOException ex)
             {
                 return MultiModelPdfDocumentOutcome.Failure(
                     job.DocumentKey,
-                    _doc.Title ?? job.DocumentTitle,
-                    $"Cannot write '{destinationPdfPath}': {ex.Message}",
+                    docTitle,
+                    $"Cannot write '{currentErrorTarget}': {ex.Message}",
                     warnings);
             }
             catch (UnauthorizedAccessException ex)
             {
                 return MultiModelPdfDocumentOutcome.Failure(
                     job.DocumentKey,
-                    _doc.Title ?? job.DocumentTitle,
-                    $"Access denied writing '{destinationPdfPath}': {ex.Message}",
+                    docTitle,
+                    $"Access denied writing '{currentErrorTarget}': {ex.Message}",
                     warnings);
             }
             catch (Exception ex)
             {
                 return MultiModelPdfDocumentOutcome.Failure(
                     job.DocumentKey,
-                    _doc.Title ?? job.DocumentTitle,
-                    $"Unexpected PDF export error for '{_doc.Title}': {ex.Message}",
+                    docTitle,
+                    $"Unexpected PDF export error for '{docTitle}': {ex.Message}",
                     warnings);
             }
             finally
@@ -312,6 +333,7 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
         private static PDFExportOptions BuildPdfExportOptions(
             Document doc,
             string pdfSetupId,
+            MultiModelPdfFileMode fileMode,
             string outputFileToken,
             bool allSheets,
             List<string> warnings)
@@ -333,8 +355,16 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
 
             options ??= CreateDefaultPdfExportOptions(allSheets);
 
-            options.Combine = true;
-            options.FileName = outputFileToken;
+            if (fileMode == MultiModelPdfFileMode.CombinedPerDocument)
+            {
+                options.Combine = true;
+                options.FileName = outputFileToken;
+            }
+            else
+            {
+                options.Combine = false;
+            }
+
             options.StopOnError = true;
 
 #if REVIT2023 || REVIT2024
@@ -601,6 +631,83 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
 #else
             return id.Value;
 #endif
+        }
+
+        private static IReadOnlyList<string> PromoteStagedExports(
+            string stagingDir,
+            bool isCombined,
+            string destinationTargetPath,
+            string normalizedOutputFolder,
+            string outputFileToken,
+            string docTitle,
+            ref string currentErrorTarget,
+            out string? validationFailure)
+        {
+            validationFailure = null;
+            if (isCombined)
+            {
+                string? stagedPdfPath = ResolveStagedPdfPath(stagingDir, outputFileToken);
+                if (string.IsNullOrEmpty(stagedPdfPath) || !File.Exists(stagedPdfPath) || new FileInfo(stagedPdfPath!).Length == 0)
+                {
+                    validationFailure = $"Revit PDF export produced no PDF file for '{docTitle}'.";
+                    return Array.Empty<string>();
+                }
+
+                currentErrorTarget = destinationTargetPath;
+                Directory.CreateDirectory(normalizedOutputFolder);
+                AtomicallyPromotePdf(stagedPdfPath!, destinationTargetPath);
+                return new[] { destinationTargetPath };
+            }
+
+            string[] stagedPdfPaths = Directory.GetFiles(stagingDir, "*.pdf");
+            Array.Sort(stagedPdfPaths, StringComparer.OrdinalIgnoreCase);
+            if (stagedPdfPaths.Length == 0)
+            {
+                validationFailure = $"Revit Separate PDF export produced no PDF files for '{docTitle}'.";
+                return Array.Empty<string>();
+            }
+
+            var promotionPairs = new List<(string StagedPath, string DestPath)>(stagedPdfPaths.Length);
+            foreach (string stagedPdf in stagedPdfPaths)
+            {
+                if (!File.Exists(stagedPdf) || new FileInfo(stagedPdf).Length == 0)
+                {
+                    validationFailure = $"Revit Separate PDF export produced an empty PDF file '{Path.GetFileName(stagedPdf)}' for '{docTitle}'.";
+                    return Array.Empty<string>();
+                }
+
+                string destPdf = Path.Combine(destinationTargetPath, Path.GetFileName(stagedPdf));
+                if (!MultiModelPdfPathHelper.IsPathWithinSafeLimit(destPdf))
+                {
+                    validationFailure = $"Output path exceeds {MultiModelPdfPathHelper.SafeMaxPathLength - 1} characters: {destPdf}";
+                    return Array.Empty<string>();
+                }
+
+                promotionPairs.Add((stagedPdf, destPdf));
+            }
+
+            // Pre-flight existing target writability before overwriting any sibling PDFs in the document subfolder.
+            foreach ((string _, string destPdf) in promotionPairs)
+            {
+                if (File.Exists(destPdf))
+                {
+                    currentErrorTarget = destPdf;
+                    using (new FileStream(destPdf, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                    {
+                    }
+                }
+            }
+
+            Directory.CreateDirectory(destinationTargetPath);
+            var promotedPaths = new List<string>(promotionPairs.Count);
+            foreach ((string stagedPdf, string destPdf) in promotionPairs)
+            {
+                currentErrorTarget = destPdf;
+                AtomicallyPromotePdf(stagedPdf, destPdf);
+                promotedPaths.Add(destPdf);
+            }
+
+            return promotedPaths.AsReadOnly();
         }
 
         private static string? ResolveStagedPdfPath(string stagingDir, string expectedToken)

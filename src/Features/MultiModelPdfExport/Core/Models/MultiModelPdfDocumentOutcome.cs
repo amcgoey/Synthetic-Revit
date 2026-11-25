@@ -60,6 +60,12 @@ namespace Synthetic.Features.MultiModelPdfExport.Models
         /// <summary>Gets the failure reason when <see cref="Succeeded"/> is <c>false</c>.</summary>
         public string? ErrorMessage { get; }
 
+        /// <summary>Gets the number of PDF files generated for this document.</summary>
+        public int GeneratedCount => GeneratedFilePaths.Count;
+
+        /// <summary>Gets the primary generated PDF path, or <c>null</c> when none succeeded.</summary>
+        public string? PrimaryFilePath => GeneratedFilePaths.Count > 0 ? GeneratedFilePaths[0] : null;
+
         /// <summary>Creates a successful document export outcome.</summary>
         public static MultiModelPdfDocumentOutcome Success(
             string documentKey,

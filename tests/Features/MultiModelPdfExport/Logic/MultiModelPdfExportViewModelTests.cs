@@ -247,5 +247,186 @@ namespace SyntheticTests.Features.MultiModelPdfExport
             Assert.AreEqual("SecondModel", request.Jobs[1].OutputFileToken);
             Assert.AreEqual("Permit Set", request.Jobs[1].PrintSetName);
         }
+
+        [Test]
+        public void SeparateMode_SwitchesLiveOutputPreviewButtonCountValidationAndRunRequest()
+        {
+            var snapshot = new MultiModelPdfSessionSnapshot(
+                "Host.rvt",
+                new[]
+                {
+                    new MultiModelPdfDocumentSnapshot(
+                        "active-host", "Host.rvt", @"C:\BIM\Host.rvt",
+                        MultiModelPdfDocumentOrigin.Active, MultiModelPdfStorageKind.Workshared,
+                        printSets: new[]
+                        {
+                            new MultiModelPdfSetSnapshot("Single", 1),
+                            new MultiModelPdfSetSnapshot("CD Set", 4)
+                        }),
+                    new MultiModelPdfDocumentSnapshot(
+                        "open-second", "SecondModel.rvt", @"C:\BIM\SecondModel.rvt",
+                        MultiModelPdfDocumentOrigin.OpenStandalone, MultiModelPdfStorageKind.Local,
+                        printSets: new[] { new MultiModelPdfSetSnapshot("Permit Set", 3) })
+                },
+                new[] { MultiModelPdfSetupOption.CreateDefault() });
+
+            var vm = new MultiModelPdfExportViewModel(
+                new FakeMultiModelPdfExportAdapter(snapshot),
+                new FakeFolderDialogService())
+            {
+                OutputFolder = @"C:\Exports\Deliverables"
+            };
+
+            // 1. Single view in Combined vs Separate -> both singular "Export 1 PDF"
+            vm.Rows[0].SelectedPrintSetName = "Single";
+            Assert.AreEqual("Export 1 PDF", vm.ExportButtonText);
+            Assert.AreEqual(@"C:\Exports\Deliverables\Host.pdf", vm.OutputPreviewText);
+            Assert.AreEqual(MultiModelPdfFooterStatusKind.Success, vm.FooterStatusKind);
+            Assert.AreEqual("1 project · 1 view ready", vm.FooterStatusText);
+
+            vm.FileMode = MultiModelPdfFileMode.SeparatePerViewSheet;
+            Assert.AreEqual("Export 1 PDF", vm.ExportButtonText);
+            Assert.AreEqual(@"C:\Exports\Deliverables\Host\<NamingRule>.pdf (1 PDF in 1 folder)", vm.OutputPreviewText);
+
+            // 2. Multi-view single project switches from "Export 1 PDF" (Combined) to "Export 4 PDFs" (Separate)
+            vm.Rows[0].SelectedPrintSetName = "CD Set";
+            Assert.AreEqual("Export 4 PDFs", vm.ExportButtonText);
+            Assert.AreEqual(@"C:\Exports\Deliverables\Host\<NamingRule>.pdf (4 PDFs in 1 folder)", vm.OutputPreviewText);
+
+            vm.FileMode = MultiModelPdfFileMode.CombinedPerDocument;
+            Assert.AreEqual("Export 1 PDF", vm.ExportButtonText);
+            Assert.AreEqual(@"C:\Exports\Deliverables\Host.pdf", vm.OutputPreviewText);
+
+            // 3. Multi-project count sums printable views in Separate mode and preserves Drive root preview
+            vm.Rows[1].SelectedPrintSetName = "Permit Set";
+            vm.Rows[1].IsChecked = true;
+            Assert.AreEqual("Export 2 PDFs", vm.ExportButtonText);
+            Assert.AreEqual(@"C:\Exports\Deliverables\Host.pdf (+1 more PDF)", vm.OutputPreviewText);
+
+            vm.FileMode = MultiModelPdfFileMode.SeparatePerViewSheet;
+            Assert.AreEqual("Export 7 PDFs", vm.ExportButtonText);
+            Assert.AreEqual(@"C:\Exports\Deliverables\Host\<NamingRule>.pdf (7 PDFs in 2 folders)", vm.OutputPreviewText);
+
+            vm.OutputFolder = @"C:\";
+            Assert.AreEqual(@"C:\Host\<NamingRule>.pdf (7 PDFs in 2 folders)", vm.OutputPreviewText);
+
+            // 4. Separate mode validates subfolder path length < 255
+            vm.OutputFolder = @"C:\Exports\" + new string('a', 240);
+            Assert.IsTrue(vm.HasErrorBanner);
+            Assert.IsTrue(vm.ValidationErrors.Any(e => e.Code == MultiModelPdfValidationCode.PathTooLong));
+            Assert.IsFalse(vm.CanExport);
+            Assert.AreEqual("Export PDFs", vm.ExportButtonText);
+
+            // 5. BuildRunRequest carries SeparatePerViewSheet into request and every job
+            vm.OutputFolder = @"C:\Exports\Final";
+            Assert.IsTrue(vm.CanExport);
+            MultiModelPdfRunRequest request = vm.BuildRunRequest();
+            Assert.AreEqual(MultiModelPdfFileMode.SeparatePerViewSheet, request.FileMode);
+            Assert.IsTrue(request.Jobs.All(j => j.FileMode == MultiModelPdfFileMode.SeparatePerViewSheet));
+        }
+
+        [Test]
+        public void PrintSetDropdownFormatting_AndSkippedViewBadgeTooltipTruncation_ProjectCorrectly()
+        {
+            var eightSkipped = Enumerable.Range(1, 8)
+                .Select(i => new MultiModelPdfSkippedViewInfo($"A90{i}", $"PLACEHOLDER {i}", "Placeholder sheet"))
+                .ToArray();
+
+            var elevenSkipped = new[]
+            {
+                new MultiModelPdfSkippedViewInfo("A900", "UNPLACED SIGNAGE", "Placeholder sheet"),
+                new MultiModelPdfSkippedViewInfo("FloorPlan", "Work-In-Progress Template", "View template"),
+                new MultiModelPdfSkippedViewInfo("Schedule", "Door Schedule", "Schedule — not printable"),
+                new MultiModelPdfSkippedViewInfo("A901", "SHEET 4", "Placeholder sheet"),
+                new MultiModelPdfSkippedViewInfo("A902", "SHEET 5", "Placeholder sheet"),
+                new MultiModelPdfSkippedViewInfo("A903", "SHEET 6", "Placeholder sheet"),
+                new MultiModelPdfSkippedViewInfo("A904", "SHEET 7", "Placeholder sheet"),
+                new MultiModelPdfSkippedViewInfo("A905", "SHEET 8", "Placeholder sheet"),
+                new MultiModelPdfSkippedViewInfo("A906", "OMITTED NINTH", "Placeholder sheet"),
+                new MultiModelPdfSkippedViewInfo("A907", "OMITTED TENTH", "Placeholder sheet"),
+                new MultiModelPdfSkippedViewInfo("A908", "OMITTED ELEVENTH", "Not printable")
+            };
+
+            var snapshot = new MultiModelPdfSessionSnapshot(
+                "HostModel.rvt",
+                new[]
+                {
+                    new MultiModelPdfDocumentSnapshot(
+                        "active-host",
+                        "HostModel.rvt",
+                        @"C:\BIM\HostModel.rvt",
+                        MultiModelPdfDocumentOrigin.Active,
+                        MultiModelPdfStorageKind.Workshared,
+                        printSets: new[]
+                        {
+                            new MultiModelPdfSetSnapshot("Single Ready", 1),
+                            new MultiModelPdfSetSnapshot("Exact Eight Skipped", 2, eightSkipped),
+                            new MultiModelPdfSetSnapshot("Eleven Skipped", 3, elevenSkipped),
+                            new MultiModelPdfSetSnapshot("Zero Printable", 0, new[] { new MultiModelPdfSkippedViewInfo("X001", "FUTURE", "Placeholder sheet") })
+                        })
+                },
+                new[] { MultiModelPdfSetupOption.CreateDefault() });
+
+            var vm = new MultiModelPdfExportViewModel(
+                new FakeMultiModelPdfExportAdapter(snapshot),
+                new FakeFolderDialogService())
+            {
+                OutputFolder = @"C:\Exports"
+            };
+
+            MultiModelPdfExportRowViewModel row = vm.Rows[0];
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    "<Select Print Set...>",
+                    "Single Ready (1 view)",
+                    "Exact Eight Skipped (2 views · 8 skip)",
+                    "Eleven Skipped (3 views · 11 skip)",
+                    "Zero Printable (0 views · 1 skip)"
+                },
+                row.PrintSetOptions.Select(o => o.DisplayName).ToArray());
+
+            // 0 skipped -> Success footer, badge hidden
+            row.SelectedPrintSetName = "Single Ready";
+            Assert.IsFalse(row.HasSkippedViews);
+            Assert.AreEqual("1 view", row.ViewsDisplayText);
+            Assert.AreEqual(MultiModelPdfFooterStatusKind.Success, vm.FooterStatusKind);
+            Assert.AreEqual("1 project · 1 view ready", vm.FooterStatusText);
+
+            // Exactly 8 skipped -> all 8 listed, no "+ N more"
+            row.SelectedPrintSetName = "Exact Eight Skipped";
+            Assert.IsTrue(row.HasSkippedViews);
+            Assert.AreEqual("8 skip", row.SkippedBadgeText);
+            StringAssert.Contains("8 view/sheets will be skipped in HostModel.rvt:", row.SkippedTooltipText);
+            StringAssert.Contains("• A908 PLACEHOLDER 8 (Placeholder sheet)", row.SkippedTooltipText);
+            StringAssert.DoesNotContain("more", row.SkippedTooltipText);
+            Assert.AreEqual(MultiModelPdfFooterStatusKind.Warning, vm.FooterStatusKind);
+            Assert.AreEqual("1 project · 2 views · 8 skipped", vm.FooterStatusText);
+
+            // 11 skipped -> first 8 listed, 9..11 omitted, "+ 3 more" appended
+            row.SelectedPrintSetName = "Eleven Skipped";
+            Assert.IsTrue(row.HasSkippedViews);
+            Assert.AreEqual("11 skip", row.SkippedBadgeText);
+            StringAssert.Contains("• A900 UNPLACED SIGNAGE (Placeholder sheet)", row.SkippedTooltipText);
+            StringAssert.Contains("• FloorPlan Work-In-Progress Template (View template)", row.SkippedTooltipText);
+            StringAssert.Contains("• Schedule Door Schedule (Schedule — not printable)", row.SkippedTooltipText);
+            StringAssert.Contains("• A905 SHEET 8 (Placeholder sheet)", row.SkippedTooltipText);
+            StringAssert.DoesNotContain("OMITTED NINTH", row.SkippedTooltipText);
+            StringAssert.DoesNotContain("OMITTED ELEVENTH", row.SkippedTooltipText);
+            Assert.IsTrue(row.SkippedTooltipText.EndsWith("+ 3 more", StringComparison.Ordinal));
+            Assert.AreEqual(MultiModelPdfFooterStatusKind.Warning, vm.FooterStatusKind);
+            Assert.AreEqual("1 project · 3 views · 11 skipped", vm.FooterStatusText);
+
+            // Checked with 0 printable views -> Coral Red 0 views hides skip badge; unchecked shows 0 views + skip badge
+            row.SelectedPrintSetName = "Zero Printable";
+            Assert.IsTrue(row.HasZeroPrintableViews);
+            Assert.IsFalse(row.HasSkippedViews);
+
+            row.IsChecked = false;
+            Assert.IsFalse(row.HasZeroPrintableViews);
+            Assert.IsTrue(row.HasNormalViewCount);
+            Assert.IsTrue(row.HasSkippedViews);
+            Assert.AreEqual("1 skip", row.SkippedBadgeText);
+        }
     }
 }

@@ -383,11 +383,13 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
                         $"{row.DocumentTitle}: Print Set \"{row.SelectedSet.Name}\" has 0 printable views ({row.SkippedViewCount} skipped).",
                         row.DocumentKey));
                 }
-                else if (folderValid && FileMode == MultiModelPdfFileMode.CombinedPerDocument)
+                else if (folderValid)
                 {
                     string token = MultiModelPdfPathHelper.SanitizeDocumentTitleToken(row.DocumentTitle);
-                    string fullPath = MultiModelPdfPathHelper.BuildCombinedPdfPath(OutputFolder, token);
-                    if (!MultiModelPdfPathHelper.IsPathWithinSafeLimit(fullPath))
+                    string targetPath = FileMode == MultiModelPdfFileMode.CombinedPerDocument
+                        ? MultiModelPdfPathHelper.BuildCombinedPdfPath(OutputFolder, token)
+                        : MultiModelPdfPathHelper.BuildSeparateDocumentFolderPath(OutputFolder, token);
+                    if (!MultiModelPdfPathHelper.IsPathWithinSafeLimit(targetPath))
                     {
                         errors.Add(new MultiModelPdfValidationIssue(
                             MultiModelPdfValidationCode.PathTooLong,
@@ -432,6 +434,9 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
                 ? (plannedPdfCount == 1 ? "Export 1 PDF" : $"Export {plannedPdfCount} PDFs")
                 : "Export PDFs";
 
+            string projectWord = checkedCount == 1 ? "project" : "projects";
+            string viewWord = totalPrintable == 1 ? "view" : "views";
+
             if (checkedCount == 0)
             {
                 FooterStatusKind = MultiModelPdfFooterStatusKind.Muted;
@@ -440,12 +445,12 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
             else if (totalSkipped > 0)
             {
                 FooterStatusKind = MultiModelPdfFooterStatusKind.Warning;
-                FooterStatusText = $"{checkedCount} project{(checkedCount == 1 ? "" : "s")} · {totalPrintable} views · {totalSkipped} skipped";
+                FooterStatusText = $"{checkedCount} {projectWord} · {totalPrintable} {viewWord} · {totalSkipped} skipped";
             }
             else
             {
                 FooterStatusKind = MultiModelPdfFooterStatusKind.Success;
-                FooterStatusText = $"{checkedCount} project{(checkedCount == 1 ? "" : "s")} · {totalPrintable} views ready";
+                FooterStatusText = $"{checkedCount} {projectWord} · {totalPrintable} {viewWord} ready";
             }
 
             OutputPreviewText = BuildOutputPreviewText(checkedRows, folderValid, totalPrintable);
@@ -467,16 +472,17 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
                 : (string.IsNullOrWhiteSpace(OutputFolder)
                     ? "<OutputFolder>"
                     : OutputFolder.Trim().TrimEnd('\\', '/'));
+            string separator = folderDisplay.EndsWith("\\", StringComparison.Ordinal) ? string.Empty : "\\";
 
             if (FileMode == MultiModelPdfFileMode.CombinedPerDocument)
             {
                 string extra = checkedRows.Count > 1
                     ? $" (+{checkedRows.Count - 1} more PDF{(checkedRows.Count - 1 == 1 ? "" : "s")})"
                     : string.Empty;
-                return $"{folderDisplay}\\{firstToken}.pdf{extra}";
+                return $"{folderDisplay}{separator}{firstToken}.pdf{extra}";
             }
 
-            return $"{folderDisplay}\\{firstToken}\\<NamingRule>.pdf ({totalPrintable} PDF{(totalPrintable == 1 ? "" : "s")} in {checkedRows.Count} folder{(checkedRows.Count == 1 ? "" : "s")})";
+            return $"{folderDisplay}{separator}{firstToken}\\<NamingRule>.pdf ({totalPrintable} PDF{(totalPrintable == 1 ? "" : "s")} in {checkedRows.Count} folder{(checkedRows.Count == 1 ? "" : "s")})";
         }
 
         private static int GetOriginOrder(MultiModelPdfDocumentOrigin origin) => origin switch
