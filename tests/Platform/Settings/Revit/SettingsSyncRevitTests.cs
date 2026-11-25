@@ -456,28 +456,40 @@ namespace SyntheticTests.Platform.Settings
             }
         }
 
-        private static int CountOpenSyncToasts()
+        private static List<Synthetic.Features.SettingsDashboard.Views.SyncToastNotification> GetOpenSyncToasts()
         {
-            if (System.Windows.Application.Current == null)
+            var openToasts = new HashSet<Synthetic.Features.SettingsDashboard.Views.SyncToastNotification>();
+
+            if (System.Windows.Application.Current != null)
             {
-                return 0;
+                foreach (var toast in System.Windows.Application.Current.Windows
+                    .OfType<Synthetic.Features.SettingsDashboard.Views.SyncToastNotification>())
+                {
+                    openToasts.Add(toast);
+                }
             }
 
-            return System.Windows.Application.Current.Windows
-                .OfType<Synthetic.Features.SettingsDashboard.Views.SyncToastNotification>()
-                .Count();
+            foreach (System.Windows.PresentationSource source in System.Windows.PresentationSource.CurrentSources)
+            {
+                if (!source.IsDisposed &&
+                    source.RootVisual is Synthetic.Features.SettingsDashboard.Views.SyncToastNotification toast &&
+                    toast.IsVisible)
+                {
+                    openToasts.Add(toast);
+                }
+            }
+
+            return openToasts.ToList();
+        }
+
+        private static int CountOpenSyncToasts()
+        {
+            return GetOpenSyncToasts().Count;
         }
 
         private static void CloseAllSyncToasts()
         {
-            if (System.Windows.Application.Current == null)
-            {
-                return;
-            }
-
-            foreach (var toast in System.Windows.Application.Current.Windows
-                .OfType<Synthetic.Features.SettingsDashboard.Views.SyncToastNotification>()
-                .ToList())
+            foreach (var toast in GetOpenSyncToasts())
             {
                 toast.Close();
             }
