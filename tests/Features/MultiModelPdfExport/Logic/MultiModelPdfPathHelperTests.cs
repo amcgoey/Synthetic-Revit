@@ -217,5 +217,26 @@ namespace SyntheticTests.Features.MultiModelPdfExport
             Assert.AreEqual("Tower_1 (Link)", resolved["s2"].FinalToken);
             Assert.IsTrue(resolved["s2"].IsCollisionDisambiguated);
         }
+
+        [Test]
+        public void ResolveOutputTokens_TwoLinkedModelsOnlySharingTitle_FirstKeepsBaseSecondGetsLinkSuffix()
+        {
+            var candidates = new[]
+            {
+                new MultiModelPdfTokenCandidate("link-1", "SharedUnit.rvt", MultiModelPdfDocumentOrigin.Linked),
+                new MultiModelPdfTokenCandidate("link-2", "SharedUnit.rvt", MultiModelPdfDocumentOrigin.Linked),
+                new MultiModelPdfTokenCandidate("link-3", "SharedUnit.rvt", MultiModelPdfDocumentOrigin.Linked)
+            };
+
+            IReadOnlyDictionary<string, MultiModelPdfResolvedToken> resolved =
+                MultiModelPdfPathHelper.ResolveOutputTokens(candidates);
+
+            Assert.AreEqual("SharedUnit", resolved["link-1"].FinalToken);
+            Assert.IsFalse(resolved["link-1"].IsCollisionDisambiguated);
+            Assert.AreEqual("SharedUnit_2", resolved["link-2"].FinalToken);
+            Assert.IsTrue(resolved["link-2"].IsCollisionDisambiguated);
+            Assert.AreEqual("SharedUnit_3", resolved["link-3"].FinalToken);
+            Assert.IsTrue(resolved["link-3"].IsCollisionDisambiguated);
+        }
     }
 }

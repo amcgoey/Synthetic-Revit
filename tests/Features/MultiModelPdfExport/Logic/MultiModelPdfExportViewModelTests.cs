@@ -571,5 +571,98 @@ namespace SyntheticTests.Features.MultiModelPdfExport
                 e.Code == MultiModelPdfValidationCode.PathTooLong &&
                 e.TargetKey == "open"));
         }
+
+        [Test]
+        public void FederatedRows_OrderActiveThenLinkedThenOpen_CheckActiveAndLinksDefault_AndDisableUnloadedLinksAt25Percent()
+        {
+            var openTab = new MultiModelPdfDocumentSnapshot(
+                "open-ref", "RefModel.rvt", @"C:\BIM\RefModel.rvt",
+                MultiModelPdfDocumentOrigin.OpenStandalone, MultiModelPdfStorageKind.Local,
+                printSets: new[] { new MultiModelPdfSetSnapshot("CD Set", 2) });
+            var unloadedLink = new MultiModelPdfDocumentSnapshot(
+                "link-unloaded", "SiteUnloaded.rvt", @"C:\BIM\Links\SiteUnloaded.rvt",
+                MultiModelPdfDocumentOrigin.Linked, MultiModelPdfStorageKind.Local,
+                isUnloadedLink: true,
+                printSets: Array.Empty<MultiModelPdfSetSnapshot>());
+            var loadedLinkB = new MultiModelPdfDocumentSnapshot(
+                "link-b", "MEP.rvt", @"C:\BIM\Links\MEP.rvt",
+                MultiModelPdfDocumentOrigin.Linked, MultiModelPdfStorageKind.CloudAcc,
+                isUnloadedLink: false,
+                printSets: new[] { new MultiModelPdfSetSnapshot("CD Set", 3) });
+            var loadedLinkA = new MultiModelPdfDocumentSnapshot(
+                "link-a", "Struct.rvt", @"C:\BIM\Links\Struct.rvt",
+                MultiModelPdfDocumentOrigin.Linked, MultiModelPdfStorageKind.Workshared,
+                isUnloadedLink: false,
+                printSets: new[] { new MultiModelPdfSetSnapshot("CD Set", 4) });
+            var activeDoc = new MultiModelPdfDocumentSnapshot(
+                "active-main", "ArchHost.rvt", @"C:\BIM\ArchHost.rvt",
+                MultiModelPdfDocumentOrigin.Active, MultiModelPdfStorageKind.Workshared,
+                printSets: new[] { new MultiModelPdfSetSnapshot("CD Set", 5) });
+
+            var snapshot = new MultiModelPdfSessionSnapshot(
+                "ArchHost.rvt",
+                new[] { openTab, unloadedLink, loadedLinkB, loadedLinkA, activeDoc },
+                new[] { MultiModelPdfSetupOption.CreateDefault() });
+
+            var vm = new MultiModelPdfExportViewModel(
+                new FakeMultiModelPdfExportAdapter(snapshot),
+                new FakeFolderDialogService(),
+                @"C:\Exports");
+
+            // Order preserves relative order inside each bucket: Active -> Linked -> OpenStandalone
+            CollectionAssert.AreEqual(
+                new[] { "ArchHost.rvt", "SiteUnloaded.rvt", "MEP.rvt", "Struct.rvt", "RefModel.rvt" },
+                vm.Rows.Select(r => r.DocumentTitle).ToArray());
+
+            MultiModelPdfExportRowViewModel activeRow = vm.Rows[0];
+            MultiModelPdfExportRowViewModel unloadedRow = vm.Rows[1];
+            MultiModelPdfExportRowViewModel mepRow = vm.Rows[2];
+            MultiModelPdfExportRowViewModel structRow = vm.Rows[3];
+            MultiModelPdfExportRowViewModel openRow = vm.Rows[4];
+
+            Assert.IsTrue(activeRow.IsChecked);
+            Assert.AreEqual("ACTIVE", activeRow.OriginBadgeText);
+            Assert.AreEqual(1.0, activeRow.RowOpacity, 1e-6);
+
+            // Unloaded link row: ineligible, unchecked, disabled at 25% opacity with exact status text
+            Assert.IsTrue(unloadedRow.IsUnloadedLink);
+            Assert.IsTrue(unloadedRow.IsLinkedOrigin);
+            Assert.AreEqual("LINKED", unloadedRow.OriginBadgeText);
+            Assert.IsFalse(unloadedRow.IsEligible);
+            Assert.IsTrue(unloadedRow.IsDisabledRow);
+            Assert.AreEqual(0.25, unloadedRow.RowOpacity, 1e-6);
+            Assert.IsFalse(unloadedRow.IsChecked);
+            Assert.AreEqual("Unloaded link — load in host to inspect", unloadedRow.DisabledStatusText);
+            unloadedRow.IsChecked = true;
+            Assert.IsFalse(unloadedRow.IsChecked, "Unloaded link row must remain unchecked when toggled.");
+
+            // Eligible loaded links start checked by default; OpenStandalone starts unchecked
+            Assert.IsTrue(mepRow.IsChecked);
+            Assert.AreEqual("LINKED", mepRow.OriginBadgeText);
+            Assert.AreEqual("Cloud (ACC)", mepRow.StorageDisplayText);
+            Assert.AreEqual(1.0, mepRow.RowOpacity, 1e-6);
+
+            Assert.IsTrue(structRow.IsChecked);
+            Assert.AreEqual("LINKED", structRow.OriginBadgeText);
+
+            Assert.IsFalse(openRow.IsChecked);
+            Assert.AreEqual("OPEN", openRow.OriginBadgeText);
+
+            Assert.AreEqual(3, vm.CheckedCount);
+            Assert.AreEqual(4, vm.EligibleCount);
+            Assert.AreEqual("3 of 4 eligible", vm.SelectionSummaryText);
+
+            activeRow.SelectedPrintSetName = "CD Set";
+            mepRow.SelectedPrintSetName = "CD Set";
+            structRow.SelectedPrintSetName = "CD Set";
+
+            Assert.IsTrue(vm.CanExport);
+            Assert.AreEqual("Export 3 PDFs", vm.ExportButtonText);
+
+            MultiModelPdfRunRequest request = vm.BuildRunRequest();
+            CollectionAssert.AreEqual(
+                new[] { "active-main", "link-b", "link-a" },
+                request.Jobs.Select(j => j.DocumentKey).ToArray());
+        }
     }
 }

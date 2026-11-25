@@ -4,10 +4,17 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using Autodesk.Revit.DB;
+using Autodesk.Revit.DB.Architecture;
+using Autodesk.Revit.DB.Events;
+using Autodesk.Revit.UI;
+using Newtonsoft.Json;
 using NUnit.Framework;
 using Synthetic.Features.MultiModelPdfExport.Adapters;
 using Synthetic.Features.MultiModelPdfExport.Models;
 using Synthetic.Features.MultiModelPdfExport.Services;
+using Synthetic.Platform.Host;
+using Synthetic.Platform.Revit;
+using Synthetic.Platform.Settings;
 using Synthetic.Platform.UI;
 using SyntheticTests.Fixtures;
 using View = Autodesk.Revit.DB.View;
@@ -674,6 +681,582 @@ namespace SyntheticTests.Features.MultiModelPdfExport
             Assert.AreEqual(2, summary.Errors.Count);
             Assert.IsTrue(summary.Errors.Any(e => e.Contains("Batch Set")));
             Assert.AreEqual(docsBefore, App.Documents.Size, "Open tabs must remain open after fault-isolated export.");
+        }
+
+        [Test]
+        public void Spike_DirectOpenLoadedLocalLink_ObservesRevitBehaviorWithoutLeakingDocs()
+        {
+            string localLinkPath = Path.Combine(CurrentTestTempDirectory, "SpikeLocalLink.rvt");
+            Document seedLink = OpenIsolatedTestTemplateCopy(targetFileName: "SpikeLocalLinkSeed.rvt");
+            SeedSimpleSheetAndSet(seedLink, "SL-101", "SPIKE LINK SHEET", "Spike Set");
+            seedLink.SaveAs(localLinkPath, new SaveAsOptions { OverwriteExistingFile = true });
+            seedLink.Close(false);
+
+            string hostPath = Path.Combine(CurrentTestTempDirectory, "SpikeHost.rvt");
+            Document hostSeed = OpenIsolatedTestTemplateCopy(targetFileName: "SpikeHostSeed.rvt");
+            RevitLinkType linkType;
+            using (var tx = new Transaction(hostSeed, "Link Local Model"))
+            {
+                tx.Start();
+                ModelPath mp = ModelPathUtils.ConvertUserVisiblePathToModelPath(localLinkPath);
+                LinkLoadResult loadResult = RevitLinkType.Create(hostSeed, mp, new RevitLinkOptions(false));
+                RevitLinkInstance.Create(hostSeed, loadResult.ElementId);
+                linkType = (RevitLinkType)hostSeed.GetElement(loadResult.ElementId);
+                tx.Commit();
+            }
+            hostSeed.SaveAs(hostPath, new SaveAsOptions { OverwriteExistingFile = true });
+            hostSeed.Close(false);
+
+            Document hostDoc = TrackDocument(App.OpenDocumentFile(hostPath));
+            RevitLinkType hostLinkType = new FilteredElementCollector(hostDoc)
+                .OfClass(typeof(RevitLinkType))
+                .Cast<RevitLinkType>()
+                .First();
+            Assert.AreEqual(LinkedFileStatus.Loaded, hostLinkType.GetLinkedFileStatus());
+            Assert.IsFalse(hostDoc.IsModified);
+
+            Document? directOpened = null;
+            string directResult;
+            LinkedFileStatus statusAfterDirect;
+            bool modifiedAfterDirect;
+            try
+            {
+                ModelPath mp = ModelPathUtils.ConvertUserVisiblePathToModelPath(localLinkPath);
+                directOpened = App.OpenDocumentFile(mp, new OpenOptions());
+                directResult = directOpened != null
+                    ? $"OPENED:{directOpened.Title}(IsLinked={directOpened.IsLinked})"
+                    : "RETURNED_NULL";
+                statusAfterDirect = hostLinkType.GetLinkedFileStatus();
+                modifiedAfterDirect = hostDoc.IsModified;
+            }
+            catch (Exception ex)
+            {
+                directResult = $"THREW:{ex.GetType().Name}:{ex.Message}";
+                statusAfterDirect = hostLinkType.GetLinkedFileStatus();
+                modifiedAfterDirect = hostDoc.IsModified;
+            }
+            finally
+            {
+                if (directOpened != null && directOpened.IsValidObject && !directOpened.IsLinked)
+                {
+                    directOpened.Close(false);
+                }
+            }
+
+            string summaryText = $"[SPIKE_DIRECT_LOCAL_LINK] Result={directResult}; LinkStatusAfter={statusAfterDirect}; HostIsModified={modifiedAfterDirect}";
+            Console.WriteLine(summaryText);
+            TestContext.Progress.WriteLine(summaryText);
+            Assert.Pass(summaryText);
+        }
+
+        [Test]
+        public void CaptureSessionSnapshot_FederatedSession_ExcludesNestedSurfacesUnloadedAndDeduplicatesByPrecedence()
+        {
+            string linksDir = Path.Combine(CurrentTestTempDirectory, "FedLinks");
+            Directory.CreateDirectory(linksDir);
+
+            // 1. Nested link model (attached inside LoadedLocalLink so IsNestedLink == true in Host)
+            string nestedPath = Path.Combine(linksDir, "NestedChild.rvt");
+            Document nestedDoc = OpenIsolatedTestTemplateCopy(targetFileName: "NestedSeed.rvt");
+            SeedSimpleSheetAndSet(nestedDoc, "N-101", "NESTED SHEET", "Shared Set");
+            nestedDoc.SaveAs(nestedPath, new SaveAsOptions { OverwriteExistingFile = true });
+            nestedDoc.Close(false);
+
+            // 2. Loaded local non-workshared link (attaches NestedChild)
+            string localLinkPath = Path.Combine(linksDir, "LoadedLocalLink.rvt");
+            Document localLinkDoc = OpenIsolatedTestTemplateCopy(targetFileName: "LoadedLocalSeed.rvt");
+            SeedSimpleSheetAndSet(localLinkDoc, "LL-101", "LOCAL LINK SHEET", "Shared Set");
+            using (var tx = new Transaction(localLinkDoc, "Attach Nested Link"))
+            {
+                tx.Start();
+                ModelPath nestedMp = ModelPathUtils.ConvertUserVisiblePathToModelPath(nestedPath);
+                LinkLoadResult nestedRes = RevitLinkType.Create(localLinkDoc, nestedMp, new RevitLinkOptions(false));
+                RevitLinkInstance.Create(localLinkDoc, nestedRes.ElementId);
+                var nestedType = (RevitLinkType)localLinkDoc.GetElement(nestedRes.ElementId);
+                nestedType.AttachmentType = AttachmentType.Attachment;
+                tx.Commit();
+            }
+            localLinkDoc.SaveAs(localLinkPath, new SaveAsOptions { OverwriteExistingFile = true });
+            localLinkDoc.Close(false);
+
+            // 3. Loaded workshared central link (placed twice to verify GetTypeId grouping)
+            string centralLinkPath = Path.Combine(linksDir, "WorksharedLinkCentral.rvt");
+            Document centralSeed = OpenIsolatedTestTemplateCopy(targetFileName: "WorksharedSeed.rvt");
+            Assert.IsTrue(centralSeed.CanEnableWorksharing());
+            centralSeed.EnableWorksharing("Shared Levels and Grids", "Workset1");
+            SeedSimpleSheetAndSet(centralSeed, "WS-101", "WORKSHARED LINK SHEET", "Shared Set");
+            var saveCentralOpts = new SaveAsOptions { OverwriteExistingFile = true };
+            saveCentralOpts.SetWorksharingOptions(new WorksharingSaveAsOptions { SaveAsCentral = true });
+            centralSeed.SaveAs(centralLinkPath, saveCentralOpts);
+            centralSeed.Close(false);
+
+            // 4. Overlapping workshared central (both linked in host AND open as a standalone local replica tab)
+            string overlapCentralPath = Path.Combine(linksDir, "OverlapModel.rvt");
+            Document overlapSeed = OpenIsolatedTestTemplateCopy(targetFileName: "OverlapSeed.rvt");
+            overlapSeed.EnableWorksharing("Shared Levels and Grids", "Workset1");
+            SeedSimpleSheetAndSet(overlapSeed, "OV-101", "OVERLAP SHEET", "Shared Set");
+            overlapSeed.SaveAs(overlapCentralPath, saveCentralOpts);
+            overlapSeed.Close(false);
+
+            string overlapLocalCopyPath = Path.Combine(CurrentTestTempDirectory, "OverlapLocalTab.rvt");
+            WorksharingUtils.CreateNewLocal(
+                ModelPathUtils.ConvertUserVisiblePathToModelPath(overlapCentralPath),
+                ModelPathUtils.ConvertUserVisiblePathToModelPath(overlapLocalCopyPath));
+            Document overlapOpenTab = TrackDocument(App.OpenDocumentFile(overlapLocalCopyPath));
+
+            // 5. Unloaded local link
+            string unloadedPath = Path.Combine(linksDir, "UnloadedSite.rvt");
+            Document unloadedSeed = OpenIsolatedTestTemplateCopy(targetFileName: "UnloadedSeed.rvt");
+            SeedSimpleSheetAndSet(unloadedSeed, "UL-101", "UNLOADED SHEET", "Shared Set");
+            unloadedSeed.SaveAs(unloadedPath, new SaveAsOptions { OverwriteExistingFile = true });
+            unloadedSeed.Close(false);
+
+            // 6. Active Host document
+            string hostPath = Path.Combine(CurrentTestTempDirectory, "FederatedHost.rvt");
+            Document hostSeed = OpenIsolatedTestTemplateCopy(targetFileName: "FederatedHostSeed.rvt");
+            SeedSimpleSheetAndSet(hostSeed, "H-101", "HOST SHEET", "Shared Set");
+            ElementId unloadedTypeId;
+            using (var tx = new Transaction(hostSeed, "Link Federated Models"))
+            {
+                tx.Start();
+                LinkLoadResult localRes = RevitLinkType.Create(hostSeed, ModelPathUtils.ConvertUserVisiblePathToModelPath(localLinkPath), new RevitLinkOptions(false));
+                RevitLinkInstance.Create(hostSeed, localRes.ElementId);
+
+                LinkLoadResult wsRes = RevitLinkType.Create(hostSeed, ModelPathUtils.ConvertUserVisiblePathToModelPath(centralLinkPath), new RevitLinkOptions(false));
+                RevitLinkInstance.Create(hostSeed, wsRes.ElementId);
+                RevitLinkInstance.Create(hostSeed, wsRes.ElementId); // Second instance of same type
+
+                LinkLoadResult overlapRes = RevitLinkType.Create(hostSeed, ModelPathUtils.ConvertUserVisiblePathToModelPath(overlapCentralPath), new RevitLinkOptions(false));
+                RevitLinkInstance.Create(hostSeed, overlapRes.ElementId);
+
+                LinkLoadResult unloadedRes = RevitLinkType.Create(hostSeed, ModelPathUtils.ConvertUserVisiblePathToModelPath(unloadedPath), new RevitLinkOptions(false));
+                RevitLinkInstance.Create(hostSeed, unloadedRes.ElementId);
+                unloadedTypeId = unloadedRes.ElementId;
+                tx.Commit();
+            }
+
+            var unloadedType = (RevitLinkType)hostSeed.GetElement(unloadedTypeId);
+            unloadedType.Unload(null);
+            hostSeed.SaveAs(hostPath, new SaveAsOptions { OverwriteExistingFile = true });
+            hostSeed.Close(false);
+
+            Document hostDoc = TrackDocument(App.OpenDocumentFile(hostPath));
+            int docsBefore = App.Documents.Size;
+
+            var adapter = new RevitMultiModelPdfExportAdapter(hostDoc, UiApp);
+            MultiModelPdfSessionSnapshot snapshot = adapter.CaptureSessionSnapshot();
+
+            Assert.AreEqual(docsBefore, App.Documents.Size, "CaptureSessionSnapshot must not open or close Revit documents.");
+            Assert.IsFalse(hostDoc.IsModified, "CaptureSessionSnapshot must leave host document unmodified.");
+
+            // Verify nested link exclusion
+            Assert.IsFalse(
+                snapshot.Documents.Any(d => d.DocumentTitle.IndexOf("NestedChild", StringComparison.OrdinalIgnoreCase) >= 0),
+                "Nested links (RevitLinkType.IsNestedLink) must be excluded from discovery.");
+
+            // Verify exact Active -> Linked -> OpenStandalone ordering and deduplication (Active + 3 Linked + 1 OpenStandalone = 5)
+            Assert.AreEqual(5, snapshot.Documents.Count, "Expected Active + 3 top-level Linked (2 loaded + 1 unloaded) + 1 deduplicated OpenStandalone.");
+            Assert.AreEqual(MultiModelPdfDocumentOrigin.Active, snapshot.Documents[0].Origin);
+            Assert.AreEqual(MultiModelPdfDocumentOrigin.Linked, snapshot.Documents[1].Origin);
+            Assert.AreEqual(MultiModelPdfDocumentOrigin.Linked, snapshot.Documents[2].Origin);
+            Assert.AreEqual(MultiModelPdfDocumentOrigin.Linked, snapshot.Documents[3].Origin);
+            Assert.AreEqual(MultiModelPdfDocumentOrigin.OpenStandalone, snapshot.Documents[4].Origin);
+
+            // Overlapping model must appear ONLY as OpenStandalone (Active > OpenStandalone > Linked)
+            MultiModelPdfDocumentSnapshot overlapSnap = snapshot.Documents[4];
+            Assert.AreEqual(MultiModelPdfDocumentOrigin.OpenStandalone, overlapSnap.Origin);
+            Assert.IsFalse(overlapSnap.IsUnloadedLink);
+            Assert.IsTrue(overlapSnap.PrintSets.Any(ps => ps.Name == "Shared Set" && ps.PrintableViewCount == 1));
+            Assert.IsFalse(
+                snapshot.Documents.Any(d => d.Origin == MultiModelPdfDocumentOrigin.Linked &&
+                                            d.DocumentTitle.IndexOf("Overlap", StringComparison.OrdinalIgnoreCase) >= 0),
+                "Overlapping linked model must be deduplicated in favor of OpenStandalone.");
+
+            // Loaded links have harvested Print Sets
+            MultiModelPdfDocumentSnapshot localLinkSnap = snapshot.Documents
+                .Single(d => d.Origin == MultiModelPdfDocumentOrigin.Linked && d.DocumentTitle.IndexOf("LoadedLocalLink", StringComparison.OrdinalIgnoreCase) >= 0);
+            Assert.IsFalse(localLinkSnap.IsUnloadedLink);
+            Assert.AreEqual(MultiModelPdfStorageKind.Local, localLinkSnap.Storage);
+            Assert.IsTrue(localLinkSnap.PrintSets.Any(ps => ps.Name == "Shared Set" && ps.PrintableViewCount == 1));
+
+            MultiModelPdfDocumentSnapshot wsLinkSnap = snapshot.Documents
+                .Single(d => d.Origin == MultiModelPdfDocumentOrigin.Linked && d.DocumentTitle.IndexOf("WorksharedLinkCentral", StringComparison.OrdinalIgnoreCase) >= 0);
+            Assert.IsFalse(wsLinkSnap.IsUnloadedLink);
+            Assert.AreEqual(MultiModelPdfStorageKind.Workshared, wsLinkSnap.Storage);
+            Assert.IsTrue(wsLinkSnap.PrintSets.Any(ps => ps.Name == "Shared Set" && ps.PrintableViewCount == 1));
+
+            // Unloaded link surfaced with IsUnloadedLink = true and empty PrintSets
+            MultiModelPdfDocumentSnapshot unloadedSnap = snapshot.Documents
+                .Single(d => d.Origin == MultiModelPdfDocumentOrigin.Linked && d.IsUnloadedLink);
+            Assert.IsTrue(unloadedSnap.DocumentTitle.IndexOf("UnloadedSite", StringComparison.OrdinalIgnoreCase) >= 0);
+            Assert.IsEmpty(unloadedSnap.PrintSets);
+
+            Assert.IsTrue(overlapOpenTab.IsValidObject);
+        }
+
+        [Test]
+        public void ExportDocument_FederatedBatch_CreatesPdfs_SuppressesToastsRoomsAndDialogs_PreservesLinksUndoAndZeroLeaks()
+        {
+            string linksDir = Path.Combine(CurrentTestTempDirectory, "BatchLinks");
+            Directory.CreateDirectory(linksDir);
+
+            string missingRefPath = Path.Combine(linksDir, "MissingChildRef.rvt");
+            Document missingRefDoc = OpenIsolatedTestTemplateCopy(targetFileName: "MissingRefSeed.rvt");
+            missingRefDoc.SaveAs(missingRefPath, new SaveAsOptions { OverwriteExistingFile = true });
+            missingRefDoc.Close(false);
+
+            string driftedSettingsJson = Path.Combine(CurrentTestTempDirectory, "DriftedLinkSync.json");
+            File.WriteAllText(driftedSettingsJson, JsonConvert.SerializeObject(new Dictionary<string, object>
+            {
+                { "Standards", new { StandardsFilePath = @"C:\Standards\federated-drift.json" } }
+            }));
+
+            // 1. Loaded local link containing:
+            //    - drifted SyncSettings (would spawn SyncToastNotification without suppression),
+            //    - missing overlay child ref (fires TaskDialog_Unresolved_References on open),
+            //    - unenclosed Room on a FloorPlan placed on sheet (exercises RoomNotEnclosed* suppression).
+            string localLinkPath = Path.Combine(linksDir, "LocalWithRoomsAndRefs.rvt");
+            Document localSeed = OpenIsolatedTestTemplateCopy(targetFileName: "LocalLinkSeed.rvt");
+            SeedSimpleSheetAndSetWithUnenclosedRoom(localSeed, "L-101", "LOCAL ROOM SHEET", "Batch Set");
+            using (var tx = new Transaction(localSeed, "Seed SyncSettings and Overlay Link"))
+            {
+                tx.Start();
+                SettingsManager.Save(localSeed, new SyncSettings { LinkedFilePath = driftedSettingsJson });
+                LinkLoadResult missingRes = RevitLinkType.Create(
+                    localSeed,
+                    ModelPathUtils.ConvertUserVisiblePathToModelPath(missingRefPath),
+                    new RevitLinkOptions(false));
+                RevitLinkInstance.Create(localSeed, missingRes.ElementId);
+                var missingType = (RevitLinkType)localSeed.GetElement(missingRes.ElementId);
+                missingType.AttachmentType = AttachmentType.Overlay;
+                tx.Commit();
+            }
+            localSeed.SaveAs(localLinkPath, new SaveAsOptions { OverwriteExistingFile = true });
+            localSeed.Close(false);
+            SettingsManager.ClearCache();
+
+            // Delete MissingChildRef.rvt from disk so opening LocalWithRoomsAndRefs standalone triggers TaskDialog_Unresolved_References
+            File.Delete(missingRefPath);
+
+            // 2. Loaded workshared central link with drifted SyncSettings
+            string wsCentralPath = Path.Combine(linksDir, "WorksharedChildCentral.rvt");
+            Document wsSeed = OpenIsolatedTestTemplateCopy(targetFileName: "WorksharedChildSeed.rvt");
+            wsSeed.EnableWorksharing("Shared Levels and Grids", "Workset1");
+            SeedSimpleSheetAndSet(wsSeed, "W-101", "WORKSHARED SHEET", "Batch Set");
+            using (var tx = new Transaction(wsSeed, "Seed WS SyncSettings"))
+            {
+                tx.Start();
+                SettingsManager.Save(wsSeed, new SyncSettings { LinkedFilePath = driftedSettingsJson });
+                tx.Commit();
+            }
+            var saveCentralOpts = new SaveAsOptions { OverwriteExistingFile = true };
+            saveCentralOpts.SetWorksharingOptions(new WorksharingSaveAsOptions { SaveAsCentral = true });
+            wsSeed.SaveAs(wsCentralPath, saveCentralOpts);
+            wsSeed.Close(false);
+
+            // 3. Overlapping open standalone tab + linked central
+            string overlapCentralPath = Path.Combine(linksDir, "OverlapCentralBatch.rvt");
+            Document overlapSeed = OpenIsolatedTestTemplateCopy(targetFileName: "OverlapBatchSeed.rvt");
+            overlapSeed.EnableWorksharing("Shared Levels and Grids", "Workset1");
+            SeedSimpleSheetAndSet(overlapSeed, "O-101", "OVERLAP BATCH SHEET", "Batch Set");
+            overlapSeed.SaveAs(overlapCentralPath, saveCentralOpts);
+            overlapSeed.Close(false);
+
+            string overlapLocalPath = Path.Combine(CurrentTestTempDirectory, "OverlapLocalBatchTab.rvt");
+            WorksharingUtils.CreateNewLocal(
+                ModelPathUtils.ConvertUserVisiblePathToModelPath(overlapCentralPath),
+                ModelPathUtils.ConvertUserVisiblePathToModelPath(overlapLocalPath));
+            Document overlapTab = TrackDocument(App.OpenDocumentFile(overlapLocalPath));
+
+            // 4. Host model linking all 3
+            string hostPath = Path.Combine(CurrentTestTempDirectory, "HostBatch.rvt");
+            Document hostSeed = OpenIsolatedTestTemplateCopy(targetFileName: "HostBatchSeed.rvt");
+            SeedSimpleSheetAndSet(hostSeed, "A-101", "HOST BATCH SHEET", "Batch Set");
+            using (var tx = new Transaction(hostSeed, "Link Batch Models"))
+            {
+                tx.Start();
+                LinkLoadResult localRes = RevitLinkType.Create(hostSeed, ModelPathUtils.ConvertUserVisiblePathToModelPath(localLinkPath), new RevitLinkOptions(false));
+                RevitLinkInstance.Create(hostSeed, localRes.ElementId);
+
+                LinkLoadResult wsRes = RevitLinkType.Create(hostSeed, ModelPathUtils.ConvertUserVisiblePathToModelPath(wsCentralPath), new RevitLinkOptions(false));
+                RevitLinkInstance.Create(hostSeed, wsRes.ElementId);
+
+                LinkLoadResult ovRes = RevitLinkType.Create(hostSeed, ModelPathUtils.ConvertUserVisiblePathToModelPath(overlapCentralPath), new RevitLinkOptions(false));
+                RevitLinkInstance.Create(hostSeed, ovRes.ElementId);
+                tx.Commit();
+            }
+            hostSeed.SaveAs(hostPath, new SaveAsOptions { OverwriteExistingFile = true });
+            hostSeed.Close(false);
+
+            Document hostDoc = TrackDocument(App.OpenDocumentFile(hostPath));
+            Assert.IsFalse(hostDoc.IsModified, "Re-opened host document must start clean.");
+            DocumentVersion hostVersionBefore = Document.GetDocumentVersion(hostDoc);
+
+            List<RevitLinkType> hostLinkTypes = new FilteredElementCollector(hostDoc)
+                .OfClass(typeof(RevitLinkType))
+                .Cast<RevitLinkType>()
+                .Where(lt => !lt.IsNestedLink)
+                .ToList();
+            List<RevitLinkInstance> hostLinkInstances = new FilteredElementCollector(hostDoc)
+                .OfClass(typeof(RevitLinkInstance))
+                .WhereElementIsNotElementType()
+                .Cast<RevitLinkInstance>()
+                .Where(li => hostLinkTypes.Any(lt => lt.Id == li.GetTypeId()))
+                .ToList();
+            Assert.AreEqual(3, hostLinkTypes.Count);
+            Assert.IsTrue(hostLinkTypes.All(lt => lt.GetLinkedFileStatus() == LinkedFileStatus.Loaded));
+            Assert.IsTrue(hostLinkInstances.All(li => li.GetLinkDocument() != null && li.GetLinkDocument()!.IsValidObject));
+
+            var adapter = new RevitMultiModelPdfExportAdapter(hostDoc, UiApp);
+            MultiModelPdfSessionSnapshot snapshot = adapter.CaptureSessionSnapshot();
+
+            MultiModelPdfDocumentSnapshot activeSnap = snapshot.Documents.Single(d => d.Origin == MultiModelPdfDocumentOrigin.Active);
+            MultiModelPdfDocumentSnapshot localLinkSnap = snapshot.Documents.Single(d => d.Origin == MultiModelPdfDocumentOrigin.Linked && d.Storage == MultiModelPdfStorageKind.Local);
+            MultiModelPdfDocumentSnapshot wsLinkSnap = snapshot.Documents.Single(d => d.Origin == MultiModelPdfDocumentOrigin.Linked && d.Storage == MultiModelPdfStorageKind.Workshared);
+            MultiModelPdfDocumentSnapshot openTabSnap = snapshot.Documents.Single(d => d.Origin == MultiModelPdfDocumentOrigin.OpenStandalone);
+
+            string outDir = Path.Combine(CurrentTestTempDirectory, "FederatedOut");
+            var jobs = new[]
+            {
+                CreateJob(activeSnap, "Batch Set", MultiModelPdfSetupOption.DefaultSetupId, MultiModelPdfFileMode.CombinedPerDocument, outDir, "HostBatch"),
+                CreateJob(localLinkSnap, "Batch Set", MultiModelPdfSetupOption.DefaultSetupId, MultiModelPdfFileMode.CombinedPerDocument, outDir, "LocalWithRoomsAndRefs"),
+                CreateJob(wsLinkSnap, "Batch Set", MultiModelPdfSetupOption.DefaultSetupId, MultiModelPdfFileMode.CombinedPerDocument, outDir, "WorksharedChildCentral"),
+                CreateJob(openTabSnap, "Batch Set", MultiModelPdfSetupOption.DefaultSetupId, MultiModelPdfFileMode.CombinedPerDocument, outDir, "OverlapLocalBatchTab")
+            };
+
+            int docsBeforeExport = App.Documents.Size;
+            var hostApp = new App();
+            EventHandler<DocumentOpenedEventArgs> docOpenedHandler = hostApp.OnDocumentOpen;
+            App.DocumentOpened += docOpenedHandler;
+
+            var hostChangedTxNames = new List<string>();
+            EventHandler<DocumentChangedEventArgs> docChangedHandler = (_, changedArgs) =>
+            {
+                Document changedDoc = changedArgs.GetDocument();
+                if (changedDoc != null && changedDoc.IsValidObject && changedDoc.Equals(hostDoc))
+                {
+                    hostChangedTxNames.AddRange(changedArgs.GetTransactionNames());
+                }
+            };
+            App.DocumentChanged += docChangedHandler;
+
+            bool previousSuppressDiskFallback = SettingsRuntimeOptions.SuppressFirmwideDiskFallback;
+            SettingsRuntimeOptions.SuppressFirmwideDiskFallback = true;
+
+            int spawnedToastCount = 0;
+            MultiModelPdfRunSummary summary;
+            try
+            {
+                var pipeline = new MultiModelPdfExportPipeline(adapter);
+                summary = pipeline.Execute(new MultiModelPdfRunRequest(
+                    jobs,
+                    outDir,
+                    MultiModelPdfSetupOption.DefaultSetupId,
+                    MultiModelPdfFileMode.CombinedPerDocument));
+
+                if (System.Windows.Application.Current != null)
+                {
+                    spawnedToastCount = System.Windows.Application.Current.Windows
+                        .OfType<Synthetic.Features.SettingsDashboard.Views.SyncToastNotification>()
+                        .Count();
+                }
+            }
+            finally
+            {
+                App.DocumentChanged -= docChangedHandler;
+                App.DocumentOpened -= docOpenedHandler;
+                SettingsRuntimeOptions.SuppressFirmwideDiskFallback = previousSuppressDiskFallback;
+                if (System.Windows.Application.Current != null)
+                {
+                    foreach (var toast in System.Windows.Application.Current.Windows
+                        .OfType<Synthetic.Features.SettingsDashboard.Views.SyncToastNotification>()
+                        .ToList())
+                    {
+                        toast.Close();
+                    }
+                }
+            }
+
+            Assert.AreEqual(0, summary.FailedDocumentCount, string.Join(" | ", summary.Errors));
+            Assert.AreEqual(4, summary.CompletedDocumentCount);
+            Assert.AreEqual(4, summary.GeneratedCount);
+
+            AssertPdfHeaderValid(Path.Combine(outDir, "HostBatch.pdf"));
+            AssertPdfHeaderValid(Path.Combine(outDir, "LocalWithRoomsAndRefs.pdf"));
+            AssertPdfHeaderValid(Path.Combine(outDir, "WorksharedChildCentral.pdf"));
+            AssertPdfHeaderValid(Path.Combine(outDir, "OverlapLocalBatchTab.pdf"));
+
+            Assert.AreEqual(0, spawnedToastCount, "Background linked-model opens must spawn 0 SyncToastNotification windows.");
+            Assert.IsFalse(SettingsRuntimeOptions.SuppressSyncDriftNotifications);
+            Assert.AreEqual(0, SettingsRuntimeOptions.SyncDriftSuppressionDepth);
+
+            // Host links remain loaded, host document clean, DocumentVersion untouched, open tab still open, zero doc leaks
+            Assert.IsTrue(hostLinkTypes.All(lt => lt.GetLinkedFileStatus() == LinkedFileStatus.Loaded), "Exporting linked models must NEVER unload host RevitLinkTypes.");
+            Assert.IsTrue(hostLinkInstances.All(li => li.GetLinkDocument() != null && li.GetLinkDocument()!.IsValidObject), "Host link instances must remain loaded.");
+            Assert.IsFalse(hostDoc.IsModified, "Host document must remain clean after linked-model export.");
+            Assert.IsEmpty(hostChangedTxNames, "Host document must record zero DocumentChanged transactions or Undo entries during linked-model export.");
+            Assert.IsTrue(hostVersionBefore.IsEqual(Document.GetDocumentVersion(hostDoc)), "Host DocumentVersion (VersionGUID + NumberOfSaves) must remain untouched after linked-model export.");
+            Assert.IsTrue(overlapTab.IsValidObject, "Open standalone tab must remain open.");
+            Assert.AreEqual(docsBeforeExport, App.Documents.Size, "Opened standalone linked documents must all close cleanly without leaking.");
+        }
+
+        [Test]
+        public void ExportDocument_LinkedModelFailurePaths_NeverLeakOpenedDocsOrTempDirs()
+        {
+            string linksDir = Path.Combine(CurrentTestTempDirectory, "FailLinks");
+            Directory.CreateDirectory(linksDir);
+
+            string localLinkPath = Path.Combine(linksDir, "FailLocalLink.rvt");
+            Document localSeed = OpenIsolatedTestTemplateCopy(targetFileName: "FailLocalSeed.rvt");
+            SeedSimpleSheetAndSet(localSeed, "FL-101", "FAIL LOCAL SHEET", "Real Set");
+            localSeed.SaveAs(localLinkPath, new SaveAsOptions { OverwriteExistingFile = true });
+            localSeed.Close(false);
+
+            string unloadedLinkPath = Path.Combine(linksDir, "FailUnloadedLink.rvt");
+            Document unloadedSeed = OpenIsolatedTestTemplateCopy(targetFileName: "FailUnloadedSeed.rvt");
+            SeedSimpleSheetAndSet(unloadedSeed, "FU-101", "FAIL UNLOADED SHEET", "Real Set");
+            unloadedSeed.SaveAs(unloadedLinkPath, new SaveAsOptions { OverwriteExistingFile = true });
+            unloadedSeed.Close(false);
+
+            string hostPath = Path.Combine(CurrentTestTempDirectory, "FailHost.rvt");
+            Document hostSeed = OpenIsolatedTestTemplateCopy(targetFileName: "FailHostSeed.rvt");
+            ElementId unloadedTypeId;
+            using (var tx = new Transaction(hostSeed, "Link Fail Test Models"))
+            {
+                tx.Start();
+                LinkLoadResult localRes = RevitLinkType.Create(hostSeed, ModelPathUtils.ConvertUserVisiblePathToModelPath(localLinkPath), new RevitLinkOptions(false));
+                RevitLinkInstance.Create(hostSeed, localRes.ElementId);
+
+                LinkLoadResult unloadedRes = RevitLinkType.Create(hostSeed, ModelPathUtils.ConvertUserVisiblePathToModelPath(unloadedLinkPath), new RevitLinkOptions(false));
+                RevitLinkInstance.Create(hostSeed, unloadedRes.ElementId);
+                unloadedTypeId = unloadedRes.ElementId;
+                tx.Commit();
+            }
+            ((RevitLinkType)hostSeed.GetElement(unloadedTypeId)).Unload(null);
+            hostSeed.SaveAs(hostPath, new SaveAsOptions { OverwriteExistingFile = true });
+            hostSeed.Close(false);
+
+            Document hostDoc = TrackDocument(App.OpenDocumentFile(hostPath));
+            var adapter = new RevitMultiModelPdfExportAdapter(hostDoc, UiApp);
+            MultiModelPdfSessionSnapshot snapshot = adapter.CaptureSessionSnapshot();
+
+            MultiModelPdfDocumentSnapshot loadedLinkSnap = snapshot.Documents.Single(d => d.Origin == MultiModelPdfDocumentOrigin.Linked && !d.IsUnloadedLink);
+            MultiModelPdfDocumentSnapshot unloadedLinkSnap = snapshot.Documents.Single(d => d.Origin == MultiModelPdfDocumentOrigin.Linked && d.IsUnloadedLink);
+
+            int docsBefore = App.Documents.Size;
+            var linkCopyDirsBefore = new HashSet<string>(
+                Directory.GetDirectories(Path.GetTempPath(), "SyntheticPdfLinkCopy_*"),
+                StringComparer.OrdinalIgnoreCase);
+            string outDir = Path.Combine(CurrentTestTempDirectory, "FailOut");
+            Directory.CreateDirectory(outDir);
+
+            // 1. Missing Print Set on loaded linked model -> closes opened standalone doc in finally
+            MultiModelPdfDocumentOutcome missingSetOutcome = adapter.ExportDocument(
+                CreateJob(loadedLinkSnap, "NonExistentSet", MultiModelPdfSetupOption.DefaultSetupId, MultiModelPdfFileMode.CombinedPerDocument, outDir, "FailLocalLink"));
+            Assert.IsFalse(missingSetOutcome.Succeeded);
+            StringAssert.Contains("NonExistentSet", missingSetOutcome.ErrorMessage!);
+            Assert.AreEqual(docsBefore, App.Documents.Size, "Opened linked standalone doc must close when Print Set is missing.");
+            Assert.IsEmpty(Directory.GetDirectories(Path.GetTempPath(), "SyntheticPdfLinkCopy_*").Where(d => !linkCopyDirsBefore.Contains(d)).ToList(),
+                "Scoped temp link copy directory must be deleted on failure.");
+            Assert.IsFalse(SettingsRuntimeOptions.SuppressSyncDriftNotifications);
+
+            // 2. Locked target PDF on loaded linked model -> closes opened standalone doc in finally and preserves sentinel
+            string lockedPdfPath = Path.Combine(outDir, "FailLocalLink.pdf");
+            byte[] sentinelBytes = Encoding.ASCII.GetBytes("%PDF-1.4 SENTINEL-LINK-LOCKED\n");
+            File.WriteAllBytes(lockedPdfPath, sentinelBytes);
+
+            MultiModelPdfDocumentOutcome lockedOutcome;
+            using (new FileStream(lockedPdfPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                lockedOutcome = adapter.ExportDocument(
+                    CreateJob(loadedLinkSnap, "Real Set", MultiModelPdfSetupOption.DefaultSetupId, MultiModelPdfFileMode.CombinedPerDocument, outDir, "FailLocalLink"));
+            }
+
+            Assert.IsFalse(lockedOutcome.Succeeded);
+            CollectionAssert.AreEqual(sentinelBytes, File.ReadAllBytes(lockedPdfPath));
+            Assert.AreEqual(docsBefore, App.Documents.Size, "Opened linked standalone doc must close when target PDF is locked.");
+            Assert.IsEmpty(Directory.GetDirectories(Path.GetTempPath(), "SyntheticPdfLinkCopy_*").Where(d => !linkCopyDirsBefore.Contains(d)).ToList(),
+                "Scoped temp link copy directory must be deleted when PDF write fails.");
+            Assert.IsFalse(SettingsRuntimeOptions.SuppressSyncDriftNotifications);
+
+            // 3. Unloaded link job -> fails cleanly without opening or leaking
+            MultiModelPdfDocumentOutcome unloadedOutcome = adapter.ExportDocument(
+                CreateJob(unloadedLinkSnap, "Real Set", MultiModelPdfSetupOption.DefaultSetupId, MultiModelPdfFileMode.CombinedPerDocument, outDir, "FailUnloadedLink"));
+            Assert.IsFalse(unloadedOutcome.Succeeded);
+            Assert.AreEqual(docsBefore, App.Documents.Size);
+            Assert.IsEmpty(Directory.GetDirectories(Path.GetTempPath(), "SyntheticPdfLinkCopy_*").Where(d => !linkCopyDirsBefore.Contains(d)).ToList(),
+                "Scoped temp link copy directory must not remain after unloaded link failure.");
+            Assert.IsFalse(SettingsRuntimeOptions.SuppressSyncDriftNotifications);
+        }
+
+        private static void SeedSimpleSheetAndSetWithUnenclosedRoom(Document doc, string sheetNumber, string sheetName, string printSetName)
+        {
+            CompositeFailuresPreprocessor roomWarningSuppressor = new FailurePipelineBuilder()
+                .OnFailure(BuiltInFailures.RoomFailures.RoomNotEnclosed)
+                .Build();
+
+            using (var tx = new Transaction(doc, "Seed Sheet With Unenclosed Room and Print Set"))
+            {
+                tx.Start();
+                try
+                {
+                    FailureHandlingOptions fho = tx.GetFailureHandlingOptions();
+                    fho.SetFailuresPreprocessor(roomWarningSuppressor);
+                    tx.SetFailureHandlingOptions(fho);
+
+                    Level level = new FilteredElementCollector(doc)
+                        .OfClass(typeof(Level))
+                        .Cast<Level>()
+                        .OrderBy(l => l.Elevation)
+                        .First();
+
+                    ElementId planTypeId = doc.GetDefaultElementTypeId(ElementTypeGroup.ViewTypeFloorPlan);
+                    if (planTypeId == ElementId.InvalidElementId)
+                    {
+                        planTypeId = new FilteredElementCollector(doc)
+                            .OfClass(typeof(ViewFamilyType))
+                            .Cast<ViewFamilyType>()
+                            .First(vft => vft.ViewFamily == ViewFamily.FloorPlan)
+                            .Id;
+                    }
+
+                    ViewPlan plan = ViewPlan.Create(doc, planTypeId, level.Id);
+                    plan.Name = "PLAN WITH UNENCLOSED ROOM";
+                    plan.DisplayStyle = DisplayStyle.Shading;
+
+                    // Create an unenclosed room on the plan's level (triggers RoomNotEnclosed warning on commit/export)
+                    doc.Create.NewRoom(level, new UV(0, 0));
+
+                    ElementId titleBlockId = new FilteredElementCollector(doc)
+                        .OfCategory(BuiltInCategory.OST_TitleBlocks)
+                        .WhereElementIsElementType()
+                        .FirstElementId() ?? ElementId.InvalidElementId;
+
+                    ViewSheet sheet = ViewSheet.Create(doc, titleBlockId);
+                    sheet.SheetNumber = sheetNumber;
+                    sheet.Name = sheetName;
+                    if (Viewport.CanAddViewToSheet(doc, sheet.Id, plan.Id))
+                    {
+                        Viewport.Create(doc, sheet.Id, plan.Id, XYZ.Zero);
+                    }
+
+                    PrintManager pm = doc.PrintManager;
+                    pm.PrintRange = PrintRange.Select;
+                    pm.Apply();
+                    ViewSheetSetting setting = pm.ViewSheetSetting;
+                    var viewSet = new ViewSet();
+                    viewSet.Insert(sheet);
+                    setting.CurrentViewSheetSet = setting.InSession;
+                    setting.CurrentViewSheetSet.Views = viewSet;
+                    Assert.IsTrue(setting.SaveAs(printSetName), $"Failed to save Print Set '{printSetName}'.");
+                    tx.Commit();
+                }
+                catch
+                {
+                    if (tx.HasStarted()) tx.RollBack();
+                    throw;
+                }
+            }
         }
 
         private static MultiModelPdfDocumentJob CreateJob(

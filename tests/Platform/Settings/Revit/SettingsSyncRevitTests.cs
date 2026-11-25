@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Autodesk.Revit.DB;
+using Autodesk.Revit.DB.Events;
 using Autodesk.Revit.UI;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -325,6 +327,160 @@ namespace SyntheticTests.Platform.Settings
                 Assert.IsFalse(vm.IsOverridden, "Reload() must clear IsOverridden when DataStorage is deleted.");
                 Assert.IsFalse(vm.IsDirty);
             });
+        }
+
+        [Test]
+        public void BeginSuppressSyncDriftNotifications_IsReentrantIdempotent_AndSuppressesCheckSyncDriftAndOnDocumentOpenToasts()
+        {
+            string tempJsonPath = CreateTempJsonPath();
+            string tempRvtPath = Path.Combine(Path.GetTempPath(), $"SyntheticToastSuppress_{Guid.NewGuid():N}.rvt");
+
+            try
+            {
+                Assert.IsFalse(SettingsRuntimeOptions.SuppressSyncDriftNotifications);
+                Assert.AreEqual(0, SettingsRuntimeOptions.SyncDriftSuppressionDepth);
+
+                WithRolledBackDocument(doc =>
+                {
+                    SaveDistinctSettingsToDocument(doc, tempJsonPath);
+                    var driftedJson = new Dictionary<string, object>
+                    {
+                        { StandardsSettings.Name, new StandardsSettings { StandardsFilePath = @"C:\Standards\drifted.json" } }
+                    };
+                    File.WriteAllText(tempJsonPath, JsonConvert.SerializeObject(driftedJson, Formatting.Indented));
+
+                    Assert.IsTrue(SettingsManager.CheckSyncDrift(doc, out string unsuppressedPath), "Control check should report sync drift.");
+                    Assert.AreEqual(tempJsonPath, unsuppressedPath);
+
+                    using (IDisposable outer = SettingsRuntimeOptions.BeginSuppressSyncDriftNotifications())
+                    {
+                        Assert.IsTrue(SettingsRuntimeOptions.SuppressSyncDriftNotifications);
+                        Assert.AreEqual(1, SettingsRuntimeOptions.SyncDriftSuppressionDepth);
+                        Assert.IsFalse(SettingsManager.CheckSyncDrift(doc, out string suppressedPath), "CheckSyncDrift must return false while suppressed.");
+                        Assert.AreEqual(string.Empty, suppressedPath);
+
+                        using (IDisposable inner = SettingsRuntimeOptions.BeginSuppressSyncDriftNotifications())
+                        {
+                            Assert.IsTrue(SettingsRuntimeOptions.SuppressSyncDriftNotifications);
+                            Assert.AreEqual(2, SettingsRuntimeOptions.SyncDriftSuppressionDepth);
+
+                            // Idempotent double-dispose must decrement only once
+                            inner.Dispose();
+                            Assert.AreEqual(1, SettingsRuntimeOptions.SyncDriftSuppressionDepth);
+                            Assert.IsTrue(SettingsRuntimeOptions.SuppressSyncDriftNotifications);
+                        }
+
+                        Assert.AreEqual(1, SettingsRuntimeOptions.SyncDriftSuppressionDepth);
+                        Assert.IsTrue(SettingsRuntimeOptions.SuppressSyncDriftNotifications);
+                        Assert.IsFalse(SettingsManager.CheckSyncDrift(doc, out _));
+                    }
+
+                    Assert.AreEqual(0, SettingsRuntimeOptions.SyncDriftSuppressionDepth);
+                    Assert.IsFalse(SettingsRuntimeOptions.SuppressSyncDriftNotifications);
+                    Assert.IsTrue(SettingsManager.CheckSyncDrift(doc, out _), "CheckSyncDrift must resume once outermost scope is disposed.");
+                });
+
+                // Verify App.OnDocumentOpen spawns SyncToastNotification without suppression, and spawns 0 toasts while suppressed
+                Document seedDoc = App.NewProjectDocument(UnitSystem.Imperial);
+                try
+                {
+                    SaveDistinctSettingsToDocument(seedDoc, tempJsonPath);
+                    seedDoc.SaveAs(tempRvtPath, new SaveAsOptions { OverwriteExistingFile = true });
+                }
+                finally
+                {
+                    if (seedDoc.IsValidObject)
+                    {
+                        seedDoc.Close(false);
+                    }
+                }
+
+                var driftedFileJson = new Dictionary<string, object>
+                {
+                    { StandardsSettings.Name, new StandardsSettings { StandardsFilePath = @"C:\Standards\toast-drift.json" } }
+                };
+                File.WriteAllText(tempJsonPath, JsonConvert.SerializeObject(driftedFileJson, Formatting.Indented));
+
+                var hostApp = new App();
+                EventHandler<DocumentOpenedEventArgs> openHandler = hostApp.OnDocumentOpen;
+                App.DocumentOpened += openHandler;
+
+                try
+                {
+                    // 1. Suppressed open -> 0 SyncToastNotification windows
+                    int toastsBeforeSuppressed = CountOpenSyncToasts();
+                    Document? openedSuppressed = null;
+                    try
+                    {
+                        using (SettingsRuntimeOptions.BeginSuppressSyncDriftNotifications())
+                        {
+                            openedSuppressed = App.OpenDocumentFile(tempRvtPath);
+                        }
+                        Assert.AreEqual(toastsBeforeSuppressed, CountOpenSyncToasts(), "Suppressed open must spawn 0 SyncToastNotification windows.");
+                    }
+                    finally
+                    {
+                        if (openedSuppressed != null && openedSuppressed.IsValidObject)
+                        {
+                            openedSuppressed.Close(false);
+                        }
+                    }
+
+                    // 2. Unsuppressed open -> positive control verifies OnDocumentOpen would otherwise spawn a toast
+                    int toastsBeforeControl = CountOpenSyncToasts();
+                    Document? openedUnsuppressed = null;
+                    try
+                    {
+                        openedUnsuppressed = App.OpenDocumentFile(tempRvtPath);
+                        Assert.Greater(CountOpenSyncToasts(), toastsBeforeControl, "Positive control: unsuppressed drifted open must trigger SyncToastNotification.");
+                    }
+                    finally
+                    {
+                        CloseAllSyncToasts();
+                        if (openedUnsuppressed != null && openedUnsuppressed.IsValidObject)
+                        {
+                            openedUnsuppressed.Close(false);
+                        }
+                    }
+                }
+                finally
+                {
+                    App.DocumentOpened -= openHandler;
+                    CloseAllSyncToasts();
+                }
+            }
+            finally
+            {
+                if (File.Exists(tempJsonPath)) File.Delete(tempJsonPath);
+                if (File.Exists(tempRvtPath)) File.Delete(tempRvtPath);
+            }
+        }
+
+        private static int CountOpenSyncToasts()
+        {
+            if (System.Windows.Application.Current == null)
+            {
+                return 0;
+            }
+
+            return System.Windows.Application.Current.Windows
+                .OfType<Synthetic.Features.SettingsDashboard.Views.SyncToastNotification>()
+                .Count();
+        }
+
+        private static void CloseAllSyncToasts()
+        {
+            if (System.Windows.Application.Current == null)
+            {
+                return;
+            }
+
+            foreach (var toast in System.Windows.Application.Current.Windows
+                .OfType<Synthetic.Features.SettingsDashboard.Views.SyncToastNotification>()
+                .ToList())
+            {
+                toast.Close();
+            }
         }
     }
 }
