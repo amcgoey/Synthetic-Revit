@@ -490,18 +490,6 @@ namespace SyntheticTests.Features.MultiModelPdfExport
                 var extDefDummy = (ExternalDefinition)altGroup.Definitions.Create(
                     new ExternalDefinitionCreationOptions("SynOffsetDummy", SpecTypeId.String.Text) { GUID = guidDummy });
 
-                // Probe default PDFExportOptions naming rule in live Revit 2026
-                var probeOptions = new PDFExportOptions();
-                IList<TableCellCombinedParameterData> freshDefaultRule = probeOptions.GetNamingRule();
-                TestContext.Progress.WriteLine($"Probe fresh new PDFExportOptions().GetNamingRule().Count = {freshDefaultRule?.Count ?? -1}");
-                if (freshDefaultRule != null)
-                {
-                    foreach (TableCellCombinedParameterData cell in freshDefaultRule)
-                    {
-                        TestContext.Progress.WriteLine($"  DefaultRule entry: ParamId={cell.ParamId}, CategoryId={cell.CategoryId}, Sep='{cell.Separator}'");
-                    }
-                }
-
                 // 1. Active Doc: has SynPdfTag (guidPrimary) + ExportPDFSettings "SynCustomNamingSetup"
                 Document activeDoc = OpenIsolatedTestTemplateCopy();
                 SeedSimpleSheetAndSet(activeDoc, "ACT-101", "ACTIVE SHEET", "Tab Set");
@@ -681,72 +669,6 @@ namespace SyntheticTests.Features.MultiModelPdfExport
             Assert.AreEqual(2, summary.Errors.Count);
             Assert.IsTrue(summary.Errors.Any(e => e.Contains("Batch Set")));
             Assert.AreEqual(docsBefore, App.Documents.Size, "Open tabs must remain open after fault-isolated export.");
-        }
-
-        [Test]
-        public void Spike_DirectOpenLoadedLocalLink_ObservesRevitBehaviorWithoutLeakingDocs()
-        {
-            string localLinkPath = Path.Combine(CurrentTestTempDirectory, "SpikeLocalLink.rvt");
-            Document seedLink = OpenIsolatedTestTemplateCopy(targetFileName: "SpikeLocalLinkSeed.rvt");
-            SeedSimpleSheetAndSet(seedLink, "SL-101", "SPIKE LINK SHEET", "Spike Set");
-            seedLink.SaveAs(localLinkPath, new SaveAsOptions { OverwriteExistingFile = true });
-            seedLink.Close(false);
-
-            string hostPath = Path.Combine(CurrentTestTempDirectory, "SpikeHost.rvt");
-            Document hostSeed = OpenIsolatedTestTemplateCopy(targetFileName: "SpikeHostSeed.rvt");
-            RevitLinkType linkType;
-            using (var tx = new Transaction(hostSeed, "Link Local Model"))
-            {
-                tx.Start();
-                ModelPath mp = ModelPathUtils.ConvertUserVisiblePathToModelPath(localLinkPath);
-                LinkLoadResult loadResult = RevitLinkType.Create(hostSeed, mp, new RevitLinkOptions(false));
-                RevitLinkInstance.Create(hostSeed, loadResult.ElementId);
-                linkType = (RevitLinkType)hostSeed.GetElement(loadResult.ElementId);
-                tx.Commit();
-            }
-            hostSeed.SaveAs(hostPath, new SaveAsOptions { OverwriteExistingFile = true });
-            hostSeed.Close(false);
-
-            Document hostDoc = TrackDocument(App.OpenDocumentFile(hostPath));
-            RevitLinkType hostLinkType = new FilteredElementCollector(hostDoc)
-                .OfClass(typeof(RevitLinkType))
-                .Cast<RevitLinkType>()
-                .First();
-            Assert.AreEqual(LinkedFileStatus.Loaded, hostLinkType.GetLinkedFileStatus());
-            Assert.IsFalse(hostDoc.IsModified);
-
-            Document? directOpened = null;
-            string directResult;
-            LinkedFileStatus statusAfterDirect;
-            bool modifiedAfterDirect;
-            try
-            {
-                ModelPath mp = ModelPathUtils.ConvertUserVisiblePathToModelPath(localLinkPath);
-                directOpened = App.OpenDocumentFile(mp, new OpenOptions());
-                directResult = directOpened != null
-                    ? $"OPENED:{directOpened.Title}(IsLinked={directOpened.IsLinked})"
-                    : "RETURNED_NULL";
-                statusAfterDirect = hostLinkType.GetLinkedFileStatus();
-                modifiedAfterDirect = hostDoc.IsModified;
-            }
-            catch (Exception ex)
-            {
-                directResult = $"THREW:{ex.GetType().Name}:{ex.Message}";
-                statusAfterDirect = hostLinkType.GetLinkedFileStatus();
-                modifiedAfterDirect = hostDoc.IsModified;
-            }
-            finally
-            {
-                if (directOpened != null && directOpened.IsValidObject && !directOpened.IsLinked)
-                {
-                    directOpened.Close(false);
-                }
-            }
-
-            string summaryText = $"[SPIKE_DIRECT_LOCAL_LINK] Result={directResult}; LinkStatusAfter={statusAfterDirect}; HostIsModified={modifiedAfterDirect}";
-            Console.WriteLine(summaryText);
-            TestContext.Progress.WriteLine(summaryText);
-            Assert.Pass(summaryText);
         }
 
         [Test]

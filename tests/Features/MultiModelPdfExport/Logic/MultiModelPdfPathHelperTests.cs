@@ -103,6 +103,28 @@ namespace SyntheticTests.Features.MultiModelPdfExport
             Assert.AreEqual(@"C:\Exports\Untitled", MultiModelPdfPathHelper.BuildSeparateDocumentFolderPath(@"C:\Exports", "   "));
         }
 
+        [TestCase(null, "Host", MultiModelPdfFileMode.CombinedPerDocument, @"<OutputFolder>\Host.pdf")]
+        [TestCase("", "Host", MultiModelPdfFileMode.CombinedPerDocument, @"<OutputFolder>\Host.pdf")]
+        [TestCase("   ", "Host", MultiModelPdfFileMode.SeparatePerViewSheet, @"<OutputFolder>\Host\<NamingRule>.pdf")]
+        [TestCase(@"\\\", "Host", MultiModelPdfFileMode.CombinedPerDocument, @"<OutputFolder>\Host.pdf")]
+        [TestCase(@"C:\Exports\Invalid|Folder", "Host", MultiModelPdfFileMode.CombinedPerDocument, @"C:\Exports\Invalid|Folder\Host.pdf")]
+        [TestCase(@"C:\Exports\Invalid|Folder", "Host", MultiModelPdfFileMode.SeparatePerViewSheet, @"C:\Exports\Invalid|Folder\Host\<NamingRule>.pdf")]
+        [TestCase(@"  C:\Exports\Deliverables\\  ", "Host", MultiModelPdfFileMode.CombinedPerDocument, @"C:\Exports\Deliverables\Host.pdf")]
+        [TestCase(@"C:\Exports/Sub/", "Host", MultiModelPdfFileMode.SeparatePerViewSheet, @"C:\Exports/Sub\Host\<NamingRule>.pdf")]
+        [TestCase(@"C:\", "Host", MultiModelPdfFileMode.CombinedPerDocument, @"C:\Host.pdf")]
+        [TestCase(@"C:/", "Host", MultiModelPdfFileMode.SeparatePerViewSheet, @"C:\Host\<NamingRule>.pdf")]
+        [TestCase(@"\\fileserver\share", "Host", MultiModelPdfFileMode.CombinedPerDocument, @"\\fileserver\share\Host.pdf")]
+        [TestCase(@"\\fileserver\share\", "Host", MultiModelPdfFileMode.SeparatePerViewSheet, @"\\fileserver\share\Host\<NamingRule>.pdf")]
+        [TestCase(@"C:\Exports", "   ", MultiModelPdfFileMode.CombinedPerDocument, @"C:\Exports\Untitled.pdf")]
+        public void BuildOutputPreviewPath_FormatsWithoutPathCombineExceptionsAcrossNet48AndNet8(
+            string? outputFolder,
+            string? firstToken,
+            MultiModelPdfFileMode fileMode,
+            string expected)
+        {
+            Assert.AreEqual(expected, MultiModelPdfPathHelper.BuildOutputPreviewPath(outputFolder, firstToken, fileMode));
+        }
+
         [Test]
         public void ResolveOutputTokens_EnforcesActiveOpenLinkedPriority_AndSuffixesLinkOrNumbered()
         {

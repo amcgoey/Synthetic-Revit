@@ -67,9 +67,17 @@ namespace Synthetic.Features.MultiModelPdfExport.Services
 
                 return prefs;
             }
-            catch (Exception)
+            catch (Exception ex) when (
+                ex is IOException ||
+                ex is UnauthorizedAccessException ||
+                ex is ArgumentException ||
+                ex is NotSupportedException ||
+                ex is System.Security.SecurityException ||
+                ex is JsonException)
             {
                 // Corrupt or unreadable local preferences must fall back cleanly to defaults.
+                System.Diagnostics.Debug.WriteLine(
+                    $"[MultiModelPdfExport] Failed to load user preferences from '{FilePath}': {ex.Message}");
                 return new MultiModelPdfExportUserPrefs();
             }
         }

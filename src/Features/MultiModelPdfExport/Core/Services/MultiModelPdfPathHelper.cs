@@ -215,6 +215,25 @@ namespace Synthetic.Features.MultiModelPdfExport.Services
         }
 
         /// <summary>
+        /// Formats a display-safe live output preview path without invoking <see cref="Path.Combine(string, string)"/>,
+        /// so placeholder tokens (<c>&lt;OutputFolder&gt;</c>) and unvalidated user folder text never throw on <c>net48</c>.
+        /// </summary>
+        public static string BuildOutputPreviewPath(
+            string? outputFolder,
+            string? firstOutputToken,
+            MultiModelPdfFileMode fileMode)
+        {
+            string normalizedFolder = NormalizeFolderPath(outputFolder);
+            string folderDisplay = string.IsNullOrEmpty(normalizedFolder) ? "<OutputFolder>" : normalizedFolder;
+            string separator = folderDisplay.EndsWith("\\", StringComparison.Ordinal) ? string.Empty : "\\";
+            string token = SanitizeSegment(firstOutputToken, FallbackDocumentToken);
+
+            return fileMode == MultiModelPdfFileMode.CombinedPerDocument
+                ? $"{folderDisplay}{separator}{token}.pdf"
+                : $"{folderDisplay}{separator}{token}\\<NamingRule>.pdf";
+        }
+
+        /// <summary>
         /// Returns <c>true</c> if <paramref name="fullPath"/> is non-blank and strictly shorter than 255 characters.
         /// </summary>
         public static bool IsPathWithinSafeLimit(string? fullPath) =>

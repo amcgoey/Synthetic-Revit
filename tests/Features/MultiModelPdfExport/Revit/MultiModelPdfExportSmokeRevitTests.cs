@@ -4,6 +4,8 @@ using System.Linq;
 using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Autodesk.Revit.UI;
@@ -11,6 +13,7 @@ using WpfButton = System.Windows.Controls.Button;
 using WpfCheckBox = System.Windows.Controls.CheckBox;
 using WpfComboBox = System.Windows.Controls.ComboBox;
 using WpfTextBox = System.Windows.Controls.TextBox;
+using WpfToggleButton = System.Windows.Controls.Primitives.ToggleButton;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 using Synthetic.Features.MultiModelPdfExport.Commands;
@@ -473,6 +476,15 @@ namespace SyntheticTests.Features.MultiModelPdfExport
                     var masterCheck = window.FindName("MasterHeaderCheckBox") as WpfCheckBox;
                     Assert.IsNotNull(masterCheck, "Expected MasterHeaderCheckBox.");
                     Assert.IsTrue(masterCheck!.IsEnabled);
+                    Assert.IsTrue(
+                        ReferenceEquals(vm.ToggleAllVisibleCommand, masterCheck.Command),
+                        "MasterHeaderCheckBox.Command must bind to ToggleAllVisibleCommand.");
+                    Binding? masterCheckedBinding = BindingOperations.GetBinding(masterCheck, WpfToggleButton.IsCheckedProperty);
+                    Assert.IsNotNull(masterCheckedBinding, "Expected IsChecked binding on MasterHeaderCheckBox.");
+                    Assert.AreEqual(
+                        BindingMode.OneWay,
+                        masterCheckedBinding!.Mode,
+                        "MasterHeaderCheckBox.IsChecked must use Mode=OneWay so ToggleButton.OnToggle() cannot push null->false before Command executes.");
                     Assert.IsNull(masterCheck.IsChecked, "Active+Links checked with Open unchecked must yield indeterminate header state.");
 
                     var checkMark = masterCheck.Template.FindName("CheckMark", masterCheck) as FrameworkElement;
@@ -482,23 +494,50 @@ namespace SyntheticTests.Features.MultiModelPdfExport
                     Assert.AreEqual(Visibility.Visible, indetMark!.Visibility);
                     Assert.AreEqual(Visibility.Collapsed, checkMark!.Visibility);
 
-                    // Transition header CheckBox: true -> false -> restore Active + Links (null)
-                    masterCheck.IsChecked = true;
+                    // Seed a bulk mismatch accent before toggling from indeterminate -> true to prove
+                    // ToggleButton.OnToggle()'s internal null->false does not fire AllVisibleChecked=false transiently.
+                    MultiModelPdfExportRowViewModel retailRow = vm.Rows.Single(r => r.DocumentKey == "link-retail");
+                    retailRow.SetBulkMismatchAccent(true);
+                    Assert.IsTrue(retailRow.HasBulkMismatchAccent);
+
+                    // Real user toggle cycle via Space key (invokes ToggleButton.OnClick -> OnToggle() + Command):
+                    // 1) null (indeterminate) -> true
+                    SimulateCheckBoxUserToggle(masterCheck);
                     FlushLayout(window);
+                    Assert.AreEqual(true, masterCheck.IsChecked);
+                    Assert.AreEqual(true, vm.AllVisibleChecked);
+                    Assert.IsTrue(vm.Rows.Single(r => r.DocumentKey == "open-annex").IsChecked);
+                    Assert.IsFalse(vm.Rows.Single(r => r.DocumentKey == "link-unloaded").IsChecked);
+                    Assert.IsTrue(
+                        retailRow.HasBulkMismatchAccent,
+                        "Indeterminate -> Checked click must preserve existing mismatch accent (no transient null->false).");
+                    Assert.AreEqual(Visibility.Visible, checkMark.Visibility);
+                    Assert.AreEqual(Visibility.Collapsed, indetMark.Visibility);
+
+                    // 2) true -> false
+                    SimulateCheckBoxUserToggle(masterCheck);
+                    FlushLayout(window);
+                    Assert.AreEqual(false, masterCheck.IsChecked);
+                    Assert.AreEqual(false, vm.AllVisibleChecked);
+                    Assert.AreEqual(0, vm.CheckedCount);
+                    Assert.IsFalse(retailRow.HasBulkMismatchAccent);
+                    Assert.AreEqual(Visibility.Collapsed, checkMark.Visibility);
+                    Assert.AreEqual(Visibility.Collapsed, indetMark.Visibility);
+
+                    // 3) false -> true
+                    SimulateCheckBoxUserToggle(masterCheck);
+                    FlushLayout(window);
+                    Assert.AreEqual(true, masterCheck.IsChecked);
                     Assert.AreEqual(true, vm.AllVisibleChecked);
                     Assert.AreEqual(Visibility.Visible, checkMark.Visibility);
                     Assert.AreEqual(Visibility.Collapsed, indetMark.Visibility);
 
-                    masterCheck.IsChecked = false;
-                    FlushLayout(window);
-                    Assert.AreEqual(false, vm.AllVisibleChecked);
-                    Assert.AreEqual(Visibility.Collapsed, checkMark.Visibility);
-                    Assert.AreEqual(Visibility.Collapsed, indetMark.Visibility);
-
+                    // 4) Restore Active + Links -> indeterminate (null)
                     vm.SelectActiveAndLinksVisibleCommand.Execute(null);
                     FlushLayout(window);
                     Assert.IsNull(masterCheck.IsChecked);
                     Assert.AreEqual(Visibility.Visible, indetMark.Visibility);
+                    Assert.AreEqual(Visibility.Collapsed, checkMark.Visibility);
 
                     // 3. Partial match bulk apply -> Warning (#C2A26A) banner + Uncheck unmatched + row mismatch stripe
                     var bulkBanner = window.FindName("BulkFeedbackBanner") as Border;
@@ -613,6 +652,26 @@ namespace SyntheticTests.Features.MultiModelPdfExport
             }
 
             Assert.AreEqual(_initialDocCount, _uiapp.Application.Documents.Size, "Non-executing MultiModelPdfExport smoke test must not open or leak Revit documents.");
+        }
+
+        private static void SimulateCheckBoxUserToggle(WpfCheckBox checkBox)
+        {
+            // Raise Space KeyDown/KeyUp so WPF executes ToggleButton.OnClick() -> OnToggle() + Command
+            // (ToggleButtonAutomationPeer.Toggle() calls OnToggle() alone without invoking Command).
+            PresentationSource? source = PresentationSource.FromVisual(checkBox);
+            Assert.IsNotNull(source, "Expected rendered PresentationSource for CheckBox toggle simulation.");
+
+            var keyDown = new KeyEventArgs(Keyboard.PrimaryDevice, source!, 0, Key.Space)
+            {
+                RoutedEvent = UIElement.KeyDownEvent
+            };
+            checkBox.RaiseEvent(keyDown);
+
+            var keyUp = new KeyEventArgs(Keyboard.PrimaryDevice, source!, 0, Key.Space)
+            {
+                RoutedEvent = UIElement.KeyUpEvent
+            };
+            checkBox.RaiseEvent(keyUp);
         }
 
         private static void FlushLayout(Window window)
