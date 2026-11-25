@@ -1,0 +1,739 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using Autodesk.Revit.DB;
+using Autodesk.Revit.DB.Events;
+using Autodesk.Revit.UI;
+using Autodesk.Revit.UI.Events;
+using Synthetic.Features.MultiModelPdfExport.Adapters;
+using Synthetic.Features.MultiModelPdfExport.Models;
+using Synthetic.Features.MultiModelPdfExport.Services;
+using View = Autodesk.Revit.DB.View;
+
+namespace Synthetic.Features.MultiModelPdfExport.Adapters
+{
+    /// <summary>
+    /// Concrete Revit API adapter implementing <see cref="IMultiModelPdfExportAdapter"/> using
+    /// native <see cref="Document.Export(string, IList{ElementId}, PDFExportOptions)"/> and
+    /// <see cref="ExportPDFSettings"/> without third-party printer drivers or Windows Registry writes.
+    /// </summary>
+    public sealed class RevitMultiModelPdfExportAdapter : IMultiModelPdfExportAdapter
+    {
+        private const string TempViewModesTaskDialogId = "TaskDialog_Really_Print_Or_Export_Temp_View_Modes";
+        private const int SuppressTempViewModesOverrideResult = 1002;
+
+        private readonly Document _doc;
+        private readonly UIApplication? _uiapp;
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="RevitMultiModelPdfExportAdapter"/> class.
+        /// </summary>
+        public RevitMultiModelPdfExportAdapter(Document doc, UIApplication? uiapp = null)
+        {
+            _doc = doc ?? throw new ArgumentNullException(nameof(doc));
+            _uiapp = uiapp;
+        }
+
+        /// <inheritdoc />
+        public MultiModelPdfSessionSnapshot CaptureSessionSnapshot()
+        {
+            if (!_doc.IsValidObject)
+            {
+                throw new InvalidOperationException("Active Revit document is no longer valid.");
+            }
+
+            if (_doc.IsFamilyDocument)
+            {
+                return new MultiModelPdfSessionSnapshot(
+                    _doc.Title,
+                    Array.Empty<MultiModelPdfDocumentSnapshot>(),
+                    new[] { MultiModelPdfSetupOption.CreateDefault() });
+            }
+
+            string docKey = ComputeDocumentKey(_doc);
+            MultiModelPdfStorageKind storage = ClassifyStorageKind(_doc);
+            string displayPath = ResolveDisplayPath(_doc);
+            IReadOnlyList<MultiModelPdfSetSnapshot> printSets = HarvestPrintSets(_doc);
+
+            var activeDocSnapshot = new MultiModelPdfDocumentSnapshot(
+                documentKey: docKey,
+                documentTitle: _doc.Title ?? string.Empty,
+                displayPath: displayPath,
+                origin: MultiModelPdfDocumentOrigin.Active,
+                storage: storage,
+                isUnloadedLink: false,
+                printSets: printSets);
+
+            IReadOnlyList<MultiModelPdfSetupOption> pdfSetups = HarvestPdfSetups(_doc);
+
+            return new MultiModelPdfSessionSnapshot(
+                activeDocumentTitle: _doc.Title ?? string.Empty,
+                documents: new[] { activeDocSnapshot },
+                pdfSetups: pdfSetups);
+        }
+
+        /// <inheritdoc />
+        public MultiModelPdfDocumentOutcome ExportDocument(MultiModelPdfDocumentJob job)
+        {
+            if (job == null) throw new ArgumentNullException(nameof(job));
+
+            if (!_doc.IsValidObject || _doc.IsFamilyDocument)
+            {
+                return MultiModelPdfDocumentOutcome.Failure(
+                    job.DocumentKey,
+                    job.DocumentTitle,
+                    $"Document '{job.DocumentTitle}' is unavailable or is a family document.");
+            }
+
+            string activeKey = ComputeDocumentKey(_doc);
+            if (!string.Equals(activeKey, job.DocumentKey, StringComparison.Ordinal))
+            {
+                return MultiModelPdfDocumentOutcome.Failure(
+                    job.DocumentKey,
+                    job.DocumentTitle,
+                    $"Document '{job.DocumentTitle}' does not match the active Revit project.");
+            }
+
+            if (_doc.IsModifiable)
+            {
+                return MultiModelPdfDocumentOutcome.Failure(
+                    job.DocumentKey,
+                    _doc.Title ?? job.DocumentTitle,
+                    $"Document '{_doc.Title}' has an open transaction or uncommitted edits and cannot be exported.");
+            }
+
+            if (!MultiModelPdfPathHelper.TryValidateOutputFolder(job.OutputFolder, out string folderError))
+            {
+                return MultiModelPdfDocumentOutcome.Failure(job.DocumentKey, _doc.Title ?? job.DocumentTitle, folderError);
+            }
+
+            string normalizedFolder = MultiModelPdfPathHelper.NormalizeFolderPath(job.OutputFolder);
+            string destinationPdfPath = MultiModelPdfPathHelper.BuildCombinedPdfPath(normalizedFolder, job.OutputFileToken);
+            if (!MultiModelPdfPathHelper.IsPathWithinSafeLimit(destinationPdfPath))
+            {
+                return MultiModelPdfDocumentOutcome.Failure(
+                    job.DocumentKey,
+                    _doc.Title ?? job.DocumentTitle,
+                    $"Output path exceeds {MultiModelPdfPathHelper.SafeMaxPathLength - 1} characters: {destinationPdfPath}");
+            }
+
+            ViewSheetSet? printSet = new FilteredElementCollector(_doc)
+                .OfClass(typeof(ViewSheetSet))
+                .WhereElementIsNotElementType()
+                .Cast<ViewSheetSet>()
+                .FirstOrDefault(vs => string.Equals(vs.Name, job.PrintSetName, StringComparison.OrdinalIgnoreCase));
+
+            if (printSet == null)
+            {
+                return MultiModelPdfDocumentOutcome.Failure(
+                    job.DocumentKey,
+                    _doc.Title ?? job.DocumentTitle,
+                    $"Print Set '{job.PrintSetName}' was not found in '{_doc.Title}'.");
+            }
+
+            ExtractedPrintSetViews extracted = ExtractViewsFromPrintSet(printSet);
+            var warnings = new List<string>();
+            if (extracted.SkippedViews.Count > 0)
+            {
+                warnings.Add($"{_doc.Title} ({printSet.Name}): skipped {extracted.SkippedViews.Count} non-printable/placeholder item(s).");
+            }
+
+            if (extracted.PrintableViewIds.Count == 0)
+            {
+                return MultiModelPdfDocumentOutcome.Failure(
+                    job.DocumentKey,
+                    _doc.Title ?? job.DocumentTitle,
+                    $"Print Set '{printSet.Name}' in '{_doc.Title}' has 0 printable views.",
+                    warnings);
+            }
+
+            PDFExportOptions options = BuildPdfExportOptions(_doc, job.PdfSetupId, job.OutputFileToken, extracted.AllSheets, warnings);
+
+            string stagingDir = Path.Combine(
+                Path.GetTempPath(),
+                "SyntheticPdfStage_" + Guid.NewGuid().ToString("N").Substring(0, 8));
+
+            EventHandler<FailuresProcessingEventArgs> failuresHandler = OnFailuresProcessing;
+            EventHandler<DialogBoxShowingEventArgs> dialogHandler = OnDialogBoxShowing;
+
+            _doc.Application.FailuresProcessing += failuresHandler;
+            if (_uiapp != null)
+            {
+                _uiapp.DialogBoxShowing += dialogHandler;
+            }
+
+            try
+            {
+                Directory.CreateDirectory(stagingDir);
+                bool exported = _doc.Export(stagingDir, extracted.PrintableViewIds, options);
+                if (!exported)
+                {
+                    return MultiModelPdfDocumentOutcome.Failure(
+                        job.DocumentKey,
+                        _doc.Title ?? job.DocumentTitle,
+                        $"Revit PDF export failed for '{_doc.Title}' (Print Set '{printSet.Name}').",
+                        warnings);
+                }
+
+                string? stagedPdfPath = ResolveStagedPdfPath(stagingDir, job.OutputFileToken);
+                if (string.IsNullOrEmpty(stagedPdfPath) || !File.Exists(stagedPdfPath) || new FileInfo(stagedPdfPath!).Length == 0)
+                {
+                    return MultiModelPdfDocumentOutcome.Failure(
+                        job.DocumentKey,
+                        _doc.Title ?? job.DocumentTitle,
+                        $"Revit PDF export produced no PDF file for '{_doc.Title}'.",
+                        warnings);
+                }
+
+                Directory.CreateDirectory(normalizedFolder);
+                AtomicallyPromotePdf(stagedPdfPath!, destinationPdfPath);
+
+                return MultiModelPdfDocumentOutcome.Success(
+                    job.DocumentKey,
+                    _doc.Title ?? job.DocumentTitle,
+                    new[] { destinationPdfPath },
+                    warnings);
+            }
+            catch (Autodesk.Revit.Exceptions.FileAccessException ex)
+            {
+                return MultiModelPdfDocumentOutcome.Failure(
+                    job.DocumentKey,
+                    _doc.Title ?? job.DocumentTitle,
+                    $"Cannot write '{destinationPdfPath}': {ex.Message}",
+                    warnings);
+            }
+            catch (IOException ex)
+            {
+                return MultiModelPdfDocumentOutcome.Failure(
+                    job.DocumentKey,
+                    _doc.Title ?? job.DocumentTitle,
+                    $"Cannot write '{destinationPdfPath}': {ex.Message}",
+                    warnings);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return MultiModelPdfDocumentOutcome.Failure(
+                    job.DocumentKey,
+                    _doc.Title ?? job.DocumentTitle,
+                    $"Access denied writing '{destinationPdfPath}': {ex.Message}",
+                    warnings);
+            }
+            catch (Exception ex)
+            {
+                return MultiModelPdfDocumentOutcome.Failure(
+                    job.DocumentKey,
+                    _doc.Title ?? job.DocumentTitle,
+                    $"Unexpected PDF export error for '{_doc.Title}': {ex.Message}",
+                    warnings);
+            }
+            finally
+            {
+                _doc.Application.FailuresProcessing -= failuresHandler;
+                if (_uiapp != null)
+                {
+                    _uiapp.DialogBoxShowing -= dialogHandler;
+                }
+
+                TryDeleteDirectory(stagingDir);
+            }
+        }
+
+        private static IReadOnlyList<MultiModelPdfSetSnapshot> HarvestPrintSets(Document doc)
+        {
+            var rawSets = new FilteredElementCollector(doc)
+                .OfClass(typeof(ViewSheetSet))
+                .WhereElementIsNotElementType()
+                .Cast<ViewSheetSet>()
+                .Where(vs => !string.IsNullOrWhiteSpace(vs.Name))
+                .OrderBy(vs => vs.Name, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(vs => vs.UniqueId, StringComparer.Ordinal)
+                .ToList();
+
+            var snapshots = new List<MultiModelPdfSetSnapshot>(rawSets.Count);
+            var seenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (ViewSheetSet printSet in rawSets)
+            {
+                string name = printSet.Name!.Trim();
+                if (!seenNames.Add(name))
+                {
+                    continue;
+                }
+
+                ExtractedPrintSetViews extracted = ExtractViewsFromPrintSet(printSet);
+                snapshots.Add(new MultiModelPdfSetSnapshot(
+                    name: name,
+                    printableViewCount: extracted.PrintableViewIds.Count,
+                    skippedViews: extracted.SkippedViews));
+            }
+
+            return snapshots.AsReadOnly();
+        }
+
+        private static IReadOnlyList<MultiModelPdfSetupOption> HarvestPdfSetups(Document doc)
+        {
+            var options = new List<MultiModelPdfSetupOption>
+            {
+                MultiModelPdfSetupOption.CreateDefault()
+            };
+
+            IList<string>? settingNames = null;
+            try
+            {
+                settingNames = ExportPDFSettings.ListNames(doc);
+            }
+            catch
+            {
+                settingNames = Array.Empty<string>();
+            }
+
+            if (settingNames != null)
+            {
+                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (string rawName in settingNames.OrderBy(n => n, StringComparer.OrdinalIgnoreCase))
+                {
+                    if (string.IsNullOrWhiteSpace(rawName))
+                    {
+                        continue;
+                    }
+
+                    string trimmed = rawName.Trim();
+                    if (seen.Add(trimmed))
+                    {
+                        options.Add(new MultiModelPdfSetupOption(trimmed, trimmed, isDefault: false));
+                    }
+                }
+            }
+
+            return options.AsReadOnly();
+        }
+
+        private static PDFExportOptions BuildPdfExportOptions(
+            Document doc,
+            string pdfSetupId,
+            string outputFileToken,
+            bool allSheets,
+            List<string> warnings)
+        {
+            PDFExportOptions? options = null;
+            if (!string.IsNullOrWhiteSpace(pdfSetupId) &&
+                !string.Equals(pdfSetupId, MultiModelPdfSetupOption.DefaultSetupId, StringComparison.Ordinal))
+            {
+                ExportPDFSettings? savedSettings = ExportPDFSettings.FindByName(doc, pdfSetupId);
+                if (savedSettings != null)
+                {
+                    options = savedSettings.GetOptions();
+                }
+                else
+                {
+                    warnings.Add($"{doc.Title}: PDF Export Setup '{pdfSetupId}' was not found; used '{MultiModelPdfSetupOption.DefaultSetupDisplayName}'.");
+                }
+            }
+
+            options ??= CreateDefaultPdfExportOptions(allSheets);
+
+            options.Combine = true;
+            options.FileName = outputFileToken;
+            options.StopOnError = true;
+
+#if REVIT2023 || REVIT2024
+            // Synchronous export is the only mode in Revit 2023-2024.
+#else
+            options.SetExportInBackground(false);
+#endif
+
+            return options;
+        }
+
+        private static PDFExportOptions CreateDefaultPdfExportOptions(bool allSheets)
+        {
+            return new PDFExportOptions
+            {
+                PaperFormat = ExportPaperFormat.Default,
+                ColorDepth = ColorDepthType.Color,
+                ExportQuality = PDFExportQualityType.DPI600,
+                RasterQuality = RasterQualityType.High,
+                AlwaysUseRaster = false,
+                HideCropBoundaries = true,
+                HideReferencePlane = true,
+                HideScopeBoxes = true,
+                HideUnreferencedViewTags = true,
+                ReplaceHalftoneWithThinLines = false,
+                ZoomType = allSheets ? ZoomType.Zoom : ZoomType.FitToPage,
+                ZoomPercentage = 100
+            };
+        }
+
+        private static ExtractedPrintSetViews ExtractViewsFromPrintSet(ViewSheetSet printSet)
+        {
+            var printableIds = new List<ElementId>();
+            var skipped = new List<MultiModelPdfSkippedViewInfo>();
+            var seenIds = new HashSet<long>();
+            bool allSheets = true;
+
+            IEnumerable<View> candidateViews = EnumerateOrderedOrFallbackViews(printSet);
+            foreach (View view in candidateViews)
+            {
+                if (view == null || !view.IsValidObject)
+                {
+                    continue;
+                }
+
+                long numericId = GetElementIdValue(view.Id);
+                if (!seenIds.Add(numericId))
+                {
+                    continue;
+                }
+
+                if (view.IsTemplate)
+                {
+                    skipped.Add(new MultiModelPdfSkippedViewInfo(
+                        view.ViewType.ToString(),
+                        view.Name,
+                        "View template"));
+                    continue;
+                }
+
+                if (view is ViewSheet sheet && sheet.IsPlaceholder)
+                {
+                    skipped.Add(new MultiModelPdfSkippedViewInfo(
+                        sheet.SheetNumber,
+                        sheet.Name,
+                        "Placeholder sheet"));
+                    continue;
+                }
+
+                if (!view.CanBePrinted)
+                {
+                    string displayCode = view is ViewSheet nonPrintableSheet && !string.IsNullOrWhiteSpace(nonPrintableSheet.SheetNumber)
+                        ? nonPrintableSheet.SheetNumber
+                        : view.ViewType.ToString();
+                    string reason = view.ViewType == ViewType.Schedule
+                        ? "Schedule — not printable"
+                        : "Not printable";
+                    skipped.Add(new MultiModelPdfSkippedViewInfo(displayCode, view.Name, reason));
+                    continue;
+                }
+
+                if (!(view is ViewSheet))
+                {
+                    allSheets = false;
+                }
+
+                printableIds.Add(view.Id);
+            }
+
+            return new ExtractedPrintSetViews(printableIds, skipped, allSheets && printableIds.Count > 0);
+        }
+
+        private static IEnumerable<View> EnumerateOrderedOrFallbackViews(ViewSheetSet printSet)
+        {
+            IReadOnlyList<View>? ordered = null;
+            try
+            {
+                ordered = printSet.OrderedViewList;
+            }
+            catch (Autodesk.Revit.Exceptions.InvalidOperationException)
+            {
+                ordered = null;
+            }
+
+            if (ordered != null && ordered.Count > 0)
+            {
+                return ordered;
+            }
+
+            if (printSet.Views == null)
+            {
+                return Array.Empty<View>();
+            }
+
+            var fallback = new List<View>();
+            foreach (object item in printSet.Views)
+            {
+                if (item is View view)
+                {
+                    fallback.Add(view);
+                }
+            }
+
+            return fallback;
+        }
+
+        private static string ComputeDocumentKey(Document doc)
+        {
+            if (doc.IsModelInCloud)
+            {
+                try
+                {
+                    ModelPath? cloudPath = doc.GetCloudModelPath();
+                    if (cloudPath != null)
+                    {
+                        return $"cloud:{cloudPath.GetProjectGUID():D}:{cloudPath.GetModelGUID():D}";
+                    }
+                }
+                catch
+                {
+                    // Fall through to path / creation fallback
+                }
+            }
+
+            if (doc.IsWorkshared)
+            {
+                try
+                {
+                    ModelPath? centralPath = doc.GetWorksharingCentralModelPath();
+                    if (centralPath != null)
+                    {
+                        string visible = ModelPathUtils.ConvertModelPathToUserVisiblePath(centralPath);
+                        if (!string.IsNullOrWhiteSpace(visible))
+                        {
+                            return "central:" + NormalizePathForKey(visible);
+                        }
+                    }
+                }
+                catch
+                {
+                    // Fall through to local PathName / unsaved fallback
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(doc.PathName))
+            {
+                return "path:" + NormalizePathForKey(doc.PathName);
+            }
+
+#if REVIT2023
+            string fallbackUid = doc.ProjectInformation?.UniqueId ?? doc.Title ?? string.Empty;
+            return $"unsaved:{fallbackUid}:{doc.Title}";
+#else
+            return $"unsaved:{doc.CreationGUID:D}:{doc.Title}";
+#endif
+        }
+
+        private static MultiModelPdfStorageKind ClassifyStorageKind(Document doc)
+        {
+            if (doc.IsModelInCloud)
+            {
+                return MultiModelPdfStorageKind.CloudAcc;
+            }
+
+            if (doc.IsWorkshared)
+            {
+                return MultiModelPdfStorageKind.Workshared;
+            }
+
+            if (!string.IsNullOrWhiteSpace(doc.PathName))
+            {
+                return MultiModelPdfStorageKind.Local;
+            }
+
+            return MultiModelPdfStorageKind.Unsaved;
+        }
+
+        private static string ResolveDisplayPath(Document doc)
+        {
+            if (!string.IsNullOrWhiteSpace(doc.PathName))
+            {
+                return doc.PathName;
+            }
+
+            if (doc.IsModelInCloud)
+            {
+                try
+                {
+                    ModelPath? cloud = doc.GetCloudModelPath();
+                    if (cloud != null)
+                    {
+                        string visible = ModelPathUtils.ConvertModelPathToUserVisiblePath(cloud);
+                        if (!string.IsNullOrWhiteSpace(visible))
+                        {
+                            return visible;
+                        }
+                    }
+                }
+                catch
+                {
+                    // Ignore lookup failure on unsaved/detached cloud docs
+                }
+            }
+
+            if (doc.IsWorkshared)
+            {
+                try
+                {
+                    ModelPath? central = doc.GetWorksharingCentralModelPath();
+                    if (central != null)
+                    {
+                        string visible = ModelPathUtils.ConvertModelPathToUserVisiblePath(central);
+                        if (!string.IsNullOrWhiteSpace(visible))
+                        {
+                            return visible;
+                        }
+                    }
+                }
+                catch
+                {
+                    // Ignore lookup failure
+                }
+            }
+
+            return doc.Title ?? string.Empty;
+        }
+
+        private static string NormalizePathForKey(string path)
+        {
+            try
+            {
+                return Path.GetFullPath(path.Trim()).TrimEnd('\\', '/').ToUpperInvariant();
+            }
+            catch
+            {
+                return path.Trim().TrimEnd('\\', '/').ToUpperInvariant();
+            }
+        }
+
+        private static long GetElementIdValue(ElementId id)
+        {
+#if REVIT2023
+            return id.IntegerValue;
+#else
+            return id.Value;
+#endif
+        }
+
+        private static string? ResolveStagedPdfPath(string stagingDir, string expectedToken)
+        {
+            string expectedPath = Path.Combine(stagingDir, expectedToken + ".pdf");
+            if (File.Exists(expectedPath))
+            {
+                return expectedPath;
+            }
+
+            string[] pdfs = Directory.GetFiles(stagingDir, "*.pdf");
+            return pdfs.Length > 0 ? pdfs[0] : null;
+        }
+
+        private static void AtomicallyPromotePdf(string stagedPdfPath, string destinationPdfPath)
+        {
+            string? destDir = Path.GetDirectoryName(destinationPdfPath);
+            if (string.IsNullOrEmpty(destDir))
+            {
+                File.Copy(stagedPdfPath, destinationPdfPath, overwrite: true);
+                return;
+            }
+
+            string siblingTemp = Path.Combine(destDir!, $".syn_{Guid.NewGuid():N}.tmp");
+            if (siblingTemp.Length >= MultiModelPdfPathHelper.SafeMaxPathLength)
+            {
+                File.Copy(stagedPdfPath, destinationPdfPath, overwrite: true);
+                return;
+            }
+
+            try
+            {
+                File.Copy(stagedPdfPath, siblingTemp, overwrite: true);
+                if (File.Exists(destinationPdfPath))
+                {
+                    File.Replace(siblingTemp, destinationPdfPath, destinationBackupFileName: null, ignoreMetadataErrors: true);
+                }
+                else
+                {
+                    File.Move(siblingTemp, destinationPdfPath);
+                }
+            }
+            finally
+            {
+                if (File.Exists(siblingTemp))
+                {
+                    try
+                    {
+                        File.Delete(siblingTemp);
+                    }
+                    catch
+                    {
+                        // Best-effort cleanup of temp sibling
+                    }
+                }
+            }
+        }
+
+        private static void TryDeleteDirectory(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
+            {
+                return;
+            }
+
+            try
+            {
+                Directory.Delete(path, recursive: true);
+            }
+            catch
+            {
+                // Best-effort cleanup of temp staging folder
+            }
+        }
+
+        private static void OnDialogBoxShowing(object? sender, DialogBoxShowingEventArgs args)
+        {
+            if (args is TaskDialogShowingEventArgs taskArgs &&
+                string.Equals(taskArgs.DialogId, TempViewModesTaskDialogId, StringComparison.Ordinal))
+            {
+                taskArgs.OverrideResult(SuppressTempViewModesOverrideResult);
+            }
+        }
+
+        private static void OnFailuresProcessing(object? sender, FailuresProcessingEventArgs e)
+        {
+            FailuresAccessor fa = e.GetFailuresAccessor();
+            IList<FailureMessageAccessor> failures = fa.GetFailureMessages();
+            if (failures == null || failures.Count == 0)
+            {
+                e.SetProcessingResult(FailureProcessingResult.Continue);
+                return;
+            }
+
+            bool deletedAny = false;
+            foreach (FailureMessageAccessor failure in failures)
+            {
+                FailureDefinitionId id = failure.GetFailureDefinitionId();
+                if (IsSuppressibleExportFailure(id))
+                {
+                    fa.DeleteWarning(failure);
+                    deletedAny = true;
+                }
+            }
+
+            e.SetProcessingResult(deletedAny ? FailureProcessingResult.ProceedWithCommit : FailureProcessingResult.Continue);
+        }
+
+        private static bool IsSuppressibleExportFailure(FailureDefinitionId id)
+        {
+            return id == BuiltInFailures.RoomFailures.RoomNotEnclosed ||
+                   id == BuiltInFailures.RoomFailures.RoomNotEnclosedAreas ||
+                   id == BuiltInFailures.RoomFailures.RoomNotEnclosedLoadAreas ||
+                   id == BuiltInFailures.RoomFailures.RoomNotEnclosedRooms ||
+                   id == BuiltInFailures.RoomFailures.RoomNotEnclosedSpaces ||
+                   id == BuiltInFailures.ExportFailures.SwitchToRasterProcessingInsteadOfVectorWarning;
+        }
+
+        private sealed class ExtractedPrintSetViews
+        {
+            public ExtractedPrintSetViews(
+                IList<ElementId> printableViewIds,
+                IReadOnlyList<MultiModelPdfSkippedViewInfo> skippedViews,
+                bool allSheets)
+            {
+                PrintableViewIds = printableViewIds;
+                SkippedViews = skippedViews;
+                AllSheets = allSheets;
+            }
+
+            public IList<ElementId> PrintableViewIds { get; }
+            public IReadOnlyList<MultiModelPdfSkippedViewInfo> SkippedViews { get; }
+            public bool AllSheets { get; }
+        }
+    }
+}
