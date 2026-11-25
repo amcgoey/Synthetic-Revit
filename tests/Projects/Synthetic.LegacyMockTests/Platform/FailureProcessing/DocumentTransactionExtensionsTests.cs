@@ -308,13 +308,13 @@ namespace SyntheticTests.Modules.FailureProcessing
                 .FirstOrDefault(attr => string.Equals(attr.Key, "RevitVersion", StringComparison.Ordinal));
 
             Assert.IsNotNull(metadata, "Payload assembly must emit [AssemblyMetadata(\"RevitVersion\", ...)].");
-            Assert.AreEqual("2026", metadata!.Value);
+            Assert.AreEqual("2027", metadata!.Value);
 
             Version? mockApiVersion = typeof(Document).Assembly.GetName().Version;
             Assert.IsNotNull(mockApiVersion);
             Assert.AreEqual(1, mockApiVersion!.Major, "RevitAPIMock should report major version 1.0.0.0.");
 
-            Assert.AreEqual("2026", ETransmitAssemblyResolver.ResolveRevitYear());
+            Assert.AreEqual("2027", ETransmitAssemblyResolver.ResolveRevitYear());
         }
 
         [Test]

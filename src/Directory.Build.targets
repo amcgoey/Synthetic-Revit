@@ -53,7 +53,7 @@
 
   <ItemGroup Condition="'$(IsRevitPayloadProject)' == 'true' And '$(RevitVersion)' != ''">
     <InternalsVisibleTo Include="Synthetic.RevitTests.$(RevitVersion)" />
-    <InternalsVisibleTo Include="Synthetic.LegacyMockTests" Condition="'$(RevitVersion)' == '2026'" />
+    <InternalsVisibleTo Include="Synthetic.LegacyMockTests" Condition="'$(RevitVersion)' == '2027'" />
   </ItemGroup>
 
   <ItemGroup Condition="('$(IsRevitPayloadProject)' == 'true' Or '$(IsBootstrapProject)' == 'true') And '$(RevitVersion)' != ''">

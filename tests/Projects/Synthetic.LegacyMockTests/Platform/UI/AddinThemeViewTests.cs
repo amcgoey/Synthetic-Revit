@@ -7,7 +7,7 @@ using Synthetic.Platform.UI;
 namespace SyntheticTests.Infrastructure.UI
 {
     /// <summary>
-    /// Headless STA tests verifying <c>Synthetic2026</c> WPF views that merge
+    /// Headless STA tests verifying <c>Synthetic2027</c> WPF views that merge
     /// <see cref="SyntheticThemeDictionary"/> construct, apply templates, and bind cleanly
     /// inside an external test host process.
     /// </summary>
