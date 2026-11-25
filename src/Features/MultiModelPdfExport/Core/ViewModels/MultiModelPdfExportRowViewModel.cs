@@ -127,6 +127,9 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
         /// <summary>Gets a value indicating whether this row is rendered in the disabled 25% opacity state.</summary>
         public bool IsDisabledRow => !IsEligible;
 
+        /// <summary>Gets the visual row opacity (<c>0.25</c> when disabled, <c>1.0</c> otherwise).</summary>
+        public double RowOpacity => IsDisabledRow ? 0.25 : 1.0;
+
         /// <summary>Gets the uppercase origin badge label.</summary>
         public string OriginBadgeText => Origin switch
         {

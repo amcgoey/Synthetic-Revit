@@ -196,7 +196,7 @@ namespace SyntheticTests.Features.MultiModelPdfExport
                     populatedWindow.Close();
                 }
 
-                // 2. Multi-tab origin badges (ACTIVE + OPEN) and muted collision cue/tooltip
+                // 2. Multi-tab federated origin badges (ACTIVE + LINKED + Unloaded LINKED + OPEN) and muted collision cue/tooltip
                 var multiTabSnapshot = new MultiModelPdfSessionSnapshot(
                     "Tower.rvt",
                     new[]
@@ -208,6 +208,22 @@ namespace SyntheticTests.Features.MultiModelPdfExport
                             MultiModelPdfDocumentOrigin.Active,
                             MultiModelPdfStorageKind.Workshared,
                             printSets: new[] { new MultiModelPdfSetSnapshot("CD Set", 2) }),
+                        new MultiModelPdfDocumentSnapshot(
+                            "linked-tower",
+                            "Tower.rvt",
+                            @"C:\BIM\Links\Tower.rvt",
+                            MultiModelPdfDocumentOrigin.Linked,
+                            MultiModelPdfStorageKind.Workshared,
+                            isUnloadedLink: false,
+                            printSets: new[] { new MultiModelPdfSetSnapshot("CD Set", 4) }),
+                        new MultiModelPdfDocumentSnapshot(
+                            "unloaded-link",
+                            "SiteUnloaded.rvt",
+                            @"C:\BIM\Links\SiteUnloaded.rvt",
+                            MultiModelPdfDocumentOrigin.Linked,
+                            MultiModelPdfStorageKind.Local,
+                            isUnloadedLink: true,
+                            printSets: Array.Empty<MultiModelPdfSetSnapshot>()),
                         new MultiModelPdfDocumentSnapshot(
                             "open-tower",
                             "Tower.rvt",
@@ -224,7 +240,11 @@ namespace SyntheticTests.Features.MultiModelPdfExport
                     @"C:\PDFExports\Demo");
                 multiTabVm.Rows[0].SelectedPrintSetName = "CD Set";
                 multiTabVm.Rows[1].SelectedPrintSetName = "CD Set";
-                Assert.IsFalse(multiTabVm.Rows[1].IsChecked, "OpenStandalone row must start unchecked.");
+                multiTabVm.Rows[3].SelectedPrintSetName = "CD Set";
+                Assert.IsTrue(multiTabVm.Rows[1].IsChecked, "Eligible loaded Linked row must start checked.");
+                Assert.IsFalse(multiTabVm.Rows[2].IsChecked, "Unloaded Linked row must start unchecked.");
+                Assert.IsFalse(multiTabVm.Rows[2].IsEligible, "Unloaded Linked row must be ineligible.");
+                Assert.IsFalse(multiTabVm.Rows[3].IsChecked, "OpenStandalone row must start unchecked.");
 
                 var multiTabWindow = new MultiModelPdfExportWindow(ownerHandle) { DataContext = multiTabVm };
                 try
@@ -235,13 +255,32 @@ namespace SyntheticTests.Features.MultiModelPdfExport
 
                     List<TextBlock> textBlocks = FindVisualChildren<TextBlock>(multiTabWindow).ToList();
                     Assert.IsTrue(textBlocks.Any(tb => string.Equals(tb.Text, "ACTIVE", StringComparison.Ordinal)), "Expected ACTIVE origin badge.");
+                    Assert.IsTrue(textBlocks.Any(tb => string.Equals(tb.Text, "LINKED", StringComparison.Ordinal)), "Expected LINKED origin badge.");
                     Assert.IsTrue(textBlocks.Any(tb => string.Equals(tb.Text, "OPEN", StringComparison.Ordinal)), "Expected OPEN origin badge.");
 
-                    TextBlock? cueBefore = textBlocks.FirstOrDefault(tb => tb.Text.StartsWith("→ ", StringComparison.Ordinal));
-                    Assert.IsTrue(cueBefore == null || cueBefore.Visibility != Visibility.Visible, "Unchecked OpenStandalone row must not show collision cue.");
+                    TextBlock? unloadedStatus = textBlocks.FirstOrDefault(tb =>
+                        string.Equals(tb.Text, "Unloaded link — load in host to inspect", StringComparison.Ordinal));
+                    Assert.IsNotNull(unloadedStatus, "Expected unloaded link status TextBlock.");
+                    Assert.AreEqual(Visibility.Visible, unloadedStatus!.Visibility);
+
+                    Border? unloadedRowBorder = FindVisualChildren<Border>(multiTabWindow)
+                        .FirstOrDefault(b => ReferenceEquals(b.DataContext, multiTabVm.Rows[2]));
+                    Assert.IsNotNull(unloadedRowBorder, "Expected Border container for unloaded link row.");
+                    Assert.AreEqual(0.25, unloadedRowBorder!.Opacity, 1e-6, "Unloaded link row must render at 25% opacity.");
+
+                    CheckBox? unloadedCheckBox = FindVisualChildren<CheckBox>(unloadedRowBorder).FirstOrDefault();
+                    Assert.IsNotNull(unloadedCheckBox);
+                    Assert.IsFalse(unloadedCheckBox!.IsEnabled, "Unloaded link row CheckBox must be disabled.");
+
+                    TextBlock? linkCue = textBlocks.FirstOrDefault(tb => string.Equals(tb.Text, "→ Tower (Link).pdf", StringComparison.Ordinal));
+                    Assert.IsNotNull(linkCue, "Expected '→ Tower (Link).pdf' collision cue for colliding Linked row.");
+                    Assert.AreEqual(Visibility.Visible, linkCue!.Visibility);
+
+                    TextBlock? openCueBefore = textBlocks.FirstOrDefault(tb => string.Equals(tb.Text, "→ Tower_2.pdf", StringComparison.Ordinal));
+                    Assert.IsTrue(openCueBefore == null || openCueBefore.Visibility != Visibility.Visible, "Unchecked OpenStandalone row must not show collision cue.");
 
                     // Check colliding OpenStandalone row -> muted "→ Tower_2.pdf" cue + tooltip become Visible
-                    multiTabVm.Rows[1].IsChecked = true;
+                    multiTabVm.Rows[3].IsChecked = true;
                     multiTabWindow.UpdateLayout();
                     Dispatcher.CurrentDispatcher.Invoke(DispatcherPriority.Loaded, new Action(() => { }));
 

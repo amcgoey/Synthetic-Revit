@@ -9,6 +9,7 @@ using Autodesk.Revit.UI.Events;
 using Synthetic.Features.MultiModelPdfExport.Adapters;
 using Synthetic.Features.MultiModelPdfExport.Models;
 using Synthetic.Features.MultiModelPdfExport.Services;
+using Synthetic.Platform.Settings;
 using View = Autodesk.Revit.DB.View;
 
 namespace Synthetic.Features.MultiModelPdfExport.Adapters
@@ -21,7 +22,14 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
     public sealed class RevitMultiModelPdfExportAdapter : IMultiModelPdfExportAdapter
     {
         private const string TempViewModesTaskDialogId = "TaskDialog_Really_Print_Or_Export_Temp_View_Modes";
+        private const string UnresolvedReferencesTaskDialogId = "TaskDialog_Unresolved_References";
+        private const string MissingThirdPartyUpdatersTaskDialogId = "TaskDialog_Missing_Third_Party_Updaters";
+        private const string MissingThirdPartyUpdaterTaskDialogId = "TaskDialog_Missing_Third_Party_Updater";
+        private const string DocWarnDialogId = "Dialog_Revit_DocWarnDialog";
         private const int SuppressTempViewModesOverrideResult = 1002;
+        private const int IgnoreUnresolvedReferencesOverrideResult = 1002;
+        private const int ContinueMissingUpdatersOverrideResult = 1001;
+        private const int OkDialogOverrideResult = 1;
 
         private readonly Document _doc;
         private readonly UIApplication? _uiapp;
@@ -54,11 +62,11 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
             string activeTitle = ResolveDocumentTitle(_doc);
             string activeKey = ComputeDocumentKey(_doc);
             var seenKeys = new HashSet<string>(StringComparer.Ordinal) { activeKey };
+            var seenClaimedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            CollectDocumentMatchPaths(_doc, seenClaimedPaths);
 
-            var documents = new List<MultiModelPdfDocumentSnapshot>
-            {
-                BuildDocumentSnapshot(_doc, activeKey, activeTitle, MultiModelPdfDocumentOrigin.Active)
-            };
+            MultiModelPdfDocumentSnapshot activeSnapshot =
+                BuildDocumentSnapshot(_doc, activeKey, activeTitle, MultiModelPdfDocumentOrigin.Active);
 
             Autodesk.Revit.ApplicationServices.Application app = _uiapp?.Application ?? _doc.Application;
             var openTabCandidates = new List<(Document Doc, string Key, string Title)>();
@@ -78,6 +86,9 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
                 openTabCandidates.Add((candidate, ComputeDocumentKey(candidate), ResolveDocumentTitle(candidate)));
             }
 
+            // Register OpenStandalone keys/paths BEFORE Linked discovery so Active > OpenStandalone > Linked
+            // deduplication always prefers already-open standalone tabs over linked references.
+            var openTabSnapshots = new List<MultiModelPdfDocumentSnapshot>();
             foreach ((Document Doc, string Key, string Title) openTab in openTabCandidates
                 .OrderBy(c => c.Title, StringComparer.OrdinalIgnoreCase)
                 .ThenBy(c => c.Key, StringComparer.Ordinal))
@@ -87,12 +98,23 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
                     continue;
                 }
 
-                documents.Add(BuildDocumentSnapshot(
+                CollectDocumentMatchPaths(openTab.Doc, seenClaimedPaths);
+                openTabSnapshots.Add(BuildDocumentSnapshot(
                     openTab.Doc,
                     openTab.Key,
                     openTab.Title,
                     MultiModelPdfDocumentOrigin.OpenStandalone));
             }
+
+            var linkedSnapshots = HarvestTopLevelLinkedSnapshots(_doc, seenKeys, seenClaimedPaths);
+
+            // Display order: Active -> Linked -> OpenStandalone
+            var documents = new List<MultiModelPdfDocumentSnapshot>(1 + linkedSnapshots.Count + openTabSnapshots.Count)
+            {
+                activeSnapshot
+            };
+            documents.AddRange(linkedSnapshots);
+            documents.AddRange(openTabSnapshots);
 
             IReadOnlyList<MultiModelPdfSetupOption> pdfSetups = HarvestPdfSetups(_doc);
 
@@ -115,27 +137,9 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
                     $"Document '{job.DocumentTitle}' is unavailable or is a family document.");
             }
 
-            Document? targetDoc = ResolveOpenProjectDocument(job.DocumentKey);
-            if (targetDoc == null || !targetDoc.IsValidObject || targetDoc.IsFamilyDocument || targetDoc.IsLinked)
-            {
-                return MultiModelPdfDocumentOutcome.Failure(
-                    job.DocumentKey,
-                    job.DocumentTitle,
-                    $"Open project document '{job.DocumentTitle}' is no longer available in this Revit session.");
-            }
-
-            string docTitle = ResolveDocumentTitle(targetDoc);
-            if (targetDoc.IsModifiable)
-            {
-                return MultiModelPdfDocumentOutcome.Failure(
-                    job.DocumentKey,
-                    docTitle,
-                    $"Document '{docTitle}' has an open transaction or uncommitted edits and cannot be exported.");
-            }
-
             if (!MultiModelPdfPathHelper.TryValidateOutputFolder(job.OutputFolder, out string folderError))
             {
-                return MultiModelPdfDocumentOutcome.Failure(job.DocumentKey, docTitle, folderError);
+                return MultiModelPdfDocumentOutcome.Failure(job.DocumentKey, job.DocumentTitle, folderError);
             }
 
             bool isCombined = job.FileMode == MultiModelPdfFileMode.CombinedPerDocument;
@@ -148,53 +152,26 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
             {
                 return MultiModelPdfDocumentOutcome.Failure(
                     job.DocumentKey,
-                    docTitle,
+                    job.DocumentTitle,
                     $"Output path exceeds {MultiModelPdfPathHelper.SafeMaxPathLength - 1} characters: {destinationTargetPath}");
             }
 
-            ViewSheetSet? printSet = new FilteredElementCollector(targetDoc)
-                .OfClass(typeof(ViewSheetSet))
-                .WhereElementIsNotElementType()
-                .Cast<ViewSheetSet>()
-                .FirstOrDefault(vs => string.Equals(vs.Name, job.PrintSetName, StringComparison.OrdinalIgnoreCase));
-
-            if (printSet == null)
+            // Prefer reusing an already-open standalone tab (or Active document) without calling OpenDocumentFile.
+            Document? targetDoc = ResolveOpenProjectDocument(job.DocumentKey);
+            LoadedLinkTarget? linkTarget = null;
+            if (targetDoc == null)
             {
-                return MultiModelPdfDocumentOutcome.Failure(
-                    job.DocumentKey,
-                    docTitle,
-                    $"Print Set '{job.PrintSetName}' was not found in '{docTitle}'.");
+                linkTarget = ResolveLoadedLinkTarget(job.DocumentKey);
+                if (linkTarget == null)
+                {
+                    return MultiModelPdfDocumentOutcome.Failure(
+                        job.DocumentKey,
+                        job.DocumentTitle,
+                        $"Project document '{job.DocumentTitle}' is unloaded or no longer available in this Revit session.");
+                }
             }
 
-            ExtractedPrintSetViews extracted = ExtractViewsFromPrintSet(printSet);
-            var warnings = new List<string>();
-            if (extracted.SkippedViews.Count > 0)
-            {
-                warnings.Add(MultiModelPdfExportPipeline.FormatSkippedViewsWarning(
-                    docTitle,
-                    printSet.Name,
-                    extracted.SkippedViews));
-            }
-
-            if (extracted.PrintableViewIds.Count == 0)
-            {
-                return MultiModelPdfDocumentOutcome.Failure(
-                    job.DocumentKey,
-                    docTitle,
-                    $"Print Set '{printSet.Name}' in '{docTitle}' has 0 printable views.",
-                    warnings);
-            }
-
-            PDFExportOptions options = BuildPdfExportOptions(
-                _doc,
-                targetDoc,
-                docTitle,
-                job.PdfSetupId,
-                job.FileMode,
-                job.OutputFileToken,
-                extracted.AllSheets,
-                warnings);
-
+            Autodesk.Revit.ApplicationServices.Application app = _uiapp?.Application ?? _doc.Application;
             string stagingDir = Path.Combine(
                 Path.GetTempPath(),
                 "SyntheticPdfStage_" + Guid.NewGuid().ToString("N").Substring(0, 8));
@@ -202,15 +179,87 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
             EventHandler<FailuresProcessingEventArgs> failuresHandler = OnFailuresProcessing;
             EventHandler<DialogBoxShowingEventArgs> dialogHandler = OnDialogBoxShowing;
 
-            targetDoc.Application.FailuresProcessing += failuresHandler;
-            if (_uiapp != null)
-            {
-                _uiapp.DialogBoxShowing += dialogHandler;
-            }
-
+            Document? openedStandaloneDoc = null;
+            string? tempLinkCopyDir = null;
+            IDisposable? syncSuppressionScope = null;
+            string docTitle = job.DocumentTitle;
             string currentErrorTarget = destinationTargetPath;
+
             try
             {
+                syncSuppressionScope = SettingsRuntimeOptions.BeginSuppressSyncDriftNotifications();
+                app.FailuresProcessing += failuresHandler;
+                if (_uiapp != null)
+                {
+                    _uiapp.DialogBoxShowing += dialogHandler;
+                }
+
+                if (targetDoc == null)
+                {
+                    openedStandaloneDoc = OpenLinkedDocumentStandalone(app, linkTarget!, out tempLinkCopyDir);
+                    if (openedStandaloneDoc == null || !openedStandaloneDoc.IsValidObject || openedStandaloneDoc.IsFamilyDocument || openedStandaloneDoc.IsLinked)
+                    {
+                        return MultiModelPdfDocumentOutcome.Failure(
+                            job.DocumentKey,
+                            job.DocumentTitle,
+                            $"Failed to open standalone document for linked model '{job.DocumentTitle}'.");
+                    }
+
+                    targetDoc = openedStandaloneDoc;
+                }
+
+                docTitle = ResolveDocumentTitle(targetDoc);
+                if (targetDoc.IsModifiable)
+                {
+                    return MultiModelPdfDocumentOutcome.Failure(
+                        job.DocumentKey,
+                        docTitle,
+                        $"Document '{docTitle}' has an open transaction or uncommitted edits and cannot be exported.");
+                }
+
+                ViewSheetSet? printSet = new FilteredElementCollector(targetDoc)
+                    .OfClass(typeof(ViewSheetSet))
+                    .WhereElementIsNotElementType()
+                    .Cast<ViewSheetSet>()
+                    .FirstOrDefault(vs => string.Equals(vs.Name, job.PrintSetName, StringComparison.OrdinalIgnoreCase));
+
+                if (printSet == null)
+                {
+                    return MultiModelPdfDocumentOutcome.Failure(
+                        job.DocumentKey,
+                        docTitle,
+                        $"Print Set '{job.PrintSetName}' was not found in '{docTitle}'.");
+                }
+
+                ExtractedPrintSetViews extracted = ExtractViewsFromPrintSet(printSet);
+                var warnings = new List<string>();
+                if (extracted.SkippedViews.Count > 0)
+                {
+                    warnings.Add(MultiModelPdfExportPipeline.FormatSkippedViewsWarning(
+                        docTitle,
+                        printSet.Name,
+                        extracted.SkippedViews));
+                }
+
+                if (extracted.PrintableViewIds.Count == 0)
+                {
+                    return MultiModelPdfDocumentOutcome.Failure(
+                        job.DocumentKey,
+                        docTitle,
+                        $"Print Set '{printSet.Name}' in '{docTitle}' has 0 printable views.",
+                        warnings);
+                }
+
+                PDFExportOptions options = BuildPdfExportOptions(
+                    _doc,
+                    targetDoc,
+                    docTitle,
+                    job.PdfSetupId,
+                    job.FileMode,
+                    job.OutputFileToken,
+                    extracted.AllSheets,
+                    warnings);
+
                 Directory.CreateDirectory(stagingDir);
                 bool exported = targetDoc.Export(stagingDir, extracted.PrintableViewIds, options);
                 if (!exported)
@@ -252,42 +301,59 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
                 return MultiModelPdfDocumentOutcome.Failure(
                     job.DocumentKey,
                     docTitle,
-                    $"Cannot write '{currentErrorTarget}': {ex.Message}",
-                    warnings);
+                    $"Cannot write '{currentErrorTarget}': {ex.Message}");
             }
             catch (IOException ex)
             {
                 return MultiModelPdfDocumentOutcome.Failure(
                     job.DocumentKey,
                     docTitle,
-                    $"Cannot write '{currentErrorTarget}': {ex.Message}",
-                    warnings);
+                    $"Cannot write '{currentErrorTarget}': {ex.Message}");
             }
             catch (UnauthorizedAccessException ex)
             {
                 return MultiModelPdfDocumentOutcome.Failure(
                     job.DocumentKey,
                     docTitle,
-                    $"Access denied writing '{currentErrorTarget}': {ex.Message}",
-                    warnings);
+                    $"Access denied writing '{currentErrorTarget}': {ex.Message}");
             }
             catch (Exception ex)
             {
                 return MultiModelPdfDocumentOutcome.Failure(
                     job.DocumentKey,
                     docTitle,
-                    $"Unexpected PDF export error for '{docTitle}': {ex.Message}",
-                    warnings);
+                    $"Unexpected PDF export error for '{docTitle}': {ex.Message}");
             }
             finally
             {
-                targetDoc.Application.FailuresProcessing -= failuresHandler;
+                if (openedStandaloneDoc != null &&
+                    !IsSameDocument(openedStandaloneDoc, _doc) &&
+                    openedStandaloneDoc.IsValidObject &&
+                    !openedStandaloneDoc.IsLinked)
+                {
+                    try
+                    {
+                        openedStandaloneDoc.Close(false);
+                    }
+                    catch
+                    {
+                        // Best-effort close so handlers, suppression scopes, and temp dirs still clean up.
+                    }
+                }
+
                 if (_uiapp != null)
                 {
                     _uiapp.DialogBoxShowing -= dialogHandler;
                 }
 
+                app.FailuresProcessing -= failuresHandler;
+                syncSuppressionScope?.Dispose();
+
                 TryDeleteDirectory(stagingDir);
+                if (!string.IsNullOrEmpty(tempLinkCopyDir))
+                {
+                    TryDeleteDirectory(tempLinkCopyDir!);
+                }
             }
         }
 
@@ -332,6 +398,543 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
             }
 
             return null;
+        }
+
+        private static IReadOnlyList<MultiModelPdfDocumentSnapshot> HarvestTopLevelLinkedSnapshots(
+            Document activeDoc,
+            HashSet<string> seenKeys,
+            HashSet<string> seenClaimedPaths)
+        {
+            var linkInstances = new FilteredElementCollector(activeDoc)
+                .OfClass(typeof(RevitLinkInstance))
+                .WhereElementIsNotElementType()
+                .Cast<RevitLinkInstance>()
+                .ToList();
+
+            var candidates = new List<MultiModelPdfDocumentSnapshot>();
+            foreach (IGrouping<ElementId, RevitLinkInstance> group in linkInstances.GroupBy(inst => inst.GetTypeId()))
+            {
+                if (group.Key == null || group.Key == ElementId.InvalidElementId)
+                {
+                    continue;
+                }
+
+                if (!(activeDoc.GetElement(group.Key) is RevitLinkType linkType) || !linkType.IsValidObject)
+                {
+                    continue;
+                }
+
+                // Exclude nested links attached through parent links; only top-level links are exported.
+                if (linkType.IsNestedLink)
+                {
+                    continue;
+                }
+
+                Document? linkDoc = FindLoadedLinkDocument(group);
+                if (linkDoc != null)
+                {
+                    string linkKey = ComputeDocumentKey(linkDoc);
+                    if (seenKeys.Contains(linkKey) || HasMatchingClaimedPath(linkDoc, seenClaimedPaths))
+                    {
+                        continue;
+                    }
+
+                    seenKeys.Add(linkKey);
+                    CollectDocumentMatchPaths(linkDoc, seenClaimedPaths);
+
+                    string linkTitle = ResolveDocumentTitle(linkDoc);
+                    string displayPath = ResolveLinkDisplayPath(linkType, linkDoc);
+                    MultiModelPdfStorageKind storage = ClassifyStorageKind(linkDoc);
+                    IReadOnlyList<MultiModelPdfSetSnapshot> printSets = HarvestPrintSets(linkDoc);
+
+                    candidates.Add(new MultiModelPdfDocumentSnapshot(
+                        documentKey: linkKey,
+                        documentTitle: linkTitle,
+                        displayPath: displayPath,
+                        origin: MultiModelPdfDocumentOrigin.Linked,
+                        storage: storage,
+                        isUnloadedLink: false,
+                        printSets: printSets));
+                }
+                else
+                {
+                    string? visiblePath = TryGetLinkTypeVisiblePath(linkType);
+                    string? cloudKey = TryComputeCloudLinkKey(linkType);
+
+                    if (!string.IsNullOrEmpty(cloudKey) && seenKeys.Contains(cloudKey!))
+                    {
+                        continue;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(visiblePath) &&
+                        seenClaimedPaths.Contains(NormalizePathForKey(visiblePath!)))
+                    {
+                        continue;
+                    }
+
+                    string unloadedKey = !string.IsNullOrEmpty(cloudKey)
+                        ? cloudKey!
+                        : (!string.IsNullOrWhiteSpace(visiblePath)
+                            ? "path:" + NormalizePathForKey(visiblePath!)
+                            : "unloaded-link:" + linkType.UniqueId);
+
+                    if (!seenKeys.Add(unloadedKey))
+                    {
+                        continue;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(visiblePath))
+                    {
+                        seenClaimedPaths.Add(NormalizePathForKey(visiblePath!));
+                    }
+
+                    string unloadedTitle = ResolveUnloadedLinkTitle(linkType, visiblePath);
+                    string displayPath = !string.IsNullOrWhiteSpace(visiblePath) ? visiblePath! : unloadedTitle;
+                    MultiModelPdfStorageKind storage = ClassifyUnloadedLinkStorageKind(linkType);
+
+                    candidates.Add(new MultiModelPdfDocumentSnapshot(
+                        documentKey: unloadedKey,
+                        documentTitle: unloadedTitle,
+                        displayPath: displayPath,
+                        origin: MultiModelPdfDocumentOrigin.Linked,
+                        storage: storage,
+                        isUnloadedLink: true,
+                        printSets: Array.Empty<MultiModelPdfSetSnapshot>()));
+                }
+            }
+
+            return candidates
+                .OrderBy(c => c.DocumentTitle, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(c => c.DocumentKey, StringComparer.Ordinal)
+                .ToList();
+        }
+
+        private LoadedLinkTarget? ResolveLoadedLinkTarget(string documentKey)
+        {
+            var linkInstances = new FilteredElementCollector(_doc)
+                .OfClass(typeof(RevitLinkInstance))
+                .WhereElementIsNotElementType()
+                .Cast<RevitLinkInstance>()
+                .ToList();
+
+            foreach (IGrouping<ElementId, RevitLinkInstance> group in linkInstances.GroupBy(inst => inst.GetTypeId()))
+            {
+                if (group.Key == null || group.Key == ElementId.InvalidElementId)
+                {
+                    continue;
+                }
+
+                if (!(_doc.GetElement(group.Key) is RevitLinkType linkType) ||
+                    !linkType.IsValidObject ||
+                    linkType.IsNestedLink)
+                {
+                    continue;
+                }
+
+                Document? linkDoc = FindLoadedLinkDocument(group);
+                if (linkDoc == null)
+                {
+                    continue;
+                }
+
+                if (string.Equals(ComputeDocumentKey(linkDoc), documentKey, StringComparison.Ordinal))
+                {
+                    return new LoadedLinkTarget(linkType, linkDoc);
+                }
+            }
+
+            return null;
+        }
+
+        private static Document? FindLoadedLinkDocument(IEnumerable<RevitLinkInstance> instances)
+        {
+            foreach (RevitLinkInstance inst in instances)
+            {
+                if (inst == null || !inst.IsValidObject)
+                {
+                    continue;
+                }
+
+                Document? candidate = inst.GetLinkDocument();
+                if (candidate != null && candidate.IsValidObject && !candidate.IsFamilyDocument)
+                {
+                    return candidate;
+                }
+            }
+
+            return null;
+        }
+
+        private static Document? OpenLinkedDocumentStandalone(
+            Autodesk.Revit.ApplicationServices.Application app,
+            LoadedLinkTarget target,
+            out string? tempLinkCopyDir)
+        {
+            tempLinkCopyDir = null;
+            Document linkDoc = target.LinkDoc;
+            RevitLinkType linkType = target.LinkType;
+
+            var worksetConfig = new WorksetConfiguration(WorksetConfigurationOption.OpenAllWorksets);
+            var openOptions = new OpenOptions
+            {
+                AllowOpeningLocalByWrongUser = true
+            };
+            openOptions.SetOpenWorksetsConfiguration(worksetConfig);
+
+            if (linkDoc.IsModelInCloud)
+            {
+                ModelPath? cloudPath = null;
+                try
+                {
+                    cloudPath = linkDoc.GetCloudModelPath();
+                }
+                catch
+                {
+                    cloudPath = null;
+                }
+
+                if (cloudPath == null || cloudPath.Empty)
+                {
+                    throw new InvalidOperationException(
+                        $"Cloud model path could not be resolved for linked model '{ResolveDocumentTitle(linkDoc)}'.");
+                }
+
+                openOptions.DetachFromCentralOption = DetachFromCentralOption.DetachAndPreserveWorksets;
+                return app.OpenDocumentFile(cloudPath, openOptions, new DetachOpenFromCloudCallback());
+            }
+
+            if (linkDoc.IsWorkshared)
+            {
+                string? fallbackPath = !string.IsNullOrWhiteSpace(linkDoc.PathName)
+                    ? linkDoc.PathName
+                    : TryGetLinkTypeVisiblePath(linkType);
+
+                ModelPath? centralPath = null;
+                try
+                {
+                    if (!linkDoc.IsDetached)
+                    {
+                        centralPath = linkDoc.GetWorksharingCentralModelPath();
+                    }
+                }
+                catch
+                {
+                    centralPath = null;
+                }
+
+                if ((centralPath == null || centralPath.Empty) && !string.IsNullOrWhiteSpace(fallbackPath))
+                {
+                    centralPath = ModelPathUtils.ConvertUserVisiblePathToModelPath(fallbackPath);
+                }
+
+                if (centralPath == null || centralPath.Empty)
+                {
+                    throw new InvalidOperationException(
+                        $"Central model path could not be resolved for workshared linked model '{ResolveDocumentTitle(linkDoc)}'.");
+                }
+
+                openOptions.DetachFromCentralOption = DetachFromCentralOption.DetachAndPreserveWorksets;
+                Document? wsOpened = null;
+                Exception? directOpenException = null;
+                try
+                {
+                    wsOpened = app.OpenDocumentFile(centralPath, openOptions);
+                }
+                catch (Exception ex)
+                {
+                    directOpenException = ex;
+                }
+
+                if (wsOpened != null && wsOpened.IsValidObject && !wsOpened.IsFamilyDocument && !wsOpened.IsLinked)
+                {
+                    return wsOpened;
+                }
+
+                // Revit may return the existing linked Document handle (IsLinked == true) or reject direct
+                // open when a file-based central model is simultaneously loaded as a link in the host.
+                string? diskCopySource = TryResolveExistingFilePath(centralPath, fallbackPath);
+                if (!string.IsNullOrWhiteSpace(diskCopySource))
+                {
+                    return OpenDocumentFromScopedTempCopy(app, diskCopySource!, openOptions, out tempLinkCopyDir);
+                }
+
+                if (directOpenException != null)
+                {
+                    throw directOpenException;
+                }
+
+                return wsOpened;
+            }
+
+            // Local non-workshared link: copy to a scoped temp directory and open the temp copy so Revit
+            // neither rejects opening an already-loaded local link nor silently unloads the host RevitLinkType.
+            string? localPath = !string.IsNullOrWhiteSpace(linkDoc.PathName)
+                ? linkDoc.PathName
+                : TryGetLinkTypeVisiblePath(linkType);
+
+            if (string.IsNullOrWhiteSpace(localPath) || !File.Exists(localPath))
+            {
+                throw new FileNotFoundException(
+                    $"Linked model file could not be found on disk for '{ResolveDocumentTitle(linkDoc)}'.",
+                    localPath ?? string.Empty);
+            }
+
+            return OpenDocumentFromScopedTempCopy(app, localPath!, openOptions, out tempLinkCopyDir);
+        }
+
+        private static Document? OpenDocumentFromScopedTempCopy(
+            Autodesk.Revit.ApplicationServices.Application app,
+            string sourcePath,
+            OpenOptions openOptions,
+            out string tempLinkCopyDir)
+        {
+            string copyRoot = Path.Combine(
+                Path.GetTempPath(),
+                "SyntheticPdfLinkCopy_" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            Directory.CreateDirectory(copyRoot);
+            tempLinkCopyDir = copyRoot;
+
+            string copyPath = Path.Combine(copyRoot, Path.GetFileName(sourcePath));
+            File.Copy(sourcePath, copyPath, overwrite: true);
+
+            ModelPath copyModelPath = ModelPathUtils.ConvertUserVisiblePathToModelPath(copyPath);
+            return app.OpenDocumentFile(copyModelPath, openOptions);
+        }
+
+        private static string? TryResolveExistingFilePath(ModelPath? centralPath, string? fallbackPath)
+        {
+            if (centralPath != null && !centralPath.Empty)
+            {
+                try
+                {
+                    string visible = ModelPathUtils.ConvertModelPathToUserVisiblePath(centralPath);
+                    if (!string.IsNullOrWhiteSpace(visible) && File.Exists(visible))
+                    {
+                        return visible;
+                    }
+                }
+                catch
+                {
+                    // Ignore non-file ModelPath conversion errors (e.g., Revit Server)
+                }
+            }
+
+            return !string.IsNullOrWhiteSpace(fallbackPath) && File.Exists(fallbackPath)
+                ? fallbackPath
+                : null;
+        }
+
+        private static void CollectDocumentMatchPaths(Document doc, HashSet<string> claimedPaths)
+        {
+            if (doc.IsDetached)
+            {
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(doc.PathName))
+            {
+                claimedPaths.Add(NormalizePathForKey(doc.PathName));
+            }
+
+            if (doc.IsWorkshared)
+            {
+                try
+                {
+                    ModelPath? central = doc.GetWorksharingCentralModelPath();
+                    if (central != null && !central.Empty)
+                    {
+                        string visible = ModelPathUtils.ConvertModelPathToUserVisiblePath(central);
+                        if (!string.IsNullOrWhiteSpace(visible))
+                        {
+                            claimedPaths.Add(NormalizePathForKey(visible));
+                        }
+                    }
+                }
+                catch
+                {
+                    // Best-effort central path match collection
+                }
+            }
+        }
+
+        private static bool HasMatchingClaimedPath(Document doc, HashSet<string> claimedPaths)
+        {
+            if (doc.IsDetached)
+            {
+                return false;
+            }
+
+            if (!string.IsNullOrWhiteSpace(doc.PathName) &&
+                claimedPaths.Contains(NormalizePathForKey(doc.PathName)))
+            {
+                return true;
+            }
+
+            if (doc.IsWorkshared)
+            {
+                try
+                {
+                    ModelPath? central = doc.GetWorksharingCentralModelPath();
+                    if (central != null && !central.Empty)
+                    {
+                        string visible = ModelPathUtils.ConvertModelPathToUserVisiblePath(central);
+                        if (!string.IsNullOrWhiteSpace(visible) &&
+                            claimedPaths.Contains(NormalizePathForKey(visible)))
+                        {
+                            return true;
+                        }
+                    }
+                }
+                catch
+                {
+                    // Ignore central path lookup failures
+                }
+            }
+
+            return false;
+        }
+
+        private static string ResolveLinkDisplayPath(RevitLinkType linkType, Document linkDoc)
+        {
+            string docDisplay = ResolveDisplayPath(linkDoc);
+            if (!string.IsNullOrWhiteSpace(docDisplay) &&
+                !string.Equals(docDisplay, ResolveDocumentTitle(linkDoc), StringComparison.Ordinal))
+            {
+                return docDisplay;
+            }
+
+            return TryGetLinkTypeVisiblePath(linkType) ?? docDisplay;
+        }
+
+        private static string? TryGetLinkTypeVisiblePath(RevitLinkType linkType)
+        {
+            try
+            {
+                if (linkType.IsExternalFileReference())
+                {
+                    ExternalFileReference? extRef = linkType.GetExternalFileReference();
+                    if (extRef != null && extRef.IsValidObject)
+                    {
+                        ModelPath? modelPath = extRef.GetAbsolutePath() ?? extRef.GetPath();
+                        if (modelPath != null && !modelPath.Empty)
+                        {
+                            string visible = ModelPathUtils.ConvertModelPathToUserVisiblePath(modelPath);
+                            if (!string.IsNullOrWhiteSpace(visible))
+                            {
+                                return visible;
+                            }
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // Cloud or external-resource-only links may not expose ExternalFileReference paths.
+            }
+
+            try
+            {
+                IDictionary<ExternalResourceType, ExternalResourceReference>? refs = linkType.GetExternalResourceReferences();
+                if (refs != null)
+                {
+                    foreach (ExternalResourceReference extRes in refs.Values)
+                    {
+                        if (extRes != null && extRes.IsValidObject && !string.IsNullOrWhiteSpace(extRes.InSessionPath))
+                        {
+                            return extRes.InSessionPath;
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore external resource lookup failure
+            }
+
+            return null;
+        }
+
+        private static string? TryComputeCloudLinkKey(RevitLinkType linkType)
+        {
+            try
+            {
+                IDictionary<ExternalResourceType, ExternalResourceReference>? refs = linkType.GetExternalResourceReferences();
+                if (refs == null || refs.Count == 0)
+                {
+                    return null;
+                }
+
+                foreach (ExternalResourceReference extRes in refs.Values)
+                {
+                    if (extRes == null || !extRes.IsValidObject)
+                    {
+                        continue;
+                    }
+
+                    IDictionary<string, string>? info = extRes.GetReferenceInformation();
+                    if (info != null &&
+                        info.TryGetValue("LinkedModelProjectId", out string? projStr) &&
+                        info.TryGetValue("LinkedModelModelId", out string? modelStr) &&
+                        Guid.TryParse(projStr, out Guid projGuid) &&
+                        Guid.TryParse(modelStr, out Guid modelGuid) &&
+                        projGuid != Guid.Empty &&
+                        modelGuid != Guid.Empty)
+                    {
+                        return $"cloud:{projGuid:D}:{modelGuid:D}";
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore cloud GUID lookup failure on unloaded link
+            }
+
+            return null;
+        }
+
+        private static MultiModelPdfStorageKind ClassifyUnloadedLinkStorageKind(RevitLinkType linkType)
+        {
+            if (TryComputeCloudLinkKey(linkType) != null)
+            {
+                return MultiModelPdfStorageKind.CloudAcc;
+            }
+
+            try
+            {
+                if (linkType.IsExternalFileReference())
+                {
+                    ExternalFileReference? extRef = linkType.GetExternalFileReference();
+                    if (extRef != null && extRef.IsValidObject && extRef.PathType == PathType.Server)
+                    {
+                        return MultiModelPdfStorageKind.Workshared;
+                    }
+                }
+            }
+            catch
+            {
+                // Ignore ExternalFileReference classification failure
+            }
+
+            return MultiModelPdfStorageKind.Local;
+        }
+
+        private static string ResolveUnloadedLinkTitle(RevitLinkType linkType, string? visiblePath)
+        {
+            if (!string.IsNullOrWhiteSpace(linkType.Name))
+            {
+                return linkType.Name;
+            }
+
+            if (!string.IsNullOrWhiteSpace(visiblePath))
+            {
+                string fileName = Path.GetFileName(visiblePath);
+                if (!string.IsNullOrWhiteSpace(fileName))
+                {
+                    return fileName;
+                }
+            }
+
+            return MultiModelPdfPathHelper.FallbackDocumentToken;
         }
 
         private static bool IsSameDocument(Document? left, Document? right)
@@ -1101,10 +1704,31 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
 
         private static void OnDialogBoxShowing(object? sender, DialogBoxShowingEventArgs args)
         {
-            if (args is TaskDialogShowingEventArgs taskArgs &&
-                string.Equals(taskArgs.DialogId, TempViewModesTaskDialogId, StringComparison.Ordinal))
+            if (args is TaskDialogShowingEventArgs taskArgs)
             {
-                taskArgs.OverrideResult(SuppressTempViewModesOverrideResult);
+                if (string.Equals(taskArgs.DialogId, TempViewModesTaskDialogId, StringComparison.Ordinal))
+                {
+                    taskArgs.OverrideResult(SuppressTempViewModesOverrideResult);
+                    return;
+                }
+
+                if (string.Equals(taskArgs.DialogId, UnresolvedReferencesTaskDialogId, StringComparison.Ordinal))
+                {
+                    taskArgs.OverrideResult(IgnoreUnresolvedReferencesOverrideResult);
+                    return;
+                }
+
+                if (string.Equals(taskArgs.DialogId, MissingThirdPartyUpdatersTaskDialogId, StringComparison.Ordinal) ||
+                    string.Equals(taskArgs.DialogId, MissingThirdPartyUpdaterTaskDialogId, StringComparison.Ordinal))
+                {
+                    taskArgs.OverrideResult(ContinueMissingUpdatersOverrideResult);
+                    return;
+                }
+            }
+
+            if (string.Equals(args.DialogId, DocWarnDialogId, StringComparison.Ordinal))
+            {
+                args.OverrideResult(OkDialogOverrideResult);
             }
         }
 
@@ -1122,7 +1746,7 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
             foreach (FailureMessageAccessor failure in failures)
             {
                 FailureDefinitionId id = failure.GetFailureDefinitionId();
-                if (IsSuppressibleExportFailure(id))
+                if (IsSuppressibleExportFailure(id) && failure.GetSeverity() == FailureSeverity.Warning)
                 {
                     fa.DeleteWarning(failure);
                     deletedAny = true;
@@ -1140,6 +1764,24 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
                    id == BuiltInFailures.RoomFailures.RoomNotEnclosedRooms ||
                    id == BuiltInFailures.RoomFailures.RoomNotEnclosedSpaces ||
                    id == BuiltInFailures.ExportFailures.SwitchToRasterProcessingInsteadOfVectorWarning;
+        }
+
+        private sealed class DetachOpenFromCloudCallback : IOpenFromCloudCallback
+        {
+            public OpenConflictResult OnOpenConflict(OpenConflictScenario scenario) =>
+                OpenConflictResult.DetachFromCentral;
+        }
+
+        private sealed class LoadedLinkTarget
+        {
+            public LoadedLinkTarget(RevitLinkType linkType, Document linkDoc)
+            {
+                LinkType = linkType;
+                LinkDoc = linkDoc;
+            }
+
+            public RevitLinkType LinkType { get; }
+            public Document LinkDoc { get; }
         }
 
         private sealed class ExtractedPrintSetViews

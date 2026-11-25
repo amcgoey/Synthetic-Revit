@@ -76,6 +76,11 @@ namespace Synthetic.Platform.Host
         /// <param name="args">The DocumentOpenedEventArgs containing event data.</param>
         public void OnDocumentOpen(object? sender, Autodesk.Revit.DB.Events.DocumentOpenedEventArgs args)
         {
+            if (SettingsRuntimeOptions.SuppressSyncDriftNotifications)
+            {
+                return;
+            }
+
             Document doc = args.Document;
 
             if (doc != null && !doc.IsFamilyDocument)
