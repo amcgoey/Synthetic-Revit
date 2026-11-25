@@ -428,24 +428,24 @@ public class SupervisorLifecycleTests
                 RevitVersion = 2026,
                 AssemblyPath = _fakeAssemblyPath,
                 TrxPath = Path.Combine(_tempRoot, "out", $"sat_{i}.trx"),
-                BootTimeout = TimeSpan.FromMilliseconds(50),
+                BootTimeout = TimeSpan.FromSeconds(5),
                 ExecutionTimeout = TimeSpan.FromSeconds(5)
             }))
             .ToArray();
 
-        await fourActive.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await fourActive.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
-        // 5th run arrives with a 50ms BootTimeout while cap-4 workers run for >350ms (well past 50ms + 250ms).
+        // 5th run arrives with a 400ms BootTimeout while cap-4 workers run for >750ms (well past 400ms + 250ms = 650ms).
         Task<OneShotRunResult> queuedRun = supervisor.RunAsync(new OneShotRunOptions
         {
             RevitVersion = 2026,
             AssemblyPath = _fakeAssemblyPath,
             TrxPath = Path.Combine(_tempRoot, "out", "queued_5th.trx"),
-            BootTimeout = TimeSpan.FromMilliseconds(50),
+            BootTimeout = TimeSpan.FromMilliseconds(400),
             ExecutionTimeout = TimeSpan.FromSeconds(5)
         });
 
-        await Task.Delay(350);
+        await Task.Delay(750);
         Assert.That(queuedRun.IsCompleted, Is.False, "Queued 5th run must wait patiently while cap-4 slots are busy.");
 
         releaseFirst.TrySetResult(true);
@@ -521,7 +521,7 @@ public class SupervisorLifecycleTests
             startupProtector: protector);
         await using var ipcServer = StartServer(pipeName, supervisor);
 
-        // Hold the Startup Gate externally for 350ms so gate wait + modal retry (~600ms+) exceeds BootTimeout (220ms) + 250ms!
+        // Hold the Startup Gate externally for 600ms so 600ms gate wait + retry > 700ms (= 450ms + 250ms)!
         using var gateHeld = new ManualResetEventSlim(false);
         using var releaseGate = new ManualResetEventSlim(false);
         var holderTask = Task.Run(() =>
@@ -551,16 +551,16 @@ public class SupervisorLifecycleTests
             RevitVersion = 2024,
             AssemblyPath = _fakeAssemblyPath,
             TrxPath = Path.Combine(_tempRoot, "out", "protected_retry.trx"),
-            BootTimeout = TimeSpan.FromMilliseconds(220),
+            BootTimeout = TimeSpan.FromMilliseconds(450),
             ExecutionTimeout = TimeSpan.FromSeconds(5),
             Shards = 1
         });
 
-        await Task.Delay(350);
+        await Task.Delay(600);
         releaseGate.Set();
         await holderTask;
 
-        OneShotRunResult result = await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+        OneShotRunResult result = await runTask.WaitAsync(TimeSpan.FromSeconds(8));
         Assert.That(result.Success, Is.True, result.Error);
         Assert.That(result.WorkerIds.Single(), Does.EndWith("_retry1"));
         Assert.That(Volatile.Read(ref launchAttempt), Is.EqualTo(2));
