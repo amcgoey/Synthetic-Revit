@@ -1,6 +1,7 @@
 import ctypes
 from ctypes import wintypes
 import glob
+import hashlib
 import io
 import json
 import os
@@ -39,6 +40,12 @@ STARTUP_FAILURE_WINDOW_TEXT_MARKERS = (
     "revit cannot run the external application",
 )
 LEGACY_MANIFEST_EXPECTED_CLASS = "Synthetic.Bootstrap.BootstrapApp"
+TEST_TEMPLATE_UPGRADE_MUTEX_PREFIX = r"Local\Synthetic_TestTemplateUpgrade_"
+DEFAULT_TEMPLATE_UPGRADE_LOCK_TIMEOUT_MS = 1800000
+TEST_TEMPLATE_FILE_RE = re.compile(r"^TestTemplate(20\d{2})?\.rvt$", re.IGNORECASE)
+TRAILING_YEAR_RE = re.compile(r"(20\d{2})$")
+BASIC_FILE_INFO_FORMAT_MARKER = "Format:".encode("utf-16-le")
+BASIC_FILE_INFO_FORMAT_RE = re.compile(r"Format:\s*(20\d{2})")
 
 
 def _parse_revit_major_version(version):
@@ -1247,6 +1254,324 @@ def get_journal_tool_path():
     )
 
 
+def get_model_upgrader_path():
+    """Return the path to the standalone RevitModelUpgrader CLI driver."""
+    return os.path.abspath(
+        os.path.join(_SCRIPT_DIR, "..", "..", "..", "..", "tools", "RevitModelUpgrader", "revit_model_upgrader.py")
+    )
+
+
+def inspect_model_format_year(model_path):
+    """
+    Read the BasicFileInfo UTF-16LE 'Format: <Year>' marker from a .rvt/.rte/.rfa file
+    without launching Revit. Returns an integer year or None if unreadable/missing.
+    """
+    if not model_path or not os.path.isfile(model_path):
+        return None
+
+    chunk_size = 1024 * 1024
+    overlap_size = 64
+    overlap = b""
+
+    try:
+        with open(model_path, "rb") as f:
+            while True:
+                chunk = f.read(chunk_size)
+                if not chunk:
+                    break
+                buf = overlap + chunk
+                idx = buf.find(BASIC_FILE_INFO_FORMAT_MARKER)
+                while idx != -1:
+                    tail_bytes = buf[idx : idx + 128]
+                    if len(tail_bytes) % 2 == 1:
+                        tail_bytes = tail_bytes[:-1]
+                    tail_text = tail_bytes.decode("utf-16-le", errors="ignore")
+                    match = BASIC_FILE_INFO_FORMAT_RE.search(tail_text)
+                    if match:
+                        return int(match.group(1))
+                    idx = buf.find(BASIC_FILE_INFO_FORMAT_MARKER, idx + 2)
+                overlap = buf[-overlap_size:] if len(buf) >= overlap_size else buf
+    except OSError:
+        return None
+
+    return None
+
+
+def atomic_stage_file(staging_path, target_path):
+    """
+    Atomically move or replace `target_path` using verified `staging_path` on disk.
+    Falls back to copying into a sibling temp file when staging resides on a different volume.
+    """
+    abs_staging = os.path.abspath(staging_path)
+    abs_target = os.path.abspath(target_path)
+    if not os.path.isfile(abs_staging):
+        raise FileNotFoundError(f"Verified staging file not found: '{abs_staging}'.")
+
+    target_dir = os.path.dirname(abs_target)
+    os.makedirs(target_dir, exist_ok=True)
+
+    staging_drive = os.path.splitdrive(abs_staging)[0].casefold()
+    target_drive = os.path.splitdrive(abs_target)[0].casefold()
+    if staging_drive != target_drive:
+        sibling_temp = os.path.join(
+            target_dir, f".{os.path.basename(abs_target)}.staging_{os.getpid()}"
+        )
+        try:
+            shutil.copy2(abs_staging, sibling_temp)
+            os.replace(sibling_temp, abs_target)
+        finally:
+            if os.path.exists(sibling_temp):
+                try:
+                    os.remove(sibling_temp)
+                except OSError:
+                    pass
+        return abs_target
+
+    os.replace(abs_staging, abs_target)
+    return abs_target
+
+
+def get_test_template_upgrade_mutex_name(version, test_models_dir):
+    """Return the Win32 named mutex used to serialize missing-TestTemplate upgrades."""
+    norm_dir = os.path.normcase(os.path.abspath(test_models_dir))
+    dir_digest = hashlib.sha256(norm_dir.encode("utf-8")).hexdigest()[:12]
+    return f"{TEST_TEMPLATE_UPGRADE_MUTEX_PREFIX}{version}_{dir_digest}"
+
+
+def _find_earlier_test_template(test_models_dir, target_year, inspect_fn=inspect_model_format_year):
+    """
+    Locate the newest earlier TestTemplate*.rvt (< target_year) under `test_models_dir`,
+    preferring `TestTemplate<target_year - 1>.rvt`. Returns (path, source_year) or (None, None).
+    """
+    if not os.path.isdir(test_models_dir):
+        return None, None
+
+    scored = []
+    for entry in sorted(os.listdir(test_models_dir)):
+        if not TEST_TEMPLATE_FILE_RE.match(entry):
+            continue
+        full_path = os.path.join(test_models_dir, entry)
+        if not os.path.isfile(full_path):
+            continue
+        stem = os.path.splitext(entry)[0]
+        year_match = TRAILING_YEAR_RE.search(stem)
+        name_year = int(year_match.group(1)) if year_match else None
+        file_format = inspect_fn(full_path)
+        effective_year = file_format if file_format is not None else name_year
+        if effective_year is None or effective_year >= target_year:
+            continue
+        is_prev_year = name_year == (target_year - 1)
+        has_explicit_year = name_year is not None
+        scored.append((full_path, effective_year, is_prev_year, has_explicit_year))
+
+    if not scored:
+        return None, None
+
+    scored.sort(
+        key=lambda item: (
+            1 if item[2] else 0,
+            item[1],
+            1 if item[3] else 0,
+            item[0],
+        ),
+        reverse=True,
+    )
+    return scored[0][0], scored[0][1]
+
+
+def _verify_staged_test_template(
+    staged_path,
+    report_path,
+    target_year,
+    inspect_fn=inspect_model_format_year,
+):
+    """Verify staged TestTemplate output exists, passes report checks, and matches target_year."""
+    if not os.path.isfile(staged_path) or os.path.getsize(staged_path) == 0:
+        raise RuntimeError(
+            f"RevitModelUpgrader verification failed: missing or empty staged template '{staged_path}'."
+        )
+
+    if report_path and os.path.isfile(report_path):
+        try:
+            with open(report_path, "r", encoding="utf-8") as rf:
+                report_data = json.load(rf)
+        except (OSError, json.JSONDecodeError) as exc:
+            raise RuntimeError(
+                f"RevitModelUpgrader verification failed: unreadable upgrade report '{report_path}': {exc}"
+            ) from exc
+
+        batches = report_data.get("Batches") or []
+        if not batches:
+            raise RuntimeError(
+                f"RevitModelUpgrader verification failed: upgrade report '{report_path}' recorded no executed batches."
+            )
+        for batch in batches:
+            if not batch.get("JournalClean"):
+                raise RuntimeError(
+                    f"RevitModelUpgrader verification failed: journal cleanliness gate failed for Revit {target_year}."
+                )
+            jobs = batch.get("Jobs") or []
+            if not jobs:
+                raise RuntimeError(
+                    f"RevitModelUpgrader verification failed: batch for Revit {target_year} recorded no jobs."
+                )
+            for job in jobs:
+                if not job.get("Success"):
+                    detail = job.get("ErrorMessage") or "job reported Success=false"
+                    raise RuntimeError(
+                        f"RevitModelUpgrader verification failed for Revit {target_year}: {detail}"
+                    )
+                verified_fmt = str(job.get("VerifiedFormat") or "").strip()
+                if verified_fmt and verified_fmt != str(target_year):
+                    raise RuntimeError(
+                        f"RevitModelUpgrader verification failed: report VerifiedFormat '{verified_fmt}' != '{target_year}'."
+                    )
+
+    actual_format = inspect_fn(staged_path)
+    if actual_format != target_year:
+        raise RuntimeError(
+            f"RevitModelUpgrader verification failed for '{staged_path}': "
+            f"expected BasicFileInfo Format {target_year}, got {actual_format}."
+        )
+
+
+def ensure_test_template_ready(
+    version,
+    workspace_path,
+    no_auto_upgrade=False,
+    python_exe=sys.executable,
+    upgrader_script_path=None,
+    lock_factory=None,
+    upgrader_runner=None,
+    inspect_fn=inspect_model_format_year,
+):
+    """
+    Ensure `tests/Assets/test_models/TestTemplate<Year>.rvt` exists prior to dispatching live
+    Revit workers. Takes a <1ms no-op path when present; when missing and an earlier
+    TestTemplate exists, acquires a Win32 mutex, emits a loud diagnostic log, invokes
+    RevitModelUpgrader with atomic staging (never auto-upgrading INC Standards models),
+    and verifies the staged template before promotion.
+    Returns True if an upgrade was performed, False if already present or no earlier source exists.
+    """
+    ver_num = _parse_revit_major_version(version)
+    if ver_num is None:
+        return False
+
+    ver_str = str(ver_num)
+    test_models_dir = os.path.join(os.path.abspath(workspace_path), "tests", "Assets", "test_models")
+    target_filename = f"TestTemplate{ver_str}.rvt"
+    target_template_path = os.path.join(test_models_dir, target_filename)
+
+    # Fast <1ms no-op path when target template is already on disk
+    if os.path.isfile(target_template_path):
+        return False
+
+    if no_auto_upgrade:
+        raise RuntimeError(
+            f"Missing '{target_template_path}' for Revit {ver_str}, and --no-auto-upgrade was specified. "
+            f"Generate or restore it before running live Revit {ver_str} tests, e.g.: "
+            f"python tools/RevitModelUpgrader/revit_model_upgrader.py --preset test-models --versions {ver_str}"
+        )
+
+    if (
+        os.environ.get("SYNTHETIC_TEST_WORKER", "").strip() == "1"
+        or os.environ.get("SYNTHETIC_UPGRADER_MANIFEST", "").strip()
+    ):
+        raise RuntimeError(
+            f"Missing '{target_template_path}' inside an active Revit worker process; "
+            "refusing nested RevitModelUpgrader launch."
+        )
+
+    if not os.path.isdir(test_models_dir):
+        return False
+
+    source_path, _ = _find_earlier_test_template(test_models_dir, ver_num, inspect_fn=inspect_fn)
+    if source_path is None:
+        print(
+            f"[WARN] Missing '{target_template_path}' for Revit {ver_str}, and no earlier "
+            f"TestTemplate*.rvt exists under '{test_models_dir}' to auto-upgrade from."
+        )
+        return False
+
+    upgrader_path = upgrader_script_path or get_model_upgrader_path()
+    if not os.path.isfile(upgrader_path):
+        raise RuntimeError(f"RevitModelUpgrader script not found at '{upgrader_path}'.")
+
+    lock_obj = (
+        lock_factory(ver_str, test_models_dir)
+        if lock_factory is not None
+        else RevitStartupGate(
+            ver_str,
+            mutex_name=get_test_template_upgrade_mutex_name(ver_str, test_models_dir),
+            acquire_timeout_ms=DEFAULT_TEMPLATE_UPGRADE_LOCK_TIMEOUT_MS,
+        )
+    )
+    run_fn = subprocess.run if upgrader_runner is None else upgrader_runner
+
+    with lock_obj:
+        # Double-checked locking: another concurrent runner may have staged it while we waited
+        if os.path.isfile(target_template_path):
+            print(
+                f"[PRE-RUN UPGRADE] '{target_template_path}' became ready while waiting on lock; skipping duplicate upgrade."
+            )
+            return False
+
+        source_path, source_year = _find_earlier_test_template(
+            test_models_dir, ver_num, inspect_fn=inspect_fn
+        )
+        if source_path is None:
+            return False
+
+        print("=" * 72)
+        print(f"[PRE-RUN UPGRADE] Missing '{target_template_path}' for Revit {ver_str}.")
+        print(
+            f"[PRE-RUN UPGRADE] Synchronization lock acquired; invoking RevitModelUpgrader "
+            f"for '{source_path}' (Format {source_year}) -> Revit {ver_str}..."
+        )
+        print("[PRE-RUN UPGRADE] Pass --no-auto-upgrade to fail fast instead of auto-upgrading.")
+        print("=" * 72)
+
+        staging_dir = tempfile.mkdtemp(prefix=f"SyntheticTestTemplateStage_{ver_str}_")
+        report_path = os.path.join(staging_dir, f"upgrade_report_{ver_str}.json")
+        staged_template_path = os.path.join(staging_dir, target_filename)
+        try:
+            cmd = [
+                python_exe,
+                upgrader_path,
+                source_path,
+                "--versions",
+                ver_str,
+                "--output-dir",
+                staging_dir,
+                "--report",
+                report_path,
+            ]
+            res = run_fn(cmd)
+            if res.returncode != 0:
+                detail = (getattr(res, "stderr", None) or getattr(res, "stdout", None) or "").strip()
+                suffix = f": {detail}" if detail else ""
+                raise RuntimeError(
+                    f"RevitModelUpgrader failed while generating '{target_template_path}' "
+                    f"(exit code {res.returncode}){suffix}"
+                )
+
+            _verify_staged_test_template(
+                staged_template_path,
+                report_path=report_path,
+                target_year=ver_num,
+                inspect_fn=inspect_fn,
+            )
+            atomic_stage_file(staged_template_path, target_template_path)
+        finally:
+            shutil.rmtree(staging_dir, ignore_errors=True)
+
+    print(
+        f"[PRE-RUN UPGRADE] Verified and atomically staged '{target_template_path}' "
+        f"(Format {ver_str})."
+    )
+    return True
+
+
 def run_journal_cleanliness_gate(
     version,
     run_id,
@@ -2239,6 +2564,7 @@ def run_test_suite(
     target_framework="",
     no_shim=False,
     shards=None,
+    no_auto_upgrade=False,
 ):
     if shards is not None and shards < 1:
         print(f"[ERROR] --shards must be >= 1 (got {shards}).")
@@ -2322,6 +2648,17 @@ def run_test_suite(
             if matched_zero:
                 print(f"[TESTS] 0 matching tests for {ver} (category: {category}).")
                 continue
+
+            if not is_headless:
+                try:
+                    ensure_test_template_ready(
+                        ver,
+                        workspace_path=workspace_path,
+                        no_auto_upgrade=no_auto_upgrade,
+                    )
+                except (RuntimeError, OSError, ValueError) as exc:
+                    print(f"[ERROR] {exc}")
+                    sys.exit(1)
 
             if is_headless or worker_mode != "pool":
                 executed_any = True
@@ -2607,6 +2944,13 @@ def parse_cli_args(argv=None):
         default=None,
         help="Override Test Shard worker count for RevitWorkerPool (>= 1)",
     )
+    parser.add_argument(
+        "--no-auto-upgrade",
+        dest="no_auto_upgrade",
+        action="store_true",
+        default=False,
+        help="Fail fast instead of invoking RevitModelUpgrader when TestTemplate<Year>.rvt is missing",
+    )
     # Legacy positional support: test_executor.py [class] [version]
     parser.add_argument("pos_class", nargs="?", default="")
     parser.add_argument("pos_version", nargs="?", default="")
@@ -2634,5 +2978,6 @@ if __name__ == "__main__":
         target_framework=_args.target_framework,
         no_shim=_args.no_shim,
         shards=_args.shards,
+        no_auto_upgrade=_args.no_auto_upgrade,
     )
 

@@ -28,8 +28,11 @@ TEST_TEMPLATE_FILE_RE = re.compile(r"^TestTemplate(20\d{2})?\.rvt$", re.IGNORECA
 INC_STANDARDS_FILE_RE = re.compile(
     r"^INC Standards - Assemblies & Details(20\d{2})?\.rvt$", re.IGNORECASE
 )
-BASIC_FILE_INFO_FORMAT_MARKER = "Format:".encode("utf-16-le")
-BASIC_FILE_INFO_FORMAT_RE = re.compile(r"Format:\s*(20\d{2})")
+BASIC_FILE_INFO_FORMAT_MARKER = te.BASIC_FILE_INFO_FORMAT_MARKER
+BASIC_FILE_INFO_FORMAT_RE = te.BASIC_FILE_INFO_FORMAT_RE
+
+inspect_model_format_year = te.inspect_model_format_year
+atomic_stage_file = te.atomic_stage_file
 
 DEFAULT_BATCH_TIMEOUT_SECONDS = 1800
 TEST_TEMPLATE_MIN_LOADABLE_FAMILIES = 2
@@ -81,43 +84,6 @@ def compute_output_path(source_path, target_version, output_dir=None):
     out_filename = f"{stem_no_year}{int(target_version)}{ext}"
     dest_dir = os.path.abspath(output_dir) if output_dir else os.path.dirname(abs_source)
     return os.path.join(dest_dir, out_filename)
-
-
-def inspect_model_format_year(model_path):
-    """
-    Read the BasicFileInfo UTF-16LE 'Format: <Year>' marker from a .rvt/.rte/.rfa file
-    without launching Revit. Returns an integer year or None if unreadable/missing.
-    """
-    if not model_path or not os.path.isfile(model_path):
-        return None
-
-    chunk_size = 1024 * 1024
-    overlap_size = 64
-    overlap = b""
-
-    try:
-        with open(model_path, "rb") as f:
-            while True:
-                chunk = f.read(chunk_size)
-                if not chunk:
-                    break
-                buf = overlap + chunk
-                idx = buf.find(BASIC_FILE_INFO_FORMAT_MARKER)
-                while idx != -1:
-                    tail_bytes = buf[idx : idx + 128]
-                    # Ensure even byte count for UTF-16LE decoding
-                    if len(tail_bytes) % 2 == 1:
-                        tail_bytes = tail_bytes[:-1]
-                    tail_text = tail_bytes.decode("utf-16-le", errors="ignore")
-                    match = BASIC_FILE_INFO_FORMAT_RE.search(tail_text)
-                    if match:
-                        return int(match.group(1))
-                    idx = buf.find(BASIC_FILE_INFO_FORMAT_MARKER, idx + 2)
-                overlap = buf[-overlap_size:] if len(buf) >= overlap_size else buf
-    except OSError:
-        return None
-
-    return None
 
 
 def discover_installed_revit_versions(program_files=None, env=None):
@@ -461,40 +427,6 @@ def plan_upgrade_jobs(
         )
 
     return plan
-
-
-def atomic_stage_file(staging_path, target_path):
-    """
-    Atomically move or replace `target_path` using verified `staging_path` on disk.
-    Falls back to copying into a sibling temp file when staging resides on a different volume.
-    """
-    abs_staging = os.path.abspath(staging_path)
-    abs_target = os.path.abspath(target_path)
-    if not os.path.isfile(abs_staging):
-        raise FileNotFoundError(f"Verified staging file not found: '{abs_staging}'.")
-
-    target_dir = os.path.dirname(abs_target)
-    os.makedirs(target_dir, exist_ok=True)
-
-    staging_drive = os.path.splitdrive(abs_staging)[0].casefold()
-    target_drive = os.path.splitdrive(abs_target)[0].casefold()
-    if staging_drive != target_drive:
-        sibling_temp = os.path.join(
-            target_dir, f".{os.path.basename(abs_target)}.staging_{os.getpid()}"
-        )
-        try:
-            shutil.copy2(abs_staging, sibling_temp)
-            os.replace(sibling_temp, abs_target)
-        finally:
-            if os.path.exists(sibling_temp):
-                try:
-                    os.remove(sibling_temp)
-                except OSError:
-                    pass
-        return abs_target
-
-    os.replace(abs_staging, abs_target)
-    return abs_target
 
 
 def format_upgrade_report_text(plan, batch_reports):
