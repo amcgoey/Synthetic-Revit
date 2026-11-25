@@ -206,3 +206,7 @@ _Avoid_: Batch print, multi-doc print, Bluebeam batch, batch plotter
 **PDF Export Setup**:
 A named Revit PDF export configuration (or the built-in default sheet-size fallback) defining paper format, processing mode, color depth, visibility filters, and file naming rules for native PDF export.
 _Avoid_: Print setting, Bluebeam profile, PDF preset
+
+**Detail Item Factory**:
+The workflow that projects selected 3D model elements from a 2D Revit view into 2D Detail Item families, saves them to an output folder, and loads them into the host project.
+_Avoid_: 2D converter, DWG tracer, detail generator
