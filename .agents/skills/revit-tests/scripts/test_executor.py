@@ -466,22 +466,7 @@ class RevitStartupGate:
 
 RUN_DIR_PATTERN = re.compile(r"^\d{8}_\d{6}_\d+_[0-9a-fA-F]+$")
 MAX_TEST_RESULT_RUNS = 10
-
-
-def find_msbuild():
-    paths = [
-        r"C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe",
-        r"C:\Program Files\Microsoft Visual Studio\18\BuildTools\MSBuild\Current\Bin\amd64\MSBuild.exe",
-        r"C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Current\Bin\amd64\MSBuild.exe",
-        r"C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Current\Bin\MSBuild.exe",
-        r"C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe",
-        r"C:\Program Files\Microsoft Visual Studio\2022\Professional\MSBuild\Current\Bin\MSBuild.exe",
-        r"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe",
-    ]
-    for p in paths:
-        if os.path.exists(p):
-            return p
-    return "msbuild"  # fallback to PATH
+MIN_DOTNET_SDK_VERSION = "10.0.100"
 
 
 def parse_sdk_version(version_str):
@@ -515,56 +500,16 @@ def get_default_dotnet_sdk_roots(env=None):
     ]
 
 
-def _msbuild_has_broken_dotnet_releases_redirect(msbuild_path):
-    """Return True if MSBuild.exe.config pins Microsoft.Deployment.DotNet.Releases to a missing file."""
-    if not msbuild_path or not os.path.isfile(msbuild_path):
-        return False
-    config_path = msbuild_path + ".config"
-    if not os.path.isfile(config_path):
-        return False
-    try:
-        tree = ET.parse(config_path)
-        root = tree.getroot()
-    except (ET.ParseError, OSError):
-        return False
-
-    for elem in root.iter():
-        if elem.tag.split("}")[-1] != "dependentAssembly":
-            continue
-        has_releases_id = False
-        codebase_hrefs = []
-        for child in elem:
-            child_tag = child.tag.split("}")[-1]
-            if child_tag == "assemblyIdentity" and child.attrib.get("name") == "Microsoft.Deployment.DotNet.Releases":
-                has_releases_id = True
-            elif child_tag == "codeBase" and child.attrib.get("href"):
-                codebase_hrefs.append(child.attrib["href"])
-        if has_releases_id and codebase_hrefs:
-            base_dir = os.path.dirname(os.path.abspath(msbuild_path))
-            return any(not os.path.isfile(os.path.normpath(os.path.join(base_dir, href))) for href in codebase_hrefs)
-
-    return False
-
-
-def is_sdk_compatible_with_msbuild(sdk_path, version_str, msbuild_path=None):
-    """Skip .NET 10+ SDKs when paired with an MSBuild.exe whose config redirects DotNet.Releases to a missing resolver."""
+def is_net10_sdk_version(version_str, min_version=MIN_DOTNET_SDK_VERSION):
+    """Return True if version_str parses semantically as >= min_version (default 10.0.100)."""
     parsed = parse_sdk_version(version_str)
-    if parsed is None or parsed[0][0] < 10:
-        return True
-    sdk_releases = os.path.join(
-        sdk_path, "Sdks", "Microsoft.NET.Sdk", "tools", "net472", "Microsoft.Deployment.DotNet.Releases.dll"
-    )
-    if not os.path.isfile(sdk_releases):
-        return True
-    resolved_msbuild = msbuild_path if msbuild_path is not None else find_msbuild()
-    return not _msbuild_has_broken_dotnet_releases_redirect(resolved_msbuild)
+    min_parsed = parse_sdk_version(min_version)
+    return parsed is not None and min_parsed is not None and parsed >= min_parsed
 
 
-def find_best_dotnet_sdk(sdk_roots=None, msbuild_path=None):
-    """Return metadata for the highest compatible semantic .NET SDK across candidate sdk roots."""
+def find_best_dotnet_sdk(sdk_roots=None):
+    """Return metadata for the highest semantic .NET SDK across candidate sdk roots."""
     roots = get_default_dotnet_sdk_roots() if sdk_roots is None else sdk_roots
-    best_compatible = None
-    best_compatible_key = None
     best_any = None
     best_any_key = None
 
@@ -591,18 +536,58 @@ def find_best_dotnet_sdk(sdk_roots=None, msbuild_path=None):
             if best_any_key is None or parsed > best_any_key:
                 best_any_key = parsed
                 best_any = candidate
-            if is_sdk_compatible_with_msbuild(sdk_path, entry, msbuild_path=msbuild_path):
-                if best_compatible_key is None or parsed > best_compatible_key:
-                    best_compatible_key = parsed
-                    best_compatible = candidate
 
-    return best_compatible if best_compatible is not None else best_any
+    return best_any
 
 
-def configure_dotnet_environment(env=None, sdk_roots=None, msbuild_path=None):
-    env = os.environ if env is None else env
+def require_net10_sdk(sdk_roots=None, env=None):
+    """
+    Read-only fail-fast preflight verifying at least one .NET 10.0 SDK (10.0.100+)
+    is present across machine Program Files or user LocalAppData SDK roots.
+    """
     roots = get_default_dotnet_sdk_roots(env) if sdk_roots is None else sdk_roots
-    best = find_best_dotnet_sdk(sdk_roots=roots, msbuild_path=msbuild_path)
+    best = find_best_dotnet_sdk(sdk_roots=roots)
+    if best and is_net10_sdk_version(best["version"]):
+        return best
+
+    detected = best["version"] if best else "none"
+    roots_desc = ", ".join(r for r in roots if r) or "(none)"
+    print(
+        f"[ERROR] .NET 10.0 SDK ({MIN_DOTNET_SDK_VERSION}+) is required for dotnet build, "
+        f"but highest discovered SDK is '{detected}' (scanned: {roots_desc})."
+    )
+    print("[ERROR] Remediation options:")
+    print("  1. Install machine-wide .NET 10.0 SDK (elevated):")
+    print("       winget install Microsoft.DotNet.SDK.10")
+    print("     If a user-level DOTNET_ROOT shadows Program Files, clear it:")
+    print("       Remove-Item Env:DOTNET_ROOT -ErrorAction SilentlyContinue")
+    print("       [Environment]::SetEnvironmentVariable('DOTNET_ROOT', $null, 'User')")
+    print("  2. Or install per-user without elevation via dotnet-install:")
+    print("       https://dot.net/v1/dotnet-install.ps1 -Channel 10.0")
+    sys.exit(1)
+
+
+def resolve_dotnet_exe(sdk_info=None):
+    """Return path to dotnet.exe under sdk_info['dotnet_root'] if present, else 'dotnet'."""
+    if sdk_info:
+        candidate = os.path.join(sdk_info["dotnet_root"], "dotnet.exe")
+        if os.path.exists(candidate):
+            return candidate
+    return "dotnet"
+
+
+def _pop_env_case_insensitive(env, key):
+    """Remove all keys matching `key` case-insensitively (handles os.environ.copy() dicts on Windows)."""
+    target = key.casefold()
+    for existing in [k for k in list(env.keys()) if k.casefold() == target]:
+        env.pop(existing, None)
+
+
+def configure_dotnet_environment(env=None, sdk_roots=None):
+    env = os.environ if env is None else env
+    _pop_env_case_insensitive(env, "MSBuildSdksPath")
+    roots = get_default_dotnet_sdk_roots(env) if sdk_roots is None else sdk_roots
+    best = require_net10_sdk(sdk_roots=roots, env=env)
     if best:
         dotnet_root = best["dotnet_root"]
         env["DOTNET_ROOT"] = dotnet_root
@@ -610,11 +595,6 @@ def configure_dotnet_environment(env=None, sdk_roots=None, msbuild_path=None):
         path_parts = current_path.split(os.pathsep) if current_path else []
         if not path_parts or os.path.normcase(path_parts[0]) != os.path.normcase(dotnet_root):
             env["PATH"] = dotnet_root + (os.pathsep + current_path if current_path else "")
-
-        sdks_path = os.path.join(best["sdk_path"], "Sdks")
-        if os.path.isdir(sdks_path):
-            env["MSBuildSdksPath"] = sdks_path
-            env["MSBuildEnableWorkloadResolver"] = "false"
 
     system_net48 = r"C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.8"
     if not os.path.exists(system_net48):
@@ -2266,8 +2246,8 @@ def run_test_suite(
 
     workspace_path = os.getcwd()
     os.environ["SYNTHETIC_PROJECT_ROOT"] = workspace_path
+    _pop_env_case_insensitive(os.environ, "MSBuildSdksPath")
     sdk_info = configure_dotnet_environment()
-    msbuild_path = find_msbuild()
 
     # 1. Discover test projects dynamically
     test_dir = os.path.join(workspace_path, "tests")
@@ -2305,11 +2285,7 @@ def run_test_suite(
         if worker_mode == "cold" and shards is not None:
             print("[TESTS] Note: --shards is only used in RevitWorkerPool mode; running single cold worker.")
 
-    dotnet_exe = "dotnet"
-    if sdk_info:
-        candidate_dotnet = os.path.join(sdk_info["dotnet_root"], "dotnet.exe")
-        if os.path.exists(candidate_dotnet):
-            dotnet_exe = candidate_dotnet
+    dotnet_exe = resolve_dotnet_exe(sdk_info)
 
     executed_any = False
     had_execution_error = False
@@ -2355,21 +2331,21 @@ def run_test_suite(
 
             proj_name = os.path.splitext(os.path.basename(csproj_path))[0]
             if is_headless:
-                print(f"[TESTS] Building {proj_name} ({ver}) with MSBuild ({run_id}): {msbuild_path}...")
+                print(f"[TESTS] Building {proj_name} ({ver}) with dotnet build ({run_id}): {dotnet_exe}...")
             else:
-                print(f"[TESTS] Building {proj_name} for Revit {ver} with MSBuild ({run_id}): {msbuild_path}...")
+                print(f"[TESTS] Building {proj_name} for Revit {ver} with dotnet build ({run_id}): {dotnet_exe}...")
 
             build_cmd = [
-                msbuild_path,
+                dotnet_exe,
+                "build",
                 csproj_path,
-                "/t:Build",
-                "/restore",
-                "/p:Configuration=Debug",
-                "/p:Platform=x64",
-                f"/p:SyntheticIsolatedBuildRoot={run_build_root}",
-                f"/p:SyntheticRunId={run_id}",
-                "/v:minimal",
-                "/clp:ErrorsOnly;Summary",
+                "-c",
+                "Debug",
+                "-p:Platform=x64",
+                f"-p:SyntheticIsolatedBuildRoot={run_build_root}",
+                f"-p:SyntheticRunId={run_id}",
+                "-v:minimal",
+                "-clp:ErrorsOnly;Summary",
             ]
             try:
                 subprocess.run(build_cmd, check=True)

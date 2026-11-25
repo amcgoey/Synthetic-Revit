@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <IsCoreProject>true</IsCoreProject>
-    <TargetFrameworks>net48;net8.0-windows8.0</TargetFrameworks>
+    <TargetFrameworks>net48;net8.0-windows8.0;net10.0-windows8.0</TargetFrameworks>
     <Platforms>x64</Platforms>
     <PlatformTarget>x64</PlatformTarget>
     <LangVersion>9.0</LangVersion>
