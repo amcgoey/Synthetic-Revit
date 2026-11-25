@@ -35,10 +35,12 @@ public sealed class CleanDetoursProcessLauncher : IWorkerProcessLauncher
 
     private readonly string _shimDllPath;
     private readonly string _launcherDllPath;
+    private readonly Action<string>? _diagnosticLogger;
 
     public CleanDetoursProcessLauncher(
         string? shimDllPath = null,
-        string? launcherDllPath = null)
+        string? launcherDllPath = null,
+        Action<string>? diagnosticLogger = null)
     {
         _shimDllPath = string.IsNullOrWhiteSpace(shimDllPath)
             ? Path.Combine(AppContext.BaseDirectory, "RevitCleanShim.dll")
@@ -47,6 +49,8 @@ public sealed class CleanDetoursProcessLauncher : IWorkerProcessLauncher
         _launcherDllPath = string.IsNullOrWhiteSpace(launcherDllPath)
             ? Path.Combine(AppContext.BaseDirectory, "RevitCleanLauncher.dll")
             : Path.GetFullPath(launcherDllPath);
+
+        _diagnosticLogger = diagnosticLogger;
     }
 
     public string ShimDllPath => _shimDllPath;
@@ -101,6 +105,7 @@ public sealed class CleanDetoursProcessLauncher : IWorkerProcessLauncher
         string commandLineText = string.IsNullOrWhiteSpace(request.Arguments)
             ? $"\"{fullExePath}\""
             : $"\"{fullExePath}\" {request.Arguments}";
+        string profileRoot = ResolveProfileRootDirectory(request);
 
         IntPtr launcherModule = IntPtr.Zero;
         IntPtr rawProcessHandle = IntPtr.Zero;
@@ -180,62 +185,31 @@ public sealed class CleanDetoursProcessLauncher : IWorkerProcessLauncher
             }
         }
 
-        var job = new JobObjectContainer();
-        var processHandle = new SafeProcessHandle(rawProcessHandle, ownsHandle: true);
         try
         {
-            // Assign to Job Object BEFORE ResumeThread so neither the worker nor children can escape containment.
-            job.AssignProcessHandle(rawProcessHandle);
-
-            request.OnProcessCreatedBeforeResume?.Invoke(unchecked((int)rawProcessId));
-
-            uint resumeResult = NativeMethods.ResumeThread(rawThreadHandle);
-            if (resumeResult == uint.MaxValue)
-            {
-                int error = Marshal.GetLastWin32Error();
-                throw new CleanShimLaunchException(
-                    $"ResumeThread failed for shimmed worker PID {rawProcessId} (Win32 error {error}).",
-                    new Win32Exception(error));
-            }
-
             string processName = Path.GetFileNameWithoutExtension(fullExePath);
             string pidProfileDir = Path.Combine(
-                ResolveProfileRootDirectory(request),
+                profileRoot,
                 unchecked((int)rawProcessId).ToString(CultureInfo.InvariantCulture));
-            var launched = new LaunchedWorkerProcess(
+
+            LaunchedWorkerProcess launched = StandardProcessLauncher.FinalizeSuspendedWorkerProcess(
+                rawProcessHandle,
+                rawThreadHandle,
                 unchecked((int)rawProcessId),
                 processName,
                 workerId,
-                processHandle,
-                job,
-                onDispose: () => TryDeleteDirectoryBestEffort(pidProfileDir));
-
-            processHandle = null!;
-            job = null!;
+                request.OnProcessCreatedBeforeResume,
+                resumeFailureFactory: (error, _) => new CleanShimLaunchException(
+                    $"ResumeThread failed for shimmed worker PID {rawProcessId} (Win32 error {error}).",
+                    new Win32Exception(error)),
+                onDispose: () => TryDeleteDirectoryBestEffort(pidProfileDir, _diagnosticLogger));
             return Task.FromResult(launched);
         }
         catch (Exception ex) when (ex is not CleanShimLaunchException)
         {
-            NativeMethods.TerminateProcess(rawProcessHandle, 1);
-            job?.Dispose();
-            processHandle?.Dispose();
             throw new CleanShimLaunchException(
                 $"Failed to finalize shimmed worker PID {rawProcessId} before resume: {ex.Message}",
                 ex);
-        }
-        catch
-        {
-            NativeMethods.TerminateProcess(rawProcessHandle, 1);
-            job?.Dispose();
-            processHandle?.Dispose();
-            throw;
-        }
-        finally
-        {
-            if (rawThreadHandle != IntPtr.Zero)
-            {
-                NativeMethods.CloseHandle(rawThreadHandle);
-            }
         }
     }
 
@@ -260,7 +234,7 @@ public sealed class CleanDetoursProcessLauncher : IWorkerProcessLauncher
         return Path.Combine(Path.GetTempPath(), "SyntheticCleanProfile");
     }
 
-    private static void TryDeleteDirectoryBestEffort(string directoryPath)
+    private static void TryDeleteDirectoryBestEffort(string directoryPath, Action<string>? diagnosticLogger)
     {
         if (string.IsNullOrWhiteSpace(directoryPath) || !Directory.Exists(directoryPath))
         {
@@ -271,9 +245,11 @@ public sealed class CleanDetoursProcessLauncher : IWorkerProcessLauncher
         {
             Directory.Delete(directoryPath, recursive: true);
         }
-        catch
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             // Best-effort cleanup of disposable per-PID profile folder.
+            diagnosticLogger?.Invoke(
+                $"[clean-shim] Warning: failed to remove disposable profile directory '{directoryPath}': {ex.Message}");
         }
     }
 

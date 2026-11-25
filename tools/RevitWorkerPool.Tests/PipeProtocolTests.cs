@@ -1,7 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Threading.Tasks;
 using NUnit.Framework;
+using RevitWorkerPool.Ipc;
 using RevitWorkerPool.Launching;
 using RevitWorkerPool.Pipe;
 using ricaun.NUnit.Models;
@@ -126,4 +130,56 @@ public class PipeProtocolTests
         Assert.That(result.AssemblyResult!.Tests.Count, Is.EqualTo(1));
         Assert.That(result.AssemblyResult.Tests[0].Tests[0].Time, Is.EqualTo(123.4));
     }
+
+    [TestCase("", "\"\"")]
+    [TestCase(@"C:\repo\", @"C:\repo\")]
+    [TestCase(@"C:\my repo\", "\"C:\\my repo\\\\\"")]
+    [TestCase("a\"b", "\"a\\\"b\"")]
+    [TestCase(@"a\""b", "\"a\\\\\\\"b\"")]
+    [TestCase("tab\tpath\\", "\"tab\tpath\\\\\"")]
+    public void QuoteArg_HandlesTrailingBackslashesAndEmbeddedQuotes_PerCommandLineToArgvW(
+        string rawArgument,
+        string expectedQuoted)
+    {
+        string quoted = SupervisorIpcClient.QuoteArg(rawArgument);
+        Assert.That(quoted, Is.EqualTo(expectedQuoted));
+
+        if (OperatingSystem.IsWindows())
+        {
+            string[] parsed = ParseWindowsCommandLine($"app.exe {quoted}");
+            Assert.That(parsed, Is.EqualTo(new[] { "app.exe", rawArgument }));
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static string[] ParseWindowsCommandLine(string commandLine)
+    {
+        IntPtr argvPtr = CommandLineToArgvW(commandLine, out int argc);
+        if (argvPtr == IntPtr.Zero)
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error());
+        }
+
+        try
+        {
+            var results = new string[argc];
+            for (int i = 0; i < argc; i++)
+            {
+                IntPtr argPtr = Marshal.ReadIntPtr(argvPtr, i * IntPtr.Size);
+                results[i] = Marshal.PtrToStringUni(argPtr) ?? string.Empty;
+            }
+
+            return results;
+        }
+        finally
+        {
+            _ = LocalFree(argvPtr);
+        }
+    }
+
+    [DllImport("shell32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern IntPtr CommandLineToArgvW(string lpCmdLine, out int pNumArgs);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr LocalFree(IntPtr hMem);
 }

@@ -65,8 +65,28 @@ public sealed class OffScreenWindowTracker : IDisposable
         _messageThread.SetApartmentState(ApartmentState.STA);
         _messageThread.Start();
 
-        _readyEvent.Wait();
-        _startupException?.Throw();
+        try
+        {
+            _readyEvent.Wait();
+            _startupException?.Throw();
+        }
+        catch
+        {
+            Interlocked.Exchange(ref _disposed, 1);
+            uint threadId = Volatile.Read(ref _nativeThreadId);
+            if (threadId != 0)
+            {
+                NativeMethods.PostThreadMessageW(threadId, WmQuit, UIntPtr.Zero, IntPtr.Zero);
+            }
+
+            if (_messageThread.IsAlive && Thread.CurrentThread != _messageThread)
+            {
+                _messageThread.Join(TimeSpan.FromSeconds(2));
+            }
+
+            _readyEvent.Dispose();
+            throw;
+        }
     }
 
     public int OffScreenX => _offScreenX;

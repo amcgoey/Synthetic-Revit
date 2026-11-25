@@ -332,12 +332,22 @@ class RicaunBundleLease:
             self._win32.release_mutex(h_mutex)
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        h_mutex = self._win32.acquire_mutex(self.mutex_name)
         try:
             if self._handle is not None:
                 self._win32.close_handle(self._handle)
                 self._handle = None
+        except OSError as exc:
+            print(f"[WARN] Failed to close bundle lease handle '{self.package_contents_path}': {exc}")
+            self._handle = None
 
+        h_mutex = None
+        try:
+            h_mutex = self._win32.acquire_mutex(self.mutex_name)
+        except TimeoutError as exc:
+            print(f"[WARN] Timed out acquiring bundle lease mutex '{self.mutex_name}' during cleanup: {exc}")
+            return
+
+        try:
             if os.path.exists(self.package_contents_path):
                 try:
                     os.remove(self.package_contents_path)
@@ -350,7 +360,8 @@ class RicaunBundleLease:
             if os.path.isdir(self.bundle_dir):
                 shutil.rmtree(self.bundle_dir, ignore_errors=True)
         finally:
-            self._win32.release_mutex(h_mutex)
+            if h_mutex is not None:
+                self._win32.release_mutex(h_mutex)
 
 
 def get_startup_gate_mutex_name(version):
@@ -1518,15 +1529,15 @@ def _enumerate_win32_windows_for_pids(target_pids):
                     txt = _read_window_text(child_hwnd)
                     if txt:
                         child_texts.append(txt)
-                except Exception:
-                    pass
+                except (OSError, ctypes.ArgumentError, ValueError) as exc:
+                    print(f"[WARN] Failed reading modal child window text (hwnd={child_hwnd}): {exc}")
                 return True
 
             child_cb = wndenumproc(_on_child)
             u32.EnumChildWindows(hwnd, child_cb, 0)
             results.append((int(hwnd), pid_int, class_name, title, child_texts))
-        except Exception:
-            pass
+        except (OSError, ctypes.ArgumentError, ValueError) as exc:
+            print(f"[WARN] Failed inspecting top-level window (hwnd={hwnd}): {exc}")
         return True
 
     top_cb = wndenumproc(_on_top_window)
@@ -1756,8 +1767,8 @@ def _append_snapshot_entries(snapshot_path, new_paths):
                 seen.add(norm)
         with open(snapshot_path, "w", encoding="utf-8") as f:
             json.dump(existing, f, indent=2)
-    except (OSError, ValueError):
-        pass
+    except (OSError, ValueError) as exc:
+        print(f"[WARN] Failed to update journal snapshot '{snapshot_path}': {exc}")
 
 
 def execute_revit_test_with_startup_gate(
@@ -1823,8 +1834,8 @@ def execute_revit_test_with_startup_gate(
                         f"(attempt {attempt + 1}/{total_attempts}, run ID: {attempt_run_id})...\n"
                     )
                     out_f.flush()
-                except Exception:
-                    pass
+                except OSError as exc:
+                    print(f"[WARN] Failed writing retry marker to log file: {exc}")
 
         rc, timed_out, modal_aborted = _execute_revit_test_attempt(
             cmd,
@@ -2042,6 +2053,22 @@ def _write_pool_log(out_file_path, pool_args, stderr_text, stdout_text, parsed_j
                 out_f.write("\n")
 
 
+def _run_worker_journal_gates(gate_fn, version, worker_ids):
+    """Run --assert-clean journal gates for all consumed worker_ids and return True iff all pass."""
+    all_clean = True
+    for wid in worker_ids:
+        is_clean, gate_output = gate_fn(version, wid)
+        if gate_output:
+            print(gate_output)
+        if not is_clean:
+            all_clean = False
+            print(
+                f"[ERROR] Revit {version} worker '{wid}' failed post-run journal "
+                "cleanliness gate (--assert-clean)."
+            )
+    return all_clean
+
+
 def execute_revit_tests_via_pool(
     pool_cmd,
     version,
@@ -2121,51 +2148,48 @@ def execute_revit_tests_via_pool(
         or (zero_matches and (effective_rc != 0 or bool(json_error)))
     )
 
+    resolved_expect_shim = (
+        not bool(no_shim or os.environ.get("SYNTHETIC_CLEAN_SHIM", "").strip() == "0")
+        if expect_shim is None
+        else bool(expect_shim)
+    )
+
     if is_fail_closed:
         err_detail = json_error or stderr_text.strip() or f"exitCode={effective_rc}"
         print(
             f"[ERROR] RevitWorkerPool run for Revit {version} failed closed "
             f"(exitCode={effective_rc}): {err_detail}. See {out_file_path}"
         )
-        if not zero_matches and worker_ids:
-            for wid in worker_ids:
-                is_clean, gate_output = gate_fn(version, wid)
-                if gate_output:
-                    print(gate_output)
-                if not is_clean:
-                    print(
-                        f"[ERROR] Revit {version} worker '{wid}' failed post-run journal "
-                        "cleanliness gate (--assert-clean)."
-                    )
+        if worker_ids:
+            _run_worker_journal_gates(gate_fn, version, worker_ids)
         return False, True, effective_rc
 
     if zero_matches:
+        if worker_ids:
+            if resolved_expect_shim and parsed_json.get("shimEnabled") is False:
+                print(
+                    f"[ERROR] RevitWorkerPool reported shimEnabled=false for Revit {version} "
+                    "while Clean-Launch Shim was required."
+                )
+                _run_worker_journal_gates(gate_fn, version, worker_ids)
+                return False, True, 2
+
+            if not _run_worker_journal_gates(gate_fn, version, worker_ids):
+                return False, True, pool_returncode or 1
+
         print(
             f"[TESTS] 0 matching tests for {version} "
             f"(filter: {target_class or '-'}, category: {category or '-'})."
         )
         return False, False, 0
 
-    resolved_expect_shim = (
-        not bool(no_shim or os.environ.get("SYNTHETIC_CLEAN_SHIM", "").strip() == "0")
-        if expect_shim is None
-        else bool(expect_shim)
-    )
     if resolved_expect_shim and parsed_json.get("shimEnabled") is False:
         print(
             f"[ERROR] RevitWorkerPool reported shimEnabled=false for Revit {version} "
             "while Clean-Launch Shim was required."
         )
         if worker_ids:
-            for wid in worker_ids:
-                is_clean, gate_output = gate_fn(version, wid)
-                if gate_output:
-                    print(gate_output)
-                if not is_clean:
-                    print(
-                        f"[ERROR] Revit {version} worker '{wid}' failed post-run journal "
-                        "cleanliness gate (--assert-clean)."
-                    )
+            _run_worker_journal_gates(gate_fn, version, worker_ids)
         return False, True, 2
 
     had_error = False
@@ -2175,17 +2199,8 @@ def execute_revit_tests_via_pool(
             f"[ERROR] Revit {version} worker pool run completed (totalTests={total_tests}) "
             "without returning any workerIds for journal cleanliness gating."
         )
-    else:
-        for wid in worker_ids:
-            is_clean, gate_output = gate_fn(version, wid)
-            if gate_output:
-                print(gate_output)
-            if not is_clean:
-                had_error = True
-                print(
-                    f"[ERROR] Revit {version} worker '{wid}' failed post-run journal "
-                    "cleanliness gate (--assert-clean)."
-                )
+    elif not _run_worker_journal_gates(gate_fn, version, worker_ids):
+        had_error = True
 
     if pool_returncode != 0 and not os.path.exists(trx_path):
         had_error = True
@@ -2223,8 +2238,8 @@ def run_test_suite(
     for v in [ver for ver in test_projects if ver.isdigit()]:
         try:
             TempDisableThirdPartyAddins(v).restore_addins()
-        except Exception:
-            pass
+        except OSError as exc:
+            print(f"[WARN] Failed restoring legacy AddInsSettings backup for Revit {v}: {exc}")
 
     # Filter by version if specified (case-insensitive fallback)
     run_projects = select_run_projects(test_projects, target_version=target_version)

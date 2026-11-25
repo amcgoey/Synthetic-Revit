@@ -41,6 +41,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
     private readonly FairRoundRobinScheduler<PendingWorkItem> _scheduler = new();
     private readonly List<PipelinePrewarmRequest> _pendingPipelinePrewarms = new();
     private readonly Dictionary<int, int> _standbyTargets = new();
+    private readonly Dictionary<int, long> _latestRunSequenceByVersion = new();
     private readonly ConcurrentDictionary<Task, byte> _backgroundTasks = new();
     private readonly ConcurrentDictionary<Guid, ActiveRunTracking> _activeRunTasks = new();
     private readonly CancellationTokenSource _supervisorCts = new();
@@ -50,6 +51,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
     private ITimer? _idleTimer;
     private SupervisorIpcServer? _ipcServer;
     private DateTimeOffset _lastActivityUtc;
+    private long _nextRunSequence;
     private int _inFlightRuns;
     private int _activeWarmCalls;
     private int _totalTerminatedWorkers;
@@ -283,6 +285,13 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
         }
         catch (Exception ex)
         {
+            PoolStatusSnapshot failureStatus;
+            lock (_sync)
+            {
+                _standbyTargets.Remove(resolvedVersion);
+                failureStatus = GetStatusLocked();
+            }
+
             return new WarmResult
             {
                 Success = false,
@@ -291,7 +300,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                 TargetCount = cappedTarget,
                 ReadyCount = 0,
                 Error = ex.Message,
-                Status = GetStatus()
+                Status = failureStatus
             };
         }
         finally
@@ -415,13 +424,19 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                     shards.Count);
             }
 
+            long runSequence = ++_nextRunSequence;
+            _latestRunSequenceByVersion[options.RevitVersion] = runSequence;
+            _pendingPipelinePrewarms.RemoveAll(p => p.TargetVersion == options.RevitVersion);
+
             _inFlightRuns++;
             TouchActivityLocked();
             _scheduler.RegisterRun(runId);
             _activeRunTasks[runId] = new ActiveRunTracking(
                 runExecutionCts,
                 shards.Count,
-                pipelineNextVersion);
+                pipelineNextVersion,
+                options.RevitVersion,
+                runSequence);
         }
 
         var stagingDirs = new List<string>();
@@ -753,9 +768,10 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
         {
             await DrainAsync(CancellationToken.None).ConfigureAwait(false);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
             // Best-effort drain during disposal.
+            Log($"[supervisor] Warning: drain failed during disposal: {ex.Message}");
         }
 
         lock (_sync)
@@ -823,20 +839,9 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
             ScheduleLocked(bootTimeout);
         }
 
-        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        // Allow an in-flight worker boot's own BootTimeout to trigger and clean up first so its
-        // richer pipe/startup diagnostic message surfaces instead of a generic queue wait timeout.
-        timeoutCts.CancelAfter(bootTimeout + TimeSpan.FromMilliseconds(250));
-
         try
         {
-            return await pending.AssignmentTcs.Task.WaitAsync(timeoutCts.Token).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
-        {
-            await CancelPendingWorkItemAsync(pending).ConfigureAwait(false);
-            throw new TimeoutException(
-                $"Timed out after {bootTimeout.TotalSeconds:F1}s waiting for a ready Revit {version} worker.");
+            return await pending.AssignmentTcs.Task.WaitAsync(cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
@@ -880,8 +885,9 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
         {
             latestVersion = _currentLatestVersionProvider();
         }
-        catch (Exception)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
         {
+            Log($"[supervisor] Warning: failed to resolve CURRENT_LATEST_VERSION for lazy standby policy: {ex.Message}");
             return;
         }
 
@@ -1047,12 +1053,26 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
 
         for (int i = 0; i < _pendingPipelinePrewarms.Count;)
         {
+            PipelinePrewarmRequest prewarm = _pendingPipelinePrewarms[i];
+            int targetVersion = prewarm.TargetVersion;
+
+            bool isStale =
+                _latestRunSequenceByVersion.GetValueOrDefault(targetVersion) > prewarm.SourceRunSequence ||
+                _activeRunTasks.Values.Any(t => t.Version == targetVersion);
+            if (isStale)
+            {
+                Log($"[supervisor] Pruned stale pipeline pre-warm for Revit {targetVersion} (sourceSeq={prewarm.SourceRunSequence}).");
+                _pendingPipelinePrewarms.RemoveAll(p =>
+                    p.TargetVersion == targetVersion &&
+                    p.SourceRunSequence <= prewarm.SourceRunSequence);
+                continue;
+            }
+
             if (CountTotalSlotsLocked() >= _options.MaxActiveWorkers)
             {
                 break;
             }
 
-            int targetVersion = _pendingPipelinePrewarms[i].TargetVersion;
             bool alreadyHasStandbyOrBooting = _workers.Any(w =>
                 w.Version == targetVersion &&
                 w.State is WorkerState.Booting or WorkerState.ReadyStandby);
@@ -1175,6 +1195,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
             var missingEx = new DirectoryNotFoundException(
                 $"Autodesk Revit {version} installation was not found.");
             FailOnePendingLocked(version, missingEx);
+            _standbyTargets.Remove(version);
             return;
         }
 
@@ -1243,7 +1264,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                     worker.WorkerId = process.WorkerId;
                     worker.Process = process;
                     worker.PipeClient = pipeClient;
-                    shouldAbortProtected = _draining || _disposed || worker.State == WorkerState.Terminating || worker.BootCts.IsCancellationRequested;
+                    shouldAbortProtected = _draining || _disposed || worker.State == WorkerState.Terminating || IsBootCancellationRequestedSafe(worker);
                     if (shouldAbortProtected)
                     {
                         worker.State = WorkerState.Terminating;
@@ -1269,7 +1290,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                 lock (_sync)
                 {
                     worker.Process = process;
-                    shouldAbort = _draining || _disposed || worker.State == WorkerState.Terminating || worker.BootCts.IsCancellationRequested;
+                    shouldAbort = _draining || _disposed || worker.State == WorkerState.Terminating || IsBootCancellationRequestedSafe(worker);
                     if (shouldAbort)
                     {
                         worker.State = WorkerState.Terminating;
@@ -1286,7 +1307,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                 lock (_sync)
                 {
                     worker.PipeClient = pipeClient;
-                    shouldAbort = _draining || _disposed || worker.State == WorkerState.Terminating || worker.BootCts.IsCancellationRequested;
+                    shouldAbort = _draining || _disposed || worker.State == WorkerState.Terminating || IsBootCancellationRequestedSafe(worker);
                     if (shouldAbort)
                     {
                         worker.State = WorkerState.Terminating;
@@ -1307,16 +1328,18 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                     await pipeClient.ConnectAndWaitForReadyAsync(process, worker.BootTimeout, timeoutCts.Token)
                         .ConfigureAwait(false);
                 }
-                catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !worker.BootCts.IsCancellationRequested)
+                catch (OperationCanceledException) when (timeoutCts.IsCancellationRequested && !IsBootCancellationRequestedSafe(worker))
                 {
                     throw new TimeoutException(
                         $"Worker PID {process.ProcessId} pipe '{process.PipeName}' did not report ServerMessage.IsBusy == false within {worker.BootTimeout.TotalSeconds:F1}s.");
                 }
             }
 
+            bool isBootCancelled;
             lock (_sync)
             {
-                if (_draining || _disposed || worker.State == WorkerState.Terminating || worker.BootCts.IsCancellationRequested)
+                isBootCancelled = _draining || _disposed || IsBootCancellationRequestedSafe(worker);
+                if (isBootCancelled || worker.State == WorkerState.Terminating)
                 {
                     worker.State = WorkerState.Terminating;
                 }
@@ -1380,11 +1403,23 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
 
             await CleanupUnneededOrCancelledBootAsync(
                 worker,
-                isCancellation: _draining || _disposed || worker.BootCts.IsCancellationRequested).ConfigureAwait(false);
+                isCancellation: isBootCancelled).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             await CleanupFailedBootAsync(worker, ex).ConfigureAwait(false);
+        }
+    }
+
+    private static bool IsBootCancellationRequestedSafe(ManagedWorker worker)
+    {
+        try
+        {
+            return worker.BootCts.IsCancellationRequested;
+        }
+        catch (ObjectDisposedException)
+        {
+            return true;
         }
     }
 
@@ -1401,15 +1436,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
         bool isCancellation;
         lock (_sync)
         {
-            bool bootCancelled = false;
-            try
-            {
-                bootCancelled = worker.BootCts.IsCancellationRequested;
-            }
-            catch (ObjectDisposedException)
-            {
-            }
-
+            bool bootCancelled = IsBootCancellationRequestedSafe(worker);
             isCancellation = _draining || _disposed || (error is OperationCanceledException && bootCancelled);
         }
 
@@ -1486,6 +1513,10 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
             {
                 worker.WarmWaitTcs.TrySetException(bootFailureError);
                 FailOnePendingLocked(worker.Version, bootFailureError);
+                if (_standbyTargets.Remove(worker.Version))
+                {
+                    Log($"[supervisor] Cleared standby target for Revit {worker.Version} after boot failure: {bootFailureError.Message}");
+                }
             }
 
             if (!_draining && !_disposed)
@@ -1598,8 +1629,9 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                 {
                     await Task.WhenAll(remainingBg).WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
+                    Log($"[supervisor] Warning: waiting on background tasks during drain ended with {ex.GetType().Name}: {ex.Message}");
                 }
             }
 
@@ -1681,8 +1713,18 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
             !tracking.PipelineTriggered)
         {
             tracking.PipelineTriggered = true;
-            _pendingPipelinePrewarms.Add(new PipelinePrewarmRequest(runId, nextVersion));
-            Log($"[supervisor] Run {runId:N} entered final shard; queued N -> N+1 pipeline pre-warm for Revit {nextVersion}.");
+            bool targetNewerOrActive =
+                _latestRunSequenceByVersion.GetValueOrDefault(nextVersion) > tracking.RunSequence ||
+                _activeRunTasks.Values.Any(t => t.Version == nextVersion);
+            if (!targetNewerOrActive)
+            {
+                _pendingPipelinePrewarms.Add(new PipelinePrewarmRequest(runId, nextVersion, tracking.RunSequence));
+                Log($"[supervisor] Run {runId:N} entered final shard; queued N -> N+1 pipeline pre-warm for Revit {nextVersion}.");
+            }
+            else
+            {
+                Log($"[supervisor] Run {runId:N} skipped stale N -> N+1 pipeline pre-warm for Revit {nextVersion}.");
+            }
         }
     }
 
@@ -2179,11 +2221,15 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
         public ActiveRunTracking(
             CancellationTokenSource executionCts,
             int remainingUndispatchedShards,
-            int? pipelineNextVersion)
+            int? pipelineNextVersion,
+            int version,
+            long runSequence)
         {
             ExecutionCts = executionCts;
             RemainingUndispatchedShards = remainingUndispatchedShards;
             PipelineNextVersion = pipelineNextVersion;
+            Version = version;
+            RunSequence = runSequence;
         }
 
         public CancellationTokenSource ExecutionCts { get; }
@@ -2192,8 +2238,12 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
 
         public int? PipelineNextVersion { get; }
 
+        public int Version { get; }
+
+        public long RunSequence { get; }
+
         public bool PipelineTriggered { get; set; }
     }
 
-    private sealed record PipelinePrewarmRequest(Guid RunId, int TargetVersion);
+    private sealed record PipelinePrewarmRequest(Guid RunId, int TargetVersion, long SourceRunSequence);
 }

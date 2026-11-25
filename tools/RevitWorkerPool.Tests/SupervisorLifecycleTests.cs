@@ -313,6 +313,260 @@ public class SupervisorLifecycleTests
     }
 
     [Test]
+    public async Task WarmAsync_BootFailure_ClearsStandbyTargetAndDoesNotSpinInfiniteLaunches()
+    {
+        string pipeName = CreateUniquePipeName();
+        var countingLauncher = new CountingThrowingWorkerProcessLauncher();
+        await using var supervisor = CreateSupervisor(pipeName, countingLauncher, currentLatestVersion: 2026);
+        await using var ipcServer = StartServer(pipeName, supervisor);
+
+        WarmResult warm = await supervisor.WarmAsync(version: 2026, count: 1);
+
+        Assert.That(warm.Success, Is.False);
+        Assert.That(warm.ExitCode, Is.EqualTo(2));
+        Assert.That(warm.Error, Does.Contain("Simulated launch failure."));
+
+        await Task.Delay(75);
+
+        PoolStatusSnapshot status = supervisor.GetStatus();
+        Assert.That(countingLauncher.LaunchAttempts, Is.EqualTo(1));
+        Assert.That(status.Booting, Is.EqualTo(0));
+        Assert.That(status.ReadyStandby, Is.EqualTo(0));
+        Assert.That(status.Versions.ContainsKey(2026), Is.False);
+    }
+
+    [Test]
+    public async Task StandbyReplenishment_BootFailure_ClearsStandbyTargetAndStopsRetrying()
+    {
+        string pipeName = CreateUniquePipeName();
+        int launchAttempts = 0;
+        using var innerLauncher = CreatePassingLauncher();
+        var conditionalLauncher = new DelegatingWorkerProcessLauncher(
+            usesCleanShim: false,
+            launchAsync: (req, ct) =>
+            {
+                int attempt = Interlocked.Increment(ref launchAttempts);
+                if (attempt == 1)
+                {
+                    return innerLauncher.LaunchAsync(req, ct);
+                }
+
+                return Task.FromException<LaunchedWorkerProcess>(
+                    new InvalidOperationException($"Simulated replenishment failure #{attempt}."));
+            });
+
+        await using var supervisor = CreateSupervisor(pipeName, conditionalLauncher, currentLatestVersion: 2026);
+        await using var ipcServer = StartServer(pipeName, supervisor);
+
+        WarmResult warm = await supervisor.WarmAsync(version: 2026, count: 1);
+        Assert.That(warm.Success, Is.True, warm.Error);
+        Assert.That(Volatile.Read(ref launchAttempts), Is.EqualTo(1));
+
+        // Force disconnect of the ready standby worker to trigger replenishment, which fails on attempt 2.
+        innerLauncher.Workers.Single().Terminate();
+
+        PoolStatusSnapshot finalStatus = await WaitForStatusAsync(
+            pipeName,
+            s => s.Booting == 0 && s.ReadyStandby == 0 && !s.Versions.ContainsKey(2026));
+
+        await Task.Delay(75);
+
+        Assert.That(Volatile.Read(ref launchAttempts), Is.EqualTo(2));
+        Assert.That(finalStatus.Booting, Is.EqualTo(0));
+        Assert.That(finalStatus.ReadyStandby, Is.EqualTo(0));
+    }
+
+    [Test]
+    public async Task AcquireWorkerAsync_QueuedBehindSaturatedCapFour_DoesNotTimeOutBeforeSlotOpens()
+    {
+        string pipeName = CreateUniquePipeName();
+        int activeNow = 0;
+        var fourActive = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFirst = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseRest = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        int execIndex = 0;
+
+        using var launcher = new StubWorkerProcessLauncher((server, _) =>
+        {
+            server.InitialIsBusy = false;
+            server.ExecutionHandler = async (req, emitTest, ct) =>
+            {
+                int idx = Interlocked.Increment(ref execIndex);
+                if (Interlocked.Increment(ref activeNow) == 4)
+                {
+                    fourActive.TrySetResult(true);
+                }
+
+                if (idx == 1)
+                {
+                    await releaseFirst.Task.WaitAsync(ct).ConfigureAwait(false);
+                }
+                else
+                {
+                    await releaseRest.Task.WaitAsync(ct).ConfigureAwait(false);
+                }
+
+                Interlocked.Decrement(ref activeNow);
+                var test = new TestModel
+                {
+                    Name = "QueueWaitTest",
+                    FullName = "Ns.Fixture.QueueWaitTest",
+                    Success = true,
+                    Time = 5.0
+                };
+                emitTest(test);
+                return BuildAssemblyModel(req, test);
+            };
+        });
+
+        await using var supervisor = CreateSupervisor(pipeName, launcher, currentLatestVersion: 2026);
+        await using var ipcServer = StartServer(pipeName, supervisor);
+
+        Task<OneShotRunResult>[] saturatingRuns = Enumerable.Range(1, 4)
+            .Select(i => supervisor.RunAsync(new OneShotRunOptions
+            {
+                RevitVersion = 2026,
+                AssemblyPath = _fakeAssemblyPath,
+                TrxPath = Path.Combine(_tempRoot, "out", $"sat_{i}.trx"),
+                BootTimeout = TimeSpan.FromMilliseconds(50),
+                ExecutionTimeout = TimeSpan.FromSeconds(5)
+            }))
+            .ToArray();
+
+        await fourActive.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        // 5th run arrives with a 50ms BootTimeout while cap-4 workers run for >350ms (well past 50ms + 250ms).
+        Task<OneShotRunResult> queuedRun = supervisor.RunAsync(new OneShotRunOptions
+        {
+            RevitVersion = 2026,
+            AssemblyPath = _fakeAssemblyPath,
+            TrxPath = Path.Combine(_tempRoot, "out", "queued_5th.trx"),
+            BootTimeout = TimeSpan.FromMilliseconds(50),
+            ExecutionTimeout = TimeSpan.FromSeconds(5)
+        });
+
+        await Task.Delay(350);
+        Assert.That(queuedRun.IsCompleted, Is.False, "Queued 5th run must wait patiently while cap-4 slots are busy.");
+
+        releaseFirst.TrySetResult(true);
+        releaseRest.TrySetResult(true);
+
+        OneShotRunResult fifthResult = await queuedRun.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.That(fifthResult.Success, Is.True, fifthResult.Error);
+        OneShotRunResult[] satResults = await Task.WhenAll(saturatingRuns).WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.That(satResults.All(r => r.Success), Is.True);
+    }
+
+    [Test]
+    public async Task AcquireWorkerAsync_ProtectedBootRetryExceedingBootTimeout_SucceedsWithoutPrematureQueueTimeout()
+    {
+        string pipeName = CreateUniquePipeName();
+        string mutexPrefix = $@"Local\Synthetic_ProtectedBootRetry_{Guid.NewGuid():N}_";
+        string journalsDir = Path.Combine(_tempRoot, "JournalsRetry");
+        Directory.CreateDirectory(journalsDir);
+
+        int launchAttempt = 0;
+        using var launcher = new StubWorkerProcessLauncher((server, req) =>
+        {
+            int attempt = Interlocked.Increment(ref launchAttempt);
+            server.InitialIsBusy = true;
+
+            if (attempt == 1)
+            {
+                string jPath = Path.Combine(journalsDir, "journal.0001.txt");
+                _ = Task.Run(async () =>
+                {
+                    await Task.Delay(80);
+                    File.WriteAllText(
+                        jPath,
+                        $"' 0:< SYNTHETIC_WORKER_ID:{req.WorkerId}\n'Id : TaskDialog_External_Tools_External_Tool_Failure\n");
+                });
+            }
+            else
+            {
+                server.AutoReadyDelay = TimeSpan.FromMilliseconds(120);
+                server.ExecutionHandler = CreateDefaultPassingHandler();
+            }
+        });
+
+        var bootOptions = new RevitWorkerPool.Startup.ProtectedWorkerBootOptions
+        {
+            MutexPrefix = mutexPrefix,
+            JournalsDirectory = journalsDir,
+            GateAcquireTimeout = TimeSpan.FromSeconds(5),
+            GateHoldCap = TimeSpan.FromSeconds(5),
+            PollInterval = TimeSpan.FromMilliseconds(15),
+            MaxRetries = 1,
+            UseStartupGate = true
+        };
+
+        var protector = new RevitWorkerPool.Startup.StartupBootProtector(
+            new RevitWorkerPool.Startup.StartupModalWatchdog(
+                processSnapshotProvider: Array.Empty<RevitWorkerPool.Startup.ProcessSnapshotEntry>,
+                windowEnumerator: _ => Array.Empty<RevitWorkerPool.Startup.TopLevelDialogWindow>()),
+            bootOptions);
+
+        await using var supervisor = new WorkerPoolSupervisor(
+            new SupervisorOptions
+            {
+                PipeName = pipeName,
+                CurrentLatestVersion = 2026,
+                IdleTimeout = TimeSpan.FromMinutes(25),
+                TimingCacheDirectory = Path.Combine(_tempRoot, "timing_cache")
+            },
+            _discovery,
+            launcher,
+            new RevitPipeTestClientFactory(),
+            bundleLeaseFactory: _ => new CountingDisposable(() => { }),
+            startupProtector: protector);
+        await using var ipcServer = StartServer(pipeName, supervisor);
+
+        // Hold the Startup Gate externally for 350ms so gate wait + modal retry (~600ms+) exceeds BootTimeout (220ms) + 250ms!
+        using var gateHeld = new ManualResetEventSlim(false);
+        using var releaseGate = new ManualResetEventSlim(false);
+        var holderTask = Task.Run(() =>
+        {
+            using var mutex = new Mutex(initiallyOwned: false, $"{mutexPrefix}2024");
+            bool acquired = false;
+            try
+            {
+                acquired = mutex.WaitOne(TimeSpan.FromSeconds(5));
+                Assert.That(acquired, Is.True);
+                gateHeld.Set();
+                releaseGate.Wait(TimeSpan.FromSeconds(5));
+            }
+            finally
+            {
+                if (acquired)
+                {
+                    mutex.ReleaseMutex();
+                }
+            }
+        });
+
+        Assert.That(gateHeld.Wait(TimeSpan.FromSeconds(2)), Is.True);
+
+        Task<OneShotRunResult> runTask = supervisor.RunAsync(new OneShotRunOptions
+        {
+            RevitVersion = 2024,
+            AssemblyPath = _fakeAssemblyPath,
+            TrxPath = Path.Combine(_tempRoot, "out", "protected_retry.trx"),
+            BootTimeout = TimeSpan.FromMilliseconds(220),
+            ExecutionTimeout = TimeSpan.FromSeconds(5),
+            Shards = 1
+        });
+
+        await Task.Delay(350);
+        releaseGate.Set();
+        await holderTask;
+
+        OneShotRunResult result = await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.That(result.Success, Is.True, result.Error);
+        Assert.That(result.WorkerIds.Single(), Does.EndWith("_retry1"));
+        Assert.That(Volatile.Read(ref launchAttempt), Is.EqualTo(2));
+    }
+
+    [Test]
     public async Task Run_EnforcesHostWideCapOfFour_AcrossMixedVersions_AndEvictsIdleStandby()
     {
         string pipeName = CreateUniquePipeName();
@@ -355,7 +609,7 @@ public class SupervisorLifecycleTests
 
             lock (gateSync)
             {
-                int alive = launcher!.Workers.Count(w => !w.IsTerminated) + 1;
+                int alive = launcher!.Workers.Count(w => !w.IsTerminated);
                 UpdateMax(ref peakAlive, alive);
             }
         });
@@ -1112,6 +1366,46 @@ public class SupervisorLifecycleTests
         {
             return Task.FromException<LaunchedWorkerProcess>(
                 new InvalidOperationException("Simulated launch failure."));
+        }
+    }
+
+    private sealed class CountingThrowingWorkerProcessLauncher : IWorkerProcessLauncher
+    {
+        private int _launchAttempts;
+
+        public bool UsesCleanShim => false;
+
+        public int LaunchAttempts => Volatile.Read(ref _launchAttempts);
+
+        public Task<LaunchedWorkerProcess> LaunchAsync(
+            WorkerLaunchRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref _launchAttempts);
+            return Task.FromException<LaunchedWorkerProcess>(
+                new InvalidOperationException("Simulated launch failure."));
+        }
+    }
+
+    private sealed class DelegatingWorkerProcessLauncher : IWorkerProcessLauncher
+    {
+        private readonly Func<WorkerLaunchRequest, CancellationToken, Task<LaunchedWorkerProcess>> _launchAsync;
+
+        public DelegatingWorkerProcessLauncher(
+            bool usesCleanShim,
+            Func<WorkerLaunchRequest, CancellationToken, Task<LaunchedWorkerProcess>> launchAsync)
+        {
+            UsesCleanShim = usesCleanShim;
+            _launchAsync = launchAsync;
+        }
+
+        public bool UsesCleanShim { get; }
+
+        public Task<LaunchedWorkerProcess> LaunchAsync(
+            WorkerLaunchRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            return _launchAsync(request, cancellationToken);
         }
     }
 

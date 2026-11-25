@@ -62,4 +62,57 @@ public class RicaunBundleLeaseTests
         Assert.That(File.Exists(lease2.PackageContentsPath), Is.False);
         Assert.That(Directory.Exists(lease2.BundleDirectory), Is.False);
     }
+
+    [Test]
+    public void Dispose_WhenMutexTimesOut_StillClosesFileHandleWithoutThrowing()
+    {
+        string? adapterDll = RicaunBundleLease.FindRicaunTestAdapterDll();
+        Assert.That(adapterDll, Is.Not.Null.And.Exist, "ricaun.RevitTest.TestAdapter.dll must exist in local NuGet cache.");
+
+        string mutexName = $@"Local\Synthetic_RicaunBundleLease_TimeoutTest_{Guid.NewGuid():N}";
+        RicaunBundleLease lease = RicaunBundleLease.Acquire(
+            appDataDirectory: _tempAppData,
+            testAdapterDllPath: adapterDll,
+            mutexName: mutexName,
+            mutexTimeoutMs: 50);
+
+        Assert.That(File.Exists(lease.PackageContentsPath), Is.True);
+
+        using var mutexHeld = new System.Threading.ManualResetEventSlim(false);
+        using var releaseMutex = new System.Threading.ManualResetEventSlim(false);
+        var holderTask = System.Threading.Tasks.Task.Run(() =>
+        {
+            using var mutex = new System.Threading.Mutex(initiallyOwned: false, mutexName);
+            bool acquired = false;
+            try
+            {
+                acquired = mutex.WaitOne(TimeSpan.FromSeconds(5));
+                Assert.That(acquired, Is.True);
+                mutexHeld.Set();
+                releaseMutex.Wait(TimeSpan.FromSeconds(10));
+            }
+            finally
+            {
+                if (acquired)
+                {
+                    mutex.ReleaseMutex();
+                }
+            }
+        });
+
+        try
+        {
+            Assert.That(mutexHeld.Wait(TimeSpan.FromSeconds(5)), Is.True);
+            Assert.DoesNotThrow(() => lease.Dispose());
+        }
+        finally
+        {
+            releaseMutex.Set();
+            holderTask.GetAwaiter().GetResult();
+        }
+
+        // File handle was closed by Dispose() despite mutex timeout, so PackageContents.xml is unlocked.
+        Assert.DoesNotThrow(() => File.Delete(lease.PackageContentsPath));
+        Assert.That(File.Exists(lease.PackageContentsPath), Is.False);
+    }
 }

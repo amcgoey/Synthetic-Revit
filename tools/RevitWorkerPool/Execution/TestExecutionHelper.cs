@@ -514,7 +514,7 @@ internal static class TestExecutionHelper
                 gate = null;
             }
 
-            HashSet<string> existingJournals = SnapshotNumericJournalFiles(resolvedJournalsDir);
+            HashSet<string> existingJournals = SnapshotNumericJournalFiles(resolvedJournalsDir, logger);
             LaunchedWorkerProcess process = await launcher.LaunchAsync(request, cancellationToken).ConfigureAwait(false);
 
             if (gate is not null)
@@ -528,6 +528,7 @@ internal static class TestExecutionHelper
                         resolvedJournalsDir,
                         existingJournals,
                         waitCap,
+                        logger,
                         cancellationToken).ConfigureAwait(false);
 
                     logger?.Invoke(
@@ -575,13 +576,13 @@ internal static class TestExecutionHelper
             var info = new FileInfo(executablePath);
             return info.Exists && info.Length > 0;
         }
-        catch (Exception)
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException or UnauthorizedAccessException or IOException or System.Security.SecurityException)
         {
             return false;
         }
     }
 
-    private static HashSet<string> SnapshotNumericJournalFiles(string journalsDir)
+    private static HashSet<string> SnapshotNumericJournalFiles(string journalsDir, Action<string>? logger)
     {
         var files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         if (string.IsNullOrWhiteSpace(journalsDir) || !Directory.Exists(journalsDir))
@@ -600,11 +601,9 @@ internal static class TestExecutionHelper
                 }
             }
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-        }
-        catch (UnauthorizedAccessException)
-        {
+            logger?.Invoke($"[journal-gate] Warning: failed to snapshot journals in '{journalsDir}': {ex.Message}");
         }
 
         return files;
@@ -615,8 +614,10 @@ internal static class TestExecutionHelper
         string journalsDir,
         IReadOnlySet<string> existingJournals,
         TimeSpan waitCap,
+        Action<string>? logger,
         CancellationToken cancellationToken)
     {
+        bool loggedPollError = false;
         var sw = Stopwatch.StartNew();
         while (sw.Elapsed < waitCap)
         {
@@ -641,11 +642,13 @@ internal static class TestExecutionHelper
                         }
                     }
                 }
-                catch (IOException)
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
-                }
-                catch (UnauthorizedAccessException)
-                {
+                    if (!loggedPollError)
+                    {
+                        loggedPollError = true;
+                        logger?.Invoke($"[journal-gate] Warning: failed polling journals in '{journalsDir}': {ex.Message}");
+                    }
                 }
             }
 

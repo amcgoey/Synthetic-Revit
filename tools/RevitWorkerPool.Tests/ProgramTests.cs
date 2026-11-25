@@ -634,6 +634,212 @@ public class ProgramTests
         }
     }
 
+    [Test]
+    public void TryParseRunArguments_AccumulatesMultipleCategoryFlags()
+    {
+        string[] args =
+        {
+            "--version", "2026",
+            "--assembly", @"C:\temp\Synthetic.RevitTests.2026.dll",
+            "--trx", @"C:\temp\out.trx",
+            "--category", "RevitSmoke",
+            "--category", "Unit",
+            "--category", "SmokeExtra"
+        };
+
+        bool ok = Program.TryParseRunArguments(args, out OneShotRunOptions? options, out string? error);
+
+        Assert.That(ok, Is.True, error);
+        Assert.That(options!.Category, Is.EqualTo("RevitSmoke"));
+        Assert.That(options.Categories, Is.EqualTo(new[] { "RevitSmoke", "Unit", "SmokeExtra" }));
+    }
+
+    [Test]
+    public async Task RunCliAsync_SupervisorMode_ForwardsMultipleCategories_AndRunsAllMatchingFixtures()
+    {
+        string tempRoot = Path.Combine(Path.GetTempPath(), "RevitWorkerPool_MultiCat_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            string revitDir = Path.Combine(tempRoot, "Autodesk", "Revit 2026");
+            Directory.CreateDirectory(revitDir);
+            File.WriteAllText(Path.Combine(revitDir, "Revit.exe"), string.Empty);
+
+            string assemblyPath = TestAssemblyCompiler.CompileToFile(
+                Path.Combine(tempRoot, "Synthetic.RevitTests.2026.dll"),
+                "Synthetic.RevitTests.2026",
+                """
+                using NUnit.Framework;
+
+                namespace MultiCatSuite
+                {
+                    [TestFixture]
+                    [Category("CatA")]
+                    public class FixtureA
+                    {
+                        [Test]
+                        public void TestA() { }
+                    }
+
+                    [TestFixture]
+                    [Category("CatB")]
+                    public class FixtureB
+                    {
+                        [Test]
+                        public void TestB() { }
+                    }
+
+                    [TestFixture]
+                    [Category("CatC")]
+                    public class FixtureC
+                    {
+                        [Test]
+                        public void TestC() { }
+                    }
+                }
+                """);
+
+            var discovery = new RevitInstallationDiscovery(
+                () => new[] { Path.Combine(tempRoot, "Autodesk") },
+                () => Array.Empty<UninstallRegistryEntry>());
+
+            string pipeName = $"Synthetic_MultiCat_{Guid.NewGuid():N}";
+            using var launcher = new StubWorkerProcessLauncher((server, _) =>
+            {
+                server.InitialIsBusy = false;
+                server.ExecutionHandler = (req, emitTest, _) =>
+                {
+                    var tests = (req.TestFilters ?? Array.Empty<string>()).Select(f =>
+                    {
+                        string name = f.TrimEnd('*').TrimEnd('.');
+                        var model = new ricaun.NUnit.Models.TestModel
+                        {
+                            Name = name,
+                            FullName = name,
+                            Success = true,
+                            Time = 1.0
+                        };
+                        emitTest(model);
+                        return model;
+                    }).ToList();
+
+                    return Task.FromResult(new ricaun.NUnit.Models.TestAssemblyModel
+                    {
+                        FileName = req.TestPathFile ?? string.Empty,
+                        Name = "Synthetic.RevitTests.2026",
+                        Success = true,
+                        Tests = new System.Collections.Generic.List<ricaun.NUnit.Models.TestTypeModel>
+                        {
+                            new()
+                            {
+                                Name = "MultiCat",
+                                FullName = "MultiCatSuite",
+                                Success = true,
+                                Tests = tests
+                            }
+                        }
+                    });
+                };
+            });
+
+            await using var supervisor = new WorkerPoolSupervisor(
+                new SupervisorOptions
+                {
+                    PipeName = pipeName,
+                    CurrentLatestVersion = 2026,
+                    IdleTimeout = TimeSpan.FromMinutes(25),
+                    TimingCacheDirectory = Path.Combine(tempRoot, "timing_cache")
+                },
+                discovery,
+                launcher,
+                new RevitWorkerPool.Pipe.RevitPipeTestClientFactory(),
+                bundleLeaseFactory: _ => new NoOpDisposable());
+            await using var ipcServer = new SupervisorIpcServer(
+                pipeName,
+                (req, ct) => supervisor.HandleIpcRequestAsync(req, ct));
+            supervisor.AttachIpcServer(ipcServer);
+            supervisor.Start();
+            ipcServer.Start();
+
+            string trxPath = Path.Combine(tempRoot, "out", "multicat.trx");
+            using var stdout = new StringWriter();
+            using var stderr = new StringWriter();
+            int exitCode = await Program.RunCliAsync(
+                new[]
+                {
+                    "run",
+                    "--version", "2026",
+                    "--assembly", assemblyPath,
+                    "--trx", trxPath,
+                    "--category", "CatA",
+                    "--category", "CatB",
+                    "--pipe-name", pipeName,
+                    "--no-shim",
+                    "--json"
+                },
+                stdout: stdout,
+                stderr: stderr);
+
+            Assert.That(exitCode, Is.EqualTo(0));
+            OneShotRunResult? result = JsonConvert.DeserializeObject<OneShotRunResult>(stdout.ToString().Trim());
+            Assert.That(result, Is.Not.Null);
+            Assert.That(result!.Success, Is.True);
+            Assert.That(result.TotalTests, Is.EqualTo(2));
+
+            var filters = launcher.Workers
+                .SelectMany(w => w.Server.ReceivedRequests)
+                .SelectMany(r => r.TestFilters ?? Array.Empty<string>())
+                .ToArray();
+            Assert.That(filters, Is.EquivalentTo(new[] { "MultiCatSuite.FixtureA.TestA.*", "MultiCatSuite.FixtureB.TestB.*" }));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+    }
+
+    [Test]
+    public async Task RunCliAsync_OneShotGeneralException_ReturnsExitCode2_InTextAndJsonModes()
+    {
+        var emptyDiscovery = new RevitInstallationDiscovery(
+            () => Array.Empty<string>(),
+            () => Array.Empty<UninstallRegistryEntry>());
+
+        IWorkerProcessLauncher ThrowingLauncherFactory(OneShotRunOptions _) =>
+            throw new InvalidOperationException("Simulated one-shot infrastructure failure.");
+
+        using var textOut = new StringWriter();
+        using var textErr = new StringWriter();
+        int textExit = await Program.RunCliAsync(
+            new[] { "run", "--version", "2026", "--assembly", "a.dll", "--trx", "a.trx", "--one-shot" },
+            ThrowingLauncherFactory,
+            emptyDiscovery,
+            textOut,
+            textErr);
+
+        Assert.That(textExit, Is.EqualTo(2));
+        Assert.That(textErr.ToString(), Does.Contain("Simulated one-shot infrastructure failure."));
+
+        using var jsonOut = new StringWriter();
+        using var jsonErr = new StringWriter();
+        int jsonExit = await Program.RunCliAsync(
+            new[] { "run", "--version", "2026", "--assembly", "a.dll", "--trx", "a.trx", "--one-shot", "--json" },
+            ThrowingLauncherFactory,
+            emptyDiscovery,
+            jsonOut,
+            jsonErr);
+
+        Assert.That(jsonExit, Is.EqualTo(2));
+        OneShotRunResult? parsed = JsonConvert.DeserializeObject<OneShotRunResult>(jsonOut.ToString().Trim());
+        Assert.That(parsed, Is.Not.Null);
+        Assert.That(parsed!.Success, Is.False);
+        Assert.That(parsed.ExitCode, Is.EqualTo(2));
+        Assert.That(parsed.Error, Does.Contain("Simulated one-shot infrastructure failure."));
+    }
+
     private sealed class NoOpDisposable : IDisposable
     {
         public void Dispose()

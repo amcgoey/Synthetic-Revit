@@ -51,13 +51,13 @@ public sealed class StubWorkerProcessLauncher : IWorkerProcessLauncher, IDisposa
             : request.WorkerId;
 
         var server = new InProcessPipeTestServer(processName, pid);
+        var record = new StubWorkerRecord(pid, workerId, server);
+        _records.Add(record);
+
         _configureServer?.Invoke(server, request);
         server.Start();
 
         request.OnProcessCreatedBeforeResume?.Invoke(pid);
-
-        var record = new StubWorkerRecord(pid, workerId, server);
-        _records.Add(record);
 
         var launched = new LaunchedWorkerProcess(
             pid,

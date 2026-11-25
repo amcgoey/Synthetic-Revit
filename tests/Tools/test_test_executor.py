@@ -698,6 +698,40 @@ class TestRicaunBundleLeaseAndWorkerHardening(unittest.TestCase):
         self.assertFalse(os.path.exists(ad_bundle))
         self.assertFalse(os.path.exists(pd_bundle))
 
+    def test_bundle_lease_exit_closes_handle_even_if_acquire_mutex_times_out(self):
+        adapter_dll = self._create_mock_testadapter_dll()
+        mutex_name = f"Local\\Synthetic_TestLeaseTimeout_{os.getpid()}"
+        lease = te.RicaunBundleLease(
+            appdata=self.appdata,
+            testadapter_dll=adapter_dll,
+            mutex_name=mutex_name,
+        )
+        lease.__enter__()
+        self.assertIsNotNone(lease._handle)
+
+        closed_handles = []
+        original_close = lease._win32.close_handle
+
+        def tracking_close(handle):
+            closed_handles.append(handle)
+            return original_close(handle)
+
+        released_mutexes = []
+        lease._win32.close_handle = tracking_close
+        lease._win32.acquire_mutex = lambda name, timeout_ms=30000: (_ for _ in ()).throw(
+            TimeoutError(f"Simulated timeout on {name}")
+        )
+        lease._win32.release_mutex = lambda h: released_mutexes.append(h)
+
+        # Must not raise TimeoutError and must close _handle without calling release_mutex.
+        lease.__exit__(None, None, None)
+        self.assertEqual(len(closed_handles), 1)
+        self.assertIsNone(lease._handle)
+        self.assertEqual(released_mutexes, [])
+        # PackageContents.xml is now unlocked and deletable.
+        os.remove(lease.package_contents_path)
+        self.assertFalse(os.path.exists(lease.package_contents_path))
+
     def test_worker_env_timeout_tree_kill_and_temp_cleanup(self):
         env = te.build_worker_env(r"C:\repo", "run_123", base_env={"PATH": "X"})
         self.assertEqual(env["SYNTHETIC_PROJECT_ROOT"], r"C:\repo")
@@ -2326,6 +2360,110 @@ namespace SyntheticTests.Platform.Host
         self.assertEqual(exit_ctx.exception.code, 1)
         self.assertEqual(cold_calls, [])
         self.assertIn("shimEnabled=false", out_buf.getvalue())
+
+    def test_pool_mode_zero_matches_with_worker_ids_enforces_journal_gate_and_shim_check(self):
+        import contextlib
+        from unittest import mock
+
+        temp_build_root = os.path.join(self.root, "temp_root")
+        os.makedirs(temp_build_root, exist_ok=True)
+
+        def make_zero_match_runner(worker_ids, shim_enabled=True):
+            def _run(cmd, **kwargs):
+                if cmd[0] == self.pool_exe:
+                    trx_path = cmd[cmd.index("--trx") + 1]
+                    self._write_trx(trx_path, passed_names=())
+                    payload = {
+                        "success": True,
+                        "exitCode": 0,
+                        "version": 2026,
+                        "trxPath": trx_path,
+                        "workerIds": worker_ids,
+                        "shardCount": len(worker_ids),
+                        "totalTests": 0,
+                        "passedTests": 0,
+                        "failedTests": 0,
+                        "skippedTests": 0,
+                        "zeroMatches": True,
+                        "shimEnabled": shim_enabled,
+                        "error": None,
+                    }
+                    return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(payload), stderr="")
+                return subprocess.CompletedProcess(cmd, 0)
+
+            return _run
+
+        # 1. zeroMatches=True with non-empty workerIds + dirty journal -> fails (SystemExit(1)).
+        out_dirty = io.StringIO()
+        checked_dirty = []
+
+        def dirty_gate(ver, wid, **kwargs):
+            checked_dirty.append(wid)
+            return False, f"Worker {wid}: Cleanliness Gate Result: DIRTY"
+
+        with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root}, clear=False), \
+             mock.patch("os.getcwd", return_value=self.root), \
+             mock.patch.object(te.tempfile, "gettempdir", return_value=temp_build_root), \
+             mock.patch.object(te, "find_msbuild", return_value="msbuild.exe"), \
+             mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
+             mock.patch.object(te.guid_whitelister, "whitelist_existing_addins"), \
+             mock.patch.object(te, "run_worker_journal_cleanliness_gate", side_effect=dirty_gate), \
+             mock.patch.object(te.subprocess, "run", side_effect=make_zero_match_runner(["w_zero_dirty"])), \
+             contextlib.redirect_stdout(out_dirty):
+            with self.assertRaises(SystemExit) as ctx_dirty:
+                te.run_test_suite(target_version="2026")
+
+        self.assertEqual(ctx_dirty.exception.code, 1)
+        self.assertEqual(checked_dirty, ["w_zero_dirty"])
+        self.assertIn("DIRTY", out_dirty.getvalue())
+
+        # 2. zeroMatches=True with non-empty workerIds + shimEnabled=False when shim expected -> fails (SystemExit(1)).
+        out_shim = io.StringIO()
+        checked_shim = []
+
+        def clean_gate_shim(ver, wid, **kwargs):
+            checked_shim.append(wid)
+            return True, f"Worker {wid}: CLEAN"
+
+        with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root}, clear=False), \
+             mock.patch("os.getcwd", return_value=self.root), \
+             mock.patch.object(te.tempfile, "gettempdir", return_value=temp_build_root), \
+             mock.patch.object(te, "find_msbuild", return_value="msbuild.exe"), \
+             mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
+             mock.patch.object(te.guid_whitelister, "whitelist_existing_addins"), \
+             mock.patch.object(te, "run_worker_journal_cleanliness_gate", side_effect=clean_gate_shim), \
+             mock.patch.object(te.subprocess, "run", side_effect=make_zero_match_runner(["w_zero_noshim"], shim_enabled=False)), \
+             contextlib.redirect_stdout(out_shim):
+            with self.assertRaises(SystemExit) as ctx_shim:
+                te.run_test_suite(target_version="2026", no_shim=False)
+
+        self.assertEqual(ctx_shim.exception.code, 1)
+        self.assertEqual(checked_shim, ["w_zero_noshim"])
+        self.assertIn("shimEnabled=false", out_shim.getvalue())
+
+        # 3. zeroMatches=True with non-empty workerIds + clean journal + shimEnabled=True -> succeeds (SystemExit(0)).
+        out_ok = io.StringIO()
+        checked_ok = []
+
+        def clean_gate_ok(ver, wid, **kwargs):
+            checked_ok.append(wid)
+            return True, f"Worker {wid}: CLEAN"
+
+        with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root}, clear=False), \
+             mock.patch("os.getcwd", return_value=self.root), \
+             mock.patch.object(te.tempfile, "gettempdir", return_value=temp_build_root), \
+             mock.patch.object(te, "find_msbuild", return_value="msbuild.exe"), \
+             mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
+             mock.patch.object(te.guid_whitelister, "whitelist_existing_addins"), \
+             mock.patch.object(te, "run_worker_journal_cleanliness_gate", side_effect=clean_gate_ok), \
+             mock.patch.object(te.subprocess, "run", side_effect=make_zero_match_runner(["w_zero_clean"], shim_enabled=True)), \
+             contextlib.redirect_stdout(out_ok):
+            with self.assertRaises(SystemExit) as ctx_ok:
+                te.run_test_suite(target_version="2026", no_shim=False)
+
+        self.assertEqual(ctx_ok.exception.code, 0)
+        self.assertEqual(checked_ok, ["w_zero_clean"])
+        self.assertIn("0 matching tests", out_ok.getvalue())
 
 
 if __name__ == "__main__":

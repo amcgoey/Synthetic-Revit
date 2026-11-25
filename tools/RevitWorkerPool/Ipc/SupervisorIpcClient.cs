@@ -382,7 +382,7 @@ public static class SupervisorIpcClient
         }
     }
 
-    private static string QuoteArg(string value)
+    internal static string QuoteArg(string value)
     {
         if (string.IsNullOrEmpty(value))
         {
@@ -394,7 +394,41 @@ public static class SupervisorIpcClient
             return value;
         }
 
-        return "\"" + value.Replace("\"", "\\\"") + "\"";
+        var sb = new StringBuilder(value.Length + 4);
+        sb.Append('"');
+        int backslashCount = 0;
+
+        foreach (char c in value)
+        {
+            if (c == '\\')
+            {
+                backslashCount++;
+            }
+            else if (c == '"')
+            {
+                sb.Append('\\', backslashCount * 2 + 1);
+                sb.Append('"');
+                backslashCount = 0;
+            }
+            else
+            {
+                if (backslashCount > 0)
+                {
+                    sb.Append('\\', backslashCount);
+                    backslashCount = 0;
+                }
+
+                sb.Append(c);
+            }
+        }
+
+        if (backslashCount > 0)
+        {
+            sb.Append('\\', backslashCount * 2);
+        }
+
+        sb.Append('"');
+        return sb.ToString();
     }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]

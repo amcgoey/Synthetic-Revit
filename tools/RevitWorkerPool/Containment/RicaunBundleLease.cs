@@ -20,14 +20,21 @@ public sealed class RicaunBundleLease : IDisposable
     private const int DefaultMutexTimeoutMs = 30000;
 
     private readonly string _mutexName;
+    private readonly int _mutexTimeoutMs;
     private FileStream? _leaseStream;
     private bool _disposed;
 
-    private RicaunBundleLease(string bundleDirectory, string packageContentsPath, string mutexName, FileStream leaseStream)
+    private RicaunBundleLease(
+        string bundleDirectory,
+        string packageContentsPath,
+        string mutexName,
+        int mutexTimeoutMs,
+        FileStream leaseStream)
     {
         BundleDirectory = bundleDirectory;
         PackageContentsPath = packageContentsPath;
         _mutexName = mutexName;
+        _mutexTimeoutMs = mutexTimeoutMs;
         _leaseStream = leaseStream;
     }
 
@@ -44,7 +51,8 @@ public sealed class RicaunBundleLease : IDisposable
         IEnumerable<string>? testAdapterSearchDirectories = null,
         string? testAdapterDllPath = null,
         string mutexName = DefaultMutexName,
-        string? nugetPackagesDirectory = null)
+        string? nugetPackagesDirectory = null,
+        int mutexTimeoutMs = DefaultMutexTimeoutMs)
     {
         string resolvedAppData = !string.IsNullOrWhiteSpace(appDataDirectory)
             ? appDataDirectory
@@ -58,7 +66,7 @@ public sealed class RicaunBundleLease : IDisposable
         string packageContentsPath = Path.Combine(bundleDir, "PackageContents.xml");
 
         using var mutex = new Mutex(initiallyOwned: false, mutexName);
-        AcquireMutex(mutex, mutexName, DefaultMutexTimeoutMs);
+        AcquireMutex(mutex, mutexName, mutexTimeoutMs);
         try
         {
             if (!File.Exists(packageContentsPath))
@@ -84,7 +92,7 @@ public sealed class RicaunBundleLease : IDisposable
                 FileAccess.Read,
                 FileShare.ReadWrite);
 
-            return new RicaunBundleLease(bundleDir, packageContentsPath, mutexName, stream);
+            return new RicaunBundleLease(bundleDir, packageContentsPath, mutexName, mutexTimeoutMs, stream);
         }
         finally
         {
@@ -261,12 +269,39 @@ public sealed class RicaunBundleLease : IDisposable
 
         _disposed = true;
 
-        using var mutex = new Mutex(initiallyOwned: false, _mutexName);
-        AcquireMutex(mutex, _mutexName, DefaultMutexTimeoutMs);
+        bool mutexAcquired = false;
+        Mutex? mutex = null;
         try
         {
+            try
+            {
+                mutex = new Mutex(initiallyOwned: false, _mutexName);
+                try
+                {
+                    mutexAcquired = mutex.WaitOne(_mutexTimeoutMs);
+                }
+                catch (AbandonedMutexException)
+                {
+                    // Previous holder exited unexpectedly; ownership is now granted to this thread.
+                    mutexAcquired = true;
+                }
+                catch (Exception ex) when (ex is ObjectDisposedException or InvalidOperationException)
+                {
+                    mutexAcquired = false;
+                }
+            }
+            catch (Exception ex) when (ex is UnauthorizedAccessException or IOException or WaitHandleCannotBeOpenedException)
+            {
+                mutexAcquired = false;
+            }
+
             _leaseStream?.Dispose();
             _leaseStream = null;
+
+            if (!mutexAcquired)
+            {
+                return;
+            }
 
             if (File.Exists(PackageContentsPath))
             {
@@ -304,7 +339,15 @@ public sealed class RicaunBundleLease : IDisposable
         }
         finally
         {
-            mutex.ReleaseMutex();
+            _leaseStream?.Dispose();
+            _leaseStream = null;
+
+            if (mutexAcquired && mutex is not null)
+            {
+                mutex.ReleaseMutex();
+            }
+
+            mutex?.Dispose();
         }
     }
 

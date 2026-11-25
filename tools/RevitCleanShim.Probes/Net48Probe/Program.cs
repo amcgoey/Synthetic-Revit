@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -156,8 +157,19 @@ namespace RevitCleanShim.Probes.Net48Probe
             string stderr = child.StandardError.ReadToEnd();
             if (!child.WaitForExit(15000))
             {
-                try { child.Kill(); } catch { /* Best-effort kill on timeout. */ }
-                report.GrandchildError = "Grandchild Net48Probe timed out.";
+                string? killError = null;
+                try
+                {
+                    child.Kill();
+                }
+                catch (Exception ex) when (ex is InvalidOperationException or Win32Exception)
+                {
+                    killError = ex.Message;
+                }
+
+                report.GrandchildError = killError is null
+                    ? "Grandchild Net48Probe timed out."
+                    : $"Grandchild Net48Probe timed out (kill failed: {killError}).";
                 return;
             }
 

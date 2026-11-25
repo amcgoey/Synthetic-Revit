@@ -90,40 +90,70 @@ public sealed class StandardProcessLauncher : IWorkerProcessLauncher
             envPin.Free();
         }
 
-        var job = new JobObjectContainer();
-        var processHandle = new SafeProcessHandle(pi.hProcess, ownsHandle: true);
+        string processName = Path.GetFileNameWithoutExtension(fullExePath);
+        LaunchedWorkerProcess launched = FinalizeSuspendedWorkerProcess(
+            pi.hProcess,
+            pi.hThread,
+            unchecked((int)pi.dwProcessId),
+            processName,
+            workerId,
+            request.OnProcessCreatedBeforeResume);
+        return Task.FromResult(launched);
+    }
+
+    internal static LaunchedWorkerProcess FinalizeSuspendedWorkerProcess(
+        IntPtr rawProcessHandle,
+        IntPtr rawThreadHandle,
+        int processId,
+        string processName,
+        string workerId,
+        Action<int>? onProcessCreatedBeforeResume,
+        Func<int, string, Exception>? resumeFailureFactory = null,
+        Action? onDispose = null)
+    {
+        JobObjectContainer? job = null;
+        SafeProcessHandle? processHandle = null;
         try
         {
+            job = new JobObjectContainer();
+            processHandle = new SafeProcessHandle(rawProcessHandle, ownsHandle: true);
+
             // Assign to Job Object BEFORE ResumeThread so no child process can escape containment.
-            job.AssignProcessHandle(pi.hProcess);
+            job.AssignProcessHandle(rawProcessHandle);
 
-            request.OnProcessCreatedBeforeResume?.Invoke(unchecked((int)pi.dwProcessId));
+            onProcessCreatedBeforeResume?.Invoke(processId);
 
-            uint resumeResult = NativeMethods.ResumeThread(pi.hThread);
+            uint resumeResult = NativeMethods.ResumeThread(rawThreadHandle);
             if (resumeResult == uint.MaxValue)
             {
                 int error = Marshal.GetLastWin32Error();
-                throw new Win32Exception(error, $"ResumeThread failed for PID {pi.dwProcessId} (Win32 error {error}).");
+                string message = new Win32Exception(error).Message;
+                throw resumeFailureFactory?.Invoke(error, message)
+                    ?? new Win32Exception(error, $"ResumeThread failed for PID {processId} (Win32 error {error}).");
             }
 
-            string processName = Path.GetFileNameWithoutExtension(fullExePath);
             var launched = new LaunchedWorkerProcess(
-                unchecked((int)pi.dwProcessId),
+                processId,
                 processName,
                 workerId,
                 processHandle,
-                job);
+                job,
+                onDispose: onDispose);
 
-            // Prevent cleanup below from disposing transferred ownership.
-            processHandle = null!;
-            job = null!;
-            return Task.FromResult(launched);
+            // Ownership transferred to LaunchedWorkerProcess.
+            processHandle = null;
+            job = null;
+            return launched;
         }
         catch
         {
-            if (pi.hProcess != IntPtr.Zero)
+            if (rawProcessHandle != IntPtr.Zero)
             {
-                NativeMethods.TerminateProcess(pi.hProcess, 1);
+                NativeMethods.TerminateProcess(rawProcessHandle, 1);
+                if (processHandle is null)
+                {
+                    NativeMethods.CloseHandle(rawProcessHandle);
+                }
             }
 
             job?.Dispose();
@@ -132,9 +162,9 @@ public sealed class StandardProcessLauncher : IWorkerProcessLauncher
         }
         finally
         {
-            if (pi.hThread != IntPtr.Zero)
+            if (rawThreadHandle != IntPtr.Zero)
             {
-                NativeMethods.CloseHandle(pi.hThread);
+                NativeMethods.CloseHandle(rawThreadHandle);
             }
         }
     }

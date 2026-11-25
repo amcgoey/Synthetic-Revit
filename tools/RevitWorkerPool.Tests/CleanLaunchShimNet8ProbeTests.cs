@@ -177,6 +177,8 @@ public class CleanLaunchShimNet8ProbeTests
             Assert.That(report.NtQueryProgramDataEmptyFirstStatus, Is.EqualTo(StatusNoSuchFile));
             Assert.That(report.NtQueryProgramFilesExEmptyFirstStatus, Is.EqualTo(StatusNoSuchFile));
             Assert.That(report.NtQueryAppDataSecondCallAfterMatchStatus, Is.EqualTo(StatusNoMoreFiles));
+            Assert.That(report.NtQueryAsyncAppDataEntries, Is.EqualTo(new[] { "Synthetic2027.addin" }));
+            Assert.That(report.NtQueryAsyncProgramDataFirstStatus, Is.EqualTo(StatusNoSuchFile));
 
             Assert.That(report.NtOpenAppDataSyntheticStatus, Is.EqualTo(StatusSuccess));
             Assert.That(report.NtOpenProgramFilesThirdPartyAddinStatus, Is.EqualTo(StatusObjectNameNotFound));
@@ -197,14 +199,19 @@ public class CleanLaunchShimNet8ProbeTests
             Assert.That(report.ProgramFilesAdminSettingsInitialRead, Is.EqualTo("{\"DisableAllAddIns\":false}"));
             Assert.That(report.ProgramFilesAdminSettingsNtCreateRead, Is.EqualTo("{\"DisableAllAddIns\":false}"));
             Assert.That(report.ProgramFilesAdminSettingsAfterWriteRead, Is.EqualTo($"{{\"DisableAllAddIns\":false,\"Source\":\"programfiles-{workerPid}\"}}"));
+            Assert.That(report.ProgramDataAdminSettingsAfterBothWritesRead, Is.EqualTo($"{{\"DisableAllAddIns\":false,\"Source\":\"programdata-{workerPid}\"}}"));
 
-            // Verify writes landed in disposable per-PID profile folder.
+            // Verify writes landed in disposable per-PID profile folder without cross-path collision.
             string virtualAddInsSettingsPath = Path.Combine(pidProfileDir, "AddInsSettings.json");
-            string virtualAdminSettingsPath = Path.Combine(pidProfileDir, "AdminSettings.json");
+            string virtualProgramDataAdminSettingsPath = Path.Combine(pidProfileDir, "ProgramData_AdminSettings.json");
+            string virtualProgramFilesAdminSettingsPath = Path.Combine(pidProfileDir, "ProgramFiles_AdminSettings.json");
             Assert.That(File.Exists(virtualAddInsSettingsPath), Is.True);
-            Assert.That(File.Exists(virtualAdminSettingsPath), Is.True);
+            Assert.That(File.Exists(virtualProgramDataAdminSettingsPath), Is.True);
+            Assert.That(File.Exists(virtualProgramFilesAdminSettingsPath), Is.True);
+            Assert.That(File.Exists(Path.Combine(pidProfileDir, "AdminSettings.json")), Is.False);
             Assert.That(await File.ReadAllTextAsync(virtualAddInsSettingsPath), Does.Contain($"net8-probe-{workerPid}"));
-            Assert.That(await File.ReadAllTextAsync(virtualAdminSettingsPath), Does.Contain($"programfiles-{workerPid}"));
+            Assert.That(await File.ReadAllTextAsync(virtualProgramDataAdminSettingsPath), Does.Contain($"programdata-{workerPid}"));
+            Assert.That(await File.ReadAllTextAsync(virtualProgramFilesAdminSettingsPath), Does.Contain($"programfiles-{workerPid}"));
 
             // Verify host mock settings files remained 100% unmutated!
             string appDataSettingsFile = Path.Combine(_appDataRoot, "Autodesk", "Revit", "Autodesk Revit 2027", "AddinsData", "AddInsSettings.json");
@@ -307,7 +314,8 @@ public class CleanLaunchShimNet8ProbeTests
             Assert.That(report.ProgramDataAdminSettingsInitialRead, Is.EqualTo("{\"DisableAllAddIns\":false}"));
             Assert.That(Directory.Exists(defaultPidProfileDir), Is.True);
             Assert.That(File.Exists(Path.Combine(defaultPidProfileDir, "AddInsSettings.json")), Is.True);
-            Assert.That(File.Exists(Path.Combine(defaultPidProfileDir, "AdminSettings.json")), Is.True);
+            Assert.That(File.Exists(Path.Combine(defaultPidProfileDir, "ProgramData_AdminSettings.json")), Is.True);
+            Assert.That(File.Exists(Path.Combine(defaultPidProfileDir, "ProgramFiles_AdminSettings.json")), Is.True);
 
             // Verify missing host files were NOT created on disk.
             Assert.That(File.Exists(Path.Combine(_appDataRoot, "Autodesk", "Revit", "Autodesk Revit 2026", "AddinsData", "AddInsSettings.json")), Is.False);
@@ -662,6 +670,12 @@ public class CleanLaunchShimNet8ProbeTests
         [JsonPropertyName("ntQueryProgramFilesExEmptyFirstStatus")]
         public uint NtQueryProgramFilesExEmptyFirstStatus { get; init; }
 
+        [JsonPropertyName("ntQueryAsyncAppDataEntries")]
+        public string[] NtQueryAsyncAppDataEntries { get; init; } = Array.Empty<string>();
+
+        [JsonPropertyName("ntQueryAsyncProgramDataFirstStatus")]
+        public uint NtQueryAsyncProgramDataFirstStatus { get; init; }
+
         [JsonPropertyName("ntOpenAppDataSyntheticStatus")]
         public uint NtOpenAppDataSyntheticStatus { get; init; }
 
@@ -706,6 +720,9 @@ public class CleanLaunchShimNet8ProbeTests
 
         [JsonPropertyName("programFilesAdminSettingsAfterWriteRead")]
         public string? ProgramFilesAdminSettingsAfterWriteRead { get; init; }
+
+        [JsonPropertyName("programDataAdminSettingsAfterBothWritesRead")]
+        public string? ProgramDataAdminSettingsAfterBothWritesRead { get; init; }
 
         [JsonPropertyName("grandchildExitCode")]
         public int? GrandchildExitCode { get; init; }
