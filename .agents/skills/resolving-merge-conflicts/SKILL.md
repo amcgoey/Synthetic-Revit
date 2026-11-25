@@ -9,6 +9,6 @@ description: "Resolve an in-progress git merge or rebase conflict. Use when git 
 
 3. **Resolve each hunk.** Preserve both intents where possible. Where incompatible, pick the one matching the merge's stated goal and note the trade-off. Do **not** invent new behaviour. Always resolve; never `--abort`.
 
-4. Discover the project's **automated checks** and run them. In this repo, compile the solution (`MSBuild.exe`) and run `revit-tests` starting with fast headless logic tests (`python .agents/skills/revit-tests/scripts/test_executor.py --version Logic`), followed by target Revit version tests (`python .agents/skills/revit-tests/scripts/test_executor.py --version 2026`). Fix anything the merge broke before proceeding.
+4. Discover the project's **automated checks** and run them. In this repo, compile the solution (`dotnet build src/Synthetic.sln -p:Platform=x64`) and run `revit-tests` starting with fast headless logic tests (`python .agents/skills/revit-tests/scripts/test_executor.py --version Logic`), followed by target Revit version tests (`python .agents/skills/revit-tests/scripts/test_executor.py --version <CURRENT_LATEST_VERSION>`; see [`revit-config.md`](../../../docs/agents/revit-config.md)). Fix anything the merge broke before proceeding.
 
 5. **Finish the merge or rebase.** Stage resolved files and commit. If rebasing, continue the rebase (`git rebase --continue`) until all commits are rebased.

@@ -29,15 +29,15 @@ When the shape of that interface is itself in question (how deep the module is, 
 
 In this Revit Add-in, execute tests in the 3-step sequence defined in [`revit-tests`](../revit-tests/SKILL.md):
 
-1. **Step 1 (Headless Logic Loop):** Fast red-green loop running **Logic Tests** ([`Synthetic.LogicTests`](../../../tests/Projects/Synthetic.LogicTests/Synthetic.LogicTests.csproj) across `net48` and `net8.0-windows8.0` plus quarantined `Synthetic.LegacyMockTests`) against `Core/` modules, `Fake<Slice>Adapter` doubles, **RevitDOM** POCOs, and **Architecture Fitness Tests**. Iterate until green.
+1. **Step 1 (Headless Logic Loop):** Fast red-green loop running **Logic Tests** ([`Synthetic.LogicTests`](../../../tests/Projects/Synthetic.LogicTests/Synthetic.LogicTests.csproj) across all `<TargetFrameworks>` plus quarantined [`Synthetic.LegacyMockTests`](../../../tests/Projects/Synthetic.LegacyMockTests/Synthetic.LegacyMockTests.csproj)) against `Core/` modules, `Fake<Slice>Adapter` doubles, **RevitDOM** POCOs, and **Architecture Fitness Tests**. Iterate until green.
    ```powershell
    python .agents/skills/revit-tests/scripts/test_executor.py --version Logic
    ```
-2. **Step 2 (Latest Revit Loop):** Verify `Revit<Slice>Adapter` implementations, transactions, and **RevitDOM** translators against live `Document` fixtures in `CURRENT_LATEST_VERSION` ([`revit-config.md`](../../../docs/agents/revit-config.md), e.g. `2026`). Iterate until green.
+2. **Step 2 (Latest Revit Loop):** Verify `Revit<Slice>Adapter` implementations, transactions, and **RevitDOM** translators against live `Document` fixtures in `CURRENT_LATEST_VERSION` ([`revit-config.md`](../../../docs/agents/revit-config.md)). Iterate until green.
    ```powershell
-   python .agents/skills/revit-tests/scripts/test_executor.py --version 2026
+   python .agents/skills/revit-tests/scripts/test_executor.py --version 2027
    ```
-3. **Step 3 (Multi-Version Validation):** Once the feature or fix is complete, omit `--version` to execute `Logic` plus all supported **Revit Versions** (`2023–2026`) with automatic `--assert-clean` journal gating ([`revit-multi-versions`](../revit-multi-versions/SKILL.md)).
+3. **Step 3 (Multi-Version Validation):** Once the feature or fix is complete, omit `--version` to execute `Logic` plus all supported **Revit Versions** ([`GLOSSARY.md`](../../../GLOSSARY.md)) with automatic `--assert-clean` journal gating ([`revit-multi-versions`](../revit-multi-versions/SKILL.md)).
    ```powershell
    python .agents/skills/revit-tests/scripts/test_executor.py
    ```

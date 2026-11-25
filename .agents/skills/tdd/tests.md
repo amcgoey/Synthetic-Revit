@@ -6,7 +6,7 @@
 
 ### Headless Logic Seam (`Synthetic.LogicTests`, `[UnitTest]`)
 
-Tests pure `Core/` logic, ViewModels, and **RevitDOM** models headlessly across `net48` and `net8.0-windows8.0` without Revit dependencies:
+Tests pure `Core/` logic, ViewModels, and **RevitDOM** models headlessly across all [`Synthetic.LogicTests.csproj`](../../../tests/Projects/Synthetic.LogicTests/Synthetic.LogicTests.csproj) target frameworks without Revit dependencies:
 
 ```csharp
 // GOOD: Tests observable behavior and Typed Outcome Object at the public seam

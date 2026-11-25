@@ -166,10 +166,10 @@ Concrete evidence that the change works. Show a before and after.
 
 Screenshots are S-tier when the environment is set up for it and the change is visual (WPF windows, ribbon controls, themes).
 
-Execution-based evidence is A-tier: test results from `python .agents/skills/revit-tests/scripts/test_executor.py` (`--version Logic`, `--version 2026`, or omitting `--version` to run `Logic` plus all supported **Revit Versions** `2023–2026`), or `--assert-clean` journal telemetry output. Show the exact test that now fails and passes.
+Execution-based evidence is A-tier: test results from `python .agents/skills/revit-tests/scripts/test_executor.py` (`--version Logic`, `--version <CURRENT_LATEST_VERSION>`, or omitting `--version` to run `Logic` plus all supported **Revit Versions** in [`GLOSSARY.md`](../../../GLOSSARY.md)), or `--assert-clean` journal telemetry output. Show the exact test that now fails and passes.
 
 ### Merge Danger
 
 Describe whether it's a one-way or two-way door. You can walk back through two-way doors, but not one-way doors. A PR that is cheap to roll back is lower risk. Changes that involve destructive actions, hard-to-reverse decisions, or Extensible Storage schema modifications (persisted schemas in `.rvt` project files cannot be undone easily) are one-way doors.
 
-The blast radius is the potential impact or scope of the changes introduced by this PR. Consider all possibilities: multi-version compatibility across Revit `2023–2026` (`#if REVIT2023` / `#elif REVIT2024` vs. `CURRENT_LATEST_VERSION` in `#else`), `net48` vs. `net8.0-windows8.0` compatibility in `Synthetic.Core`, breaking changes across `Core/`/`Addin/` seams or **RevitDOM**, or `SyntheticThemeDictionary` UI theme shifts.
+The blast radius is the potential impact or scope of the changes introduced by this PR. Consider all possibilities: multi-version compatibility across supported **Revit Versions** (legacy `#if REVIT*` vs. `CURRENT_LATEST_VERSION` in `#else` per [`revit-config.md`](../../../docs/agents/revit-config.md)), multi-TFM compatibility in [`Synthetic.Core.csproj`](../../../src/Synthetic.Core/Synthetic.Core.csproj), breaking changes across `Core/`/`Addin/` seams or **RevitDOM**, or `SyntheticThemeDictionary` UI theme shifts.

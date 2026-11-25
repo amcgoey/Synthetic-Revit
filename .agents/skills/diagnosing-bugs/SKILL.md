@@ -23,11 +23,11 @@ Spend disproportionate effort here. **Be aggressive. Be creative. Refuse to give
 
 ### Ways to construct one in Revit Add-in development, in roughly this order
 
-1. **Headless Logic Test (`Synthetic.LogicTests`)** via `python .agents/skills/revit-tests/scripts/test_executor.py --version Logic --filter "<TestName>"` for bugs in `Core/` modules, ViewModels, **RevitDOM** POCOs, or `ArchitectureFitnessTests`. Runs across `net48` and `net8.0-windows8.0` in seconds.
-2. **Live Revit Test (`Synthetic.RevitTests.<Year>`)** via `python .agents/skills/revit-tests/scripts/test_executor.py --version 2026 --filter "<TestName>"` for bugs requiring a live Revit `Document` or active database transaction.
+1. **Headless Logic Test (`Synthetic.LogicTests`)** via `python .agents/skills/revit-tests/scripts/test_executor.py --version Logic --filter "<TestName>"` for bugs in `Core/` modules, ViewModels, **RevitDOM** POCOs, or `ArchitectureFitnessTests`. Runs across all [`Synthetic.LogicTests.csproj`](../../../tests/Projects/Synthetic.LogicTests/Synthetic.LogicTests.csproj) target frameworks in seconds.
+2. **Live Revit Test (`Synthetic.RevitTests.<Year>`)** via `python .agents/skills/revit-tests/scripts/test_executor.py --version <CURRENT_LATEST_VERSION> --filter "<TestName>"` (see [`revit-config.md`](../../../docs/agents/revit-config.md)) for bugs requiring a live Revit `Document` or active database transaction.
 3. **Revit Journal telemetry loop** (`revit-journal-telemetry`) via `python .agents/skills/revit-journal-telemetry/scripts/revit_journal_tool.py --analyze` / `--search "<pattern>"` / `--watch` to inspect unhandled managed exceptions, `DBG_WARN`, orphaned transactions, **RAM Statistics**, and the `[REPRODUCTION TRAIL]` preceding a crash.
 4. **Replay a captured template / `RevitDOM` payload.** Save a failing JSON template or element payload to disk; replay it through the translation or merge pipeline in isolation.
-5. **Differential multi-version loop** (`test_executor.py` omitting `--version` or targeting `2023`–`2026`) when the bug is version-specific (`revit-multi-versions`).
+5. **Differential multi-version loop** (`test_executor.py` omitting `--version` or targeting specific **Revit Versions**) when the bug is version-specific (`revit-multi-versions`).
 6. **Interactive Visual Studio + Revit debugger (`revit-debug-by-user`)** via `powershell -File .agents/skills/revit-debug-by-user/scripts/start_debugging.ps1` or `scripts/hitl-loop.template.sh` as last resort when a human must click in the Revit/WPF UI.
 
 Build the right feedback loop, and the bug is 90% fixed.
