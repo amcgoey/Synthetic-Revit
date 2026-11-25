@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Linq;
 using System.Windows.Input;
 using Synthetic.Features.MultiModelPdfExport.Adapters;
@@ -126,9 +127,11 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
             ApplyBulkPrintSetCommand = new RelayCommand(ExecuteApplyBulkPrintSet, CanExecuteApplyBulkPrintSet);
             UncheckUnmatchedProjectsCommand = new RelayCommand(_ => ExecuteUncheckUnmatchedProjects(), _ => ShowUncheckUnmatchedButton);
             DismissBulkFeedbackCommand = new RelayCommand(_ => ExecuteDismissBulkFeedback(), _ => HasBulkFeedbackBanner);
-            ToggleAllVisibleCommand = new RelayCommand(_ => SetVisibleEligibleChecked(_allVisibleChecked != true), _ => HasVisibleEligibleRows);
+            ToggleAllVisibleCommand = new RelayCommand(_ => ExecuteToggleAllVisible(), _ => HasVisibleEligibleRows);
             SelectAllVisibleCommand = new RelayCommand(_ => SetVisibleEligibleChecked(true));
-            SelectActiveAndLinksVisibleCommand = new RelayCommand(_ => ExecuteSelectActiveAndLinksVisible());
+            SelectActiveAndLinksVisibleCommand = new RelayCommand(_ => SetVisibleEligibleChecked(row =>
+                row.Origin == MultiModelPdfDocumentOrigin.Active ||
+                row.Origin == MultiModelPdfDocumentOrigin.Linked));
             SelectNoneVisibleCommand = new RelayCommand(_ => SetVisibleEligibleChecked(false));
             BrowseOutputFolderCommand = new RelayCommand(_ => ExecuteBrowseOutputFolder());
             ExportCommand = new RelayCommand(_ => ExecuteExport(), _ => CanExport);
@@ -539,12 +542,8 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
                     totalCheckedEligible++;
                 }
 
-                MultiModelPdfPrintSetChoice? matchChoice = row.PrintSetOptions.FirstOrDefault(
-                    c => !c.IsPlaceholder && string.Equals(c.Name, displaySetName, StringComparison.OrdinalIgnoreCase));
-
-                if (matchChoice != null)
+                if (row.TryApplyMatchingPrintSet(displaySetName))
                 {
-                    row.ApplyBulkMatchedChoice(matchChoice);
                     if (row.IsChecked)
                     {
                         matchedChecked++;
@@ -633,7 +632,18 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
             BulkFeedbackMessage = string.Empty;
         }
 
-        private bool SetVisibleEligibleChecked(bool isChecked)
+        private void ExecuteToggleAllVisible()
+        {
+            if (!SetVisibleEligibleChecked(_allVisibleChecked != true))
+            {
+                OnPropertyChanged(nameof(AllVisibleChecked));
+            }
+        }
+
+        private bool SetVisibleEligibleChecked(bool isChecked) =>
+            SetVisibleEligibleChecked(_ => isChecked);
+
+        private bool SetVisibleEligibleChecked(Func<MultiModelPdfExportRowViewModel, bool> checkSelector)
         {
             bool anyChanged = false;
             foreach (MultiModelPdfExportRowViewModel row in _visibleRows)
@@ -643,7 +653,7 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
                     continue;
                 }
 
-                if (row.SetCheckedBatch(isChecked))
+                if (row.SetCheckedBatch(checkSelector(row)))
                 {
                     anyChanged = true;
                 }
@@ -655,30 +665,6 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
             }
 
             return anyChanged;
-        }
-
-        private void ExecuteSelectActiveAndLinksVisible()
-        {
-            bool anyChanged = false;
-            foreach (MultiModelPdfExportRowViewModel row in _visibleRows)
-            {
-                if (!row.IsEligible)
-                {
-                    continue;
-                }
-
-                bool target = row.Origin == MultiModelPdfDocumentOrigin.Active ||
-                              row.Origin == MultiModelPdfDocumentOrigin.Linked;
-                if (row.SetCheckedBatch(target))
-                {
-                    anyChanged = true;
-                }
-            }
-
-            if (anyChanged)
-            {
-                RecomputeValidationAndSummary();
-            }
         }
 
         private void RefreshVisibleRows(bool recompute)
@@ -804,17 +790,9 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
 
                 foreach (MultiModelPdfExportRowViewModel row in _rows)
                 {
-                    if (!row.IsEligible)
+                    if (row.IsEligible)
                     {
-                        continue;
-                    }
-
-                    MultiModelPdfPrintSetChoice? matchedChoice = row.PrintSetOptions.FirstOrDefault(
-                        c => !c.IsPlaceholder &&
-                             string.Equals(c.Name, targetPrintSetName, StringComparison.OrdinalIgnoreCase));
-                    if (matchedChoice != null)
-                    {
-                        row.ApplyBulkMatchedChoice(matchedChoice);
+                        row.TryApplyMatchingPrintSet(targetPrintSetName);
                     }
                 }
             }
@@ -837,9 +815,17 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
                     LastBulkPrintSetName = ResolveBulkPrintSetNameForSave()
                 });
             }
-            catch (Exception)
+            catch (Exception ex) when (
+                ex is IOException ||
+                ex is UnauthorizedAccessException ||
+                ex is ArgumentException ||
+                ex is NotSupportedException ||
+                ex is System.Security.SecurityException ||
+                ex is Newtonsoft.Json.JsonException)
             {
                 // Local preferences persistence failure must never block export execution.
+                System.Diagnostics.Debug.WriteLine(
+                    $"[MultiModelPdfExport] Failed to save user preferences: {ex.Message}");
             }
         }
 
@@ -1042,7 +1028,7 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
                 FooterStatusText = $"{checkedCount} {projectWord} · {totalPrintable} {viewWord} ready";
             }
 
-            OutputPreviewText = BuildOutputPreviewText(checkedRows, folderValid, totalPrintable);
+            OutputPreviewText = BuildOutputPreviewText(checkedRows, totalPrintable);
 
             ShowUncheckUnmatchedButton = HasBulkFeedbackBanner &&
                                          BulkFeedbackKind == MultiModelPdfBulkFeedbackKind.Warning &&
@@ -1052,7 +1038,6 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
 
         private string BuildOutputPreviewText(
             IReadOnlyList<MultiModelPdfExportRowViewModel> checkedRows,
-            bool folderValid,
             int totalPrintable)
         {
             if (checkedRows.Count == 0)
@@ -1060,23 +1045,20 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
                 return "Check at least one project to preview output path.";
             }
 
-            string firstToken = checkedRows[0].ResolvedOutputToken;
-            string folderDisplay = folderValid
-                ? MultiModelPdfPathHelper.NormalizeFolderPath(OutputFolder)
-                : (string.IsNullOrWhiteSpace(OutputFolder)
-                    ? "<OutputFolder>"
-                    : OutputFolder.Trim().TrimEnd('\\', '/'));
-            string separator = folderDisplay.EndsWith("\\", StringComparison.Ordinal) ? string.Empty : "\\";
+            string previewPath = MultiModelPdfPathHelper.BuildOutputPreviewPath(
+                OutputFolder,
+                checkedRows[0].ResolvedOutputToken,
+                FileMode);
 
             if (FileMode == MultiModelPdfFileMode.CombinedPerDocument)
             {
                 string extra = checkedRows.Count > 1
                     ? $" (+{checkedRows.Count - 1} more PDF{(checkedRows.Count - 1 == 1 ? "" : "s")})"
                     : string.Empty;
-                return $"{folderDisplay}{separator}{firstToken}.pdf{extra}";
+                return previewPath + extra;
             }
 
-            return $"{folderDisplay}{separator}{firstToken}\\<NamingRule>.pdf ({totalPrintable} PDF{(totalPrintable == 1 ? "" : "s")} in {checkedRows.Count} folder{(checkedRows.Count == 1 ? "" : "s")})";
+            return $"{previewPath} ({totalPrintable} PDF{(totalPrintable == 1 ? "" : "s")} in {checkedRows.Count} folder{(checkedRows.Count == 1 ? "" : "s")})";
         }
 
         private static int GetOriginOrder(MultiModelPdfDocumentOrigin origin) => origin switch

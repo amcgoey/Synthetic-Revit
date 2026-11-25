@@ -334,7 +334,8 @@
 
                                     <CheckBox x:Name="MasterHeaderCheckBox"
                                               Grid.Column="0"
-                                              IsChecked="{Binding AllVisibleChecked, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                              IsChecked="{Binding AllVisibleChecked, Mode=OneWay}"
+                                              Command="{Binding ToggleAllVisibleCommand}"
                                               IsEnabled="{Binding HasVisibleEligibleRows}"
                                               ToolTip="Toggle all visible eligible projects"
                                               HorizontalAlignment="Left"

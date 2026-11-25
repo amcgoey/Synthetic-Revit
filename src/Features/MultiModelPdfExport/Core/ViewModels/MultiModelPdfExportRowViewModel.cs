@@ -442,6 +442,27 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
             }
         }
 
+        internal bool TryApplyMatchingPrintSet(string printSetName)
+        {
+            if (string.IsNullOrWhiteSpace(printSetName))
+            {
+                return false;
+            }
+
+            string target = printSetName.Trim();
+            foreach (MultiModelPdfPrintSetChoice option in PrintSetOptions)
+            {
+                if (!option.IsPlaceholder &&
+                    string.Equals(option.Name, target, StringComparison.OrdinalIgnoreCase))
+                {
+                    ApplyBulkMatchedChoice(option);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         internal void SetBulkMismatchAccent(bool hasMismatch)
         {
             bool normalized = IsEligible && IsChecked && hasMismatch;

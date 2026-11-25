@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Security;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Events;
 using Autodesk.Revit.UI;
@@ -335,9 +337,10 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
                     {
                         openedStandaloneDoc.Close(false);
                     }
-                    catch
+                    catch (Exception ex)
                     {
                         // Best-effort close so handlers, suppression scopes, and temp dirs still clean up.
+                        Debug.WriteLine($"[MultiModelPdfExport] Best-effort Close(false) failed for '{docTitle}': {ex.Message}");
                     }
                 }
 
@@ -405,32 +408,9 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
             HashSet<string> seenKeys,
             HashSet<string> seenClaimedPaths)
         {
-            var linkInstances = new FilteredElementCollector(activeDoc)
-                .OfClass(typeof(RevitLinkInstance))
-                .WhereElementIsNotElementType()
-                .Cast<RevitLinkInstance>()
-                .ToList();
-
             var candidates = new List<MultiModelPdfDocumentSnapshot>();
-            foreach (IGrouping<ElementId, RevitLinkInstance> group in linkInstances.GroupBy(inst => inst.GetTypeId()))
+            foreach ((RevitLinkType linkType, Document? linkDoc) in EnumerateTopLevelLinks(activeDoc))
             {
-                if (group.Key == null || group.Key == ElementId.InvalidElementId)
-                {
-                    continue;
-                }
-
-                if (!(activeDoc.GetElement(group.Key) is RevitLinkType linkType) || !linkType.IsValidObject)
-                {
-                    continue;
-                }
-
-                // Exclude nested links attached through parent links; only top-level links are exported.
-                if (linkType.IsNestedLink)
-                {
-                    continue;
-                }
-
-                Document? linkDoc = FindLoadedLinkDocument(group);
                 if (linkDoc != null)
                 {
                     string linkKey = ComputeDocumentKey(linkDoc);
@@ -511,7 +491,21 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
 
         private LoadedLinkTarget? ResolveLoadedLinkTarget(string documentKey)
         {
-            var linkInstances = new FilteredElementCollector(_doc)
+            foreach ((RevitLinkType linkType, Document? linkDoc) in EnumerateTopLevelLinks(_doc))
+            {
+                if (linkDoc != null &&
+                    string.Equals(ComputeDocumentKey(linkDoc), documentKey, StringComparison.Ordinal))
+                {
+                    return new LoadedLinkTarget(linkType, linkDoc);
+                }
+            }
+
+            return null;
+        }
+
+        private static IEnumerable<(RevitLinkType LinkType, Document? LinkDoc)> EnumerateTopLevelLinks(Document activeDoc)
+        {
+            var linkInstances = new FilteredElementCollector(activeDoc)
                 .OfClass(typeof(RevitLinkInstance))
                 .WhereElementIsNotElementType()
                 .Cast<RevitLinkInstance>()
@@ -524,26 +518,16 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
                     continue;
                 }
 
-                if (!(_doc.GetElement(group.Key) is RevitLinkType linkType) ||
+                // Exclude nested links attached through parent links; only top-level links are exported.
+                if (!(activeDoc.GetElement(group.Key) is RevitLinkType linkType) ||
                     !linkType.IsValidObject ||
                     linkType.IsNestedLink)
                 {
                     continue;
                 }
 
-                Document? linkDoc = FindLoadedLinkDocument(group);
-                if (linkDoc == null)
-                {
-                    continue;
-                }
-
-                if (string.Equals(ComputeDocumentKey(linkDoc), documentKey, StringComparison.Ordinal))
-                {
-                    return new LoadedLinkTarget(linkType, linkDoc);
-                }
+                yield return (linkType, FindLoadedLinkDocument(group));
             }
-
-            return null;
         }
 
         private static Document? FindLoadedLinkDocument(IEnumerable<RevitLinkInstance> instances)
@@ -583,16 +567,7 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
 
             if (linkDoc.IsModelInCloud)
             {
-                ModelPath? cloudPath = null;
-                try
-                {
-                    cloudPath = linkDoc.GetCloudModelPath();
-                }
-                catch
-                {
-                    cloudPath = null;
-                }
-
+                ModelPath? cloudPath = TryGetCloudModelPath(linkDoc);
                 if (cloudPath == null || cloudPath.Empty)
                 {
                     throw new InvalidOperationException(
@@ -609,18 +584,7 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
                     ? linkDoc.PathName
                     : TryGetLinkTypeVisiblePath(linkType);
 
-                ModelPath? centralPath = null;
-                try
-                {
-                    if (!linkDoc.IsDetached)
-                    {
-                        centralPath = linkDoc.GetWorksharingCentralModelPath();
-                    }
-                }
-                catch
-                {
-                    centralPath = null;
-                }
+                ModelPath? centralPath = TryGetCentralModelPath(linkDoc);
 
                 if ((centralPath == null || centralPath.Empty) && !string.IsNullOrWhiteSpace(fallbackPath))
                 {
@@ -703,20 +667,10 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
 
         private static string? TryResolveExistingFilePath(ModelPath? centralPath, string? fallbackPath)
         {
-            if (centralPath != null && !centralPath.Empty)
+            string? visible = TryConvertModelPathToUserVisiblePath(centralPath, "central");
+            if (!string.IsNullOrWhiteSpace(visible) && File.Exists(visible))
             {
-                try
-                {
-                    string visible = ModelPathUtils.ConvertModelPathToUserVisiblePath(centralPath);
-                    if (!string.IsNullOrWhiteSpace(visible) && File.Exists(visible))
-                    {
-                        return visible;
-                    }
-                }
-                catch
-                {
-                    // Ignore non-file ModelPath conversion errors (e.g., Revit Server)
-                }
+                return visible;
             }
 
             return !string.IsNullOrWhiteSpace(fallbackPath) && File.Exists(fallbackPath)
@@ -726,72 +680,99 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
 
         private static void CollectDocumentMatchPaths(Document doc, HashSet<string> claimedPaths)
         {
+            foreach (string normalizedPath in EnumerateNormalizedDocumentMatchPaths(doc))
+            {
+                claimedPaths.Add(normalizedPath);
+            }
+        }
+
+        private static bool HasMatchingClaimedPath(Document doc, HashSet<string> claimedPaths) =>
+            EnumerateNormalizedDocumentMatchPaths(doc).Any(claimedPaths.Contains);
+
+        private static IEnumerable<string> EnumerateNormalizedDocumentMatchPaths(Document doc)
+        {
             if (doc.IsDetached)
             {
-                return;
+                yield break;
             }
 
             if (!string.IsNullOrWhiteSpace(doc.PathName))
             {
-                claimedPaths.Add(NormalizePathForKey(doc.PathName));
+                yield return NormalizePathForKey(doc.PathName);
             }
 
-            if (doc.IsWorkshared)
+            string? centralVisible = TryGetCentralVisiblePath(doc);
+            if (!string.IsNullOrWhiteSpace(centralVisible))
             {
-                try
-                {
-                    ModelPath? central = doc.GetWorksharingCentralModelPath();
-                    if (central != null && !central.Empty)
-                    {
-                        string visible = ModelPathUtils.ConvertModelPathToUserVisiblePath(central);
-                        if (!string.IsNullOrWhiteSpace(visible))
-                        {
-                            claimedPaths.Add(NormalizePathForKey(visible));
-                        }
-                    }
-                }
-                catch
-                {
-                    // Best-effort central path match collection
-                }
+                yield return NormalizePathForKey(centralVisible!);
             }
         }
 
-        private static bool HasMatchingClaimedPath(Document doc, HashSet<string> claimedPaths)
+        private static ModelPath? TryGetCloudModelPath(Document doc)
         {
-            if (doc.IsDetached)
+            if (!doc.IsModelInCloud)
             {
-                return false;
+                return null;
             }
 
-            if (!string.IsNullOrWhiteSpace(doc.PathName) &&
-                claimedPaths.Contains(NormalizePathForKey(doc.PathName)))
+            try
             {
-                return true;
+                ModelPath? cloudPath = doc.GetCloudModelPath();
+                return cloudPath != null && !cloudPath.Empty ? cloudPath : null;
+            }
+            catch (Exception ex) when (
+                ex is Autodesk.Revit.Exceptions.ApplicationException ||
+                ex is InvalidOperationException)
+            {
+                Debug.WriteLine($"[MultiModelPdfExport] GetCloudModelPath failed for '{ResolveDocumentTitle(doc)}': {ex.Message}");
+                return null;
+            }
+        }
+
+        private static ModelPath? TryGetCentralModelPath(Document doc)
+        {
+            if (!doc.IsWorkshared || doc.IsDetached)
+            {
+                return null;
             }
 
-            if (doc.IsWorkshared)
+            try
             {
-                try
-                {
-                    ModelPath? central = doc.GetWorksharingCentralModelPath();
-                    if (central != null && !central.Empty)
-                    {
-                        string visible = ModelPathUtils.ConvertModelPathToUserVisiblePath(central);
-                        if (!string.IsNullOrWhiteSpace(visible) &&
-                            claimedPaths.Contains(NormalizePathForKey(visible)))
-                        {
-                            return true;
-                        }
-                    }
-                }
-                catch
-                {
-                    // Ignore central path lookup failures
-                }
+                ModelPath? central = doc.GetWorksharingCentralModelPath();
+                return central != null && !central.Empty ? central : null;
+            }
+            catch (Exception ex) when (
+                ex is Autodesk.Revit.Exceptions.ApplicationException ||
+                ex is InvalidOperationException)
+            {
+                Debug.WriteLine($"[MultiModelPdfExport] GetWorksharingCentralModelPath failed for '{ResolveDocumentTitle(doc)}': {ex.Message}");
+                return null;
+            }
+        }
+
+        private static string? TryGetCentralVisiblePath(Document doc) =>
+            TryConvertModelPathToUserVisiblePath(TryGetCentralModelPath(doc), ResolveDocumentTitle(doc));
+
+        private static string? TryConvertModelPathToUserVisiblePath(ModelPath? modelPath, string contextLabel)
+        {
+            if (modelPath == null || modelPath.Empty)
+            {
+                return null;
             }
 
-            return false;
+            try
+            {
+                string visible = ModelPathUtils.ConvertModelPathToUserVisiblePath(modelPath);
+                return string.IsNullOrWhiteSpace(visible) ? null : visible;
+            }
+            catch (Exception ex) when (
+                ex is Autodesk.Revit.Exceptions.ApplicationException ||
+                ex is InvalidOperationException ||
+                ex is ArgumentException)
+            {
+                Debug.WriteLine($"[MultiModelPdfExport] ConvertModelPathToUserVisiblePath failed for '{contextLabel}': {ex.Message}");
+                return null;
+            }
         }
 
         private static string ResolveLinkDisplayPath(RevitLinkType linkType, Document linkDoc)
@@ -827,9 +808,13 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
                     }
                 }
             }
-            catch
+            catch (Exception ex) when (
+                ex is Autodesk.Revit.Exceptions.ApplicationException ||
+                ex is InvalidOperationException ||
+                ex is ArgumentException)
             {
                 // Cloud or external-resource-only links may not expose ExternalFileReference paths.
+                Debug.WriteLine($"[MultiModelPdfExport] Link ExternalFileReference lookup failed for '{linkType.Name}': {ex.Message}");
             }
 
             try
@@ -846,9 +831,12 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
                     }
                 }
             }
-            catch
+            catch (Exception ex) when (
+                ex is Autodesk.Revit.Exceptions.ApplicationException ||
+                ex is InvalidOperationException)
             {
                 // Ignore external resource lookup failure
+                Debug.WriteLine($"[MultiModelPdfExport] Link ExternalResourceReferences path lookup failed for '{linkType.Name}': {ex.Message}");
             }
 
             return null;
@@ -884,9 +872,12 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
                     }
                 }
             }
-            catch
+            catch (Exception ex) when (
+                ex is Autodesk.Revit.Exceptions.ApplicationException ||
+                ex is InvalidOperationException)
             {
                 // Ignore cloud GUID lookup failure on unloaded link
+                Debug.WriteLine($"[MultiModelPdfExport] Cloud link GUID lookup failed for '{linkType.Name}': {ex.Message}");
             }
 
             return null;
@@ -910,9 +901,12 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
                     }
                 }
             }
-            catch
+            catch (Exception ex) when (
+                ex is Autodesk.Revit.Exceptions.ApplicationException ||
+                ex is InvalidOperationException)
             {
                 // Ignore ExternalFileReference classification failure
+                Debug.WriteLine($"[MultiModelPdfExport] Unloaded link storage classification failed for '{linkType.Name}': {ex.Message}");
             }
 
             return MultiModelPdfStorageKind.Local;
@@ -1003,8 +997,11 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
             {
                 settingNames = ExportPDFSettings.ListNames(doc);
             }
-            catch
+            catch (Exception ex) when (
+                ex is Autodesk.Revit.Exceptions.ApplicationException ||
+                ex is InvalidOperationException)
             {
+                Debug.WriteLine($"[MultiModelPdfExport] ExportPDFSettings.ListNames failed: {ex.Message}");
                 settingNames = Array.Empty<string>();
             }
 
@@ -1376,8 +1373,9 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
             {
                 ordered = printSet.OrderedViewList;
             }
-            catch (Autodesk.Revit.Exceptions.InvalidOperationException)
+            catch (Autodesk.Revit.Exceptions.InvalidOperationException ex)
             {
+                Debug.WriteLine($"[MultiModelPdfExport] OrderedViewList unavailable for '{printSet.Name}'; falling back to Views: {ex.Message}");
                 ordered = null;
             }
 
@@ -1405,45 +1403,31 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
 
         private static string ComputeDocumentKey(Document doc)
         {
-            if (doc.IsModelInCloud)
+            ModelPath? cloudPath = TryGetCloudModelPath(doc);
+            if (cloudPath != null)
             {
                 try
                 {
-                    ModelPath? cloudPath = doc.GetCloudModelPath();
-                    if (cloudPath != null)
+                    Guid projectGuid = cloudPath.GetProjectGUID();
+                    Guid modelGuid = cloudPath.GetModelGUID();
+                    if (projectGuid != Guid.Empty && modelGuid != Guid.Empty)
                     {
-                        Guid projectGuid = cloudPath.GetProjectGUID();
-                        Guid modelGuid = cloudPath.GetModelGUID();
-                        if (projectGuid != Guid.Empty && modelGuid != Guid.Empty)
-                        {
-                            return $"cloud:{projectGuid:D}:{modelGuid:D}";
-                        }
+                        return $"cloud:{projectGuid:D}:{modelGuid:D}";
                     }
                 }
-                catch
+                catch (Exception ex) when (
+                    ex is Autodesk.Revit.Exceptions.ApplicationException ||
+                    ex is InvalidOperationException)
                 {
                     // Fall through to path / creation fallback
+                    Debug.WriteLine($"[MultiModelPdfExport] Cloud GUID lookup failed for '{ResolveDocumentTitle(doc)}': {ex.Message}");
                 }
             }
 
-            if (doc.IsWorkshared && !doc.IsDetached)
+            string? centralVisible = TryGetCentralVisiblePath(doc);
+            if (!string.IsNullOrWhiteSpace(centralVisible))
             {
-                try
-                {
-                    ModelPath? centralPath = doc.GetWorksharingCentralModelPath();
-                    if (centralPath != null)
-                    {
-                        string visible = ModelPathUtils.ConvertModelPathToUserVisiblePath(centralPath);
-                        if (!string.IsNullOrWhiteSpace(visible))
-                        {
-                            return "central:" + NormalizePathForKey(visible);
-                        }
-                    }
-                }
-                catch
-                {
-                    // Fall through to local PathName / unsaved fallback
-                }
+                return "central:" + NormalizePathForKey(centralVisible!);
             }
 
             if (!doc.IsDetached && !string.IsNullOrWhiteSpace(doc.PathName))
@@ -1488,44 +1472,17 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
                 return doc.PathName;
             }
 
-            if (doc.IsModelInCloud)
+            ModelPath? cloudPath = TryGetCloudModelPath(doc);
+            string? cloudVisible = TryConvertModelPathToUserVisiblePath(cloudPath, ResolveDocumentTitle(doc));
+            if (!string.IsNullOrWhiteSpace(cloudVisible))
             {
-                try
-                {
-                    ModelPath? cloud = doc.GetCloudModelPath();
-                    if (cloud != null)
-                    {
-                        string visible = ModelPathUtils.ConvertModelPathToUserVisiblePath(cloud);
-                        if (!string.IsNullOrWhiteSpace(visible))
-                        {
-                            return visible;
-                        }
-                    }
-                }
-                catch
-                {
-                    // Ignore lookup failure on unsaved/detached cloud docs
-                }
+                return cloudVisible!;
             }
 
-            if (doc.IsWorkshared && !doc.IsDetached)
+            string? centralVisible = TryGetCentralVisiblePath(doc);
+            if (!string.IsNullOrWhiteSpace(centralVisible))
             {
-                try
-                {
-                    ModelPath? central = doc.GetWorksharingCentralModelPath();
-                    if (central != null)
-                    {
-                        string visible = ModelPathUtils.ConvertModelPathToUserVisiblePath(central);
-                        if (!string.IsNullOrWhiteSpace(visible))
-                        {
-                            return visible;
-                        }
-                    }
-                }
-                catch
-                {
-                    // Ignore lookup failure
-                }
+                return centralVisible!;
             }
 
             return ResolveDocumentTitle(doc);
@@ -1537,8 +1494,13 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
             {
                 return Path.GetFullPath(path.Trim()).TrimEnd('\\', '/').ToUpperInvariant();
             }
-            catch
+            catch (Exception ex) when (
+                ex is ArgumentException ||
+                ex is NotSupportedException ||
+                ex is IOException ||
+                ex is SecurityException)
             {
+                Debug.WriteLine($"[MultiModelPdfExport] NormalizePathForKey fallback for '{path}': {ex.Message}");
                 return path.Trim().TrimEnd('\\', '/').ToUpperInvariant();
             }
         }
@@ -1677,9 +1639,10 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
                     {
                         File.Delete(siblingTemp);
                     }
-                    catch
+                    catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
                     {
                         // Best-effort cleanup of temp sibling
+                        Debug.WriteLine($"[MultiModelPdfExport] Best-effort temp file delete failed for '{siblingTemp}': {ex.Message}");
                     }
                 }
             }
@@ -1696,9 +1659,10 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
             {
                 Directory.Delete(path, recursive: true);
             }
-            catch
+            catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
             {
                 // Best-effort cleanup of temp staging folder
+                Debug.WriteLine($"[MultiModelPdfExport] Best-effort staging directory delete failed for '{path}': {ex.Message}");
             }
         }
 

@@ -12,11 +12,11 @@ Pure C# models and computation in `Core/` (`Synthetic.Core`, `net48;net8.0-windo
 
 ### 2. Local-substitutable
 
-Dependencies with deterministic local stand-ins: JSON serialization (`PocoJsonSerializer`, `Config` in `Synthetic.Platform.Settings`), local user preferences (`ShadowStudyUserPrefsStore`), filesystem streams, and OpenXML `.xlsx` packaging (`SheetIndexExporter` in `Synthetic.Features.SheetIndex.Services`). Keep the seam internal and test directly against streams or per-test temp folders in **Logic Tests**.
+Dependencies with deterministic local stand-ins: JSON serialization (`PocoJsonSerializer`, `Config` in `Synthetic.Platform.Settings`), local user preferences (`MultiModelPdfExportUserPrefsStore`, `ShadowStudyUserPrefsStore`), filesystem streams, and OpenXML `.xlsx` packaging (`SheetIndexExporter` in `Synthetic.Features.SheetIndex.Services`). Keep the seam internal and test directly against streams or per-test temp folders in **Logic Tests**.
 
 ### 3. Remote but owned (Ports & Adapters)
 
-Revit database access across the unmanaged C++ boundary (`Document`, `FilteredElementCollector`, `DocumentTransactionExtensions`, `ExtensibleStorage`, `ModelDispatcher`). Define **one** narrow port `I<Slice>Adapter` in `src/Features/<Slice>/Core/Adapters/` (`ISheetIndexAdapter`, `ISharedCoordinatesAdapter`, `IShadowStudyAdapter`), implement `Revit<Slice>Adapter` in `Addin/Adapters/`, and implement `Fake<Slice>Adapter` in [`tests/Fixtures/Shared/`](../../../tests/Fixtures/Shared/). Verify `Core/` orchestration in **Logic Tests** and verify `Revit<Slice>Adapter` in live **Revit Tests** (`RevitTemplateRollbackFixture` / `RevitIsolatedDocumentFixture`).
+Revit database access across the unmanaged C++ boundary (`Document`, `FilteredElementCollector`, `DocumentTransactionExtensions`, `ExtensibleStorage`, `ModelDispatcher`). Define **one** narrow port `I<Slice>Adapter` in `src/Features/<Slice>/Core/Adapters/` (`IMultiModelPdfExportAdapter`, `ISheetIndexAdapter`, `ISharedCoordinatesAdapter`, `IShadowStudyAdapter`), implement `Revit<Slice>Adapter` in `Addin/Adapters/`, and implement `Fake<Slice>Adapter` in [`tests/Fixtures/Shared/`](../../../tests/Fixtures/Shared/). Verify `Core/` orchestration in **Logic Tests** and verify `Revit<Slice>Adapter` in live **Revit Tests** (`RevitTemplateRollbackFixture` / `RevitIsolatedDocumentFixture`).
 
 ### 4. True external / Thread boundary (Port / Entry Injection)
 
@@ -26,7 +26,7 @@ External UI prompts (`IFileDialogService`, `IFolderDialogService`, `IUserPromptS
 
 ### `Harvest -> Pure Plan -> Atomic Apply`
 
-Keep multi-step BIM workflows split across `Core/` and `Addin/` (`SheetIndex`, `SharedCoordinates`, `ShadowStudy`):
+Keep multi-step BIM workflows split across `Core/` and `Addin/` (`MultiModelPdfExport`, `SheetIndex`, `SharedCoordinates`, `ShadowStudy`):
 
 ```csharp
 // 1. Harvest at I<Slice>Adapter seam (Addin -> immutable Core snapshot)
@@ -91,10 +91,10 @@ if (!outcome.Succeeded)
 
 ## Seam discipline
 
-- **One adapter means a hypothetical seam. Two adapters means a real one.** Direct Slices (`MultiModelPdfExport`, `Diagnostics`, `ViewManagement`, `Worksets`) execute in `Addin/Commands/` + `Addin/Utilities/` with zero pass-through interfaces until UI state or math earns `Fake<Slice>Adapter`.
+- **One adapter means a hypothetical seam. Two adapters means a real one.** Direct Slices (`Diagnostics`, `ViewManagement`, `Worksets`) execute in `Addin/Commands/` + `Addin/Utilities/` with zero pass-through interfaces until UI state or math earns `Fake<Slice>Adapter`.
 - **Internal seams vs external seams.** A deep module can compose internal helpers privately; keep the external seam small and test through it.
 
 ## Testing strategy: replace, don't layer
 
 - Delete obsolete unit tests on collapsed shallow helpers once tests at the deepened module's interface exist.
-- Write new tests at the deepened module's interface (`SheetIndexExporter.Export`, `ISharedCoordinatesAdapter`, `IShadowStudyAdapter`); assert observable outcomes and survive internal refactors.
+- Write new tests at the deepened module's interface (`IMultiModelPdfExportAdapter`, `SheetIndexExporter.Export`, `ISharedCoordinatesAdapter`, `IShadowStudyAdapter`); assert observable outcomes and survive internal refactors.
