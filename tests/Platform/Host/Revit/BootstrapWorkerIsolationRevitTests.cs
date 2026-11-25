@@ -1,5 +1,8 @@
 using System;
 using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Reflection.Emit;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using NUnit.Framework;
@@ -127,6 +130,40 @@ namespace SyntheticTests.Platform.Host
                     // Best-effort temp cleanup
                 }
             }
+        }
+
+        [Test]
+        [RevitSmokeTest]
+        public void PayloadAssembly_EmitsRevitVersionMetadata_AndConsumersResolveLiveVersionWithFailFastFallback()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            string liveVersion = _uiapp!.Application.VersionNumber;
+            Assert.IsTrue(int.TryParse(liveVersion, out int liveYear), $"Unexpected Revit VersionNumber '{liveVersion}'.");
+
+            Assembly payloadAssembly = typeof(App).Assembly;
+            AssemblyMetadataAttribute? metadata = payloadAssembly
+                .GetCustomAttributes<AssemblyMetadataAttribute>()
+                .FirstOrDefault(attr => string.Equals(attr.Key, "RevitVersion", StringComparison.Ordinal));
+
+            Assert.IsNotNull(metadata, "Payload assembly must emit [AssemblyMetadata(\"RevitVersion\", ...)].");
+            Assert.AreEqual(liveVersion, metadata!.Value);
+
+            Assert.AreEqual(liveVersion, ETransmitAssemblyResolver.ResolveRevitYear());
+            Assert.AreEqual(liveYear, RibbonManager.ResolveActiveVersion(liveVersion, payloadAssembly));
+            Assert.AreEqual(liveYear, RibbonManager.ResolveActiveVersion((string?)null, payloadAssembly));
+
+            AssemblyName missingName = new AssemblyName("DynamicMissingMetadata_" + Guid.NewGuid().ToString("N"));
+            Assembly missingMetadataAsm = AssemblyBuilder.DefineDynamicAssembly(missingName, AssemblyBuilderAccess.Run);
+            AssemblyName mockApiName = new AssemblyName("DynamicMockRevitApi_" + Guid.NewGuid().ToString("N"))
+            {
+                Version = new Version(1, 0, 0, 0)
+            };
+            Assembly mockApiAsm = AssemblyBuilder.DefineDynamicAssembly(mockApiName, AssemblyBuilderAccess.Run);
+
+            Assert.Throws<InvalidOperationException>(
+                () => ETransmitAssemblyResolver.ResolveRevitYear(mockApiAsm, missingMetadataAsm));
+            Assert.Throws<InvalidOperationException>(
+                () => RibbonManager.ResolveActiveVersion((string?)null, missingMetadataAsm));
         }
     }
 }
