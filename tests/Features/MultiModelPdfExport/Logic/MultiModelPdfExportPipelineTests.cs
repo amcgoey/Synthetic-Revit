@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using NUnit.Framework;
 using Synthetic.Features.MultiModelPdfExport.Models;
@@ -181,11 +182,131 @@ namespace SyntheticTests.Features.MultiModelPdfExport
             Assert.AreEqual(1, summary.CompletionNotices.Count);
         }
 
+        [Test]
+        public void Execute_SeparateMode_ExportsPerDocumentSubfolders_AggregatesMultipleSkippedWarnings_AndPopulatesCompletionViewModel()
+        {
+            var docA = new MultiModelPdfDocumentSnapshot(
+                "doc-a",
+                "TowerA.rvt",
+                @"C:\BIM\TowerA.rvt",
+                MultiModelPdfDocumentOrigin.Active,
+                MultiModelPdfStorageKind.Workshared,
+                printSets: new[]
+                {
+                    new MultiModelPdfSetSnapshot(
+                        "Permit Set",
+                        2,
+                        new[]
+                        {
+                            new MultiModelPdfSkippedViewInfo("A900", "UNPLACED SIGNAGE", "Placeholder sheet")
+                        })
+                });
+            var docB = new MultiModelPdfDocumentSnapshot(
+                "doc-b",
+                "Retail.rvt",
+                @"C:\BIM\Retail.rvt",
+                MultiModelPdfDocumentOrigin.Linked,
+                MultiModelPdfStorageKind.Local,
+                printSets: new[]
+                {
+                    new MultiModelPdfSetSnapshot(
+                        "Permit Set",
+                        3,
+                        new[]
+                        {
+                            new MultiModelPdfSkippedViewInfo("Schedule", "Door Schedule", "Schedule — not printable"),
+                            new MultiModelPdfSkippedViewInfo("FloorPlan", "Working Template", "View template")
+                        })
+                });
+
+            var snapshot = new MultiModelPdfSessionSnapshot(
+                "TowerA.rvt",
+                new[] { docA, docB },
+                new[] { MultiModelPdfSetupOption.CreateDefault() });
+
+            var adapter = new FakeMultiModelPdfExportAdapter(snapshot);
+            var pipeline = new MultiModelPdfExportPipeline(adapter);
+
+            var jobs = new[]
+            {
+                CreateJob("doc-a", "TowerA.rvt", "Permit Set", "TowerA", MultiModelPdfFileMode.SeparatePerViewSheet),
+                CreateJob("doc-b", "Retail.rvt", "Permit Set", "Retail", MultiModelPdfFileMode.SeparatePerViewSheet)
+            };
+            var request = new MultiModelPdfRunRequest(
+                jobs,
+                _outputDir,
+                MultiModelPdfSetupOption.DefaultSetupId,
+                MultiModelPdfFileMode.SeparatePerViewSheet);
+
+            MultiModelPdfRunSummary summary = pipeline.Execute(request);
+
+            Assert.IsFalse(summary.WasCancelled);
+            Assert.AreEqual(2, summary.CompletedDocumentCount);
+            Assert.AreEqual(0, summary.FailedDocumentCount);
+            Assert.AreEqual(5, summary.GeneratedCount);
+            Assert.AreEqual(5, summary.GeneratedFilePaths.Count);
+            Assert.AreEqual(2, summary.DocumentOutcomes[0].GeneratedCount);
+            Assert.AreEqual(3, summary.DocumentOutcomes[1].GeneratedCount);
+            Assert.IsNotNull(summary.DocumentOutcomes[0].PrimaryFilePath);
+            Assert.AreEqual(summary.DocumentOutcomes[0].PrimaryFilePath, summary.PrimaryFilePath);
+            Assert.IsTrue(Directory.Exists(Path.Combine(_outputDir, "TowerA")));
+            Assert.IsTrue(Directory.Exists(Path.Combine(_outputDir, "Retail")));
+            Assert.IsTrue(summary.GeneratedFilePaths.All(File.Exists));
+
+            Assert.AreEqual(2, summary.Warnings.Count);
+            StringAssert.Contains("TowerA.rvt", summary.Warnings[0]);
+            StringAssert.Contains("A900", summary.Warnings[0]);
+            StringAssert.Contains("Retail.rvt", summary.Warnings[1]);
+            StringAssert.Contains("Door Schedule", summary.Warnings[1]);
+
+            var completionVm = ExportCompletionViewModel.ForBatch(
+                summary.OutputFolder,
+                summary.GeneratedCount,
+                summary.PrimaryFilePath,
+                outputNounPlural: "PDFs",
+                primaryActionLabel: "Open First PDF",
+                warningNotices: summary.CompletionNotices);
+
+            Assert.IsTrue(completionVm.HasGeneratedOutput);
+            Assert.IsTrue(completionVm.HasWarnings);
+            Assert.AreEqual("Generated 5 PDFs in:", completionVm.SummaryText);
+            Assert.AreEqual(2, completionVm.WarningNotices.Count);
+            Assert.AreEqual(summary.PrimaryFilePath, completionVm.PrimaryFilePath);
+        }
+
+        [Test]
+        public void Execute_SeparateMode_ThrowsPathTooLongWhenDocumentSubfolderExceedsSafeLimit()
+        {
+            var adapter = new FakeMultiModelPdfExportAdapter();
+            var pipeline = new MultiModelPdfExportPipeline(adapter);
+
+            string longFolder = Path.Combine(@"C:\Exports", new string('a', 238));
+            var job = new MultiModelPdfDocumentJob(
+                documentKey: "doc-long",
+                documentTitle: "LongModel.rvt",
+                origin: MultiModelPdfDocumentOrigin.Active,
+                storage: MultiModelPdfStorageKind.Local,
+                printSetName: "CD Set",
+                pdfSetupId: MultiModelPdfSetupOption.DefaultSetupId,
+                fileMode: MultiModelPdfFileMode.SeparatePerViewSheet,
+                outputFolder: longFolder,
+                outputFileToken: "LongModel");
+
+            var request = new MultiModelPdfRunRequest(
+                new[] { job },
+                longFolder,
+                MultiModelPdfSetupOption.DefaultSetupId,
+                MultiModelPdfFileMode.SeparatePerViewSheet);
+
+            Assert.Throws<PathTooLongException>(() => pipeline.Execute(request));
+        }
+
         private MultiModelPdfDocumentJob CreateJob(
             string key,
             string title,
             string printSetName,
-            string token)
+            string token,
+            MultiModelPdfFileMode fileMode = MultiModelPdfFileMode.CombinedPerDocument)
         {
             return new MultiModelPdfDocumentJob(
                 documentKey: key,
@@ -194,7 +315,7 @@ namespace SyntheticTests.Features.MultiModelPdfExport
                 storage: MultiModelPdfStorageKind.Workshared,
                 printSetName: printSetName,
                 pdfSetupId: MultiModelPdfSetupOption.DefaultSetupId,
-                fileMode: MultiModelPdfFileMode.CombinedPerDocument,
+                fileMode: fileMode,
                 outputFolder: _outputDir,
                 outputFileToken: token);
         }

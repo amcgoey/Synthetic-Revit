@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:Synthetic.Platform.UI;assembly=Synthetic.Core"
         xmlns:theme="clr-namespace:Synthetic.Platform.UI"
+        xmlns:models="clr-namespace:Synthetic.Features.MultiModelPdfExport.Models;assembly=Synthetic.Core"
         xmlns:vm="clr-namespace:Synthetic.Features.MultiModelPdfExport.ViewModels;assembly=Synthetic.Core"
         Title="MULTI-MODEL PDF EXPORT"
         Width="660" Height="740" MinWidth="600" MinHeight="560"
@@ -16,6 +17,7 @@
                 <theme:SyntheticThemeDictionary />
             </ResourceDictionary.MergedDictionaries>
             <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
+            <local:EnumToBooleanConverter x:Key="EnumToBooleanConverter"/>
 
             <Style x:Key="RowPrintSetComboBoxStyle"
                    TargetType="ComboBox"
@@ -113,8 +115,8 @@
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="30"/>
                                         <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="210"/>
-                                        <ColumnDefinition Width="86"/>
+                                        <ColumnDefinition Width="202"/>
+                                        <ColumnDefinition Width="94"/>
                                     </Grid.ColumnDefinitions>
 
                                     <TextBlock Grid.Column="1" Text="PROJECT / SOURCE"
@@ -160,8 +162,8 @@
                                                     <Grid.ColumnDefinitions>
                                                         <ColumnDefinition Width="30"/>
                                                         <ColumnDefinition Width="*"/>
-                                                        <ColumnDefinition Width="210"/>
-                                                        <ColumnDefinition Width="86"/>
+                                                        <ColumnDefinition Width="202"/>
+                                                        <ColumnDefinition Width="94"/>
                                                     </Grid.ColumnDefinitions>
 
                                                     <!-- Checkbox -->
@@ -267,6 +269,9 @@
                                                         <StackPanel Orientation="Horizontal"
                                                                     HorizontalAlignment="Right"
                                                                     Margin="0,2,0,0"
+                                                                    Background="Transparent"
+                                                                    Cursor="Help"
+                                                                    ToolTipService.ShowDuration="20000"
                                                                     ToolTip="{Binding SkippedTooltipText}"
                                                                     Visibility="{Binding HasSkippedViews, Converter={StaticResource BooleanToVisibilityConverter}}">
                                                             <Path Data="{StaticResource Synthetic.Geometries.Warning}"
@@ -372,11 +377,17 @@
                         <TextBlock Grid.Row="2" Grid.Column="0" Text="File Mode:"
                                    FontSize="12" VerticalAlignment="Center"
                                    Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"/>
-                        <RadioButton Grid.Row="2" Grid.Column="1"
-                                     Content="Combined PDF per document"
-                                     IsChecked="True"
-                                     IsEnabled="True"
-                                     VerticalAlignment="Center"/>
+                        <StackPanel Grid.Row="2" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                            <RadioButton Content="Combined PDF per document"
+                                         GroupName="MultiModelPdfFileMode"
+                                         IsChecked="{Binding FileMode, Mode=TwoWay, Converter={StaticResource EnumToBooleanConverter}, ConverterParameter={x:Static models:MultiModelPdfFileMode.CombinedPerDocument}}"
+                                         Margin="0,0,16,0"
+                                         VerticalAlignment="Center"/>
+                            <RadioButton Content="Separate PDFs per view/sheet"
+                                         GroupName="MultiModelPdfFileMode"
+                                         IsChecked="{Binding FileMode, Mode=TwoWay, Converter={StaticResource EnumToBooleanConverter}, ConverterParameter={x:Static models:MultiModelPdfFileMode.SeparatePerViewSheet}}"
+                                         VerticalAlignment="Center"/>
+                        </StackPanel>
 
                         <TextBlock Grid.Row="4" Grid.Column="1"
                                    Text="{Binding OutputPreviewText, StringFormat='Preview: {0}'}"

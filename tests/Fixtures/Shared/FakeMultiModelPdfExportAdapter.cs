@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using Synthetic.Features.MultiModelPdfExport.Adapters;
 using Synthetic.Features.MultiModelPdfExport.Models;
+using Synthetic.Features.MultiModelPdfExport.Services;
 
 namespace SyntheticTests.Fixtures
 {
@@ -95,14 +97,51 @@ namespace SyntheticTests.Fixtures
                 return custom;
             }
 
-            string pdfPath = Path.Combine(job.OutputFolder, job.OutputFileToken + ".pdf");
+            MultiModelPdfSetSnapshot? setSnapshot = FindSetSnapshot(job.DocumentKey, job.PrintSetName);
+            IReadOnlyList<string> warnings = setSnapshot != null && setSnapshot.SkippedViews.Count > 0
+                ? new[] { MultiModelPdfExportPipeline.FormatSkippedViewsWarning(job.DocumentTitle, job.PrintSetName, setSnapshot.SkippedViews) }
+                : Array.Empty<string>();
+
+            if (job.FileMode == MultiModelPdfFileMode.SeparatePerViewSheet)
+            {
+                string docFolder = MultiModelPdfPathHelper.BuildSeparateDocumentFolderPath(job.OutputFolder, job.OutputFileToken);
+                int viewCount = Math.Max(1, setSnapshot?.PrintableViewCount ?? 1);
+                var generated = new List<string>(viewCount);
+
+                if (WriteStubPdfToDisk)
+                {
+                    Directory.CreateDirectory(docFolder);
+                }
+
+                for (int i = 1; i <= viewCount; i++)
+                {
+                    string pdfFile = Path.Combine(docFolder, $"{job.OutputFileToken}_View_{i:D2}.pdf");
+                    if (WriteStubPdfToDisk)
+                    {
+                        File.WriteAllText(pdfFile, "%PDF-1.4\n%SyntheticTestStub\n%%EOF\n", Encoding.ASCII);
+                    }
+                    generated.Add(pdfFile);
+                }
+
+                return MultiModelPdfDocumentOutcome.Success(job.DocumentKey, job.DocumentTitle, generated, warnings);
+            }
+
+            string pdfPath = MultiModelPdfPathHelper.BuildCombinedPdfPath(job.OutputFolder, job.OutputFileToken);
             if (WriteStubPdfToDisk)
             {
                 Directory.CreateDirectory(job.OutputFolder);
                 File.WriteAllText(pdfPath, "%PDF-1.4\n%SyntheticTestStub\n%%EOF\n", Encoding.ASCII);
             }
 
-            return MultiModelPdfDocumentOutcome.Success(job.DocumentKey, job.DocumentTitle, new[] { pdfPath });
+            return MultiModelPdfDocumentOutcome.Success(job.DocumentKey, job.DocumentTitle, new[] { pdfPath }, warnings);
+        }
+
+        private MultiModelPdfSetSnapshot? FindSetSnapshot(string documentKey, string printSetName)
+        {
+            MultiModelPdfDocumentSnapshot? doc = Snapshot.Documents.FirstOrDefault(
+                d => string.Equals(d.DocumentKey, documentKey, StringComparison.Ordinal));
+            return doc?.PrintSets.FirstOrDefault(
+                s => string.Equals(s.Name, printSetName, StringComparison.OrdinalIgnoreCase));
         }
     }
 }

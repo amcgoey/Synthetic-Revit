@@ -7,6 +7,7 @@ using Autodesk.Revit.DB;
 using NUnit.Framework;
 using Synthetic.Features.MultiModelPdfExport.Adapters;
 using Synthetic.Features.MultiModelPdfExport.Models;
+using Synthetic.Features.MultiModelPdfExport.Services;
 using Synthetic.Platform.UI;
 using SyntheticTests.Fixtures;
 using View = Autodesk.Revit.DB.View;
@@ -65,10 +66,19 @@ namespace SyntheticTests.Features.MultiModelPdfExport
             MultiModelPdfSetSnapshot mixedSet = activeDoc.PrintSets.FirstOrDefault(s => s.Name == "Mixed Skip Set")
                 ?? throw new AssertionException("Expected 'Mixed Skip Set' in harvested Print Sets.");
             Assert.AreEqual(1, mixedSet.PrintableViewCount, "Expected only Sheet PDF-101 to be printable in Mixed Skip Set.");
-            Assert.GreaterOrEqual(mixedSet.SkippedViews.Count, 1, "Expected Placeholder sheet to be recorded as skipped.");
-            Assert.IsTrue(
-                mixedSet.SkippedViews.Any(s => string.Equals(s.ViewName, suite.PlaceholderSheet.Name, StringComparison.Ordinal)),
-                "Expected placeholder sheet in SkippedViews diagnostics.");
+            Assert.AreEqual(2, mixedSet.SkippedViews.Count, "Expected Placeholder sheet and non-printable Wall Schedule to be recorded as skipped.");
+
+            MultiModelPdfSkippedViewInfo? placeholderInfo = mixedSet.SkippedViews
+                .FirstOrDefault(s => string.Equals(s.ViewName, suite.PlaceholderSheet.Name, StringComparison.Ordinal));
+            Assert.IsNotNull(placeholderInfo, "Expected placeholder sheet in SkippedViews diagnostics.");
+            Assert.AreEqual("PDF-900", placeholderInfo!.DisplayCode);
+            Assert.AreEqual("Placeholder sheet", placeholderInfo.SkipReason);
+
+            MultiModelPdfSkippedViewInfo? scheduleInfo = mixedSet.SkippedViews
+                .FirstOrDefault(s => string.Equals(s.ViewName, suite.WallSchedule.Name, StringComparison.Ordinal));
+            Assert.IsNotNull(scheduleInfo, "Expected non-printable Wall Schedule in SkippedViews diagnostics.");
+            Assert.AreEqual("Schedule", scheduleInfo!.DisplayCode);
+            Assert.AreEqual("Schedule — not printable", scheduleInfo.SkipReason);
 
             Assert.IsTrue(
                 snapshot.PdfSetups.Any(s => s.IsDefault && s.Id == MultiModelPdfSetupOption.DefaultSetupId),
@@ -129,7 +139,107 @@ namespace SyntheticTests.Features.MultiModelPdfExport
             Assert.AreEqual(1, savedOutcome.GeneratedFilePaths.Count);
             AssertPdfHeaderValid(savedOutcome.GeneratedFilePaths[0]);
             Assert.IsTrue(savedOutcome.Warnings.Count > 0, "Expected skipped-view warning notice when exporting Mixed Skip Set.");
+            StringAssert.Contains("PDF-900", savedOutcome.Warnings[0]);
+            StringAssert.Contains("Placeholder sheet", savedOutcome.Warnings[0]);
             Assert.IsFalse(doc.IsModified, "Saved-setup PDF export must not dirty the Revit document.");
+        }
+
+        [Test]
+        public void ExportDocument_SeparateMode_CreatesPerViewPdfsInSubfolder_PropagatesSkipNotices_AndPreservesLockedFiles()
+        {
+            Document doc = OpenIsolatedTestTemplateCopy();
+            SeedExportFixtureSuite(doc);
+
+            string baselinePath = GetTempFilePath("SeparateBaseline.rvt");
+            doc.SaveAs(baselinePath, new SaveAsOptions { OverwriteExistingFile = true });
+            Assert.IsFalse(doc.IsModified);
+
+            var adapter = new RevitMultiModelPdfExportAdapter(doc, UiApp);
+            MultiModelPdfSessionSnapshot snapshot = adapter.CaptureSessionSnapshot();
+            MultiModelPdfDocumentSnapshot activeDoc = snapshot.Documents.Single();
+
+            // 1. Two-sheet CD Ordered Set exported in Separate mode into <OutRoot>\<Token>\
+            string outRoot = Path.Combine(CurrentTestTempDirectory, "SeparateOut");
+            var separateJob = new MultiModelPdfDocumentJob(
+                documentKey: activeDoc.DocumentKey,
+                documentTitle: activeDoc.DocumentTitle,
+                origin: activeDoc.Origin,
+                storage: activeDoc.Storage,
+                printSetName: "CD Ordered Set",
+                pdfSetupId: MultiModelPdfSetupOption.DefaultSetupId,
+                fileMode: MultiModelPdfFileMode.SeparatePerViewSheet,
+                outputFolder: outRoot,
+                outputFileToken: "TowerA_Core");
+
+            MultiModelPdfDocumentOutcome outcome = adapter.ExportDocument(separateJob);
+
+            Assert.IsTrue(outcome.Succeeded, outcome.ErrorMessage ?? "Expected Separate-mode PDF export to succeed.");
+            Assert.AreEqual(2, outcome.GeneratedCount, "Expected one PDF per printable sheet in Separate mode.");
+            Assert.AreEqual(2, outcome.GeneratedFilePaths.Count);
+            Assert.IsNotNull(outcome.PrimaryFilePath);
+            Assert.AreEqual(outcome.GeneratedFilePaths[0], outcome.PrimaryFilePath);
+
+            string expectedSubfolder = Path.Combine(outRoot, "TowerA_Core");
+            Assert.IsTrue(Directory.Exists(expectedSubfolder), $"Expected document subfolder '{expectedSubfolder}'.");
+            Assert.IsFalse(File.Exists(Path.Combine(outRoot, "TowerA_Core.pdf")), "Separate mode must not create a combined PDF in OutputFolder root.");
+            Assert.IsEmpty(Directory.GetFiles(expectedSubfolder, ".syn_*.tmp"), "Temp promotion artifacts must be cleaned up.");
+
+            foreach (string pdfPath in outcome.GeneratedFilePaths)
+            {
+                Assert.AreEqual(expectedSubfolder, Path.GetDirectoryName(pdfPath));
+                AssertPdfHeaderValid(pdfPath);
+            }
+            Assert.AreNotEqual(outcome.GeneratedFilePaths[0], outcome.GeneratedFilePaths[1]);
+            Assert.IsFalse(doc.IsModified, "Separate PDF export must not dirty the Revit document.");
+
+            // 2. Pipeline execution on Mixed Skip Set in Separate mode aggregates skip diagnostics into CompletionNotices
+            string mixedOutRoot = Path.Combine(CurrentTestTempDirectory, "SeparateMixedOut");
+            var pipeline = new MultiModelPdfExportPipeline(adapter);
+            var mixedJob = new MultiModelPdfDocumentJob(
+                documentKey: activeDoc.DocumentKey,
+                documentTitle: activeDoc.DocumentTitle,
+                origin: activeDoc.Origin,
+                storage: activeDoc.Storage,
+                printSetName: "Mixed Skip Set",
+                pdfSetupId: "INC_SmokeSetup",
+                fileMode: MultiModelPdfFileMode.SeparatePerViewSheet,
+                outputFolder: mixedOutRoot,
+                outputFileToken: "HostMixed");
+            var request = new MultiModelPdfRunRequest(
+                new[] { mixedJob },
+                mixedOutRoot,
+                "INC_SmokeSetup",
+                MultiModelPdfFileMode.SeparatePerViewSheet);
+
+            MultiModelPdfRunSummary summary = pipeline.Execute(request);
+            Assert.AreEqual(1, summary.CompletedDocumentCount);
+            Assert.AreEqual(1, summary.GeneratedCount);
+            Assert.AreEqual(Path.Combine(mixedOutRoot, "HostMixed"), Path.GetDirectoryName(summary.PrimaryFilePath!));
+            AssertPdfHeaderValid(summary.PrimaryFilePath!);
+            Assert.IsNotEmpty(summary.Warnings);
+            StringAssert.Contains("PDF-900", summary.CompletionNotices[0]);
+            StringAssert.Contains("UNPLACED PLACEHOLDER", summary.CompletionNotices[0]);
+            StringAssert.Contains("Placeholder sheet", summary.CompletionNotices[0]);
+            StringAssert.Contains("WALL SCHEDULE", summary.CompletionNotices[0]);
+            StringAssert.Contains("Schedule — not printable", summary.CompletionNotices[0]);
+
+            // 3. Locked target file in Separate subfolder fails cleanly without corrupting existing PDFs
+            string firstExistingPdf = outcome.GeneratedFilePaths[0];
+            string secondExistingPdf = outcome.GeneratedFilePaths[1];
+            byte[] firstOriginalBytes = File.ReadAllBytes(firstExistingPdf);
+            byte[] secondOriginalBytes = File.ReadAllBytes(secondExistingPdf);
+
+            MultiModelPdfDocumentOutcome lockedOutcome;
+            using (new FileStream(secondExistingPdf, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                lockedOutcome = adapter.ExportDocument(separateJob);
+            }
+
+            Assert.IsFalse(lockedOutcome.Succeeded, "Expected failure when a Separate target PDF is locked.");
+            Assert.IsFalse(string.IsNullOrWhiteSpace(lockedOutcome.ErrorMessage));
+            CollectionAssert.AreEqual(firstOriginalBytes, File.ReadAllBytes(firstExistingPdf), "Sibling PDF must remain untouched when another file is locked.");
+            CollectionAssert.AreEqual(secondOriginalBytes, File.ReadAllBytes(secondExistingPdf), "Locked PDF must remain untouched.");
+            Assert.IsEmpty(Directory.GetFiles(expectedSubfolder, ".syn_*.tmp"));
         }
 
         [Test]
@@ -273,6 +383,9 @@ namespace SyntheticTests.Features.MultiModelPdfExport
                     placeholderSheet.SheetNumber = "PDF-900";
                     placeholderSheet.Name = "UNPLACED PLACEHOLDER";
 
+                    ViewSchedule wallSchedule = ViewSchedule.CreateSchedule(doc, new ElementId(BuiltInCategory.OST_Walls));
+                    wallSchedule.Name = "WALL SCHEDULE";
+
                     PrintManager printManager = doc.PrintManager;
                     printManager.PrintRange = PrintRange.Select;
                     printManager.Apply();
@@ -293,10 +406,14 @@ namespace SyntheticTests.Features.MultiModelPdfExport
                     savedOrdered.IsAutomatic = false;
                     savedOrdered.OrderedViewList = new List<View> { sheetA201, sheetA101 };
 
-                    // 2. Mixed Print Set with printable sheet + unplaced placeholder sheet
+                    // 2. Mixed Print Set with printable sheet + unplaced placeholder sheet + non-printable schedule
                     var mixedSet = new ViewSet();
                     mixedSet.Insert(sheetA101);
                     mixedSet.Insert(placeholderSheet);
+                    if (!wallSchedule.CanBePrinted)
+                    {
+                        mixedSet.Insert(wallSchedule);
+                    }
                     setting.CurrentViewSheetSet = setting.InSession;
                     setting.CurrentViewSheetSet.Views = mixedSet;
                     Assert.IsTrue(setting.SaveAs("Mixed Skip Set"), "Failed to seed 'Mixed Skip Set'.");
@@ -317,7 +434,8 @@ namespace SyntheticTests.Features.MultiModelPdfExport
                     {
                         SheetA101 = sheetA101,
                         SheetA201 = sheetA201,
-                        PlaceholderSheet = placeholderSheet
+                        PlaceholderSheet = placeholderSheet,
+                        WallSchedule = wallSchedule
                     };
                 }
                 catch
@@ -346,6 +464,7 @@ namespace SyntheticTests.Features.MultiModelPdfExport
             public ViewSheet SheetA101 { get; set; } = null!;
             public ViewSheet SheetA201 { get; set; } = null!;
             public ViewSheet PlaceholderSheet { get; set; } = null!;
+            public ViewSchedule WallSchedule { get; set; } = null!;
         }
     }
 }
