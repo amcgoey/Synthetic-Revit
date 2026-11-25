@@ -301,17 +301,62 @@ namespace SyntheticTests.Features.MultiModelPdfExport
             Assert.Throws<PathTooLongException>(() => pipeline.Execute(request));
         }
 
+        [Test]
+        public void Execute_MultiTabBatch_IsolatesMissingSetLockedPdfUnauthorizedAndExportFalseAcrossOpenTabs()
+        {
+            var adapter = new FakeMultiModelPdfExportAdapter();
+            adapter.OutcomesByDocumentKey["active-doc"] = MultiModelPdfDocumentOutcome.Failure(
+                "active-doc",
+                "Active.rvt",
+                "Revit PDF export failed for 'Active.rvt' (Print Set 'CD Set').");
+            adapter.OutcomesByDocumentKey["open-missing"] = MultiModelPdfDocumentOutcome.Failure(
+                "open-missing",
+                "MissingSet.rvt",
+                "Print Set 'CD Set' was not found in 'MissingSet.rvt'.");
+            adapter.ExceptionsByDocumentKey["open-locked"] = new UnauthorizedAccessException("Access denied writing target PDF.");
+
+            var jobs = new[]
+            {
+                CreateJob("active-doc", "Active.rvt", "CD Set", "Active", origin: MultiModelPdfDocumentOrigin.Active),
+                CreateJob("open-missing", "MissingSet.rvt", "CD Set", "MissingSet", origin: MultiModelPdfDocumentOrigin.OpenStandalone),
+                CreateJob("open-locked", "Locked.rvt", "CD Set", "Locked", origin: MultiModelPdfDocumentOrigin.OpenStandalone),
+                CreateJob("open-healthy-1", "SharedTitle.rvt", "CD Set", "SharedTitle", origin: MultiModelPdfDocumentOrigin.OpenStandalone),
+                CreateJob("open-healthy-2", "SharedTitle.rvt", "CD Set", "SharedTitle_2", origin: MultiModelPdfDocumentOrigin.OpenStandalone)
+            };
+
+            var pipeline = new MultiModelPdfExportPipeline(adapter);
+            var request = new MultiModelPdfRunRequest(
+                jobs,
+                _outputDir,
+                MultiModelPdfSetupOption.DefaultSetupId,
+                MultiModelPdfFileMode.CombinedPerDocument);
+
+            MultiModelPdfRunSummary summary = pipeline.Execute(request);
+
+            Assert.IsFalse(summary.WasCancelled);
+            Assert.AreEqual(5, adapter.ExportedJobs.Count);
+            Assert.AreEqual(2, summary.CompletedDocumentCount);
+            Assert.AreEqual(3, summary.FailedDocumentCount);
+            Assert.AreEqual(2, summary.GeneratedCount);
+            Assert.IsTrue(File.Exists(Path.Combine(_outputDir, "SharedTitle.pdf")));
+            Assert.IsTrue(File.Exists(Path.Combine(_outputDir, "SharedTitle_2.pdf")));
+            Assert.AreEqual(Path.Combine(_outputDir, "SharedTitle.pdf"), summary.PrimaryFilePath);
+            Assert.AreEqual(3, summary.Errors.Count);
+            Assert.AreEqual(3, summary.CompletionNotices.Count);
+        }
+
         private MultiModelPdfDocumentJob CreateJob(
             string key,
             string title,
             string printSetName,
             string token,
-            MultiModelPdfFileMode fileMode = MultiModelPdfFileMode.CombinedPerDocument)
+            MultiModelPdfFileMode fileMode = MultiModelPdfFileMode.CombinedPerDocument,
+            MultiModelPdfDocumentOrigin origin = MultiModelPdfDocumentOrigin.Active)
         {
             return new MultiModelPdfDocumentJob(
                 documentKey: key,
                 documentTitle: title,
-                origin: MultiModelPdfDocumentOrigin.Active,
+                origin: origin,
                 storage: MultiModelPdfStorageKind.Workshared,
                 printSetName: printSetName,
                 pdfSetupId: MultiModelPdfSetupOption.DefaultSetupId,

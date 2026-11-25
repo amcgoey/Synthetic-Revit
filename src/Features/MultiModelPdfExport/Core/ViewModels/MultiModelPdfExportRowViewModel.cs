@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Text;
 using Synthetic.Features.MultiModelPdfExport.Models;
+using Synthetic.Features.MultiModelPdfExport.Services;
 using Synthetic.Platform.UI;
 
 namespace Synthetic.Features.MultiModelPdfExport.ViewModels
@@ -64,6 +65,10 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
         private readonly MultiModelPdfPrintSetChoice _placeholderChoice;
         private bool _isChecked;
         private MultiModelPdfPrintSetChoice _selectedPrintSetOption;
+        private string _resolvedOutputToken;
+        private bool _isCollisionDisambiguated;
+        private string _collisionCueText = string.Empty;
+        private string _collisionTooltipText = string.Empty;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="MultiModelPdfExportRowViewModel"/> class.
@@ -76,6 +81,7 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
             _snapshot = snapshot ?? throw new ArgumentNullException(nameof(snapshot));
             _onRowChanged = onRowChanged;
             _placeholderChoice = MultiModelPdfPrintSetChoice.CreatePlaceholder();
+            _resolvedOutputToken = MultiModelPdfPathHelper.SanitizeDocumentTitleToken(snapshot.DocumentTitle);
 
             var options = new List<MultiModelPdfPrintSetChoice>(snapshot.PrintSets.Count + 1)
             {
@@ -167,8 +173,39 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
                     return $"{DocumentTitle} has no saved Print Sets. Save at least one Print Set in that model to export it.";
                 }
 
-                return string.IsNullOrWhiteSpace(DisplayPath) ? DocumentTitle : DisplayPath;
+                string baseTip = string.IsNullOrWhiteSpace(DisplayPath) ? DocumentTitle : DisplayPath;
+                return IsCollisionDisambiguated && !string.IsNullOrWhiteSpace(CollisionTooltipText)
+                    ? $"{baseTip}\n{CollisionTooltipText}"
+                    : baseTip;
             }
+        }
+
+        /// <summary>Gets the resolved collision-free output filename token (without <c>.pdf</c> extension).</summary>
+        public string ResolvedOutputToken
+        {
+            get => _resolvedOutputToken;
+            private set => SetProperty(ref _resolvedOutputToken, value);
+        }
+
+        /// <summary>Gets whether this row's output token was disambiguated due to a title collision.</summary>
+        public bool IsCollisionDisambiguated
+        {
+            get => _isCollisionDisambiguated;
+            private set => SetProperty(ref _isCollisionDisambiguated, value);
+        }
+
+        /// <summary>Gets the muted inline collision cue text (e.g., <c>→ Tower_2.pdf</c> or <c>→ Tower_2\</c>).</summary>
+        public string CollisionCueText
+        {
+            get => _collisionCueText;
+            private set => SetProperty(ref _collisionCueText, value);
+        }
+
+        /// <summary>Gets the hover tooltip explaining title-collision disambiguation.</summary>
+        public string CollisionTooltipText
+        {
+            get => _collisionTooltipText;
+            private set => SetProperty(ref _collisionTooltipText, value);
         }
 
         /// <summary>Gets the dropdown options including the leading placeholder choice.</summary>
@@ -321,6 +358,35 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
                 }
 
                 return sb.ToString();
+            }
+        }
+
+        internal void UpdateCollisionResolution(MultiModelPdfResolvedToken? resolved, MultiModelPdfFileMode fileMode)
+        {
+            string fallbackToken = MultiModelPdfPathHelper.SanitizeDocumentTitleToken(DocumentTitle);
+            string nextToken = resolved?.FinalToken ?? fallbackToken;
+            bool nextDisambiguated = resolved != null && resolved.IsCollisionDisambiguated;
+
+            string nextCue = string.Empty;
+            string nextTooltip = string.Empty;
+            if (nextDisambiguated)
+            {
+                string targetLabel = fileMode == MultiModelPdfFileMode.CombinedPerDocument
+                    ? $"{nextToken}.pdf"
+                    : $"{nextToken}\\";
+                nextCue = $"→ {targetLabel}";
+                string pathPart = string.IsNullOrWhiteSpace(DisplayPath) ? string.Empty : $" ({DisplayPath})";
+                nextTooltip = $"Disambiguated duplicate document title \"{DocumentTitle}\"{pathPart} → {targetLabel}";
+            }
+
+            bool changed = false;
+            changed |= SetProperty(ref _resolvedOutputToken, nextToken, nameof(ResolvedOutputToken));
+            changed |= SetProperty(ref _isCollisionDisambiguated, nextDisambiguated, nameof(IsCollisionDisambiguated));
+            changed |= SetProperty(ref _collisionCueText, nextCue, nameof(CollisionCueText));
+            changed |= SetProperty(ref _collisionTooltipText, nextTooltip, nameof(CollisionTooltipText));
+            if (changed)
+            {
+                OnPropertyChanged(nameof(RowTooltipText));
             }
         }
 

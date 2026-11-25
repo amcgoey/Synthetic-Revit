@@ -293,7 +293,6 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
                     continue;
                 }
 
-                string token = MultiModelPdfPathHelper.SanitizeDocumentTitleToken(row.DocumentTitle);
                 jobs.Add(new MultiModelPdfDocumentJob(
                     documentKey: row.DocumentKey,
                     documentTitle: row.DocumentTitle,
@@ -303,7 +302,7 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
                     pdfSetupId: SelectedPdfSetup.Id,
                     fileMode: FileMode,
                     outputFolder: normalizedFolder,
-                    outputFileToken: token));
+                    outputFileToken: row.ResolvedOutputToken));
             }
 
             return new MultiModelPdfRunRequest(jobs, normalizedFolder, SelectedPdfSetup.Id, FileMode);
@@ -341,6 +340,22 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
             var checkedRows = _rows.Where(r => r.IsChecked).ToList();
             int eligibleCount = _rows.Count(r => r.IsEligible);
             int checkedCount = checkedRows.Count;
+
+            IReadOnlyDictionary<string, MultiModelPdfResolvedToken> resolvedTokens =
+                MultiModelPdfPathHelper.ResolveOutputTokens(
+                    checkedRows.Select(r => new MultiModelPdfTokenCandidate(r.DocumentKey, r.DocumentTitle, r.Origin)));
+
+            foreach (MultiModelPdfExportRowViewModel row in _rows)
+            {
+                if (row.IsChecked && resolvedTokens.TryGetValue(row.DocumentKey, out MultiModelPdfResolvedToken? resolved))
+                {
+                    row.UpdateCollisionResolution(resolved, FileMode);
+                }
+                else
+                {
+                    row.UpdateCollisionResolution(null, FileMode);
+                }
+            }
 
             int totalPrintable = 0;
             int totalSkipped = 0;
@@ -385,7 +400,7 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
                 }
                 else if (folderValid)
                 {
-                    string token = MultiModelPdfPathHelper.SanitizeDocumentTitleToken(row.DocumentTitle);
+                    string token = row.ResolvedOutputToken;
                     string targetPath = FileMode == MultiModelPdfFileMode.CombinedPerDocument
                         ? MultiModelPdfPathHelper.BuildCombinedPdfPath(OutputFolder, token)
                         : MultiModelPdfPathHelper.BuildSeparateDocumentFolderPath(OutputFolder, token);
@@ -466,7 +481,7 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
                 return "Check at least one project to preview output path.";
             }
 
-            string firstToken = MultiModelPdfPathHelper.SanitizeDocumentTitleToken(checkedRows[0].DocumentTitle);
+            string firstToken = checkedRows[0].ResolvedOutputToken;
             string folderDisplay = folderValid
                 ? MultiModelPdfPathHelper.NormalizeFolderPath(OutputFolder)
                 : (string.IsNullOrWhiteSpace(OutputFolder)

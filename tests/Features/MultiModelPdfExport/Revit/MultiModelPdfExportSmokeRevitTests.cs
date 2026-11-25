@@ -196,7 +196,78 @@ namespace SyntheticTests.Features.MultiModelPdfExport
                     populatedWindow.Close();
                 }
 
-                // 2. Disabled "No saved Print Sets" row state
+                // 2. Multi-tab origin badges (ACTIVE + OPEN) and muted collision cue/tooltip
+                var multiTabSnapshot = new MultiModelPdfSessionSnapshot(
+                    "Tower.rvt",
+                    new[]
+                    {
+                        new MultiModelPdfDocumentSnapshot(
+                            "active-tower",
+                            "Tower.rvt",
+                            @"C:\BIM\Active\Tower.rvt",
+                            MultiModelPdfDocumentOrigin.Active,
+                            MultiModelPdfStorageKind.Workshared,
+                            printSets: new[] { new MultiModelPdfSetSnapshot("CD Set", 2) }),
+                        new MultiModelPdfDocumentSnapshot(
+                            "open-tower",
+                            "Tower.rvt",
+                            @"C:\BIM\Open\Tower.rvt",
+                            MultiModelPdfDocumentOrigin.OpenStandalone,
+                            MultiModelPdfStorageKind.Local,
+                            printSets: new[] { new MultiModelPdfSetSnapshot("CD Set", 3) })
+                    },
+                    new[] { MultiModelPdfSetupOption.CreateDefault() });
+
+                var multiTabVm = new MultiModelPdfExportViewModel(
+                    new FakeMultiModelPdfExportAdapter(multiTabSnapshot),
+                    new FakeFolderDialogService(),
+                    @"C:\PDFExports\Demo");
+                multiTabVm.Rows[0].SelectedPrintSetName = "CD Set";
+                multiTabVm.Rows[1].SelectedPrintSetName = "CD Set";
+                Assert.IsFalse(multiTabVm.Rows[1].IsChecked, "OpenStandalone row must start unchecked.");
+
+                var multiTabWindow = new MultiModelPdfExportWindow(ownerHandle) { DataContext = multiTabVm };
+                try
+                {
+                    multiTabWindow.Show();
+                    multiTabWindow.UpdateLayout();
+                    Dispatcher.CurrentDispatcher.Invoke(DispatcherPriority.Loaded, new Action(() => { }));
+
+                    List<TextBlock> textBlocks = FindVisualChildren<TextBlock>(multiTabWindow).ToList();
+                    Assert.IsTrue(textBlocks.Any(tb => string.Equals(tb.Text, "ACTIVE", StringComparison.Ordinal)), "Expected ACTIVE origin badge.");
+                    Assert.IsTrue(textBlocks.Any(tb => string.Equals(tb.Text, "OPEN", StringComparison.Ordinal)), "Expected OPEN origin badge.");
+
+                    TextBlock? cueBefore = textBlocks.FirstOrDefault(tb => tb.Text.StartsWith("→ ", StringComparison.Ordinal));
+                    Assert.IsTrue(cueBefore == null || cueBefore.Visibility != Visibility.Visible, "Unchecked OpenStandalone row must not show collision cue.");
+
+                    // Check colliding OpenStandalone row -> muted "→ Tower_2.pdf" cue + tooltip become Visible
+                    multiTabVm.Rows[1].IsChecked = true;
+                    multiTabWindow.UpdateLayout();
+                    Dispatcher.CurrentDispatcher.Invoke(DispatcherPriority.Loaded, new Action(() => { }));
+
+                    TextBlock? combinedCue = FindVisualChildren<TextBlock>(multiTabWindow)
+                        .FirstOrDefault(tb => string.Equals(tb.Text, "→ Tower_2.pdf", StringComparison.Ordinal));
+                    Assert.IsNotNull(combinedCue, "Expected '→ Tower_2.pdf' collision cue TextBlock.");
+                    Assert.AreEqual(Visibility.Visible, combinedCue!.Visibility);
+                    StringAssert.Contains("Tower_2.pdf", combinedCue.ToolTip as string ?? string.Empty);
+
+                    // Switch to Separate mode -> cue updates to "→ Tower_2\"
+                    multiTabVm.FileMode = MultiModelPdfFileMode.SeparatePerViewSheet;
+                    multiTabWindow.UpdateLayout();
+                    Dispatcher.CurrentDispatcher.Invoke(DispatcherPriority.Loaded, new Action(() => { }));
+
+                    TextBlock? separateCue = FindVisualChildren<TextBlock>(multiTabWindow)
+                        .FirstOrDefault(tb => string.Equals(tb.Text, @"→ Tower_2\", StringComparison.Ordinal));
+                    Assert.IsNotNull(separateCue, "Expected '→ Tower_2\\' collision cue in Separate mode.");
+                    Assert.AreEqual(Visibility.Visible, separateCue!.Visibility);
+                }
+                finally
+                {
+                    multiTabWindow.DataContext = null;
+                    multiTabWindow.Close();
+                }
+
+                // 3. Disabled "No saved Print Sets" row state
                 var noSetsAdapter = new FakeMultiModelPdfExportAdapter(
                     FakeMultiModelPdfExportAdapter.CreateDefaultActiveSnapshot(includePrintSets: false));
                 var noSetsVm = new MultiModelPdfExportViewModel(
