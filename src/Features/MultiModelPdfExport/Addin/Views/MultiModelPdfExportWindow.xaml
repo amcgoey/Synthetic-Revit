@@ -38,6 +38,56 @@
                     </DataTrigger>
                 </Style.Triggers>
             </Style>
+
+            <Style x:Key="CompactToolbarButtonStyle"
+                   TargetType="Button"
+                   BasedOn="{StaticResource {x:Type Button}}">
+                <Setter Property="MinHeight" Value="26"/>
+                <Setter Property="MinWidth" Value="40"/>
+                <Setter Property="Padding" Value="9,3"/>
+                <Setter Property="FontSize" Value="11.5"/>
+            </Style>
+
+            <Style x:Key="InlineBannerActionButtonStyle" TargetType="Button">
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="Foreground" Value="{DynamicResource Synthetic.Brushes.TextPrimary}"/>
+                <Setter Property="BorderBrush" Value="{DynamicResource Synthetic.Brushes.BorderNormal}"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="MinHeight" Value="22"/>
+                <Setter Property="MinWidth" Value="22"/>
+                <Setter Property="Padding" Value="7,2"/>
+                <Setter Property="FontSize" Value="11"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="SnapsToDevicePixels" Value="True"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="Bd"
+                                    Background="{TemplateBinding Background}"
+                                    BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}"
+                                    CornerRadius="3"
+                                    Padding="{TemplateBinding Padding}"
+                                    SnapsToDevicePixels="True">
+                                <ContentPresenter HorizontalAlignment="Center"
+                                                  VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Synthetic.Brushes.AccentActive}"/>
+                                    <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Synthetic.Brushes.ControlSurface}"/>
+                                </Trigger>
+                                <Trigger Property="IsPressed" Value="True">
+                                    <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Synthetic.Brushes.BackgroundBase}"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Opacity" Value="0.4"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
         </ResourceDictionary>
     </Window.Resources>
 
@@ -76,9 +126,13 @@
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
+                    <!-- Card Header & Selection Count -->
                     <Grid Grid.Row="0" Margin="0,0,0,8">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
@@ -88,14 +142,173 @@
                                    FontSize="12.5" FontWeight="Bold"
                                    Foreground="{DynamicResource Synthetic.Brushes.TextPrimary}"
                                    VerticalAlignment="Center"/>
-                        <TextBlock Grid.Column="1" Text="{Binding SelectionSummaryText}"
+                        <TextBlock x:Name="SelectionSummaryTextBlock"
+                                   Grid.Column="1" Text="{Binding SelectionSummaryText}"
                                    FontSize="11.5"
                                    Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
                                    VerticalAlignment="Center"/>
                     </Grid>
 
+                    <!-- Bulk Print Set Bar -->
+                    <Grid Grid.Row="1" Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Column="0" Text="Apply Print Set:"
+                                   FontSize="12"
+                                   Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
+                                   VerticalAlignment="Center"
+                                   Margin="0,0,8,0"/>
+                        <ComboBox x:Name="BulkPrintSetComboBox"
+                                  Grid.Column="1"
+                                  ItemsSource="{Binding BulkPrintSetOptions}"
+                                  SelectedItem="{Binding SelectedBulkPrintSetOption, Mode=TwoWay}"
+                                  DisplayMemberPath="DisplayName"
+                                  IsEnabled="{Binding HasBulkPrintSetOptions}"
+                                  Margin="0,0,8,0"/>
+                        <Button x:Name="ApplyBulkPrintSetButton"
+                                Grid.Column="2"
+                                Content="Apply to Match"
+                                Command="{Binding ApplyBulkPrintSetCommand}"
+                                Style="{StaticResource CompactToolbarButtonStyle}"
+                                MinWidth="96"/>
+                    </Grid>
+
+                    <!-- Inline Dismissible Bulk Feedback Banner -->
+                    <Border x:Name="BulkFeedbackBanner"
+                            Grid.Row="2"
+                            Visibility="{Binding HasBulkFeedbackBanner, Converter={StaticResource BooleanToVisibilityConverter}}"
+                            Background="{DynamicResource Synthetic.Brushes.ControlSurfaceLighter}"
+                            BorderThickness="1" CornerRadius="4"
+                            Padding="10,6" Margin="0,0,0,8">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="BorderBrush" Value="{DynamicResource Synthetic.Brushes.BorderNormal}"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding BulkFeedbackKind}" Value="{x:Static vm:MultiModelPdfBulkFeedbackKind.Success}">
+                                        <Setter Property="BorderBrush" Value="{DynamicResource Synthetic.Brushes.Success}"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding BulkFeedbackKind}" Value="{x:Static vm:MultiModelPdfBulkFeedbackKind.Warning}">
+                                        <Setter Property="BorderBrush" Value="{DynamicResource Synthetic.Brushes.Warning}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <Path Grid.Column="0" Width="13" Height="13" Stretch="Uniform"
+                                  VerticalAlignment="Center" Margin="0,0,7,0">
+                                <Path.Style>
+                                    <Style TargetType="Path">
+                                        <Setter Property="Data" Value="{StaticResource Synthetic.Geometries.Success}"/>
+                                        <Setter Property="Fill" Value="{DynamicResource Synthetic.Brushes.Success}"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding BulkFeedbackKind}" Value="{x:Static vm:MultiModelPdfBulkFeedbackKind.Warning}">
+                                                <Setter Property="Data" Value="{StaticResource Synthetic.Geometries.Warning}"/>
+                                                <Setter Property="Fill" Value="{DynamicResource Synthetic.Brushes.Warning}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Path.Style>
+                            </Path>
+
+                            <TextBlock x:Name="BulkFeedbackMessageText"
+                                       Grid.Column="1"
+                                       Text="{Binding BulkFeedbackMessage}"
+                                       FontSize="11.5" TextWrapping="Wrap"
+                                       VerticalAlignment="Center">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="{DynamicResource Synthetic.Brushes.Success}"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding BulkFeedbackKind}" Value="{x:Static vm:MultiModelPdfBulkFeedbackKind.Warning}">
+                                                <Setter Property="Foreground" Value="{DynamicResource Synthetic.Brushes.Warning}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,0,0">
+                                <Button x:Name="UncheckUnmatchedButton"
+                                        Content="Uncheck unmatched"
+                                        Command="{Binding UncheckUnmatchedProjectsCommand}"
+                                        Visibility="{Binding ShowUncheckUnmatchedButton, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                        Style="{StaticResource InlineBannerActionButtonStyle}"
+                                        Margin="0,0,6,0"/>
+                                <Button x:Name="DismissBulkFeedbackButton"
+                                        Content="×"
+                                        Command="{Binding DismissBulkFeedbackCommand}"
+                                        ToolTip="Dismiss"
+                                        Style="{StaticResource InlineBannerActionButtonStyle}"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <!-- Live Filter & Quick-Select Bar -->
+                    <Grid Grid.Row="3" Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <Grid Grid.Column="0">
+                            <TextBox x:Name="ProjectFilterTextBox"
+                                     Text="{Binding FilterText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                            <TextBlock Text="Filter projects..."
+                                       FontSize="12"
+                                       Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
+                                       IsHitTestVisible="False"
+                                       VerticalAlignment="Center"
+                                       Margin="8,0,0,0">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Visibility" Value="Collapsed"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Text.Length, ElementName=ProjectFilterTextBox}" Value="0">
+                                                <Setter Property="Visibility" Value="Visible"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Grid>
+
+                        <Button x:Name="SelectAllVisibleButton"
+                                Grid.Column="1"
+                                Content="All"
+                                Command="{Binding SelectAllVisibleCommand}"
+                                Style="{StaticResource CompactToolbarButtonStyle}"
+                                Margin="6,0,0,0"/>
+                        <Button x:Name="SelectActiveAndLinksVisibleButton"
+                                Grid.Column="2"
+                                Content="Active + Links"
+                                Command="{Binding SelectActiveAndLinksVisibleCommand}"
+                                Style="{StaticResource CompactToolbarButtonStyle}"
+                                MinWidth="88"
+                                Margin="6,0,0,0"/>
+                        <Button x:Name="SelectNoneVisibleButton"
+                                Grid.Column="3"
+                                Content="None"
+                                Command="{Binding SelectNoneVisibleCommand}"
+                                Style="{StaticResource CompactToolbarButtonStyle}"
+                                MinWidth="48"
+                                Margin="6,0,0,0"/>
+                    </Grid>
+
                     <!-- Flat Table -->
-                    <Border Grid.Row="1"
+                    <Border Grid.Row="4"
                             Background="{DynamicResource Synthetic.Brushes.BackgroundBase}"
                             BorderBrush="{DynamicResource Synthetic.Brushes.BorderNormal}"
                             BorderThickness="1" CornerRadius="4">
@@ -119,15 +332,25 @@
                                         <ColumnDefinition Width="94"/>
                                     </Grid.ColumnDefinitions>
 
+                                    <CheckBox x:Name="MasterHeaderCheckBox"
+                                              Grid.Column="0"
+                                              IsChecked="{Binding AllVisibleChecked, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                              IsEnabled="{Binding HasVisibleEligibleRows}"
+                                              ToolTip="Toggle all visible eligible projects"
+                                              HorizontalAlignment="Left"
+                                              VerticalAlignment="Center"/>
                                     <TextBlock Grid.Column="1" Text="PROJECT / SOURCE"
                                                FontSize="10.5" FontWeight="Bold"
+                                               VerticalAlignment="Center"
                                                Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"/>
                                     <TextBlock Grid.Column="2" Text="PRINT SET"
                                                FontSize="10.5" FontWeight="Bold"
+                                               VerticalAlignment="Center"
                                                Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"/>
                                     <TextBlock Grid.Column="3" Text="VIEWS"
                                                FontSize="10.5" FontWeight="Bold"
                                                HorizontalAlignment="Right"
+                                               VerticalAlignment="Center"
                                                Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"/>
                                 </Grid>
                             </Border>
@@ -136,42 +359,50 @@
                             <ScrollViewer Grid.Row="1"
                                           VerticalScrollBarVisibility="Auto"
                                           HorizontalScrollBarVisibility="Disabled">
-                                <ItemsControl ItemsSource="{Binding Rows}">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate>
-                                            <Border BorderBrush="{DynamicResource Synthetic.Brushes.BorderNormal}"
-                                                    BorderThickness="0,0,0,1"
-                                                    Padding="8,7"
-                                                    MinHeight="44"
-                                                    ToolTip="{Binding RowTooltipText}">
-                                                <Border.Style>
-                                                    <Style TargetType="Border">
-                                                        <Setter Property="Background" Value="{DynamicResource Synthetic.Brushes.ControlSurface}"/>
-                                                        <Style.Triggers>
-                                                            <Trigger Property="IsMouseOver" Value="True">
-                                                                <Setter Property="Background" Value="#292827"/>
-                                                            </Trigger>
-                                                            <DataTrigger Binding="{Binding IsDisabledRow}" Value="True">
-                                                                <Setter Property="Opacity" Value="0.25"/>
-                                                            </DataTrigger>
-                                                        </Style.Triggers>
-                                                    </Style>
-                                                </Border.Style>
+                                <Grid>
+                                    <ItemsControl ItemsSource="{Binding VisibleRows}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border BorderBrush="{DynamicResource Synthetic.Brushes.BorderNormal}"
+                                                        BorderThickness="0,0,0,1"
+                                                        MinHeight="44"
+                                                        ToolTip="{Binding RowTooltipText}">
+                                                    <Border.Style>
+                                                        <Style TargetType="Border">
+                                                            <Setter Property="Background" Value="{DynamicResource Synthetic.Brushes.ControlSurface}"/>
+                                                            <Style.Triggers>
+                                                                <Trigger Property="IsMouseOver" Value="True">
+                                                                    <Setter Property="Background" Value="#292827"/>
+                                                                </Trigger>
+                                                                <DataTrigger Binding="{Binding IsDisabledRow}" Value="True">
+                                                                    <Setter Property="Opacity" Value="0.25"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Border.Style>
 
-                                                <Grid>
-                                                    <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="30"/>
-                                                        <ColumnDefinition Width="*"/>
-                                                        <ColumnDefinition Width="216"/>
-                                                        <ColumnDefinition Width="94"/>
-                                                    </Grid.ColumnDefinitions>
+                                                    <Grid>
+                                                        <!-- Transient #C2A26A left mismatch accent stripe -->
+                                                        <Border x:Name="BulkMismatchAccentStripe"
+                                                                HorizontalAlignment="Left"
+                                                                Width="3"
+                                                                Background="{DynamicResource Synthetic.Brushes.Warning}"
+                                                                Visibility="{Binding HasBulkMismatchAccent, Converter={StaticResource BooleanToVisibilityConverter}}"/>
 
-                                                    <!-- Checkbox -->
-                                                    <CheckBox Grid.Column="0"
-                                                              IsChecked="{Binding IsChecked, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                              IsEnabled="{Binding IsEligible}"
-                                                              HorizontalAlignment="Left"
-                                                              VerticalAlignment="Center"/>
+                                                        <Grid Margin="8,7">
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="30"/>
+                                                                <ColumnDefinition Width="*"/>
+                                                                <ColumnDefinition Width="216"/>
+                                                                <ColumnDefinition Width="94"/>
+                                                            </Grid.ColumnDefinitions>
+
+                                                            <!-- Checkbox -->
+                                                            <CheckBox Grid.Column="0"
+                                                                      IsChecked="{Binding IsChecked, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                      IsEnabled="{Binding IsEligible}"
+                                                                      HorizontalAlignment="Left"
+                                                                      VerticalAlignment="Center"/>
 
                                                     <!-- Project / Source -->
                                                     <StackPanel Grid.Column="1" Margin="0,0,8,0" VerticalAlignment="Center">
@@ -328,18 +559,29 @@
                                                                        Foreground="{DynamicResource Synthetic.Brushes.Error}"/>
                                                         </StackPanel>
 
-                                                        <!-- Placeholder Dash -->
-                                                        <TextBlock Text="—"
-                                                                   FontSize="12"
-                                                                   HorizontalAlignment="Right"
-                                                                   Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
-                                                                   Visibility="{Binding ShowDashViewsPlaceholder, Converter={StaticResource BooleanToVisibilityConverter}}"/>
-                                                    </StackPanel>
-                                                </Grid>
-                                            </Border>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
+                                                            <!-- Placeholder Dash -->
+                                                            <TextBlock Text="—"
+                                                                       FontSize="12"
+                                                                       HorizontalAlignment="Right"
+                                                                       Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
+                                                                       Visibility="{Binding ShowDashViewsPlaceholder, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                                        </StackPanel>
+                                                        </Grid>
+                                                    </Grid>
+                                                </Border>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+
+                                    <TextBlock x:Name="NoMatchingProjectsText"
+                                               Text="No matching projects."
+                                               FontSize="12"
+                                               Foreground="{DynamicResource Synthetic.Brushes.TextSecondary}"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"
+                                               Margin="18"
+                                               Visibility="{Binding HasNoVisibleRows, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                </Grid>
                             </ScrollViewer>
                         </Grid>
                     </Border>

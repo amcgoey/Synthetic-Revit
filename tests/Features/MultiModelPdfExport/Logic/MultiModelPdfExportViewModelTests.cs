@@ -664,5 +664,561 @@ namespace SyntheticTests.Features.MultiModelPdfExport
                 new[] { "active-main", "link-b", "link-a" },
                 request.Jobs.Select(j => j.DocumentKey).ToArray());
         }
+
+        [Test]
+        public void BulkPrintSetOptions_SortByActivePresenceThenMatchCountThenAlphabetical_AndFormatVariantALabels()
+        {
+            var activeDoc = new MultiModelPdfDocumentSnapshot(
+                "active-core", "CoreShell.rvt", @"C:\BIM\CoreShell.rvt",
+                MultiModelPdfDocumentOrigin.Active, MultiModelPdfStorageKind.Workshared,
+                printSets: new[]
+                {
+                    new MultiModelPdfSetSnapshot("IFC Review", 2),
+                    new MultiModelPdfSetSnapshot("Permit Set", 4),
+                    new MultiModelPdfSetSnapshot("CD Set", 5)
+                });
+            var link1 = new MultiModelPdfDocumentSnapshot(
+                "link-1", "Unit1.rvt", @"C:\BIM\Unit1.rvt",
+                MultiModelPdfDocumentOrigin.Linked, MultiModelPdfStorageKind.Local,
+                printSets: new[]
+                {
+                    new MultiModelPdfSetSnapshot("cd set", 3),
+                    new MultiModelPdfSetSnapshot("Unit Plans", 2)
+                });
+            var link2 = new MultiModelPdfDocumentSnapshot(
+                "link-2", "Unit2.rvt", @"C:\BIM\Unit2.rvt",
+                MultiModelPdfDocumentOrigin.Linked, MultiModelPdfStorageKind.Local,
+                printSets: new[]
+                {
+                    new MultiModelPdfSetSnapshot("CD Set", 3),
+                    new MultiModelPdfSetSnapshot("Permit Set", 2),
+                    new MultiModelPdfSetSnapshot("Unit Plans", 2)
+                });
+            var link3 = new MultiModelPdfDocumentSnapshot(
+                "link-3", "Retail.rvt", @"C:\BIM\Retail.rvt",
+                MultiModelPdfDocumentOrigin.Linked, MultiModelPdfStorageKind.Local,
+                printSets: new[]
+                {
+                    new MultiModelPdfSetSnapshot("Permit Set", 2),
+                    new MultiModelPdfSetSnapshot("SD Package", 1)
+                });
+            var unloadedLink = new MultiModelPdfDocumentSnapshot(
+                "link-unloaded", "Site.rvt", @"C:\BIM\Site.rvt",
+                MultiModelPdfDocumentOrigin.Linked, MultiModelPdfStorageKind.Workshared,
+                isUnloadedLink: true,
+                printSets: Array.Empty<MultiModelPdfSetSnapshot>());
+            var openTab = new MultiModelPdfDocumentSnapshot(
+                "open-annex", "Annex.rvt", @"C:\BIM\Annex.rvt",
+                MultiModelPdfDocumentOrigin.OpenStandalone, MultiModelPdfStorageKind.Local,
+                printSets: new[]
+                {
+                    new MultiModelPdfSetSnapshot("CD Set", 6),
+                    new MultiModelPdfSetSnapshot("Unit Plans", 2),
+                    new MultiModelPdfSetSnapshot("DD Set", 4)
+                });
+
+            var snapshot = new MultiModelPdfSessionSnapshot(
+                "CoreShell.rvt",
+                new[] { activeDoc, link1, link2, link3, unloadedLink, openTab },
+                new[] { MultiModelPdfSetupOption.CreateDefault() });
+
+            var vm = new MultiModelPdfExportViewModel(
+                new FakeMultiModelPdfExportAdapter(snapshot),
+                new FakeFolderDialogService());
+
+            // In Active: CD Set (4), Permit Set (3), IFC Review (1)
+            // Not in Active: Unit Plans (3), DD Set (1), SD Package (1) [alphabetical]
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    "CD Set (4 of 6 models)",
+                    "Permit Set (3 of 6 models)",
+                    "IFC Review (1 of 6 models)",
+                    "Unit Plans (3 of 6 models)",
+                    "DD Set (1 of 6 models)",
+                    "SD Package (1 of 6 models)"
+                },
+                vm.BulkPrintSetOptions.Select(o => o.DisplayName).ToArray());
+
+            Assert.IsTrue(vm.HasBulkPrintSetOptions);
+            Assert.IsNotNull(vm.SelectedBulkPrintSetOption);
+            Assert.AreEqual("CD Set", vm.SelectedBulkPrintSetOption!.Name);
+            Assert.IsTrue(vm.Rows.All(r => r.SelectedPrintSetName == null), "Preselecting bulk dropdown must not auto-assign row Print Sets.");
+
+            // Empty sets scenario disables bulk controls safely
+            var emptyVm = new MultiModelPdfExportViewModel(
+                new FakeMultiModelPdfExportAdapter(FakeMultiModelPdfExportAdapter.CreateDefaultActiveSnapshot(includePrintSets: false)),
+                new FakeFolderDialogService());
+            Assert.IsFalse(emptyVm.HasBulkPrintSetOptions);
+            Assert.IsEmpty(emptyVm.BulkPrintSetOptions);
+            Assert.IsNull(emptyVm.SelectedBulkPrintSetOption);
+        }
+
+        [Test]
+        public void ApplyBulkPrintSet_FullMatch_UpdatesCheckedAndUncheckedEligibleRows_WithSuccessBanner()
+        {
+            var activeDoc = new MultiModelPdfDocumentSnapshot(
+                "active", "Host.rvt", @"C:\BIM\Host.rvt",
+                MultiModelPdfDocumentOrigin.Active, MultiModelPdfStorageKind.Workshared,
+                printSets: new[] { new MultiModelPdfSetSnapshot("CD Set", 4) });
+            var linkDoc = new MultiModelPdfDocumentSnapshot(
+                "link-1", "Struct.rvt", @"C:\BIM\Struct.rvt",
+                MultiModelPdfDocumentOrigin.Linked, MultiModelPdfStorageKind.Local,
+                printSets: new[] { new MultiModelPdfSetSnapshot("cd set", 3) });
+            var openDoc = new MultiModelPdfDocumentSnapshot(
+                "open-1", "Annex.rvt", @"C:\BIM\Annex.rvt",
+                MultiModelPdfDocumentOrigin.OpenStandalone, MultiModelPdfStorageKind.Local,
+                printSets: new[] { new MultiModelPdfSetSnapshot("CD Set", 2) });
+            var unloadedLink = new MultiModelPdfDocumentSnapshot(
+                "link-unloaded", "Site.rvt", @"C:\BIM\Site.rvt",
+                MultiModelPdfDocumentOrigin.Linked, MultiModelPdfStorageKind.Local,
+                isUnloadedLink: true,
+                printSets: Array.Empty<MultiModelPdfSetSnapshot>());
+
+            var snapshot = new MultiModelPdfSessionSnapshot(
+                "Host.rvt",
+                new[] { activeDoc, linkDoc, openDoc, unloadedLink },
+                new[] { MultiModelPdfSetupOption.CreateDefault() });
+
+            var vm = new MultiModelPdfExportViewModel(
+                new FakeMultiModelPdfExportAdapter(snapshot),
+                new FakeFolderDialogService(),
+                @"C:\Exports");
+
+            Assert.IsTrue(vm.ApplyBulkPrintSetCommand.CanExecute(null));
+            vm.ApplyBulkPrintSetCommand.Execute(null);
+
+            MultiModelPdfExportRowViewModel activeRow = vm.Rows.Single(r => r.DocumentKey == "active");
+            MultiModelPdfExportRowViewModel linkRow = vm.Rows.Single(r => r.DocumentKey == "link-1");
+            MultiModelPdfExportRowViewModel openRow = vm.Rows.Single(r => r.DocumentKey == "open-1");
+            MultiModelPdfExportRowViewModel unloadedRow = vm.Rows.Single(r => r.DocumentKey == "link-unloaded");
+
+            Assert.AreEqual("CD Set", activeRow.SelectedPrintSetName);
+            Assert.AreEqual("cd set", linkRow.SelectedPrintSetName);
+            Assert.AreEqual("CD Set", openRow.SelectedPrintSetName);
+            Assert.IsNull(unloadedRow.SelectedPrintSetName);
+            Assert.IsTrue(activeRow.IsChecked);
+            Assert.IsTrue(linkRow.IsChecked);
+            Assert.IsFalse(openRow.IsChecked, "Apply to Match must update unchecked rows without forcing check state.");
+            Assert.IsFalse(unloadedRow.IsChecked);
+            Assert.IsTrue(vm.Rows.All(r => !r.HasBulkMismatchAccent));
+
+            Assert.IsTrue(vm.HasBulkFeedbackBanner);
+            Assert.AreEqual(MultiModelPdfBulkFeedbackKind.Success, vm.BulkFeedbackKind);
+            Assert.IsFalse(vm.ShowUncheckUnmatchedButton);
+            Assert.AreEqual("Applied \"CD Set\" to all 2 checked projects (+1 unchecked).", vm.BulkFeedbackMessage);
+            Assert.IsTrue(vm.CanExport);
+            Assert.AreEqual("Export 2 PDFs", vm.ExportButtonText);
+        }
+
+        [Test]
+        public void ApplyBulkPrintSet_PartialMatch_PreservesPriorSelections_AndClearsMismatchStripeOnAllThreeTriggers()
+        {
+            var activeDoc = new MultiModelPdfDocumentSnapshot(
+                "active", "Core.rvt", @"C:\BIM\Core.rvt",
+                MultiModelPdfDocumentOrigin.Active, MultiModelPdfStorageKind.Workshared,
+                printSets: new[]
+                {
+                    new MultiModelPdfSetSnapshot("CD Set", 5),
+                    new MultiModelPdfSetSnapshot("Permit Set", 3)
+                });
+            var linkMatched = new MultiModelPdfDocumentSnapshot(
+                "link-match", "Unit1.rvt", @"C:\BIM\Unit1.rvt",
+                MultiModelPdfDocumentOrigin.Linked, MultiModelPdfStorageKind.Local,
+                printSets: new[] { new MultiModelPdfSetSnapshot("CD Set", 4) });
+            var linkPriorSet = new MultiModelPdfDocumentSnapshot(
+                "link-prior", "Retail.rvt", @"C:\BIM\Retail.rvt",
+                MultiModelPdfDocumentOrigin.Linked, MultiModelPdfStorageKind.Local,
+                printSets: new[]
+                {
+                    new MultiModelPdfSetSnapshot("Permit Set", 2),
+                    new MultiModelPdfSetSnapshot("SD Package", 1)
+                });
+            var linkUnset = new MultiModelPdfDocumentSnapshot(
+                "link-unset", "Garage.rvt", @"C:\BIM\Garage.rvt",
+                MultiModelPdfDocumentOrigin.Linked, MultiModelPdfStorageKind.Local,
+                printSets: new[] { new MultiModelPdfSetSnapshot("SD Package", 2) });
+            var openUncheckedMatch = new MultiModelPdfDocumentSnapshot(
+                "open-match", "Annex.rvt", @"C:\BIM\Annex.rvt",
+                MultiModelPdfDocumentOrigin.OpenStandalone, MultiModelPdfStorageKind.Local,
+                printSets: new[] { new MultiModelPdfSetSnapshot("CD Set", 3) });
+
+            var snapshot = new MultiModelPdfSessionSnapshot(
+                "Core.rvt",
+                new[] { activeDoc, linkMatched, linkPriorSet, linkUnset, openUncheckedMatch },
+                new[] { MultiModelPdfSetupOption.CreateDefault() });
+
+            var vm = new MultiModelPdfExportViewModel(
+                new FakeMultiModelPdfExportAdapter(snapshot),
+                new FakeFolderDialogService(),
+                @"C:\Exports");
+
+            MultiModelPdfExportRowViewModel retailRow = vm.Rows.Single(r => r.DocumentKey == "link-prior");
+            MultiModelPdfExportRowViewModel garageRow = vm.Rows.Single(r => r.DocumentKey == "link-unset");
+            retailRow.SelectedPrintSetName = "Permit Set";
+
+            vm.SelectedBulkPrintSetOption = vm.BulkPrintSetOptions.First(o => o.Name == "CD Set");
+            vm.ApplyBulkPrintSetCommand.Execute(null);
+
+            // Matched rows receive CD Set; unmatched rows preserve prior selections
+            Assert.AreEqual("CD Set", vm.Rows.Single(r => r.DocumentKey == "active").SelectedPrintSetName);
+            Assert.AreEqual("CD Set", vm.Rows.Single(r => r.DocumentKey == "link-match").SelectedPrintSetName);
+            Assert.AreEqual("CD Set", vm.Rows.Single(r => r.DocumentKey == "open-match").SelectedPrintSetName);
+            Assert.AreEqual("Permit Set", retailRow.SelectedPrintSetName);
+            Assert.IsNull(garageRow.SelectedPrintSetName);
+
+            // Warning banner & mismatch stripe strictly on checked unmatched rows
+            Assert.IsTrue(vm.HasBulkFeedbackBanner);
+            Assert.AreEqual(MultiModelPdfBulkFeedbackKind.Warning, vm.BulkFeedbackKind);
+            Assert.IsTrue(vm.ShowUncheckUnmatchedButton);
+            Assert.AreEqual("Applied \"CD Set\" to 2 checked (+1 unchecked). No \"CD Set\" in: Retail.rvt, Garage.rvt.", vm.BulkFeedbackMessage);
+            Assert.IsTrue(retailRow.HasBulkMismatchAccent);
+            Assert.IsTrue(garageRow.HasBulkMismatchAccent);
+            Assert.IsFalse(vm.Rows.Single(r => r.DocumentKey == "active").HasBulkMismatchAccent);
+            Assert.IsFalse(vm.Rows.Single(r => r.DocumentKey == "open-match").HasBulkMismatchAccent);
+
+            // Trigger 2: Per-row Print Set change clears stripe on Retail.rvt
+            retailRow.SelectedPrintSetName = "SD Package";
+            Assert.IsFalse(retailRow.HasBulkMismatchAccent);
+            Assert.IsTrue(garageRow.HasBulkMismatchAccent);
+            Assert.IsTrue(vm.ShowUncheckUnmatchedButton);
+
+            // Trigger 3: Row uncheck clears stripe on Garage.rvt, and re-checking does not restore it
+            garageRow.IsChecked = false;
+            Assert.IsFalse(garageRow.HasBulkMismatchAccent);
+            Assert.IsFalse(vm.ShowUncheckUnmatchedButton);
+            garageRow.IsChecked = true;
+            Assert.IsFalse(garageRow.HasBulkMismatchAccent);
+
+            // Trigger 1: Banner dismiss clears banner and all mismatch stripes
+            vm.ApplyBulkPrintSetCommand.Execute(null);
+            Assert.IsTrue(retailRow.HasBulkMismatchAccent);
+            Assert.IsTrue(garageRow.HasBulkMismatchAccent);
+            vm.DismissBulkFeedbackCommand.Execute(null);
+            Assert.IsFalse(vm.HasBulkFeedbackBanner);
+            Assert.AreEqual(MultiModelPdfBulkFeedbackKind.None, vm.BulkFeedbackKind);
+            Assert.AreEqual(string.Empty, vm.BulkFeedbackMessage);
+            Assert.IsFalse(retailRow.HasBulkMismatchAccent);
+            Assert.IsFalse(garageRow.HasBulkMismatchAccent);
+
+            // One-click "Uncheck unmatched" unchecks checked mismatched rows, clears stripes & banner, unblocks export
+            vm.ApplyBulkPrintSetCommand.Execute(null);
+            Assert.IsFalse(vm.CanExport, "Garage.rvt has no Print Set so export is blocked before unchecking unmatched.");
+            Assert.IsTrue(vm.UncheckUnmatchedProjectsCommand.CanExecute(null));
+            vm.UncheckUnmatchedProjectsCommand.Execute(null);
+
+            Assert.IsFalse(retailRow.IsChecked);
+            Assert.IsFalse(garageRow.IsChecked);
+            Assert.IsFalse(retailRow.HasBulkMismatchAccent);
+            Assert.IsFalse(garageRow.HasBulkMismatchAccent);
+            Assert.IsFalse(vm.HasBulkFeedbackBanner);
+            Assert.IsTrue(vm.CanExport);
+            Assert.AreEqual("Export 2 PDFs", vm.ExportButtonText);
+        }
+
+        [Test]
+        public void ApplyBulkPrintSet_WhenZeroProjectsChecked_SafelyAppliesToUncheckedWithoutWarningBannerOrStripes()
+        {
+            var activeDoc = new MultiModelPdfDocumentSnapshot(
+                "active", "Host.rvt", @"C:\BIM\Host.rvt",
+                MultiModelPdfDocumentOrigin.Active, MultiModelPdfStorageKind.Workshared,
+                printSets: new[] { new MultiModelPdfSetSnapshot("CD Set", 3) });
+            var linkDoc = new MultiModelPdfDocumentSnapshot(
+                "link-1", "Retail.rvt", @"C:\BIM\Retail.rvt",
+                MultiModelPdfDocumentOrigin.Linked, MultiModelPdfStorageKind.Local,
+                printSets: new[] { new MultiModelPdfSetSnapshot("Permit Set", 2) });
+
+            var snapshot = new MultiModelPdfSessionSnapshot(
+                "Host.rvt",
+                new[] { activeDoc, linkDoc },
+                new[] { MultiModelPdfSetupOption.CreateDefault() });
+
+            var vm = new MultiModelPdfExportViewModel(
+                new FakeMultiModelPdfExportAdapter(snapshot),
+                new FakeFolderDialogService(),
+                @"C:\Exports");
+
+            vm.Rows[0].IsChecked = false;
+            vm.Rows[1].SelectedPrintSetName = "Permit Set";
+            vm.Rows[1].IsChecked = false;
+
+            vm.SelectedBulkPrintSetOption = vm.BulkPrintSetOptions.First(o => o.Name == "CD Set");
+            vm.ApplyBulkPrintSetCommand.Execute(null);
+
+            Assert.AreEqual("CD Set", vm.Rows[0].SelectedPrintSetName);
+            Assert.AreEqual("Permit Set", vm.Rows[1].SelectedPrintSetName);
+            Assert.IsFalse(vm.Rows[0].IsChecked);
+            Assert.IsFalse(vm.Rows[1].IsChecked);
+            Assert.IsFalse(vm.Rows[0].HasBulkMismatchAccent);
+            Assert.IsFalse(vm.Rows[1].HasBulkMismatchAccent);
+
+            Assert.IsTrue(vm.HasBulkFeedbackBanner);
+            Assert.AreEqual(MultiModelPdfBulkFeedbackKind.Success, vm.BulkFeedbackKind);
+            Assert.IsFalse(vm.ShowUncheckUnmatchedButton);
+            Assert.IsFalse(vm.UncheckUnmatchedProjectsCommand.CanExecute(null));
+            Assert.AreEqual("Applied \"CD Set\" to 1 unchecked project (0 checked).", vm.BulkFeedbackMessage);
+        }
+
+        [Test]
+        public void FilterText_MatchesTitleOriginAndStorageDistinctly_AndFormatsHiddenSelectionSummary()
+        {
+            var activeDoc = new MultiModelPdfDocumentSnapshot(
+                "active", "CoreShell.rvt", @"C:\BIM\CoreShell.rvt",
+                MultiModelPdfDocumentOrigin.Active, MultiModelPdfStorageKind.Workshared,
+                printSets: new[] { new MultiModelPdfSetSnapshot("CD Set", 3) });
+            var linkCloud = new MultiModelPdfDocumentSnapshot(
+                "link-cloud", "Unit1.rvt", @"C:\BIM\Unit1.rvt",
+                MultiModelPdfDocumentOrigin.Linked, MultiModelPdfStorageKind.CloudAcc,
+                printSets: new[] { new MultiModelPdfSetSnapshot("CD Set", 2) });
+            var linkLocal = new MultiModelPdfDocumentSnapshot(
+                "link-local", "Retail.rvt", @"C:\BIM\Retail.rvt",
+                MultiModelPdfDocumentOrigin.Linked, MultiModelPdfStorageKind.Local,
+                printSets: new[] { new MultiModelPdfSetSnapshot("Permit Set", 2) });
+            var linkUnloaded = new MultiModelPdfDocumentSnapshot(
+                "link-unloaded", "SiteUnloaded.rvt", @"C:\BIM\SiteUnloaded.rvt",
+                MultiModelPdfDocumentOrigin.Linked, MultiModelPdfStorageKind.Workshared,
+                isUnloadedLink: true,
+                printSets: Array.Empty<MultiModelPdfSetSnapshot>());
+            var openLocal = new MultiModelPdfDocumentSnapshot(
+                "open-local", "Annex.rvt", @"C:\BIM\Annex.rvt",
+                MultiModelPdfDocumentOrigin.OpenStandalone, MultiModelPdfStorageKind.Local,
+                printSets: new[] { new MultiModelPdfSetSnapshot("CD Set", 4) });
+            var openUnsaved = new MultiModelPdfDocumentSnapshot(
+                "open-unsaved", "Scratch.rvt", string.Empty,
+                MultiModelPdfDocumentOrigin.OpenStandalone, MultiModelPdfStorageKind.Unsaved,
+                printSets: new[] { new MultiModelPdfSetSnapshot("SD Set", 1) });
+
+            var snapshot = new MultiModelPdfSessionSnapshot(
+                "CoreShell.rvt",
+                new[] { openLocal, linkCloud, linkUnloaded, activeDoc, openUnsaved, linkLocal },
+                new[] { MultiModelPdfSetupOption.CreateDefault() });
+
+            var vm = new MultiModelPdfExportViewModel(
+                new FakeMultiModelPdfExportAdapter(snapshot),
+                new FakeFolderDialogService());
+
+            CollectionAssert.AreEqual(
+                new[] { "CoreShell.rvt", "Unit1.rvt", "SiteUnloaded.rvt", "Retail.rvt", "Annex.rvt", "Scratch.rvt" },
+                vm.VisibleRows.Select(r => r.DocumentTitle).ToArray());
+            Assert.AreEqual(0, vm.HiddenCheckedCount);
+            Assert.AreEqual("3 of 5 eligible", vm.SelectionSummaryText);
+            Assert.IsFalse(vm.HasNoVisibleRows);
+
+            // Title filter (case-insensitive, trimmed)
+            vm.FilterText = "  unit1  ";
+            CollectionAssert.AreEqual(new[] { "Unit1.rvt" }, vm.VisibleRows.Select(r => r.DocumentTitle).ToArray());
+            Assert.AreEqual(2, vm.HiddenCheckedCount);
+            Assert.AreEqual("3 selected (2 hidden)", vm.SelectionSummaryText);
+
+            // Origin filter
+            vm.FilterText = "open";
+            CollectionAssert.AreEqual(new[] { "Annex.rvt", "Scratch.rvt" }, vm.VisibleRows.Select(r => r.DocumentTitle).ToArray());
+            Assert.AreEqual(3, vm.HiddenCheckedCount);
+            Assert.AreEqual("3 selected (3 hidden)", vm.SelectionSummaryText);
+
+            // Storage filters
+            vm.FilterText = "cloud";
+            CollectionAssert.AreEqual(new[] { "Unit1.rvt" }, vm.VisibleRows.Select(r => r.DocumentTitle).ToArray());
+
+            vm.FilterText = "ACC";
+            CollectionAssert.AreEqual(new[] { "Unit1.rvt" }, vm.VisibleRows.Select(r => r.DocumentTitle).ToArray());
+
+            vm.FilterText = "CloudAcc";
+            CollectionAssert.AreEqual(new[] { "Unit1.rvt" }, vm.VisibleRows.Select(r => r.DocumentTitle).ToArray());
+
+            vm.FilterText = "Unsaved";
+            CollectionAssert.AreEqual(new[] { "Scratch.rvt" }, vm.VisibleRows.Select(r => r.DocumentTitle).ToArray());
+
+            vm.FilterText = "Workshared";
+            CollectionAssert.AreEqual(new[] { "CoreShell.rvt", "SiteUnloaded.rvt" }, vm.VisibleRows.Select(r => r.DocumentTitle).ToArray());
+
+            // Distinct field boundaries: cross-field phrases, paths, and Print Sets must NOT match
+            foreach (string nonMatchingCrossFieldQuery in new[] { "CoreShell.rvt Active", "Linked Cloud", "Open Local", "Standalone", ".rvt Linked", @"C:\BIM", "CD Set", "Permit Set" })
+            {
+                vm.FilterText = nonMatchingCrossFieldQuery;
+                Assert.IsEmpty(vm.VisibleRows, $"Cross-field query '{nonMatchingCrossFieldQuery}' must not bleed across Title/Origin/Storage fields.");
+                Assert.IsTrue(vm.HasNoVisibleRows);
+                Assert.AreEqual(3, vm.HiddenCheckedCount);
+                Assert.AreEqual("3 selected (3 hidden)", vm.SelectionSummaryText);
+            }
+
+            // Clearing filter restores all rows and standard summary
+            vm.FilterText = string.Empty;
+            Assert.AreEqual(6, vm.VisibleRows.Count);
+            Assert.AreEqual(0, vm.HiddenCheckedCount);
+            Assert.AreEqual("3 of 5 eligible", vm.SelectionSummaryText);
+            Assert.IsFalse(vm.HasNoVisibleRows);
+        }
+
+        [Test]
+        public void QuickSelectButtons_AllActiveLinksAndNone_ScopeStrictlyToVisibleFilteredEligibleRows()
+        {
+            var activeDoc = new MultiModelPdfDocumentSnapshot(
+                "active", "Core.rvt", @"C:\BIM\Core.rvt",
+                MultiModelPdfDocumentOrigin.Active, MultiModelPdfStorageKind.Workshared,
+                printSets: new[] { new MultiModelPdfSetSnapshot("CD Set", 3) });
+            var link1 = new MultiModelPdfDocumentSnapshot(
+                "link-1", "Link1.rvt", @"C:\BIM\Link1.rvt",
+                MultiModelPdfDocumentOrigin.Linked, MultiModelPdfStorageKind.Local,
+                printSets: new[] { new MultiModelPdfSetSnapshot("CD Set", 2) });
+            var link2Mismatch = new MultiModelPdfDocumentSnapshot(
+                "link-2", "Link2.rvt", @"C:\BIM\Link2.rvt",
+                MultiModelPdfDocumentOrigin.Linked, MultiModelPdfStorageKind.CloudAcc,
+                printSets: new[] { new MultiModelPdfSetSnapshot("Permit Set", 2) });
+            var linkUnloaded = new MultiModelPdfDocumentSnapshot(
+                "link-unloaded", "Unloaded.rvt", @"C:\BIM\Unloaded.rvt",
+                MultiModelPdfDocumentOrigin.Linked, MultiModelPdfStorageKind.Local,
+                isUnloadedLink: true,
+                printSets: Array.Empty<MultiModelPdfSetSnapshot>());
+            var openLocal = new MultiModelPdfDocumentSnapshot(
+                "open-local", "Open1.rvt", @"C:\BIM\Open1.rvt",
+                MultiModelPdfDocumentOrigin.OpenStandalone, MultiModelPdfStorageKind.Local,
+                printSets: new[] { new MultiModelPdfSetSnapshot("CD Set", 4) });
+            var openWorkshared = new MultiModelPdfDocumentSnapshot(
+                "open-ws", "Open2.rvt", @"C:\BIM\Open2.rvt",
+                MultiModelPdfDocumentOrigin.OpenStandalone, MultiModelPdfStorageKind.Workshared,
+                printSets: new[] { new MultiModelPdfSetSnapshot("CD Set", 4) });
+
+            var snapshot = new MultiModelPdfSessionSnapshot(
+                "Core.rvt",
+                new[] { activeDoc, link1, link2Mismatch, linkUnloaded, openLocal, openWorkshared },
+                new[] { MultiModelPdfSetupOption.CreateDefault() });
+
+            var vm = new MultiModelPdfExportViewModel(
+                new FakeMultiModelPdfExportAdapter(snapshot),
+                new FakeFolderDialogService());
+
+            // Mark Link2 as bulk mismatched so we verify hidden mismatch stripe is preserved while visible uncheck clears it
+            vm.SelectedBulkPrintSetOption = vm.BulkPrintSetOptions.First(o => o.Name == "CD Set");
+            vm.ApplyBulkPrintSetCommand.Execute(null);
+            MultiModelPdfExportRowViewModel coreRow = vm.Rows.Single(r => r.DocumentKey == "active");
+            MultiModelPdfExportRowViewModel link1Row = vm.Rows.Single(r => r.DocumentKey == "link-1");
+            MultiModelPdfExportRowViewModel link2Row = vm.Rows.Single(r => r.DocumentKey == "link-2");
+            MultiModelPdfExportRowViewModel unloadedRow = vm.Rows.Single(r => r.DocumentKey == "link-unloaded");
+            MultiModelPdfExportRowViewModel open1Row = vm.Rows.Single(r => r.DocumentKey == "open-local");
+            MultiModelPdfExportRowViewModel open2Row = vm.Rows.Single(r => r.DocumentKey == "open-ws");
+            Assert.IsTrue(link2Row.HasBulkMismatchAccent);
+
+            // Filter to "Local" -> visible: Link1 (checked), Unloaded (ineligible), Open1 (unchecked)
+            vm.FilterText = "Local";
+            CollectionAssert.AreEqual(new[] { "Link1.rvt", "Unloaded.rvt", "Open1.rvt" }, vm.VisibleRows.Select(r => r.DocumentTitle).ToArray());
+
+            // Visible "All" checks Open1, keeps Unloaded unchecked, and leaves hidden Open2 unchecked
+            vm.SelectAllVisibleCommand.Execute(null);
+            Assert.IsTrue(link1Row.IsChecked);
+            Assert.IsTrue(open1Row.IsChecked);
+            Assert.IsFalse(unloadedRow.IsChecked);
+            Assert.IsTrue(coreRow.IsChecked);
+            Assert.IsTrue(link2Row.IsChecked);
+            Assert.IsFalse(open2Row.IsChecked, "Hidden Open2 must not be checked by visible All.");
+
+            // Visible "Active + Links" unchecks visible Open1, keeps Link1 checked, leaves hidden rows untouched
+            vm.SelectActiveAndLinksVisibleCommand.Execute(null);
+            Assert.IsTrue(link1Row.IsChecked);
+            Assert.IsFalse(open1Row.IsChecked);
+            Assert.IsFalse(unloadedRow.IsChecked);
+            Assert.IsTrue(coreRow.IsChecked);
+            Assert.IsTrue(link2Row.IsChecked);
+            Assert.IsFalse(open2Row.IsChecked);
+
+            // Visible "None" unchecks Link1 only, keeping hidden Core & Link2 checked (and Link2 mismatch stripe intact)
+            open1Row.IsChecked = true;
+            vm.SelectNoneVisibleCommand.Execute(null);
+            Assert.IsFalse(link1Row.IsChecked);
+            Assert.IsFalse(open1Row.IsChecked);
+            Assert.IsTrue(coreRow.IsChecked);
+            Assert.IsTrue(link2Row.IsChecked);
+            Assert.IsTrue(link2Row.HasBulkMismatchAccent);
+
+            // Unchecking visible Link2 via "None" clears Link2's mismatch stripe
+            vm.FilterText = "Cloud";
+            vm.SelectNoneVisibleCommand.Execute(null);
+            Assert.IsFalse(link2Row.IsChecked);
+            Assert.IsFalse(link2Row.HasBulkMismatchAccent);
+            Assert.IsTrue(coreRow.IsChecked);
+        }
+
+        [Test]
+        public void MasterHeaderCheckbox_AllVisibleChecked_TransitionsTriStateAndScopesToVisibleRows()
+        {
+            var activeDoc = new MultiModelPdfDocumentSnapshot(
+                "active", "Core.rvt", @"C:\BIM\Core.rvt",
+                MultiModelPdfDocumentOrigin.Active, MultiModelPdfStorageKind.Workshared,
+                printSets: new[] { new MultiModelPdfSetSnapshot("CD Set", 3) });
+            var linkDoc = new MultiModelPdfDocumentSnapshot(
+                "link-1", "Link1.rvt", @"C:\BIM\Link1.rvt",
+                MultiModelPdfDocumentOrigin.Linked, MultiModelPdfStorageKind.Local,
+                printSets: new[] { new MultiModelPdfSetSnapshot("CD Set", 2) });
+            var linkUnloaded = new MultiModelPdfDocumentSnapshot(
+                "link-unloaded", "Unloaded.rvt", @"C:\BIM\Unloaded.rvt",
+                MultiModelPdfDocumentOrigin.Linked, MultiModelPdfStorageKind.Local,
+                isUnloadedLink: true,
+                printSets: Array.Empty<MultiModelPdfSetSnapshot>());
+            var openDoc = new MultiModelPdfDocumentSnapshot(
+                "open-1", "Open1.rvt", @"C:\BIM\Open1.rvt",
+                MultiModelPdfDocumentOrigin.OpenStandalone, MultiModelPdfStorageKind.Local,
+                printSets: new[] { new MultiModelPdfSetSnapshot("CD Set", 4) });
+
+            var snapshot = new MultiModelPdfSessionSnapshot(
+                "Core.rvt",
+                new[] { activeDoc, linkDoc, linkUnloaded, openDoc },
+                new[] { MultiModelPdfSetupOption.CreateDefault() });
+
+            var vm = new MultiModelPdfExportViewModel(
+                new FakeMultiModelPdfExportAdapter(snapshot),
+                new FakeFolderDialogService());
+
+            // Initial mixed state: Core + Link1 checked, Open1 unchecked -> indeterminate (null)
+            Assert.IsTrue(vm.HasVisibleEligibleRows);
+            Assert.IsNull(vm.AllVisibleChecked);
+
+            // Filtering to checked-only Active row -> true; Open-only -> false; Unloaded-only -> false & disabled
+            vm.FilterText = "Active";
+            Assert.IsTrue(vm.HasVisibleEligibleRows);
+            Assert.AreEqual(true, vm.AllVisibleChecked);
+
+            vm.FilterText = "Open";
+            Assert.IsTrue(vm.HasVisibleEligibleRows);
+            Assert.AreEqual(false, vm.AllVisibleChecked);
+
+            vm.FilterText = "Unloaded";
+            Assert.IsFalse(vm.HasVisibleEligibleRows);
+            Assert.AreEqual(false, vm.AllVisibleChecked);
+            vm.AllVisibleChecked = true;
+            Assert.AreEqual(false, vm.AllVisibleChecked);
+            Assert.IsFalse(vm.Rows.Single(r => r.DocumentKey == "link-unloaded").IsChecked);
+
+            // Clear filter and verify ToggleAllVisibleCommand & property setter transitions
+            vm.FilterText = string.Empty;
+            Assert.IsNull(vm.AllVisibleChecked);
+
+            // ToggleAllVisible from indeterminate checks all visible eligible -> true
+            vm.ToggleAllVisibleCommand.Execute(null);
+            Assert.AreEqual(true, vm.AllVisibleChecked);
+            Assert.IsTrue(vm.Rows.Single(r => r.DocumentKey == "open-1").IsChecked);
+            Assert.IsFalse(vm.Rows.Single(r => r.DocumentKey == "link-unloaded").IsChecked);
+
+            // Setting AllVisibleChecked = false unchecks all visible eligible -> false
+            vm.AllVisibleChecked = false;
+            Assert.AreEqual(false, vm.AllVisibleChecked);
+            Assert.AreEqual(0, vm.CheckedCount);
+
+            // Incremental row checking transitions false -> null -> true
+            vm.Rows.Single(r => r.DocumentKey == "active").IsChecked = true;
+            Assert.IsNull(vm.AllVisibleChecked);
+            vm.Rows.Single(r => r.DocumentKey == "link-1").IsChecked = true;
+            Assert.IsNull(vm.AllVisibleChecked);
+            vm.Rows.Single(r => r.DocumentKey == "open-1").IsChecked = true;
+            Assert.AreEqual(true, vm.AllVisibleChecked);
+
+            // Header uncheck while filtered affects ONLY visible eligible rows
+            vm.FilterText = "Open";
+            Assert.AreEqual(true, vm.AllVisibleChecked);
+            vm.AllVisibleChecked = false;
+            Assert.AreEqual(false, vm.AllVisibleChecked);
+            Assert.IsFalse(vm.Rows.Single(r => r.DocumentKey == "open-1").IsChecked);
+            Assert.IsTrue(vm.Rows.Single(r => r.DocumentKey == "active").IsChecked);
+            Assert.IsTrue(vm.Rows.Single(r => r.DocumentKey == "link-1").IsChecked);
+        }
     }
 }

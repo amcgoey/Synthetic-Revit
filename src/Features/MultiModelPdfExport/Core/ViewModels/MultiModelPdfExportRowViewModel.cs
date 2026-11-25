@@ -69,6 +69,7 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
         private bool _isCollisionDisambiguated;
         private string _collisionCueText = string.Empty;
         private string _collisionTooltipText = string.Empty;
+        private bool _hasBulkMismatchAccent;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="MultiModelPdfExportRowViewModel"/> class.
@@ -214,6 +215,13 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
         /// <summary>Gets the dropdown options including the leading placeholder choice.</summary>
         public IReadOnlyList<MultiModelPdfPrintSetChoice> PrintSetOptions { get; }
 
+        /// <summary>Gets whether this row currently shows the transient Sand Gold bulk mismatch left stripe.</summary>
+        public bool HasBulkMismatchAccent
+        {
+            get => _hasBulkMismatchAccent;
+            private set => SetProperty(ref _hasBulkMismatchAccent, value);
+        }
+
         /// <summary>
         /// Gets or sets whether this project is checked for export.
         /// Ineligible rows always remain unchecked.
@@ -226,6 +234,11 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
                 bool normalized = IsEligible && value;
                 if (SetProperty(ref _isChecked, normalized))
                 {
+                    if (!normalized)
+                    {
+                        SetProperty(ref _hasBulkMismatchAccent, false, nameof(HasBulkMismatchAccent));
+                    }
+
                     RaiseDerivedSelectionProperties();
                     _onRowChanged?.Invoke();
                 }
@@ -240,10 +253,15 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
             get => _selectedPrintSetOption;
             set
             {
-                MultiModelPdfPrintSetChoice next = value ?? _placeholderChoice;
-                if (!ReferenceEquals(_selectedPrintSetOption, next))
+                if (value == null)
                 {
-                    _selectedPrintSetOption = next;
+                    return;
+                }
+
+                if (!ReferenceEquals(_selectedPrintSetOption, value))
+                {
+                    _selectedPrintSetOption = value;
+                    SetProperty(ref _hasBulkMismatchAccent, false, nameof(HasBulkMismatchAccent));
                     OnPropertyChanged();
                     OnPropertyChanged(nameof(SelectedPrintSetName));
                     RaiseDerivedSelectionProperties();
@@ -391,6 +409,43 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
             {
                 OnPropertyChanged(nameof(RowTooltipText));
             }
+        }
+
+        internal bool SetCheckedBatch(bool value)
+        {
+            bool normalized = IsEligible && value;
+            if (_isChecked == normalized)
+            {
+                return false;
+            }
+
+            _isChecked = normalized;
+            if (!normalized)
+            {
+                SetProperty(ref _hasBulkMismatchAccent, false, nameof(HasBulkMismatchAccent));
+            }
+
+            OnPropertyChanged(nameof(IsChecked));
+            RaiseDerivedSelectionProperties();
+            return true;
+        }
+
+        internal void ApplyBulkMatchedChoice(MultiModelPdfPrintSetChoice matchChoice)
+        {
+            SetProperty(ref _hasBulkMismatchAccent, false, nameof(HasBulkMismatchAccent));
+            if (!ReferenceEquals(_selectedPrintSetOption, matchChoice))
+            {
+                _selectedPrintSetOption = matchChoice;
+                OnPropertyChanged(nameof(SelectedPrintSetOption));
+                OnPropertyChanged(nameof(SelectedPrintSetName));
+                RaiseDerivedSelectionProperties();
+            }
+        }
+
+        internal void SetBulkMismatchAccent(bool hasMismatch)
+        {
+            bool normalized = IsEligible && IsChecked && hasMismatch;
+            SetProperty(ref _hasBulkMismatchAccent, normalized, nameof(HasBulkMismatchAccent));
         }
 
         private void RaiseDerivedSelectionProperties()

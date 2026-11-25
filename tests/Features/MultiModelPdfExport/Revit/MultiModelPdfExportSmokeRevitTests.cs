@@ -7,7 +7,10 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Autodesk.Revit.UI;
+using WpfButton = System.Windows.Controls.Button;
+using WpfCheckBox = System.Windows.Controls.CheckBox;
 using WpfComboBox = System.Windows.Controls.ComboBox;
+using WpfTextBox = System.Windows.Controls.TextBox;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 using Synthetic.Features.MultiModelPdfExport.Commands;
@@ -337,6 +340,237 @@ namespace SyntheticTests.Features.MultiModelPdfExport
             }
 
             Assert.AreEqual(_initialDocCount, _uiapp.Application.Documents.Size, "Non-executing MultiModelPdfExport smoke test must not open or leak Revit documents.");
+        }
+
+        [Test]
+        public void MultiModelPdfExportWindow_BulkFilterAndTriStateHeader_BindAndRenderCleanly()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+            IntPtr ownerHandle = _uiapp!.MainWindowHandle;
+
+            var snapshot = new MultiModelPdfSessionSnapshot(
+                "CoreShell.rvt",
+                new[]
+                {
+                    new MultiModelPdfDocumentSnapshot(
+                        "active-core",
+                        "CoreShell.rvt",
+                        @"C:\BIM\CoreShell.rvt",
+                        MultiModelPdfDocumentOrigin.Active,
+                        MultiModelPdfStorageKind.Workshared,
+                        printSets: new[]
+                        {
+                            new MultiModelPdfSetSnapshot("CD Set", 3),
+                            new MultiModelPdfSetSnapshot("Permit Set", 2)
+                        }),
+                    new MultiModelPdfDocumentSnapshot(
+                        "link-unit1",
+                        "Unit1.rvt",
+                        @"C:\BIM\Links\Unit1.rvt",
+                        MultiModelPdfDocumentOrigin.Linked,
+                        MultiModelPdfStorageKind.CloudAcc,
+                        printSets: new[] { new MultiModelPdfSetSnapshot("CD Set", 4) }),
+                    new MultiModelPdfDocumentSnapshot(
+                        "link-retail",
+                        "Retail.rvt",
+                        @"C:\BIM\Links\Retail.rvt",
+                        MultiModelPdfDocumentOrigin.Linked,
+                        MultiModelPdfStorageKind.Local,
+                        printSets: new[] { new MultiModelPdfSetSnapshot("Permit Set", 2) }),
+                    new MultiModelPdfDocumentSnapshot(
+                        "link-unloaded",
+                        "SiteUnloaded.rvt",
+                        @"C:\BIM\Links\SiteUnloaded.rvt",
+                        MultiModelPdfDocumentOrigin.Linked,
+                        MultiModelPdfStorageKind.Local,
+                        isUnloadedLink: true,
+                        printSets: Array.Empty<MultiModelPdfSetSnapshot>()),
+                    new MultiModelPdfDocumentSnapshot(
+                        "open-annex",
+                        "Annex.rvt",
+                        @"C:\BIM\Annex.rvt",
+                        MultiModelPdfDocumentOrigin.OpenStandalone,
+                        MultiModelPdfStorageKind.Local,
+                        printSets: new[] { new MultiModelPdfSetSnapshot("CD Set", 5) })
+                },
+                new[] { MultiModelPdfSetupOption.CreateDefault() });
+
+            var vm = new MultiModelPdfExportViewModel(
+                new FakeMultiModelPdfExportAdapter(snapshot),
+                new FakeFolderDialogService(),
+                @"C:\PDFExports\Batch");
+
+            using (var harness = new WpfBindingSmokeHarness())
+            {
+                var window = new MultiModelPdfExportWindow(ownerHandle) { DataContext = vm };
+                try
+                {
+                    window.Show();
+                    FlushLayout(window);
+                    Assert.IsTrue(window.IsVisible);
+
+                    // 1. Bulk Print Set ComboBox formatting & sort order
+                    var bulkCombo = window.FindName("BulkPrintSetComboBox") as WpfComboBox;
+                    var applyBulkBtn = window.FindName("ApplyBulkPrintSetButton") as WpfButton;
+                    var dismissBulkBtn = window.FindName("DismissBulkFeedbackButton") as WpfButton;
+                    Assert.IsNotNull(bulkCombo, "Expected BulkPrintSetComboBox.");
+                    Assert.IsNotNull(applyBulkBtn, "Expected ApplyBulkPrintSetButton.");
+                    Assert.IsNotNull(dismissBulkBtn, "Expected DismissBulkFeedbackButton.");
+                    var bulkLabels = bulkCombo!.Items.Cast<MultiModelPdfBulkPrintSetOption>().Select(o => o.DisplayName).ToList();
+                    CollectionAssert.AreEqual(
+                        new[] { "CD Set (3 of 5 models)", "Permit Set (2 of 5 models)" },
+                        bulkLabels);
+
+                    // 2. Tri-state master header CheckBox: initial mixed state -> indeterminate (null)
+                    var masterCheck = window.FindName("MasterHeaderCheckBox") as WpfCheckBox;
+                    Assert.IsNotNull(masterCheck, "Expected MasterHeaderCheckBox.");
+                    Assert.IsTrue(masterCheck!.IsEnabled);
+                    Assert.IsNull(masterCheck.IsChecked, "Active+Links checked with Open unchecked must yield indeterminate header state.");
+
+                    var checkMark = masterCheck.Template.FindName("CheckMark", masterCheck) as FrameworkElement;
+                    var indetMark = masterCheck.Template.FindName("IndeterminateMark", masterCheck) as FrameworkElement;
+                    Assert.IsNotNull(checkMark);
+                    Assert.IsNotNull(indetMark);
+                    Assert.AreEqual(Visibility.Visible, indetMark!.Visibility);
+                    Assert.AreEqual(Visibility.Collapsed, checkMark!.Visibility);
+
+                    // Transition header CheckBox: true -> false -> restore Active + Links (null)
+                    masterCheck.IsChecked = true;
+                    FlushLayout(window);
+                    Assert.AreEqual(true, vm.AllVisibleChecked);
+                    Assert.AreEqual(Visibility.Visible, checkMark.Visibility);
+                    Assert.AreEqual(Visibility.Collapsed, indetMark.Visibility);
+
+                    masterCheck.IsChecked = false;
+                    FlushLayout(window);
+                    Assert.AreEqual(false, vm.AllVisibleChecked);
+                    Assert.AreEqual(Visibility.Collapsed, checkMark.Visibility);
+                    Assert.AreEqual(Visibility.Collapsed, indetMark.Visibility);
+
+                    vm.SelectActiveAndLinksVisibleCommand.Execute(null);
+                    FlushLayout(window);
+                    Assert.IsNull(masterCheck.IsChecked);
+                    Assert.AreEqual(Visibility.Visible, indetMark.Visibility);
+
+                    // 3. Partial match bulk apply -> Warning (#C2A26A) banner + Uncheck unmatched + row mismatch stripe
+                    var bulkBanner = window.FindName("BulkFeedbackBanner") as Border;
+                    var uncheckBtn = window.FindName("UncheckUnmatchedButton") as WpfButton;
+                    Assert.IsNotNull(bulkBanner);
+                    Assert.IsNotNull(uncheckBtn);
+                    Assert.AreEqual(Visibility.Collapsed, bulkBanner!.Visibility);
+
+                    applyBulkBtn!.Command.Execute(null);
+                    FlushLayout(window);
+
+                    Assert.AreEqual(Visibility.Visible, bulkBanner.Visibility);
+                    Assert.AreEqual(Visibility.Visible, uncheckBtn!.Visibility);
+                    Assert.AreEqual(Color.FromRgb(0xC2, 0xA2, 0x6A), ((SolidColorBrush)bulkBanner.BorderBrush).Color);
+
+                    var retailStripe = FindVisualChildren<Border>(window)
+                        .FirstOrDefault(b => b.Name == "BulkMismatchAccentStripe" &&
+                                             ReferenceEquals(b.DataContext, vm.Rows.Single(r => r.DocumentKey == "link-retail")));
+                    var unit1Stripe = FindVisualChildren<Border>(window)
+                        .FirstOrDefault(b => b.Name == "BulkMismatchAccentStripe" &&
+                                             ReferenceEquals(b.DataContext, vm.Rows.Single(r => r.DocumentKey == "link-unit1")));
+                    Assert.IsNotNull(retailStripe);
+                    Assert.IsNotNull(unit1Stripe);
+                    Assert.AreEqual(Visibility.Visible, retailStripe!.Visibility);
+                    Assert.AreEqual(Visibility.Collapsed, unit1Stripe!.Visibility);
+
+                    // Dismiss clears banner & stripe; re-apply + Uncheck unmatched clears unmatched row and banner
+                    dismissBulkBtn!.Command.Execute(null);
+                    FlushLayout(window);
+                    Assert.AreEqual(Visibility.Collapsed, bulkBanner.Visibility);
+                    Assert.AreEqual(Visibility.Collapsed, retailStripe.Visibility);
+
+                    applyBulkBtn.Command.Execute(null);
+                    FlushLayout(window);
+                    Assert.AreEqual(Visibility.Visible, retailStripe.Visibility);
+
+                    uncheckBtn.Command.Execute(null);
+                    FlushLayout(window);
+                    Assert.AreEqual(Visibility.Collapsed, bulkBanner.Visibility);
+                    Assert.AreEqual(Visibility.Collapsed, retailStripe.Visibility);
+
+                    // Full match bulk apply -> Success (#7A8F75) banner without Uncheck unmatched button
+                    applyBulkBtn.Command.Execute(null);
+                    FlushLayout(window);
+                    Assert.AreEqual(Visibility.Visible, bulkBanner.Visibility);
+                    Assert.AreEqual(Visibility.Collapsed, uncheckBtn.Visibility);
+                    Assert.AreEqual(Color.FromRgb(0x7A, 0x8F, 0x75), ((SolidColorBrush)bulkBanner.BorderBrush).Color);
+
+                    // 4. Filter TextBox updates summary, empty state, and preserves row ComboBox selection across hide/restore
+                    var filterBox = window.FindName("ProjectFilterTextBox") as WpfTextBox;
+                    var summaryBlock = window.FindName("SelectionSummaryTextBlock") as TextBlock;
+                    var emptyText = window.FindName("NoMatchingProjectsText") as TextBlock;
+                    var allBtn = window.FindName("SelectAllVisibleButton") as WpfButton;
+                    var activeLinksBtn = window.FindName("SelectActiveAndLinksVisibleButton") as WpfButton;
+                    var noneBtn = window.FindName("SelectNoneVisibleButton") as WpfButton;
+                    Assert.IsNotNull(filterBox);
+                    Assert.IsNotNull(summaryBlock);
+                    Assert.IsNotNull(emptyText);
+                    Assert.IsNotNull(allBtn);
+                    Assert.IsNotNull(activeLinksBtn);
+                    Assert.IsNotNull(noneBtn);
+
+                    filterBox!.Text = "Unit1";
+                    FlushLayout(window);
+                    Assert.AreEqual("2 selected (1 hidden)", summaryBlock!.Text);
+                    Assert.AreEqual(true, masterCheck.IsChecked);
+                    Assert.AreEqual(Visibility.Collapsed, emptyText!.Visibility);
+
+                    // Visible-only None unchecks Unit1 while leaving hidden CoreShell checked
+                    noneBtn!.Command.Execute(null);
+                    FlushLayout(window);
+                    Assert.AreEqual("1 selected (1 hidden)", summaryBlock.Text);
+                    Assert.AreEqual(false, masterCheck.IsChecked);
+
+                    // Visible-only All re-checks Unit1
+                    allBtn!.Command.Execute(null);
+                    FlushLayout(window);
+                    Assert.AreEqual("2 selected (1 hidden)", summaryBlock.Text);
+                    Assert.AreEqual(true, masterCheck.IsChecked);
+
+                    filterBox.Text = "DoesNotMatchAnyProject";
+                    FlushLayout(window);
+                    Assert.AreEqual(Visibility.Visible, emptyText.Visibility);
+                    Assert.IsFalse(masterCheck.IsEnabled);
+
+                    filterBox.Text = string.Empty;
+                    FlushLayout(window);
+                    Assert.AreEqual(Visibility.Collapsed, emptyText.Visibility);
+                    Assert.AreEqual("2 of 4 eligible", summaryBlock.Text);
+                    Assert.IsNull(masterCheck.IsChecked);
+
+                    // Active + Links button keeps CoreShell & Unit1 & Retail checked, Annex unchecked
+                    activeLinksBtn!.Command.Execute(null);
+                    FlushLayout(window);
+                    Assert.AreEqual("3 of 4 eligible", summaryBlock.Text);
+                    Assert.IsNull(masterCheck.IsChecked);
+
+                    MultiModelPdfExportRowViewModel unit1Row = vm.Rows.Single(r => r.DocumentKey == "link-unit1");
+                    Assert.AreEqual("CD Set", unit1Row.SelectedPrintSetName, "Row Print Set selection must survive hide/show filtering.");
+                    WpfComboBox? unit1Combo = FindVisualChildren<WpfComboBox>(window)
+                        .FirstOrDefault(cb => ReferenceEquals(cb.DataContext, unit1Row));
+                    Assert.IsNotNull(unit1Combo);
+                    Assert.AreSame(unit1Row.SelectedPrintSetOption, unit1Combo!.SelectedItem);
+
+                    harness.AssertNoBindingErrors("MultiModelPdfExportWindow bulk/filter/tri-state header");
+                }
+                finally
+                {
+                    window.DataContext = null;
+                    window.Close();
+                }
+            }
+
+            Assert.AreEqual(_initialDocCount, _uiapp.Application.Documents.Size, "Non-executing MultiModelPdfExport smoke test must not open or leak Revit documents.");
+        }
+
+        private static void FlushLayout(Window window)
+        {
+            window.UpdateLayout();
+            Dispatcher.CurrentDispatcher.Invoke(DispatcherPriority.Loaded, new Action(() => { }));
         }
 
         private static IEnumerable<T> FindVisualChildren<T>(DependencyObject root) where T : DependencyObject
