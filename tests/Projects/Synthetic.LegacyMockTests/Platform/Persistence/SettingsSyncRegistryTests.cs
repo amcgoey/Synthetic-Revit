@@ -316,17 +316,17 @@ namespace SyntheticTests.Infrastructure.Persistence
         public void RibbonManager_ResolveActiveVersion_PrioritizesHost_FallsBackToMetadata_AndFailsFast()
         {
             var uiAppWithHost = new UIControlledApplication();
-            uiAppWithHost.ControlledApplication.VersionNumber = "2027";
-            Assert.AreEqual(2027, RibbonManager.ResolveActiveVersion(uiAppWithHost));
+            uiAppWithHost.ControlledApplication.VersionNumber = "2026";
+            Assert.AreEqual(2026, RibbonManager.ResolveActiveVersion(uiAppWithHost));
 
             var uiAppWithoutHost = new UIControlledApplication();
             uiAppWithoutHost.ControlledApplication.VersionNumber = "   ";
-            Assert.AreEqual(2026, RibbonManager.ResolveActiveVersion(uiAppWithoutHost));
-            Assert.AreEqual(2026, RibbonManager.ResolveActiveVersion((UIControlledApplication?)null));
+            Assert.AreEqual(2027, RibbonManager.ResolveActiveVersion(uiAppWithoutHost));
+            Assert.AreEqual(2027, RibbonManager.ResolveActiveVersion((UIControlledApplication?)null));
 
-            Assembly missingMetadata = CreateDynamicAssembly(("OtherKey", "2026"));
+            Assembly missingMetadata = CreateDynamicAssembly(("OtherKey", "2027"));
             Assembly invalidMetadata = CreateDynamicAssembly(("RevitVersion", "invalid"));
-            Assembly twoDigitMetadata = CreateDynamicAssembly(("RevitVersion", "26"));
+            Assembly twoDigitMetadata = CreateDynamicAssembly(("RevitVersion", "27"));
 
             InvalidOperationException missingEx = Assert.Throws<InvalidOperationException>(
                 () => RibbonManager.ResolveActiveVersion((string?)null, missingMetadata))!;
@@ -343,14 +343,14 @@ namespace SyntheticTests.Infrastructure.Persistence
         [Test]
         public void BootstrapApp_EmitsRevitVersionMetadata_PrioritizesHost_FallsBack_AndFailsFastWithDiagnostics()
         {
-            string bootstrapDllPath = FindBootstrap2026AssemblyPath();
+            string bootstrapDllPath = FindBootstrap2027AssemblyPath();
             Assembly bootstrapAssembly = LoadBootstrapAssembly(bootstrapDllPath);
 
             AssemblyMetadataAttribute? metadata = bootstrapAssembly
                 .GetCustomAttributes<AssemblyMetadataAttribute>()
                 .FirstOrDefault(attr => string.Equals(attr.Key, "RevitVersion", StringComparison.Ordinal));
-            Assert.IsNotNull(metadata, "Synthetic.Bootstrap2026 must emit [AssemblyMetadata(\"RevitVersion\", \"2026\")].");
-            Assert.AreEqual("2026", metadata!.Value);
+            Assert.IsNotNull(metadata, "Synthetic.Bootstrap2027 must emit [AssemblyMetadata(\"RevitVersion\", \"2027\")].");
+            Assert.AreEqual("2027", metadata!.Value);
 
             Type bootstrapAppType = bootstrapAssembly.GetType("Synthetic.Bootstrap.BootstrapApp", throwOnError: true)!;
             Type hooksType = bootstrapAssembly.GetType("Synthetic.Bootstrap.ShadowCacheHooks", throwOnError: true)!;
@@ -375,7 +375,7 @@ namespace SyntheticTests.Infrastructure.Persistence
                 File.WriteAllText(Path.Combine(payload2026Dir, "Synthetic2026.dll"), "payload-2026");
                 File.WriteAllText(Path.Combine(payload2027Dir, "Synthetic2027.dll"), "payload-2027");
 
-                string fakeBootstrapPath = Path.Combine(tempRoot, "Bootstrap", "v1", "Synthetic.Bootstrap2026.dll");
+                string fakeBootstrapPath = Path.Combine(tempRoot, "Bootstrap", "v1", "Synthetic.Bootstrap2027.dll");
                 Directory.CreateDirectory(Path.GetDirectoryName(fakeBootstrapPath)!);
 
                 object CreateHooks(string? payloadOverride = null)
@@ -394,22 +394,22 @@ namespace SyntheticTests.Infrastructure.Persistence
                     return hooks;
                 }
 
-                // 1. Live host version takes priority over compiled metadata ("2027" wins over "2026")
-                object?[] liveHostArgs = { "2027", bootstrapAssembly, fakeBootstrapPath, null, CreateHooks() };
+                // 1. Live host version takes priority over compiled metadata ("2026" wins over "2027")
+                object?[] liveHostArgs = { "2026", bootstrapAssembly, fakeBootstrapPath, null, CreateHooks() };
                 object livePlan = prepareHostLaunch.Invoke(null, liveHostArgs)!;
-                Assert.AreEqual("2027", liveHostArgs[3]);
+                Assert.AreEqual("2026", liveHostArgs[3]);
                 Assert.AreEqual("ShadowCopy", launchPlanType.GetProperty("Mode")!.GetValue(livePlan)!.ToString());
-                StringAssert.EndsWith("Synthetic2027.dll", (string)launchPlanType.GetProperty("TargetAssemblyPath")!.GetValue(livePlan)!);
+                StringAssert.EndsWith("Synthetic2026.dll", (string)launchPlanType.GetProperty("TargetAssemblyPath")!.GetValue(livePlan)!);
 
-                // 2. Missing host version falls back cleanly to assembly metadata ("2026")
+                // 2. Missing host version falls back cleanly to assembly metadata ("2027")
                 object?[] fallbackArgs = { null, bootstrapAssembly, fakeBootstrapPath, null, CreateHooks() };
                 object fallbackPlan = prepareHostLaunch.Invoke(null, fallbackArgs)!;
-                Assert.AreEqual("2026", fallbackArgs[3]);
+                Assert.AreEqual("2027", fallbackArgs[3]);
                 Assert.AreEqual("ShadowCopy", launchPlanType.GetProperty("Mode")!.GetValue(fallbackPlan)!.ToString());
-                StringAssert.EndsWith("Synthetic2026.dll", (string)launchPlanType.GetProperty("TargetAssemblyPath")!.GetValue(fallbackPlan)!);
+                StringAssert.EndsWith("Synthetic2027.dll", (string)launchPlanType.GetProperty("TargetAssemblyPath")!.GetValue(fallbackPlan)!);
 
-                // 3. Missing or unparseable metadata returns Failed LaunchPlan with diagnostics (no silent 2026 fallback)
-                Assembly missingMetaAsm = CreateDynamicAssembly(("Other", "2026"));
+                // 3. Missing or unparseable metadata returns Failed LaunchPlan with diagnostics (no silent version fallback)
+                Assembly missingMetaAsm = CreateDynamicAssembly(("Other", "2027"));
                 Assembly badMetaAsm = CreateDynamicAssembly(("RevitVersion", "bad-year"));
 
                 foreach (Assembly brokenAsm in new[] { missingMetaAsm, badMetaAsm })
@@ -429,7 +429,7 @@ namespace SyntheticTests.Infrastructure.Persistence
                 var uiApp = new UIControlledApplication();
                 uiApp.ControlledApplication.VersionNumber = string.Empty;
 
-                // Synthetic.Bootstrap2026 compiles against real RevitAPIUI.dll where Result.Failed == -1
+                // Synthetic.Bootstrap2027 compiles against real RevitAPIUI.dll where Result.Failed == -1
                 // (whereas RevitAPIUIMock defines Succeeded = -1, Failed = 0).
                 int startupResultCode = Convert.ToInt32(onStartupCore.Invoke(
                     bootstrapInstance,
@@ -467,7 +467,7 @@ namespace SyntheticTests.Infrastructure.Persistence
         {
             foreach (Assembly loaded in AssemblyLoadContext.Default.Assemblies)
             {
-                if (string.Equals(loaded.GetName().Name, "Synthetic.Bootstrap2026", StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(loaded.GetName().Name, "Synthetic.Bootstrap2027", StringComparison.OrdinalIgnoreCase))
                 {
                     return loaded;
                 }
@@ -476,7 +476,7 @@ namespace SyntheticTests.Infrastructure.Persistence
             return AssemblyLoadContext.Default.LoadFromAssemblyPath(bootstrapDllPath);
         }
 
-        private static string FindBootstrap2026AssemblyPath()
+        private static string FindBootstrap2027AssemblyPath()
         {
             string testDir = Path.GetDirectoryName(typeof(SettingsSyncRegistryTests).Assembly.Location)!;
             string dirName = Path.GetFileName(testDir);
@@ -486,8 +486,8 @@ namespace SyntheticTests.Infrastructure.Persistence
                 string isolatedCandidate = Path.GetFullPath(Path.Combine(
                     testDir,
                     "..",
-                    $"Synthetic.Bootstrap2026_{runSuffix}",
-                    "Synthetic.Bootstrap2026.dll"));
+                    $"Synthetic.Bootstrap2027_{runSuffix}",
+                    "Synthetic.Bootstrap2027.dll"));
                 if (File.Exists(isolatedCandidate))
                 {
                     return isolatedCandidate;
@@ -501,14 +501,14 @@ namespace SyntheticTests.Infrastructure.Persistence
                 "Synthetic",
                 "Bootstrap",
                 "v1",
-                "Synthetic.Bootstrap2026.dll");
+                "Synthetic.Bootstrap2027.dll");
             if (File.Exists(standardCandidate))
             {
                 return standardCandidate;
             }
 
             throw new FileNotFoundException(
-                $"Could not locate compiled Synthetic.Bootstrap2026.dll near '{testDir}' or '{standardCandidate}'.");
+                $"Could not locate compiled Synthetic.Bootstrap2027.dll near '{testDir}' or '{standardCandidate}'.");
         }
 
         private static Assembly CreateDynamicAssembly(params (string Key, string Value)[] metadataEntries)

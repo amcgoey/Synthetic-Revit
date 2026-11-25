@@ -477,7 +477,8 @@ namespace Autodesk.Revit.DB
         Section = 18,
         ThreeD = 19,
         Walkthrough = 20,
-        Undefined = 21
+        Undefined = 21,
+        PressureLossReport = 22
     }
 
     public enum DisplayStyle
