@@ -27,8 +27,8 @@ class TestAddinManifestGeneration(unittest.TestCase):
         source_csproj = os.path.join(
             REPO_ROOT,
             "src",
-            f"Synthetic{revit_version if int(revit_version) <= 2026 else '2026'}",
-            f"Synthetic{revit_version if int(revit_version) <= 2026 else '2026'}.csproj",
+            f"Synthetic{revit_version}",
+            f"Synthetic{revit_version}.csproj",
         )
         cmd = [
             self.dotnet,

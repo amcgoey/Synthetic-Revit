@@ -1,0 +1,11 @@
+{
+  "profiles": {
+    "Synthetic2027": {
+      "commandName": "Project"
+    },
+    "Synthetic2027Executable": {
+      "commandName": "Executable",
+      "executablePath": "C:\\Program Files\\Autodesk\\Revit 2027\\Revit.exe"
+    }
+  }
+}

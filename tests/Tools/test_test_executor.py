@@ -989,10 +989,11 @@ class TestBuildOutputsAndPayloadStaging(unittest.TestCase):
     def test_core_and_payload_outputs_zero_excel_pia_and_flat_payload_staging(self):
         with tempfile.TemporaryDirectory() as iso_root:
             core_csproj = os.path.join(REPO_ROOT, "src", "Synthetic.Core", "Synthetic.Core.csproj")
-            payload_csproj = os.path.join(REPO_ROOT, "src", "Synthetic2026", "Synthetic2026.csproj")
+            payload_2026_csproj = os.path.join(REPO_ROOT, "src", "Synthetic2026", "Synthetic2026.csproj")
+            payload_2027_csproj = os.path.join(REPO_ROOT, "src", "Synthetic2027", "Synthetic2027.csproj")
             run_id = "tooltest"
 
-            for csproj in (core_csproj, payload_csproj):
+            for csproj in (core_csproj, payload_2026_csproj, payload_2027_csproj):
                 cmd = [
                     self.dotnet,
                     "build",
@@ -1017,13 +1018,15 @@ class TestBuildOutputsAndPayloadStaging(unittest.TestCase):
                 self.assertFalse(os.path.exists(os.path.join(tfm_dir, "SyntheticSettings.template.json")))
                 self.assertFalse(os.path.exists(os.path.join(tfm_dir, "SyntheticWorksets.xlsx")))
 
-            payload_bin = os.path.join(iso_root, "bin", f"Synthetic2026_{run_id}")
-            self.assertTrue(os.path.isfile(os.path.join(payload_bin, "Synthetic2026.dll")))
-            self.assertTrue(os.path.isfile(os.path.join(payload_bin, "Synthetic.Core.dll")))
-            self.assertTrue(os.path.isfile(os.path.join(payload_bin, "Assets", "ribbon_config.json")))
-            self.assertTrue(os.path.isfile(os.path.join(payload_bin, "SyntheticSettings.template.json")))
-            self.assertTrue(os.path.isfile(os.path.join(payload_bin, "SyntheticWorksets.xlsx")))
-            self.assertFalse(os.path.exists(os.path.join(payload_bin, "Microsoft.Office.Interop.Excel.dll")))
+            for year in ("2026", "2027"):
+                payload_bin = os.path.join(iso_root, "bin", f"Synthetic{year}_{run_id}")
+                self.assertTrue(os.path.isfile(os.path.join(payload_bin, f"Synthetic{year}.dll")))
+                self.assertTrue(os.path.isfile(os.path.join(payload_bin, "Synthetic.Core.dll")))
+                self.assertTrue(os.path.isfile(os.path.join(payload_bin, "Newtonsoft.Json.dll")))
+                self.assertTrue(os.path.isfile(os.path.join(payload_bin, "Assets", "ribbon_config.json")))
+                self.assertTrue(os.path.isfile(os.path.join(payload_bin, "SyntheticSettings.template.json")))
+                self.assertTrue(os.path.isfile(os.path.join(payload_bin, "SyntheticWorksets.xlsx")))
+                self.assertFalse(os.path.exists(os.path.join(payload_bin, "Microsoft.Office.Interop.Excel.dll")))
 
 
 class TestLegacyProgramDataManifestCheck(unittest.TestCase):

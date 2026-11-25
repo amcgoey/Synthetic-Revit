@@ -59,7 +59,7 @@ namespace SyntheticTests.Architecture
             };
 
             CollectionAssert.AreEquivalent(expectedNames, values.Select(v => v.ToString()).ToList());
-            Assert.GreaterOrEqual(Snapshot.CurrentLatestVersion, 2026);
+            Assert.GreaterOrEqual(Snapshot.CurrentLatestVersion, 2027);
             Assert.IsNotEmpty(Snapshot.SourceFiles);
         }
 

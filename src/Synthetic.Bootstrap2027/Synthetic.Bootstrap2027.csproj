@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows8.0</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <IsBootstrapProject>true</IsBootstrapProject>
+    <RevitVersion>2027</RevitVersion>
+    <AssemblyName>Synthetic.Bootstrap2027</AssemblyName>
+    <RootNamespace>Synthetic.Bootstrap</RootNamespace>
+    <DefineConstants>$(DefineConstants);REVIT2027</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Revit_All_Main_Versions_API_x64" Version="2027.2.0">
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Include="..\Synthetic.Bootstrap\*.cs" Link="%(Filename)%(Extension)" />
+  </ItemGroup>
+
+</Project>

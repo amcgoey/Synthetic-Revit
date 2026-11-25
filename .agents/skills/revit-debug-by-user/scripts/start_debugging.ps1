@@ -17,7 +17,7 @@ if ([string]::IsNullOrEmpty($targetVersion)) {
 }
 
 if ([string]::IsNullOrEmpty($targetVersion)) {
-    $targetVersion = "2026"  # fallback default
+    $targetVersion = "2027"  # fallback default
 }
 
 Write-Host "Target Revit version: $targetVersion"
