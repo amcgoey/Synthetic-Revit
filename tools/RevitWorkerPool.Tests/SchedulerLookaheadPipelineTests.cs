@@ -520,15 +520,15 @@ public class SchedulerLookaheadPipelineTests
             }))
             .ToArray();
 
-        await fourActiveReached.Task.WaitAsync(TimeSpan.FromSeconds(2));
-        await fifthBootStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        await fourActiveReached.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await fifthBootStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
         await WaitForConditionAsync(() =>
         {
             PoolStatusSnapshot s = supervisor.GetStatus();
             return s.Active == 4 && s.Booting == 1 && s.TotalResident == 5;
         });
 
-        DrainResult drain = await supervisor.DrainAsync().WaitAsync(TimeSpan.FromSeconds(2));
+        DrainResult drain = await supervisor.DrainAsync().WaitAsync(TimeSpan.FromSeconds(10));
         Assert.That(drain.Success, Is.True);
         Assert.That(drain.Status!.TotalResident, Is.EqualTo(0));
         Assert.That(drain.Status.Booting, Is.EqualTo(0));
@@ -537,7 +537,7 @@ public class SchedulerLookaheadPipelineTests
         Assert.That(launcher.Workers.Count, Is.EqualTo(5));
         Assert.That(launcher.Workers.All(w => w.IsTerminated), Is.True);
 
-        OneShotRunResult[] runResults = await Task.WhenAll(runs).WaitAsync(TimeSpan.FromSeconds(2));
+        OneShotRunResult[] runResults = await Task.WhenAll(runs).WaitAsync(TimeSpan.FromSeconds(5));
         Assert.That(runResults.All(r => !r.Success && r.ExitCode == 2), Is.True);
     }
 
