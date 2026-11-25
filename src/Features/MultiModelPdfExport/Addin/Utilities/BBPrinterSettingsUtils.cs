@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Text;
 using Microsoft.Win32;
 
-namespace Synthetic.Features.BatchPrint.Utilities
+namespace Synthetic.Features.MultiModelPdfExport.Utilities
 {
     /// <summary>
     /// Utilities for setting BlueBeam Printer settings

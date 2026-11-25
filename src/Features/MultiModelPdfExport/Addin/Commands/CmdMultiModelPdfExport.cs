@@ -1,7 +1,7 @@
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
-using Synthetic.Features.BatchPrint.Utilities;
+using Synthetic.Features.MultiModelPdfExport.Utilities;
 
 using System;
 using System.Collections.Generic;
@@ -11,13 +11,13 @@ using Autodesk.Revit.DB.Events;
 
 using Synthetic.Platform.UI;
 
-namespace Synthetic.Features.BatchPrint.Commands
+namespace Synthetic.Features.MultiModelPdfExport.Commands
 {
     /// <summary>
-    /// Converts Drafting Views to Legends
+    /// Exports selected Print Sets across multiple Revit documents.
     /// </summary>
     [Transaction(TransactionMode.Manual)]
-    public class PrintBatchMultiDoc : IExternalCommand
+    public class CmdMultiModelPdfExport : IExternalCommand
     {
         /// <summary>
         /// Execute a Revit Command
