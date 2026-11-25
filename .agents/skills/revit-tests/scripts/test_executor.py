@@ -41,58 +41,97 @@ STARTUP_FAILURE_WINDOW_TEXT_MARKERS = (
 LEGACY_MANIFEST_EXPECTED_CLASS = "Synthetic.Bootstrap.BootstrapApp"
 
 
-def check_legacy_programdata_manifest(version, program_data=None):
+def _parse_revit_major_version(version):
+    """Parse a Revit version value into an integer year, or None if non-numeric."""
+    try:
+        return int(str(version).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _resolve_program_files_root(program_files=None, env=None):
+    """Resolve 64-bit Program Files root, preferring ProgramW6432 before ProgramFiles."""
+    if program_files is not None:
+        return program_files
+    env_map = os.environ if env is None else env
+    return env_map.get("ProgramW6432") or env_map.get("ProgramFiles") or r"C:\Program Files"
+
+
+def _resolve_program_data_root(program_data=None, env=None):
+    """Resolve ProgramData root from explicit override or environment."""
+    if program_data is not None:
+        return program_data
+    env_map = os.environ if env is None else env
+    return env_map.get("ProgramData") or r"C:\ProgramData"
+
+
+def check_legacy_programdata_manifest(version, program_data=None, program_files=None, env=None):
     """
-    Read-only preflight check for legacy machine-wide %ProgramData% Synthetic*.addin manifests.
+    Read-only preflight check for legacy machine-wide Synthetic*.addin manifests.
+    For Revit 2027+, inspects Program Files (primary) and ProgramData (secondary);
+    for Revit 2023-2026, inspects ProgramData.
     Warns if any <FullClassName> entry differs from Synthetic.Bootstrap.BootstrapApp due to shadow-loading risk.
     """
-    resolved_pd = (
-        program_data
-        if program_data is not None
-        else (os.environ.get("ProgramData") or r"C:\ProgramData")
-    )
-    if not resolved_pd:
-        return []
+    ver_str = str(version)
+    ver_num = _parse_revit_major_version(ver_str)
+    resolved_pf = _resolve_program_files_root(program_files=program_files, env=env)
+    resolved_pd = _resolve_program_data_root(program_data=program_data, env=env)
 
-    addins_dir = os.path.join(resolved_pd, "Autodesk", "Revit", "Addins", str(version))
-    if not os.path.isdir(addins_dir):
-        return []
+    candidate_roots = []
+    if ver_num is not None and ver_num >= 2027:
+        if resolved_pf:
+            candidate_roots.append(("Program Files", resolved_pf))
+        if resolved_pd:
+            candidate_roots.append(("ProgramData", resolved_pd))
+    else:
+        if resolved_pd:
+            candidate_roots.append(("ProgramData", resolved_pd))
 
     flagged = []
-    try:
-        entries = sorted(os.listdir(addins_dir))
-    except OSError:
-        return []
+    seen_dirs = set()
+    for root_label, root_dir in candidate_roots:
+        addins_dir = os.path.join(root_dir, "Autodesk", "Revit", "Addins", ver_str)
+        norm_dir = os.path.normcase(os.path.abspath(addins_dir))
+        if norm_dir in seen_dirs:
+            continue
+        seen_dirs.add(norm_dir)
+        if not os.path.isdir(addins_dir):
+            continue
 
-    for entry in entries:
-        lower = entry.lower()
-        if not (lower.startswith("synthetic") and lower.endswith(".addin")):
-            continue
-        manifest_path = os.path.join(addins_dir, entry)
-        if not os.path.isfile(manifest_path):
-            continue
         try:
-            tree = ET.parse(manifest_path)
-            root = tree.getroot()
-        except (ET.ParseError, OSError) as exc:
-            print(f"[WARN] Could not parse ProgramData manifest '{manifest_path}': {exc}")
+            entries = sorted(os.listdir(addins_dir))
+        except OSError:
             continue
 
-        full_classes = [
-            (elem.text or "").strip()
-            for elem in root.iter()
-            if elem.tag.split("}")[-1] == "FullClassName"
-        ]
-        legacy_classes = [fc for fc in full_classes if fc != LEGACY_MANIFEST_EXPECTED_CLASS]
-        if legacy_classes:
-            flagged.append(manifest_path)
-            classes_desc = ", ".join(legacy_classes)
-            print(
-                f"[WARN] Legacy machine-wide manifest detected for Revit {version} at '{manifest_path}' "
-                f"(FullClassName={classes_desc}; expected {LEGACY_MANIFEST_EXPECTED_CLASS}). "
-                "Risk of shadow-loading stale binaries alongside %APPDATA% Debug Manifest "
-                "(read-only warning; file left untouched)."
-            )
+        for entry in entries:
+            lower = entry.lower()
+            if not (lower.startswith("synthetic") and lower.endswith(".addin")):
+                continue
+            manifest_path = os.path.join(addins_dir, entry)
+            if not os.path.isfile(manifest_path):
+                continue
+            try:
+                tree = ET.parse(manifest_path)
+                root = tree.getroot()
+            except (ET.ParseError, OSError) as exc:
+                print(f"[WARN] Could not parse {root_label} manifest '{manifest_path}': {exc}")
+                continue
+
+            full_classes = [
+                (elem.text or "").strip()
+                for elem in root.iter()
+                if elem.tag.split("}")[-1] == "FullClassName"
+            ]
+            legacy_classes = [fc for fc in full_classes if fc != LEGACY_MANIFEST_EXPECTED_CLASS]
+            if legacy_classes:
+                flagged.append(manifest_path)
+                classes_desc = ", ".join(legacy_classes)
+                print(
+                    f"[WARN] Legacy machine-wide manifest detected for Revit {version} at '{manifest_path}' "
+                    f"(FullClassName={classes_desc}; expected {LEGACY_MANIFEST_EXPECTED_CLASS}). "
+                    "Risk of shadow-loading stale binaries alongside %APPDATA% Debug Manifest "
+                    "(read-only warning; file left untouched)."
+                )
 
     return flagged
 
@@ -151,7 +190,7 @@ def find_ricaun_testadapter_dll(search_dirs=None, env=None):
     if not os.path.isdir(pkg_dir):
         return None
 
-    tfm_priority = {"net8.0": 3, "net6.0": 2, "net45": 1}
+    tfm_priority = {"net10.0": 4, "net8.0": 3, "net6.0": 2, "net45": 1}
     candidates = []
     for root, _, files in os.walk(pkg_dir):
         if "ricaun.RevitTest.TestAdapter.dll" in files:
@@ -2533,7 +2572,7 @@ def parse_cli_args(argv=None):
         "--version",
         dest="target_version",
         default="",
-        help="Revit version to target (e.g. 2026 or Logic). Omit to run all.",
+        help="Revit version to target (e.g. 2027, 2026, or Logic). Omit to run all.",
     )
     parser.add_argument(
         "--category",

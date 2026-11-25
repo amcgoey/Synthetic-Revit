@@ -665,6 +665,45 @@ class TestRecursiveWhitelistingAndAddinSafety(unittest.TestCase):
             self.assertIn(expected.lower(), added)
         self.assertEqual(fake_reg.deleted_calls, [])
 
+    def test_whitelisting_scans_program_files_application_plugins_and_prefers_programw6432(self):
+        pf32 = os.path.join(self.tmp.name, "ProgramFilesX86")
+        pf64 = os.path.join(self.tmp.name, "ProgramFiles64")
+        g_pf_pkg = "77777777-7777-7777-7777-777777777777"
+        g_pf_pkg_addin = "88888888-8888-8888-8888-888888888888"
+        g_pf32_decoy = "99999999-9999-9999-9999-999999999999"
+
+        self._write_text(
+            os.path.join(pf64, "Autodesk", "ApplicationPlugins", "Machine2027.bundle", "PackageContents.xml"),
+            f'<ApplicationPackage ProductCode="{{{g_pf_pkg}}}" />',
+        )
+        self._write_text(
+            os.path.join(pf64, "Autodesk", "ApplicationPlugins", "Machine2027.bundle", "Contents", "Plugin2027.addin"),
+            f"<RevitAddIns><AddIn><ClientId>{g_pf_pkg_addin}</ClientId></AddIn></RevitAddIns>",
+        )
+        self._write_text(
+            os.path.join(pf32, "Autodesk", "ApplicationPlugins", "Decoy.bundle", "PackageContents.xml"),
+            f'<ApplicationPackage ProductCode="{g_pf32_decoy}" />',
+        )
+
+        env = {
+            "ProgramW6432": pf64,
+            "ProgramFiles": pf32,
+            "ProgramData": self.pd,
+            "AppData": self.ad,
+        }
+        _, bundle_paths = gw.get_bundle_and_addin_paths("2027", env=env)
+        self.assertIn(os.path.join(pf64, "Autodesk", "ApplicationPlugins"), bundle_paths)
+
+        fake_reg = _FakeWinReg()
+        added = gw.whitelist_existing_addins("2027", env=env, reg_module=fake_reg)
+
+        key_path = r"Software\Autodesk\Revit\Autodesk Revit 2027\CodeSigning"
+        for expected in (g_pf_pkg, g_pf_pkg_addin):
+            self.assertEqual(fake_reg.store.get((key_path, expected.lower())), 1)
+            self.assertEqual(fake_reg.store.get((key_path, expected.upper())), 1)
+            self.assertIn(expected.lower(), added)
+        self.assertIsNone(fake_reg.store.get((key_path, g_pf32_decoy.lower())))
+
     def test_addins_settings_never_mutated_and_startup_bak_self_heals(self):
         self.assertFalse(hasattr(te, "TempConfigureRevitAddins"))
         self.assertFalse(hasattr(te.TempDisableThirdPartyAddins, "disable_addins"))
@@ -800,6 +839,30 @@ class TestRicaunBundleLeaseAndWorkerHardening(unittest.TestCase):
         # PackageContents.xml is now unlocked and deletable.
         os.remove(lease.package_contents_path)
         self.assertFalse(os.path.exists(lease.package_contents_path))
+
+    def test_find_ricaun_testadapter_dll_prioritizes_net10_above_net8_net6_net45(self):
+        nuget_root = os.path.join(self.root, "nuget_pkgs")
+        pkg_lib = os.path.join(nuget_root, "ricaun.revittest.testadapter", "1.12.0", "lib")
+        dll_by_tfm = {}
+        for tfm in ("net45", "net6.0", "net8.0", "net10.0"):
+            tfm_dir = os.path.join(pkg_lib, tfm)
+            os.makedirs(tfm_dir, exist_ok=True)
+            dll_path = os.path.join(tfm_dir, "ricaun.RevitTest.TestAdapter.dll")
+            with open(dll_path, "wb") as f:
+                f.write(tfm.encode("ascii"))
+            dll_by_tfm[tfm] = dll_path
+
+        env = {"NUGET_PACKAGES": nuget_root}
+        self.assertEqual(te.find_ricaun_testadapter_dll(env=env), dll_by_tfm["net10.0"])
+
+        os.remove(dll_by_tfm["net10.0"])
+        self.assertEqual(te.find_ricaun_testadapter_dll(env=env), dll_by_tfm["net8.0"])
+
+        os.remove(dll_by_tfm["net8.0"])
+        self.assertEqual(te.find_ricaun_testadapter_dll(env=env), dll_by_tfm["net6.0"])
+
+        os.remove(dll_by_tfm["net6.0"])
+        self.assertEqual(te.find_ricaun_testadapter_dll(env=env), dll_by_tfm["net45"])
 
     def test_worker_env_timeout_tree_kill_and_temp_cleanup(self):
         env = te.build_worker_env(r"C:\repo", "run_123", base_env={"PATH": "X"})
@@ -1031,6 +1094,99 @@ class TestLegacyProgramDataManifestCheck(unittest.TestCase):
         self.assertTrue(os.path.isfile(bootstrap_path))
         with open(bootstrap_path, "r", encoding="utf-8") as f:
             self.assertEqual(f.read(), legacy_content)
+
+    def test_2027_preflight_checks_program_files_primary_and_programdata_secondary_read_only(self):
+        import contextlib
+
+        programfiles = os.path.join(self.tmp.name, "ProgramFiles")
+
+        def write_addin_at(root_dir, version, filename, full_class_name):
+            addins_dir = os.path.join(root_dir, "Autodesk", "Revit", "Addins", str(version))
+            os.makedirs(addins_dir, exist_ok=True)
+            path = os.path.join(addins_dir, filename)
+            content = (
+                '<?xml version="1.0" encoding="utf-8"?>\n'
+                "<RevitAddIns>\n"
+                '  <AddIn Type="Application">\n'
+                "    <Name>Synthetic</Name>\n"
+                f"    <FullClassName>{full_class_name}</FullClassName>\n"
+                "  </AddIn>\n"
+                "</RevitAddIns>\n"
+            )
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(content)
+            return path, content
+
+        pf_2027, pf_2027_content = write_addin_at(programfiles, "2027", "Synthetic2027.addin", "Synthetic.Core.App")
+        pd_2027, pd_2027_content = write_addin_at(self.programdata, "2027", "Synthetic2027.addin", "Synthetic.Legacy.App")
+        pf_2026, _ = write_addin_at(programfiles, "2026", "Synthetic2026.addin", "Synthetic.Core.App")
+
+        # 2027+: Program Files is checked as primary, ProgramData as secondary; neither is mutated
+        buf_2027 = io.StringIO()
+        with contextlib.redirect_stdout(buf_2027):
+            flagged_2027 = te.check_legacy_programdata_manifest(
+                "2027",
+                program_data=self.programdata,
+                program_files=programfiles,
+            )
+        self.assertEqual(flagged_2027, [pf_2027, pd_2027])
+        self.assertIn(pf_2027, buf_2027.getvalue())
+        self.assertIn(pd_2027, buf_2027.getvalue())
+        with open(pf_2027, "r", encoding="utf-8") as f:
+            self.assertEqual(f.read(), pf_2027_content)
+        with open(pd_2027, "r", encoding="utf-8") as f:
+            self.assertEqual(f.read(), pd_2027_content)
+
+        # Clean primary + legacy secondary -> only secondary flagged
+        write_addin_at(programfiles, "2027", "Synthetic2027.addin", "Synthetic.Bootstrap.BootstrapApp")
+        flagged_secondary_only = te.check_legacy_programdata_manifest(
+            "2027",
+            program_data=self.programdata,
+            program_files=programfiles,
+        )
+        self.assertEqual(flagged_secondary_only, [pd_2027])
+
+        # 2023-2026 retains ProgramData-only behavior (ignores Program Files)
+        flagged_2026 = te.check_legacy_programdata_manifest(
+            "2026",
+            program_data=self.programdata,
+            program_files=programfiles,
+        )
+        self.assertEqual(flagged_2026, [])
+        self.assertTrue(os.path.isfile(pf_2026))
+
+    def test_2027_preflight_prefers_programw6432_before_programfiles(self):
+        import contextlib
+
+        pf64 = os.path.join(self.tmp.name, "ProgramW6432")
+        pf32 = os.path.join(self.tmp.name, "ProgramFiles32")
+        pd = os.path.join(self.tmp.name, "ProgramDataEnv")
+
+        for root_dir, cls_name in ((pf64, "Synthetic.Legacy64"), (pf32, "Synthetic.Legacy32")):
+            addins_dir = os.path.join(root_dir, "Autodesk", "Revit", "Addins", "2027")
+            os.makedirs(addins_dir, exist_ok=True)
+            with open(os.path.join(addins_dir, "Synthetic2027.addin"), "w", encoding="utf-8") as f:
+                f.write(f"<RevitAddIns><AddIn><FullClassName>{cls_name}</FullClassName></AddIn></RevitAddIns>")
+
+        expected_pf64 = os.path.join(pf64, "Autodesk", "Revit", "Addins", "2027", "Synthetic2027.addin")
+        expected_pf32 = os.path.join(pf32, "Autodesk", "Revit", "Addins", "2027", "Synthetic2027.addin")
+
+        buf_64 = io.StringIO()
+        with contextlib.redirect_stdout(buf_64):
+            flagged_64 = te.check_legacy_programdata_manifest(
+                "2027",
+                env={"ProgramW6432": pf64, "ProgramFiles": pf32, "ProgramData": pd},
+            )
+        self.assertEqual(flagged_64, [expected_pf64])
+
+        # Fallback to ProgramFiles when ProgramW6432 is absent
+        buf_32 = io.StringIO()
+        with contextlib.redirect_stdout(buf_32):
+            flagged_32 = te.check_legacy_programdata_manifest(
+                "2027",
+                env={"ProgramFiles": pf32, "ProgramData": pd},
+            )
+        self.assertEqual(flagged_32, [expected_pf32])
 
 
 class TestRevitStartupGate(unittest.TestCase):
@@ -1819,6 +1975,18 @@ namespace SyntheticTests.Platform.Host
             )
             self.assertNotEqual(res.returncode, 0, msg=f"Expected failure for --shards {bad_shards}")
             self.assertIn("--shards", res.stderr + res.stdout)
+
+    def test_cli_help_cites_2027_and_net10_windows8(self):
+        res = subprocess.run(
+            [sys.executable, SCRIPT_PATH, "--help"],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(res.returncode, 0, msg=res.stderr)
+        help_text = res.stdout
+        self.assertIn("2027", help_text)
+        self.assertIn("net10.0-windows8.0", help_text)
 
     def test_build_worker_pool_run_command_for_exe_and_py(self):
         exe_cmd = te.build_worker_pool_run_command(
