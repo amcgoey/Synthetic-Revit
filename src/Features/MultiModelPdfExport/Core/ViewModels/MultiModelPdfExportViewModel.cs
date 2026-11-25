@@ -27,6 +27,7 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
     {
         private readonly IMultiModelPdfExportAdapter _adapter;
         private readonly IFolderDialogService _folderDialogService;
+        private readonly MultiModelPdfExportUserPrefsStore? _userPrefsStore;
         private readonly ObservableCollection<MultiModelPdfExportRowViewModel> _rows =
             new ObservableCollection<MultiModelPdfExportRowViewModel>();
         private readonly ObservableCollection<MultiModelPdfExportRowViewModel> _visibleRows =
@@ -63,6 +64,7 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
         private MultiModelPdfBulkFeedbackKind _bulkFeedbackKind = MultiModelPdfBulkFeedbackKind.None;
         private string _bulkFeedbackMessage = string.Empty;
         private bool _showUncheckUnmatchedButton;
+        private string? _lastAppliedBulkPrintSetName;
 
         /// <summary>
         /// Raised when the modal dialog should close (<c>true</c> = Export confirmed, <c>false</c> = Cancelled).
@@ -75,10 +77,12 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
         public MultiModelPdfExportViewModel(
             IMultiModelPdfExportAdapter adapter,
             IFolderDialogService folderDialogService,
-            string? initialOutputFolder = null)
+            string? initialOutputFolder = null,
+            MultiModelPdfExportUserPrefsStore? userPrefsStore = null)
         {
             _adapter = adapter ?? throw new ArgumentNullException(nameof(adapter));
             _folderDialogService = folderDialogService ?? throw new ArgumentNullException(nameof(folderDialogService));
+            _userPrefsStore = userPrefsStore;
 
             MultiModelPdfSessionSnapshot snapshot = _adapter.CaptureSessionSnapshot()
                 ?? new MultiModelPdfSessionSnapshot(string.Empty);
@@ -116,6 +120,8 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
             }
 
             _selectedBulkPrintSetOption = _bulkPrintSetOptions.FirstOrDefault();
+
+            LoadUserPrefs();
 
             ApplyBulkPrintSetCommand = new RelayCommand(ExecuteApplyBulkPrintSet, CanExecuteApplyBulkPrintSet);
             UncheckUnmatchedProjectsCommand = new RelayCommand(_ => ExecuteUncheckUnmatchedProjects(), _ => ShowUncheckUnmatchedButton);
@@ -513,6 +519,7 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
             }
 
             string displaySetName = matchingOption?.Name ?? requestedName!;
+            _lastAppliedBulkPrintSetName = displaySetName;
 
             int totalCheckedEligible = 0;
             int matchedChecked = 0;
@@ -748,7 +755,114 @@ namespace Synthetic.Features.MultiModelPdfExport.ViewModels
                 return;
             }
 
+            SaveUserPrefs();
             RequestClose?.Invoke(true);
+        }
+
+        private void LoadUserPrefs()
+        {
+            if (_userPrefsStore == null)
+            {
+                return;
+            }
+
+            MultiModelPdfExportUserPrefs prefs = _userPrefsStore.Load();
+
+            if (string.IsNullOrWhiteSpace(_outputFolder) && !string.IsNullOrWhiteSpace(prefs.LastOutputFolder))
+            {
+                _outputFolder = prefs.LastOutputFolder.Trim();
+            }
+
+            if (Enum.IsDefined(typeof(MultiModelPdfFileMode), prefs.FileMode))
+            {
+                _fileMode = prefs.FileMode;
+            }
+
+            if (!string.IsNullOrWhiteSpace(prefs.PdfSetupName))
+            {
+                string targetSetupName = prefs.PdfSetupName.Trim();
+                MultiModelPdfSetupOption? matchedSetup = _pdfSetups.FirstOrDefault(s =>
+                    string.Equals(s.DisplayName, targetSetupName, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(s.Id, targetSetupName, StringComparison.OrdinalIgnoreCase));
+                if (matchedSetup != null)
+                {
+                    _selectedPdfSetup = matchedSetup;
+                }
+            }
+
+            if (!string.IsNullOrWhiteSpace(prefs.LastBulkPrintSetName))
+            {
+                string targetPrintSetName = prefs.LastBulkPrintSetName.Trim();
+                _lastAppliedBulkPrintSetName = targetPrintSetName;
+
+                MultiModelPdfBulkPrintSetOption? matchedBulkOption = _bulkPrintSetOptions.FirstOrDefault(
+                    o => string.Equals(o.Name, targetPrintSetName, StringComparison.OrdinalIgnoreCase));
+                if (matchedBulkOption != null)
+                {
+                    _selectedBulkPrintSetOption = matchedBulkOption;
+                }
+
+                foreach (MultiModelPdfExportRowViewModel row in _rows)
+                {
+                    if (!row.IsEligible)
+                    {
+                        continue;
+                    }
+
+                    MultiModelPdfPrintSetChoice? matchedChoice = row.PrintSetOptions.FirstOrDefault(
+                        c => !c.IsPlaceholder &&
+                             string.Equals(c.Name, targetPrintSetName, StringComparison.OrdinalIgnoreCase));
+                    if (matchedChoice != null)
+                    {
+                        row.ApplyBulkMatchedChoice(matchedChoice);
+                    }
+                }
+            }
+        }
+
+        private void SaveUserPrefs()
+        {
+            if (_userPrefsStore == null)
+            {
+                return;
+            }
+
+            try
+            {
+                _userPrefsStore.Save(new MultiModelPdfExportUserPrefs
+                {
+                    LastOutputFolder = MultiModelPdfPathHelper.NormalizeFolderPath(OutputFolder),
+                    FileMode = FileMode,
+                    PdfSetupName = SelectedPdfSetup.IsDefault ? string.Empty : SelectedPdfSetup.DisplayName,
+                    LastBulkPrintSetName = ResolveBulkPrintSetNameForSave()
+                });
+            }
+            catch (Exception)
+            {
+                // Local preferences persistence failure must never block export execution.
+            }
+        }
+
+        private string ResolveBulkPrintSetNameForSave()
+        {
+            List<string> distinctCheckedSets = _rows
+                .Where(r => r.IsChecked && !string.IsNullOrWhiteSpace(r.SelectedPrintSetName))
+                .Select(r => r.SelectedPrintSetName!)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (!string.IsNullOrWhiteSpace(_lastAppliedBulkPrintSetName))
+            {
+                if (distinctCheckedSets.Count == 1 &&
+                    !string.Equals(distinctCheckedSets[0], _lastAppliedBulkPrintSetName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return distinctCheckedSets[0];
+                }
+
+                return _lastAppliedBulkPrintSetName!;
+            }
+
+            return distinctCheckedSets.Count == 1 ? distinctCheckedSets[0] : string.Empty;
         }
 
         private void OnRowChanged()

@@ -15,6 +15,7 @@ using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 using Synthetic.Features.MultiModelPdfExport.Commands;
 using Synthetic.Features.MultiModelPdfExport.Models;
+using Synthetic.Features.MultiModelPdfExport.Services;
 using Synthetic.Features.MultiModelPdfExport.ViewModels;
 using Synthetic.Features.MultiModelPdfExport.Views;
 using Synthetic.Platform.Host;
@@ -95,6 +96,53 @@ namespace SyntheticTests.Features.MultiModelPdfExport
                 StringComparer.Ordinal);
 
             Assert.IsTrue(registeredClasses.Contains(cmdType.FullName!), $"Expected '{cmdType.FullName}' in ribbon_config.json.");
+        }
+
+        [Test]
+        public void CmdMultiModelPdfExport_SuppressUi_BypassesUserPrefsStoreAndDiskIo()
+        {
+            string defaultPath = MultiModelPdfExportUserPrefsStore.DefaultFilePath;
+            bool existedBefore = File.Exists(defaultPath);
+            DateTime writeTimeBefore = existedBefore ? File.GetLastWriteTimeUtc(defaultPath) : DateTime.MinValue;
+            byte[]? bytesBefore = existedBefore ? File.ReadAllBytes(defaultPath) : null;
+
+            bool previousSuppressUi = ProgressCoordinator.SuppressUI;
+            try
+            {
+                ProgressCoordinator.SuppressUI = true;
+                MultiModelPdfExportUserPrefsStore? suppressedStore = CmdMultiModelPdfExport.ResolveUserPrefsStore();
+                Assert.IsNull(suppressedStore, "CmdMultiModelPdfExport must bypass Local User Preferences when ProgressCoordinator.SuppressUI is true.");
+
+                var adapter = new FakeMultiModelPdfExportAdapter();
+                var vm = new MultiModelPdfExportViewModel(
+                    adapter,
+                    new FakeFolderDialogService(),
+                    userPrefsStore: suppressedStore);
+                vm.OutputFolder = @"C:\PDFExports\SuppressUiSmoke";
+                vm.Rows[0].SelectedPrintSetName = "CD Set";
+                Assert.IsTrue(vm.CanExport);
+
+                bool? closedWith = null;
+                vm.RequestClose += result => closedWith = result;
+                vm.ExportCommand.Execute(null);
+                Assert.AreEqual(true, closedWith);
+
+                Assert.AreEqual(existedBefore, File.Exists(defaultPath), "SuppressUI null store must never create default prefs file.");
+                if (existedBefore)
+                {
+                    Assert.AreEqual(writeTimeBefore, File.GetLastWriteTimeUtc(defaultPath));
+                    CollectionAssert.AreEqual(bytesBefore!, File.ReadAllBytes(defaultPath));
+                }
+
+                ProgressCoordinator.SuppressUI = false;
+                MultiModelPdfExportUserPrefsStore? activeStore = CmdMultiModelPdfExport.ResolveUserPrefsStore();
+                Assert.IsNotNull(activeStore, "CmdMultiModelPdfExport must construct MultiModelPdfExportUserPrefsStore when SuppressUI is false.");
+                Assert.AreEqual(defaultPath, activeStore!.FilePath);
+            }
+            finally
+            {
+                ProgressCoordinator.SuppressUI = previousSuppressUi;
+            }
         }
 
         [Test]

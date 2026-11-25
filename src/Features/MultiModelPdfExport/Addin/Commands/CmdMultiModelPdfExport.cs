@@ -48,7 +48,11 @@ namespace Synthetic.Features.MultiModelPdfExport.Commands
 
                 var adapter = new RevitMultiModelPdfExportAdapter(doc, uiapp);
                 var folderService = new WindowsFolderDialogService(uiapp.MainWindowHandle);
-                var vm = new MultiModelPdfExportViewModel(adapter, folderService);
+                MultiModelPdfExportUserPrefsStore? userPrefsStore = ResolveUserPrefsStore();
+                var vm = new MultiModelPdfExportViewModel(
+                    adapter,
+                    folderService,
+                    userPrefsStore: userPrefsStore);
                 var window = new MultiModelPdfExportWindow(uiapp.MainWindowHandle)
                 {
                     DataContext = vm
@@ -111,5 +115,8 @@ namespace Synthetic.Features.MultiModelPdfExport.Commands
                 return Result.Failed;
             }
         }
+
+        internal static MultiModelPdfExportUserPrefsStore? ResolveUserPrefsStore() =>
+            ProgressCoordinator.SuppressUI ? null : new MultiModelPdfExportUserPrefsStore();
     }
 }

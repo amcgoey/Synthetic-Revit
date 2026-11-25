@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using NUnit.Framework;
 using Synthetic.Features.MultiModelPdfExport.Models;
+using Synthetic.Features.MultiModelPdfExport.Services;
 using Synthetic.Features.MultiModelPdfExport.ViewModels;
 using SyntheticTests;
 using SyntheticTests.Fixtures;
@@ -1219,6 +1220,370 @@ namespace SyntheticTests.Features.MultiModelPdfExport
             Assert.IsFalse(vm.Rows.Single(r => r.DocumentKey == "open-1").IsChecked);
             Assert.IsTrue(vm.Rows.Single(r => r.DocumentKey == "active").IsChecked);
             Assert.IsTrue(vm.Rows.Single(r => r.DocumentKey == "link-1").IsChecked);
+        }
+
+        [Test]
+        public void UserPrefs_LoadsOnConstruction_RestoresFolderModePdfSetupAndMatchingRowsWithoutGuessingUnmatched()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), "MultiModelPdfVmPrefs_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                string prefsPath = Path.Combine(tempDir, "MultiModelPdfExportUserPrefs.json");
+                var store = new MultiModelPdfExportUserPrefsStore(prefsPath);
+                store.Save(new MultiModelPdfExportUserPrefs
+                {
+                    LastOutputFolder = @"D:\Deliverables\2026",
+                    FileMode = MultiModelPdfFileMode.SeparatePerViewSheet,
+                    PdfSetupName = "INC_FullSize",
+                    LastBulkPrintSetName = "CD Set"
+                });
+
+                var snapshot = new MultiModelPdfSessionSnapshot(
+                    "Host.rvt",
+                    new[]
+                    {
+                        new MultiModelPdfDocumentSnapshot(
+                            "active", "Host.rvt", @"C:\BIM\Host.rvt",
+                            MultiModelPdfDocumentOrigin.Active, MultiModelPdfStorageKind.Workshared,
+                            printSets: new[]
+                            {
+                                new MultiModelPdfSetSnapshot("CD Set", 3),
+                                new MultiModelPdfSetSnapshot("Permit Set", 2)
+                            }),
+                        new MultiModelPdfDocumentSnapshot(
+                            "link-case-match", "Unit1.rvt", @"C:\BIM\Unit1.rvt",
+                            MultiModelPdfDocumentOrigin.Linked, MultiModelPdfStorageKind.Local,
+                            printSets: new[] { new MultiModelPdfSetSnapshot("cd set", 4) }),
+                        new MultiModelPdfDocumentSnapshot(
+                            "link-unmatched", "Retail.rvt", @"C:\BIM\Retail.rvt",
+                            MultiModelPdfDocumentOrigin.Linked, MultiModelPdfStorageKind.Local,
+                            printSets: new[]
+                            {
+                                new MultiModelPdfSetSnapshot("Permit Set", 2),
+                                new MultiModelPdfSetSnapshot("SD Package", 1)
+                            }),
+                        new MultiModelPdfDocumentSnapshot(
+                            "link-unloaded", "SiteUnloaded.rvt", @"C:\BIM\SiteUnloaded.rvt",
+                            MultiModelPdfDocumentOrigin.Linked, MultiModelPdfStorageKind.Workshared,
+                            isUnloadedLink: true,
+                            printSets: Array.Empty<MultiModelPdfSetSnapshot>()),
+                        new MultiModelPdfDocumentSnapshot(
+                            "link-zeroset", "ZeroSet.rvt", @"C:\BIM\ZeroSet.rvt",
+                            MultiModelPdfDocumentOrigin.Linked, MultiModelPdfStorageKind.Local,
+                            printSets: Array.Empty<MultiModelPdfSetSnapshot>()),
+                        new MultiModelPdfDocumentSnapshot(
+                            "open-match", "Annex.rvt", @"C:\BIM\Annex.rvt",
+                            MultiModelPdfDocumentOrigin.OpenStandalone, MultiModelPdfStorageKind.Local,
+                            printSets: new[] { new MultiModelPdfSetSnapshot("CD Set", 5) }),
+                        new MultiModelPdfDocumentSnapshot(
+                            "open-unmatched", "Other.rvt", @"C:\BIM\Other.rvt",
+                            MultiModelPdfDocumentOrigin.OpenStandalone, MultiModelPdfStorageKind.Local,
+                            printSets: new[] { new MultiModelPdfSetSnapshot("Permit Set", 1) })
+                    },
+                    new[]
+                    {
+                        MultiModelPdfSetupOption.CreateDefault(),
+                        new MultiModelPdfSetupOption("INC_FullSize", "INC_FullSize", isDefault: false)
+                    });
+
+                var vm = new MultiModelPdfExportViewModel(
+                    new FakeMultiModelPdfExportAdapter(snapshot),
+                    new FakeFolderDialogService(),
+                    userPrefsStore: store);
+
+                Assert.AreEqual(@"D:\Deliverables\2026", vm.OutputFolder);
+                Assert.AreEqual(MultiModelPdfFileMode.SeparatePerViewSheet, vm.FileMode);
+                Assert.AreEqual("INC_FullSize", vm.SelectedPdfSetup.DisplayName);
+                Assert.IsNotNull(vm.SelectedBulkPrintSetOption);
+                Assert.AreEqual("CD Set", vm.SelectedBulkPrintSetOption!.Name);
+
+                MultiModelPdfExportRowViewModel activeRow = vm.Rows.Single(r => r.DocumentKey == "active");
+                MultiModelPdfExportRowViewModel matchedLink = vm.Rows.Single(r => r.DocumentKey == "link-case-match");
+                MultiModelPdfExportRowViewModel unmatchedLink = vm.Rows.Single(r => r.DocumentKey == "link-unmatched");
+                MultiModelPdfExportRowViewModel unloadedLink = vm.Rows.Single(r => r.DocumentKey == "link-unloaded");
+                MultiModelPdfExportRowViewModel zeroSetLink = vm.Rows.Single(r => r.DocumentKey == "link-zeroset");
+                MultiModelPdfExportRowViewModel matchedOpen = vm.Rows.Single(r => r.DocumentKey == "open-match");
+                MultiModelPdfExportRowViewModel unmatchedOpen = vm.Rows.Single(r => r.DocumentKey == "open-unmatched");
+
+                Assert.AreEqual("CD Set", activeRow.SelectedPrintSetName);
+                Assert.AreEqual("cd set", matchedLink.SelectedPrintSetName);
+                Assert.IsNull(unmatchedLink.SelectedPrintSetName, "Unmatched eligible row must stay at <Select Print Set...> without guessing.");
+                Assert.IsTrue(unmatchedLink.HasMissingPrintSet);
+                Assert.IsNull(unloadedLink.SelectedPrintSetName);
+                Assert.IsNull(zeroSetLink.SelectedPrintSetName);
+                Assert.AreEqual("CD Set", matchedOpen.SelectedPrintSetName);
+                Assert.IsFalse(matchedOpen.IsChecked, "OpenStandalone row must remain unchecked on startup.");
+                Assert.IsNull(unmatchedOpen.SelectedPrintSetName);
+                Assert.IsFalse(unmatchedOpen.IsChecked);
+
+                Assert.IsFalse(vm.HasBulkFeedbackBanner, "Preference restoration must not raise a synthetic bulk feedback banner.");
+                Assert.IsTrue(vm.Rows.All(r => !r.HasBulkMismatchAccent), "Preference restoration must not mark mismatch stripes.");
+                Assert.IsFalse(vm.CanExport, "Checked unmatched Retail.rvt missing a Print Set must still block export.");
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    Directory.Delete(tempDir, true);
+                }
+            }
+        }
+
+        [Test]
+        public void UserPrefs_MissingCorruptAndAbsentPdfSetup_RecoverCleanlyToDefaults()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), "MultiModelPdfVmPrefs_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                // 1. Missing prefs file -> defaults
+                string missingPath = Path.Combine(tempDir, "missing.json");
+                var missingVm = new MultiModelPdfExportViewModel(
+                    new FakeMultiModelPdfExportAdapter(),
+                    new FakeFolderDialogService(),
+                    userPrefsStore: new MultiModelPdfExportUserPrefsStore(missingPath));
+
+                Assert.AreEqual(string.Empty, missingVm.OutputFolder);
+                Assert.AreEqual(MultiModelPdfFileMode.CombinedPerDocument, missingVm.FileMode);
+                Assert.IsTrue(missingVm.SelectedPdfSetup.IsDefault);
+                Assert.IsNull(missingVm.Rows[0].SelectedPrintSetName);
+
+                // 2. Corrupt JSON -> defaults without throwing
+                string corruptPath = Path.Combine(tempDir, "corrupt.json");
+                File.WriteAllText(corruptPath, "{{corrupt!!!");
+                var corruptVm = new MultiModelPdfExportViewModel(
+                    new FakeMultiModelPdfExportAdapter(),
+                    new FakeFolderDialogService(),
+                    userPrefsStore: new MultiModelPdfExportUserPrefsStore(corruptPath));
+
+                Assert.AreEqual(string.Empty, corruptVm.OutputFolder);
+                Assert.AreEqual(MultiModelPdfFileMode.CombinedPerDocument, corruptVm.FileMode);
+                Assert.IsTrue(corruptVm.SelectedPdfSetup.IsDefault);
+                Assert.IsNull(corruptVm.Rows[0].SelectedPrintSetName);
+
+                // 3. Absent PDF Export Setup falls back cleanly to <Default — Use Sheet Size>
+                string absentSetupPath = Path.Combine(tempDir, "absentSetup.json");
+                var absentSetupStore = new MultiModelPdfExportUserPrefsStore(absentSetupPath);
+                absentSetupStore.Save(new MultiModelPdfExportUserPrefs
+                {
+                    LastOutputFolder = @"C:\Exports\Valid",
+                    FileMode = MultiModelPdfFileMode.SeparatePerViewSheet,
+                    PdfSetupName = "Deleted_Studio_Setup",
+                    LastBulkPrintSetName = "CD Set"
+                });
+
+                var absentSetupVm = new MultiModelPdfExportViewModel(
+                    new FakeMultiModelPdfExportAdapter(),
+                    new FakeFolderDialogService(),
+                    userPrefsStore: absentSetupStore);
+
+                Assert.AreEqual(@"C:\Exports\Valid", absentSetupVm.OutputFolder);
+                Assert.AreEqual(MultiModelPdfFileMode.SeparatePerViewSheet, absentSetupVm.FileMode);
+                Assert.IsTrue(absentSetupVm.SelectedPdfSetup.IsDefault, "Missing PDF Export Setup must fall back to <Default — Use Sheet Size>.");
+                Assert.AreEqual(MultiModelPdfSetupOption.DefaultSetupDisplayName, absentSetupVm.SelectedPdfSetup.DisplayName);
+                Assert.AreEqual("CD Set", absentSetupVm.Rows[0].SelectedPrintSetName);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    Directory.Delete(tempDir, true);
+                }
+            }
+        }
+
+        [Test]
+        public void UserPrefs_CancelAndInvalidExportLeaveDiskUntouched_ValidExportPersistsAndReloads()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), "MultiModelPdfVmPrefs_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                string prefsPath = Path.Combine(tempDir, "MultiModelPdfExportUserPrefs.json");
+                var store = new MultiModelPdfExportUserPrefsStore(prefsPath);
+
+                // 1. Missing file stays absent on Cancel or invalid Export attempt
+                var firstVm = new MultiModelPdfExportViewModel(
+                    new FakeMultiModelPdfExportAdapter(),
+                    new FakeFolderDialogService(),
+                    userPrefsStore: store);
+
+                firstVm.Rows[0].SelectedPrintSetName = "CD Set";
+                firstVm.FileMode = MultiModelPdfFileMode.SeparatePerViewSheet;
+                firstVm.SelectedPdfSetup = firstVm.PdfSetups.First(s => s.Id == "INC_FullSize");
+
+                Assert.IsFalse(firstVm.CanExport, "Missing output folder must block export.");
+                firstVm.ExportCommand.Execute(null);
+                Assert.IsFalse(File.Exists(prefsPath), "Invalid Export attempt must not write preferences.");
+
+                firstVm.OutputFolder = @"C:\Exports\CancelledBeforeSave";
+                firstVm.CancelCommand.Execute(null);
+                Assert.IsFalse(File.Exists(prefsPath), "Cancelling must not create preferences file on disk.");
+
+                // 2. Existing preferences stay untouched on Cancel
+                store.Save(new MultiModelPdfExportUserPrefs
+                {
+                    LastOutputFolder = @"D:\Studio\Baseline",
+                    FileMode = MultiModelPdfFileMode.CombinedPerDocument,
+                    PdfSetupName = string.Empty,
+                    LastBulkPrintSetName = "CD Set"
+                });
+
+                var secondVm = new MultiModelPdfExportViewModel(
+                    new FakeMultiModelPdfExportAdapter(),
+                    new FakeFolderDialogService(),
+                    userPrefsStore: store);
+
+                secondVm.OutputFolder = @"D:\Studio\DiscardedCancel";
+                secondVm.FileMode = MultiModelPdfFileMode.SeparatePerViewSheet;
+                secondVm.SelectedPdfSetup = secondVm.PdfSetups.First(s => s.Id == "INC_FullSize");
+                secondVm.ApplyBulkPrintSetCommand.Execute("Permit Set");
+                secondVm.CancelCommand.Execute(null);
+
+                MultiModelPdfExportUserPrefs afterCancel = store.Load();
+                Assert.AreEqual(@"D:\Studio\Baseline", afterCancel.LastOutputFolder);
+                Assert.AreEqual(MultiModelPdfFileMode.CombinedPerDocument, afterCancel.FileMode);
+                Assert.AreEqual(string.Empty, afterCancel.PdfSetupName);
+                Assert.AreEqual("CD Set", afterCancel.LastBulkPrintSetName);
+
+                // 3. Valid Export persists preferences and reloads cleanly
+                bool? closedWith = null;
+                secondVm.RequestClose += result => closedWith = result;
+                secondVm.OutputFolder = @"D:\Studio\Confirmed\";
+                secondVm.ExportCommand.Execute(null);
+                Assert.AreEqual(true, closedWith);
+
+                MultiModelPdfExportUserPrefs afterExport = store.Load();
+                Assert.AreEqual(@"D:\Studio\Confirmed", afterExport.LastOutputFolder);
+                Assert.AreEqual(MultiModelPdfFileMode.SeparatePerViewSheet, afterExport.FileMode);
+                Assert.AreEqual("INC_FullSize", afterExport.PdfSetupName);
+                Assert.AreEqual("Permit Set", afterExport.LastBulkPrintSetName);
+
+                var reloadedVm = new MultiModelPdfExportViewModel(
+                    new FakeMultiModelPdfExportAdapter(),
+                    new FakeFolderDialogService(),
+                    userPrefsStore: store);
+                Assert.AreEqual(@"D:\Studio\Confirmed", reloadedVm.OutputFolder);
+                Assert.AreEqual(MultiModelPdfFileMode.SeparatePerViewSheet, reloadedVm.FileMode);
+                Assert.AreEqual("INC_FullSize", reloadedVm.SelectedPdfSetup.DisplayName);
+                Assert.AreEqual("Permit Set", reloadedVm.Rows[0].SelectedPrintSetName);
+
+                // 4. Switching back to default setup clears PdfSetupName on next valid Export
+                reloadedVm.SelectedPdfSetup = reloadedVm.PdfSetups.First(s => s.IsDefault);
+                reloadedVm.FileMode = MultiModelPdfFileMode.CombinedPerDocument;
+                reloadedVm.ExportCommand.Execute(null);
+
+                MultiModelPdfExportUserPrefs afterResetToDefault = store.Load();
+                Assert.AreEqual(string.Empty, afterResetToDefault.PdfSetupName);
+                Assert.AreEqual(MultiModelPdfFileMode.CombinedPerDocument, afterResetToDefault.FileMode);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    Directory.Delete(tempDir, true);
+                }
+            }
+        }
+
+        [Test]
+        public void UserPrefs_MixedManualRowSelectionsDoNotGuessBulkPreference_UniformSelectionPersists()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), "MultiModelPdfVmPrefs_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                string prefsPath = Path.Combine(tempDir, "MultiModelPdfExportUserPrefs.json");
+                var store = new MultiModelPdfExportUserPrefsStore(prefsPath);
+
+                var snapshot = new MultiModelPdfSessionSnapshot(
+                    "Host.rvt",
+                    new[]
+                    {
+                        new MultiModelPdfDocumentSnapshot(
+                            "active", "Host.rvt", @"C:\BIM\Host.rvt",
+                            MultiModelPdfDocumentOrigin.Active, MultiModelPdfStorageKind.Workshared,
+                            printSets: new[]
+                            {
+                                new MultiModelPdfSetSnapshot("CD Set", 2),
+                                new MultiModelPdfSetSnapshot("Permit Set", 3)
+                            }),
+                        new MultiModelPdfDocumentSnapshot(
+                            "link-1", "Link1.rvt", @"C:\BIM\Link1.rvt",
+                            MultiModelPdfDocumentOrigin.Linked, MultiModelPdfStorageKind.Local,
+                            printSets: new[]
+                            {
+                                new MultiModelPdfSetSnapshot("CD Set", 2),
+                                new MultiModelPdfSetSnapshot("Permit Set", 1)
+                            })
+                    },
+                    new[] { MultiModelPdfSetupOption.CreateDefault() });
+
+                // Mixed manual choices without bulk apply -> LastBulkPrintSetName remains empty
+                var mixedVm = new MultiModelPdfExportViewModel(
+                    new FakeMultiModelPdfExportAdapter(snapshot),
+                    new FakeFolderDialogService(),
+                    userPrefsStore: store)
+                {
+                    OutputFolder = @"C:\Exports\Mixed"
+                };
+                mixedVm.Rows[0].SelectedPrintSetName = "CD Set";
+                mixedVm.Rows[1].SelectedPrintSetName = "Permit Set";
+                mixedVm.ExportCommand.Execute(null);
+
+                Assert.AreEqual(string.Empty, store.Load().LastBulkPrintSetName);
+
+                // Uniform manual selection across checked rows -> persisted cleanly
+                mixedVm.Rows[0].SelectedPrintSetName = "Permit Set";
+                mixedVm.ExportCommand.Execute(null);
+
+                Assert.AreEqual("Permit Set", store.Load().LastBulkPrintSetName);
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    Directory.Delete(tempDir, true);
+                }
+            }
+        }
+
+        [Test]
+        public void UserPrefs_NullStoreBypass_NeverReadsOrWritesDefaultAppDataFile()
+        {
+            string defaultPath = MultiModelPdfExportUserPrefsStore.DefaultFilePath;
+            bool existedBefore = File.Exists(defaultPath);
+            DateTime writeTimeBefore = existedBefore ? File.GetLastWriteTimeUtc(defaultPath) : DateTime.MinValue;
+            byte[]? bytesBefore = existedBefore ? File.ReadAllBytes(defaultPath) : null;
+
+            var vm = new MultiModelPdfExportViewModel(
+                new FakeMultiModelPdfExportAdapter(),
+                new FakeFolderDialogService(),
+                userPrefsStore: null);
+
+            Assert.AreEqual(string.Empty, vm.OutputFolder);
+            Assert.AreEqual(MultiModelPdfFileMode.CombinedPerDocument, vm.FileMode);
+            Assert.IsTrue(vm.SelectedPdfSetup.IsDefault);
+            Assert.IsNull(vm.Rows[0].SelectedPrintSetName);
+
+            bool? closedWith = null;
+            vm.RequestClose += result => closedWith = result;
+            vm.OutputFolder = @"C:\Exports\Bypass";
+            vm.FileMode = MultiModelPdfFileMode.SeparatePerViewSheet;
+            vm.SelectedPdfSetup = vm.PdfSetups.First(s => s.Id == "INC_FullSize");
+            vm.Rows[0].SelectedPrintSetName = "Permit Set";
+
+            vm.ExportCommand.Execute(null);
+            Assert.AreEqual(true, closedWith);
+
+            bool existsAfter = File.Exists(defaultPath);
+            Assert.AreEqual(existedBefore, existsAfter, "Null userPrefsStore must never create default roaming preferences file.");
+            if (existedBefore)
+            {
+                Assert.AreEqual(writeTimeBefore, File.GetLastWriteTimeUtc(defaultPath));
+                CollectionAssert.AreEqual(bytesBefore!, File.ReadAllBytes(defaultPath));
+            }
         }
     }
 }
