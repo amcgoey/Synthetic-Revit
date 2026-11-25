@@ -10,12 +10,12 @@ The legacy `BatchPrint` slice (`PrintBatchMultiDoc` and `BBPrinterSettingsUtils`
 3. **Sequential Modal UX & Ambiguous Naming:** Four sequential modal dialogs offered no early exit, forced one active-model **Print Set** name onto every linked document, and shipped under the name `BatchPrint` (`"Batch Print\nMulti Doc"`), which inaccurately implied single-model sheet printing rather than cross-model deliverable export.
 4. **Unverified Execution Path:** Depending on live `"Bluebeam PDF"` drivers and Windows Registry mutations prevented automated **Logic Tests** and forced **Revit Tests** (`BatchPrintSmokeRevitTests`) to stay non-executing, leaving PDF generation dependent on manual human verification.
 
-With Autodesk Revit 2022 retired ([ADR 0018](0018-universal-add-in-bootstrap-manifest-routing-and-studio-deployment.md)), every supported **Revit Version** (`2023`–`2026`) supports native `Document.Export(..., PDFExportOptions)` and saved `ExportPDFSettings`.
+With Autodesk Revit 2022 retired ([ADR 0018](0018-universal-add-in-bootstrap-manifest-routing-and-studio-deployment.md)), every supported **Revit Version** (`2023`–`2027`) supports native `Document.Export(..., PDFExportOptions)` and saved `ExportPDFSettings`.
 
 ## Decision
 We retire `"Bluebeam PDF"` / `PrintManager` / Windows Registry integration and **rename and graduate** the slice to **Multi-Model PDF Export** (`MultiModelPdfExport` / `CmdMultiModelPdfExport`):
 
-1. **Native Driver-Free PDF Export (`2023`–`2026`):**
+1. **Native Driver-Free PDF Export (`2023`–`2027`):**
    - Replace `PrintManager` and `BBPrinterSettingsUtils` entirely with native `Document.Export(folder, viewIds, PDFExportOptions)` and active-document `ExportPDFSettings` (plus a built-in `<Default — Use Sheet Size>` fallback).
    - Force `PDFExportOptions.SetExportInBackground(false)` on **Revit Versions** `2025+` behind an inverted `#if REVIT2023 || REVIT2024 ... #else` guard, remap non-built-in `NamingRule` parameters across target documents by `Definition.Name`, stage exports in a scoped temp subfolder before atomic move/replace, and preserve `OrderedViewList` sequence (falling back to `.Views`) while filtering placeholder sheets and non-printable views.
 2. **Slice Rename & Interactive Slice Graduation (`ADR 0027` Tier C):**
@@ -29,5 +29,5 @@ We retire `"Bluebeam PDF"` / `PrintManager` / Windows Registry integration and *
 3. **Keep the Internal `BatchPrint` Slice Name While Renaming Only the Ribbon Text:** Rejected because keeping `"BatchPrint"` in code and fitness suites preserves ambiguity between single-model sheet printing and multi-model PDF export; aligning code and [GLOSSARY.md](../../GLOSSARY.md) removes permanent vocabulary drift.
 
 ## Consequences
-* **Pros:** Eliminates Windows Registry corruption and manual Bluebeam HITM verification; unblocks full headless **Logic Tests** (`net48` + `net8.0-windows8.0`) and live executing `[RevitIsolatedDocTest]` **Revit Tests**; prevents leaked background documents, orphaned sync toasts, and accidental closure of open user tabs; and unifies the `Publish` panel slices (`MultiModelPdfExport`, `SheetIndex`, `ShadowStudy`) around consistent **Interactive Slice** conventions.
+* **Pros:** Eliminates Windows Registry corruption and manual Bluebeam HITM verification; unblocks full headless **Logic Tests** (`net48` + `net8.0-windows8.0` + `net10.0-windows8.0`) and live executing `[RevitIsolatedDocTest]` **Revit Tests** across `2023–2027` (built via `.NET 10` `dotnet build`); prevents leaked background documents, orphaned sync toasts, and accidental closure of open user tabs; and unifies the `Publish` panel slices (`MultiModelPdfExport`, `SheetIndex`, `ShadowStudy`) around consistent **Interactive Slice** conventions.
 * **Cons:** Drops physical plotter / third-party print-driver printing from this workflow; and requires a coordinated slice-rename pass across source, tests, docs, ribbon configuration, and Architecture Fitness rules during implementation.
