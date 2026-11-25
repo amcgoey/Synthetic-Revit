@@ -19,9 +19,9 @@ EXPECTED_FULL_CLASS = "Synthetic.Bootstrap.BootstrapApp"
 class TestAddinManifestGeneration(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.msbuild = te.find_msbuild()
         cls.env = os.environ.copy()
-        te.configure_dotnet_environment(env=cls.env)
+        sdk_info = te.configure_dotnet_environment(env=cls.env)
+        cls.dotnet = te.resolve_dotnet_exe(sdk_info)
 
     def _generate_manifest(self, revit_version, configuration, out_path):
         source_csproj = os.path.join(
@@ -31,16 +31,17 @@ class TestAddinManifestGeneration(unittest.TestCase):
             f"Synthetic{revit_version if int(revit_version) <= 2026 else '2026'}.csproj",
         )
         cmd = [
-            self.msbuild,
+            self.dotnet,
+            "build",
             source_csproj,
-            "/t:GenerateRevitAddinManifest",
-            f"/p:Configuration={configuration}",
-            "/p:Platform=x64",
-            f"/p:RevitVersion={revit_version}",
-            "/p:SkipDeployAddin=true",
-            f"/p:AddinManifestOutputPath={out_path}",
-            "/nologo",
-            "/v:minimal",
+            "-t:GenerateRevitAddinManifest",
+            "-c",
+            configuration,
+            "-p:Platform=x64",
+            f"-p:RevitVersion={revit_version}",
+            "-p:SkipDeployAddin=true",
+            f"-p:AddinManifestOutputPath={out_path}",
+            "-v:minimal",
         ]
         res = subprocess.run(cmd, env=self.env, capture_output=True, text=True)
         self.assertEqual(res.returncode, 0, msg=res.stdout + res.stderr)

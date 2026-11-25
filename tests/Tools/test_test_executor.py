@@ -77,10 +77,13 @@ class TestDotnetSdkDiscovery(unittest.TestCase):
         self.assertEqual(best["version"], "10.0.100-rc.1")
         self.assertEqual(best["dotnet_root"], os.path.join(self.root, "pf_dotnet"))
 
-    def test_configure_dotnet_environment_binds_winning_root_and_path(self):
+    def test_configure_dotnet_environment_binds_winning_root_and_clears_msbuild_sdks_path(self):
         local_sdk_root = self._make_sdk("local_dotnet", "8.0.427")
         pf_sdk_root = self._make_sdk("pf_dotnet", "10.0.100")
-        env = {"PATH": r"C:\Windows\System32"}
+        env = {
+            "PATH": r"C:\Windows\System32",
+            "MSBUILDSDKSPATH": os.path.join(local_sdk_root, "8.0.427", "Sdks"),
+        }
 
         best = te.configure_dotnet_environment(env=env, sdk_roots=[local_sdk_root, pf_sdk_root])
 
@@ -88,58 +91,60 @@ class TestDotnetSdkDiscovery(unittest.TestCase):
         self.assertEqual(best["version"], "10.0.100")
         self.assertEqual(env["DOTNET_ROOT"], expected_dotnet_root)
         self.assertTrue(env["PATH"].startswith(expected_dotnet_root + os.pathsep))
-        self.assertEqual(
-            env["MSBuildSdksPath"],
-            os.path.join(pf_sdk_root, "10.0.100", "Sdks"),
-        )
-        self.assertEqual(env["MSBuildEnableWorkloadResolver"], "false")
+        self.assertFalse(any(k.casefold() == "msbuildsdkspath" for k in env))
+        self.assertNotIn("MSBuildEnableWorkloadResolver", env)
 
-    def test_find_best_dotnet_sdk_falls_back_from_incompatible_net10_when_msbuild_lacks_resolver(self):
+    def test_dotnet_build_migration_removes_msbuild_downgrade_workaround(self):
         local_sdk_root = self._make_sdk("local_dotnet", "8.0.427")
         pf_sdk_root = self._make_sdk("pf_dotnet", "10.0.404")
-        net10_releases = os.path.join(
-            pf_sdk_root, "10.0.404", "Sdks", "Microsoft.NET.Sdk", "tools", "net472", "Microsoft.Deployment.DotNet.Releases.dll"
-        )
-        os.makedirs(os.path.dirname(net10_releases), exist_ok=True)
-        with open(net10_releases, "w", encoding="utf-8") as f:
-            f.write("")
 
-        msbuild_dir = os.path.join(self.root, "VSBuildTools", "MSBuild", "Current", "Bin", "amd64")
-        os.makedirs(msbuild_dir, exist_ok=True)
-        fake_msbuild = os.path.join(msbuild_dir, "MSBuild.exe")
-        with open(fake_msbuild, "w", encoding="utf-8") as f:
-            f.write("")
-        with open(fake_msbuild + ".config", "w", encoding="utf-8") as f:
-            f.write(
-                """<?xml version="1.0" encoding="utf-8"?>
-<configuration>
-  <runtime>
-    <assemblyBinding xmlns="urn:schemas-microsoft-com:asm.v1">
-      <dependentAssembly>
-        <assemblyIdentity name="Microsoft.Deployment.DotNet.Releases" culture="neutral" publicKeyToken="31bf3856ad364e35" />
-        <codeBase version="2.0.0.0" href="..\\SdkResolvers\\Microsoft.DotNet.MSBuildSdkResolver\\Microsoft.Deployment.DotNet.Releases.dll" />
-      </dependentAssembly>
-    </assemblyBinding>
-  </runtime>
-</configuration>
-"""
-            )
+        self.assertFalse(hasattr(te, "find_msbuild"))
+        self.assertFalse(hasattr(te, "is_sdk_compatible_with_msbuild"))
+        self.assertFalse(hasattr(te, "_msbuild_has_broken_dotnet_releases_redirect"))
 
-        best = te.find_best_dotnet_sdk([local_sdk_root, pf_sdk_root], msbuild_path=fake_msbuild)
+        best = te.find_best_dotnet_sdk([local_sdk_root, pf_sdk_root])
         self.assertIsNotNone(best)
-        self.assertEqual(best["version"], "8.0.427")
+        self.assertEqual(best["version"], "10.0.404")
 
-        # When the resolver DLL exists next to MSBuild, .NET 10 SDK is eligible.
-        resolver_dll = os.path.normpath(
-            os.path.join(msbuild_dir, "..", "SdkResolvers", "Microsoft.DotNet.MSBuildSdkResolver", "Microsoft.Deployment.DotNet.Releases.dll")
-        )
-        os.makedirs(os.path.dirname(resolver_dll), exist_ok=True)
-        with open(resolver_dll, "w", encoding="utf-8") as f:
+    def test_net10_sdk_preflight_fails_fast_with_remediation_when_absent_or_below_10_0_100(self):
+        import contextlib
+
+        missing_pf = os.path.join(self.root, "missing_pf", "dotnet", "sdk")
+        only_net8 = self._make_sdk("local_dotnet", "8.0.427")
+        prerelease_10 = self._make_sdk("pre_dotnet", "10.0.100-rc.1")
+
+        for label, roots in (
+            ("missing", [missing_pf]),
+            ("net8-only", [missing_pf, only_net8]),
+            ("net10-rc1-only", [missing_pf, prerelease_10]),
+        ):
+            with self.subTest(case=label):
+                out_buf = io.StringIO()
+                with contextlib.redirect_stdout(out_buf):
+                    with self.assertRaises(SystemExit) as exit_ctx:
+                        te.require_net10_sdk(sdk_roots=roots)
+                self.assertEqual(exit_ctx.exception.code, 1)
+                msg = out_buf.getvalue()
+                self.assertIn("10.0.100", msg)
+                self.assertIn("winget", msg)
+                self.assertIn("DOTNET_ROOT", msg)
+                self.assertIn("dotnet-install", msg)
+
+        # Accepts 10.0.100+ in user LocalAppData root as well as machine Program Files root
+        user_net10 = self._make_sdk("user_local_dotnet", "10.0.100")
+        passed = te.require_net10_sdk(sdk_roots=[missing_pf, user_net10])
+        self.assertEqual(passed["version"], "10.0.100")
+
+    def test_resolve_dotnet_exe_uses_discovered_root_or_fallback(self):
+        dotnet_root = os.path.join(self.root, "dotnet_bin")
+        os.makedirs(dotnet_root, exist_ok=True)
+        dotnet_exe = os.path.join(dotnet_root, "dotnet.exe")
+        with open(dotnet_exe, "w", encoding="utf-8") as f:
             f.write("")
 
-        best_with_resolver = te.find_best_dotnet_sdk([local_sdk_root, pf_sdk_root], msbuild_path=fake_msbuild)
-        self.assertIsNotNone(best_with_resolver)
-        self.assertEqual(best_with_resolver["version"], "10.0.404")
+        self.assertEqual(te.resolve_dotnet_exe({"dotnet_root": dotnet_root}), dotnet_exe)
+        self.assertEqual(te.resolve_dotnet_exe({"dotnet_root": os.path.join(self.root, "absent")}), "dotnet")
+        self.assertEqual(te.resolve_dotnet_exe(None), "dotnet")
 
 
 class TestCategoryAndFilterComposition(unittest.TestCase):
@@ -326,7 +331,7 @@ public class ExcludedSheetIndexTests {}
             multi_csproj = os.path.join(tmp, "Multi.csproj")
             single_csproj = os.path.join(tmp, "Single.csproj")
             with open(multi_csproj, "w", encoding="utf-8") as f:
-                f.write("<Project><PropertyGroup><TargetFrameworks>net48;net8.0-windows8.0</TargetFrameworks></PropertyGroup></Project>")
+                f.write("<Project><PropertyGroup><TargetFrameworks>net48;net8.0-windows8.0;net10.0-windows8.0</TargetFrameworks></PropertyGroup></Project>")
             with open(single_csproj, "w", encoding="utf-8") as f:
                 f.write("<Project><PropertyGroup><TargetFramework>net8.0-windows8.0</TargetFramework></PropertyGroup></Project>")
 
@@ -334,18 +339,82 @@ public class ExcludedSheetIndexTests {}
             single_tfms, is_single_multi = te.get_project_target_frameworks(single_csproj)
 
             self.assertTrue(is_multi)
-            self.assertEqual(multi_tfms, ["net48", "net8.0-windows8.0"])
+            self.assertEqual(multi_tfms, ["net48", "net8.0-windows8.0", "net10.0-windows8.0"])
             self.assertFalse(is_single_multi)
             self.assertEqual(single_tfms, ["net8.0-windows8.0"])
 
             trx_net48 = te.build_trx_filename("Logic", tfm="net48", is_multi_tfm=True)
             trx_net8 = te.build_trx_filename("Logic", tfm="net8.0-windows8.0", is_multi_tfm=True)
+            trx_net10 = te.build_trx_filename("Logic", tfm="net10.0-windows8.0", is_multi_tfm=True)
             trx_legacy = te.build_trx_filename("Logic", tfm="net8.0-windows8.0", is_multi_tfm=False)
 
             self.assertEqual(trx_net48, "results_Logic_net48.trx")
             self.assertEqual(trx_net8, "results_Logic_net8.0-windows8.0.trx")
+            self.assertEqual(trx_net10, "results_Logic_net10.0-windows8.0.trx")
             self.assertEqual(trx_legacy, "results_Logic.trx")
-            self.assertEqual(len({trx_net48, trx_net8, trx_legacy}), 3)
+            self.assertEqual(len({trx_net48, trx_net8, trx_net10, trx_legacy}), 4)
+
+    def test_single_framework_filtering_runs_only_matching_projects_across_three_tfms(self):
+        import contextlib
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tdir = os.path.join(tmp, "tests")
+            logic_dir = os.path.join(tdir, "Projects", "Synthetic.LogicTests")
+            mock_dir = os.path.join(tdir, "Projects", "Synthetic.LegacyMockTests")
+            os.makedirs(logic_dir, exist_ok=True)
+            os.makedirs(mock_dir, exist_ok=True)
+            with open(os.path.join(logic_dir, "Synthetic.LogicTests.csproj"), "w", encoding="utf-8") as f:
+                f.write("<Project><PropertyGroup><TargetFrameworks>net48;net8.0-windows8.0;net10.0-windows8.0</TargetFrameworks></PropertyGroup></Project>")
+            with open(os.path.join(mock_dir, "Synthetic.LegacyMockTests.csproj"), "w", encoding="utf-8") as f:
+                f.write("<Project><PropertyGroup><TargetFramework>net8.0-windows8.0</TargetFramework></PropertyGroup></Project>")
+
+            temp_build_root = os.path.join(tmp, "temp_builds")
+            os.makedirs(temp_build_root, exist_ok=True)
+
+            cases = [
+                ("net48", [("Synthetic.LogicTests.csproj", "net48")]),
+                ("net8.0-windows8.0", [("Synthetic.LogicTests.csproj", "net8.0-windows8.0"), ("Synthetic.LegacyMockTests.csproj", None)]),
+                ("net10.0-windows8.0", [("Synthetic.LogicTests.csproj", "net10.0-windows8.0")]),
+            ]
+            for fw_filter, expected_runs in cases:
+                with self.subTest(framework=fw_filter):
+                    build_projs = []
+                    test_runs = []
+
+                    def fake_run(cmd, **kwargs):
+                        if len(cmd) > 1 and cmd[1] == "build":
+                            build_projs.append(os.path.basename(cmd[2]))
+                            return subprocess.CompletedProcess(cmd, 0)
+                        if len(cmd) > 1 and cmd[1] == "test":
+                            proj = os.path.basename(cmd[2])
+                            fw = cmd[cmd.index("--framework") + 1] if "--framework" in cmd else None
+                            test_runs.append((proj, fw))
+                            res_dir = cmd[cmd.index("--results-directory") + 1]
+                            os.makedirs(res_dir, exist_ok=True)
+                            trx_name = cmd[cmd.index("--logger") + 1].split("LogFileName=", 1)[1]
+                            with open(os.path.join(res_dir, trx_name), "w", encoding="utf-8") as tf:
+                                tf.write(
+                                    '<?xml version="1.0" encoding="utf-8"?>'
+                                    '<TestRun xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">'
+                                    '<ResultSummary><Counters total="1" executed="1" passed="1" failed="0" /></ResultSummary>'
+                                    '</TestRun>'
+                                )
+                            return subprocess.CompletedProcess(cmd, 0)
+                        raise AssertionError(f"Unexpected command: {cmd}")
+
+                    out_buf = io.StringIO()
+                    with mock.patch("os.getcwd", return_value=tmp), \
+                         mock.patch.object(te.tempfile, "gettempdir", return_value=temp_build_root), \
+                         mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
+                         mock.patch.object(te.subprocess, "run", side_effect=fake_run), \
+                         contextlib.redirect_stdout(out_buf):
+                        with self.assertRaises(SystemExit) as exit_ctx:
+                            te.run_test_suite(target_version="Logic", target_framework=fw_filter)
+
+                    self.assertEqual(exit_ctx.exception.code, 0, msg=out_buf.getvalue())
+                    self.assertEqual(test_runs, expected_runs)
+                    self.assertEqual(build_projs, [p for p, _ in expected_runs])
 
     def test_multiline_class_headers_typed_attributes_inherited_categories_and_fqn(self):
         fixtures_dir = os.path.join(self.tests_dir, "Fixtures", "Revit")
@@ -850,9 +919,9 @@ class TestRicaunBundleLeaseAndWorkerHardening(unittest.TestCase):
 class TestBuildOutputsAndPayloadStaging(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.msbuild = te.find_msbuild()
         cls.env = os.environ.copy()
-        te.configure_dotnet_environment(env=cls.env)
+        sdk_info = te.configure_dotnet_environment(env=cls.env)
+        cls.dotnet = te.resolve_dotnet_exe(sdk_info)
 
     def test_core_and_payload_outputs_zero_excel_pia_and_flat_payload_staging(self):
         with tempfile.TemporaryDirectory() as iso_root:
@@ -862,22 +931,22 @@ class TestBuildOutputsAndPayloadStaging(unittest.TestCase):
 
             for csproj in (core_csproj, payload_csproj):
                 cmd = [
-                    self.msbuild,
+                    self.dotnet,
+                    "build",
                     csproj,
-                    "/t:Build",
-                    "/restore",
-                    "/p:Configuration=Debug",
-                    "/p:Platform=x64",
-                    f"/p:SyntheticIsolatedBuildRoot={iso_root}",
-                    f"/p:SyntheticRunId={run_id}",
-                    "/v:minimal",
-                    "/clp:ErrorsOnly;Summary",
+                    "-c",
+                    "Debug",
+                    "-p:Platform=x64",
+                    f"-p:SyntheticIsolatedBuildRoot={iso_root}",
+                    f"-p:SyntheticRunId={run_id}",
+                    "-v:minimal",
+                    "-clp:ErrorsOnly;Summary",
                 ]
                 res = subprocess.run(cmd, env=self.env, capture_output=True, text=True)
                 self.assertEqual(res.returncode, 0, msg=res.stdout + res.stderr)
 
             core_bin = os.path.join(iso_root, "bin", f"Synthetic.Core_{run_id}")
-            for tfm in ("net48", "net8.0-windows8.0"):
+            for tfm in ("net48", "net8.0-windows8.0", "net10.0-windows8.0"):
                 tfm_dir = os.path.join(core_bin, tfm)
                 self.assertTrue(os.path.isfile(os.path.join(tfm_dir, "Synthetic.Core.dll")), f"Missing {tfm} Synthetic.Core.dll")
                 self.assertFalse(os.path.exists(os.path.join(tfm_dir, "Microsoft.Office.Interop.Excel.dll")))
@@ -1845,7 +1914,7 @@ namespace SyntheticTests.Platform.Host
 
         pool_calls = []
         dotnet_calls = []
-        msbuild_calls = []
+        build_calls = []
         gated_workers = []
         whitelisted = []
         legacy_checks = []
@@ -1880,10 +1949,10 @@ namespace SyntheticTests.Platform.Host
                     stdout=f"banner line\n{json.dumps(payload)}\n",
                     stderr=f"[diag] ran Revit {ver}\n",
                 )
-            if "msbuild" in exe_name:
-                msbuild_calls.append(list(cmd))
+            if "dotnet" in exe_name and len(cmd) > 1 and cmd[1] == "build":
+                build_calls.append(list(cmd))
                 return subprocess.CompletedProcess(cmd, 0)
-            if "dotnet" in exe_name:
+            if "dotnet" in exe_name and len(cmd) > 1 and cmd[1] == "test":
                 dotnet_calls.append(list(cmd))
                 res_dir = cmd[cmd.index("--results-directory") + 1]
                 logger_arg = cmd[cmd.index("--logger") + 1]
@@ -1900,7 +1969,6 @@ namespace SyntheticTests.Platform.Host
         with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root}, clear=False), \
              mock.patch("os.getcwd", return_value=self.root), \
              mock.patch.object(te.tempfile, "gettempdir", return_value=temp_build_root), \
-             mock.patch.object(te, "find_msbuild", return_value="msbuild.exe"), \
              mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
              mock.patch.object(te.guid_whitelister, "whitelist_existing_addins", side_effect=lambda v: whitelisted.append(v)), \
              mock.patch.object(te, "check_legacy_programdata_manifest", side_effect=lambda v: legacy_checks.append(v)), \
@@ -1923,6 +1991,8 @@ namespace SyntheticTests.Platform.Host
         self.assertIn("[PASS]", out_text)
 
         # Logic ran via dotnet test unchanged; Revit targets did NOT run dotnet test
+        self.assertEqual(len(build_calls), 3)
+        self.assertTrue(all(len(c) > 1 and c[1] == "build" for c in build_calls))
         self.assertEqual(len(dotnet_calls), 1)
         self.assertIn("Synthetic.LogicTests.csproj", dotnet_calls[0][2])
 
@@ -2003,7 +2073,6 @@ namespace SyntheticTests.Platform.Host
         with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root}, clear=False), \
              mock.patch("os.getcwd", return_value=self.root), \
              mock.patch.object(te.tempfile, "gettempdir", return_value=temp_build_root), \
-             mock.patch.object(te, "find_msbuild", return_value="msbuild.exe"), \
              mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
              mock.patch.object(te.guid_whitelister, "whitelist_existing_addins"), \
              mock.patch.object(te, "run_worker_journal_cleanliness_gate", side_effect=lambda v, w: gated_a.append(w)), \
@@ -2040,7 +2109,7 @@ namespace SyntheticTests.Platform.Host
                     "error": "CleanShimLaunchException: RevitCleanShim.dll signature invalid",
                 }
                 return subprocess.CompletedProcess(cmd, 2, stdout=json.dumps(payload), stderr="[shim] fatal\n")
-            if os.path.basename(cmd[0]).lower().startswith("dotnet"):
+            if os.path.basename(cmd[0]).lower().startswith("dotnet") and len(cmd) > 1 and cmd[1] == "test":
                 cold_invocations.append(list(cmd))
             return subprocess.CompletedProcess(cmd, 0)
 
@@ -2048,7 +2117,6 @@ namespace SyntheticTests.Platform.Host
         with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root}, clear=False), \
              mock.patch("os.getcwd", return_value=self.root), \
              mock.patch.object(te.tempfile, "gettempdir", return_value=temp_build_root), \
-             mock.patch.object(te, "find_msbuild", return_value="msbuild.exe"), \
              mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
              mock.patch.object(te.guid_whitelister, "whitelist_existing_addins"), \
              mock.patch.object(te, "execute_revit_test_with_startup_gate", side_effect=AssertionError("Must not downgrade to cold worker!")), \
@@ -2106,7 +2174,6 @@ namespace SyntheticTests.Platform.Host
         with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root}, clear=False), \
              mock.patch("os.getcwd", return_value=self.root), \
              mock.patch.object(te.tempfile, "gettempdir", return_value=temp_build_root), \
-             mock.patch.object(te, "find_msbuild", return_value="msbuild.exe"), \
              mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
              mock.patch.object(te.guid_whitelister, "whitelist_existing_addins"), \
              mock.patch.object(te, "run_worker_journal_cleanliness_gate", side_effect=all_clean_gate), \
@@ -2131,7 +2198,6 @@ namespace SyntheticTests.Platform.Host
         with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root}, clear=False), \
              mock.patch("os.getcwd", return_value=self.root), \
              mock.patch.object(te.tempfile, "gettempdir", return_value=temp_build_root), \
-             mock.patch.object(te, "find_msbuild", return_value="msbuild.exe"), \
              mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
              mock.patch.object(te.guid_whitelister, "whitelist_existing_addins"), \
              mock.patch.object(te, "run_worker_journal_cleanliness_gate", side_effect=one_dirty_gate), \
@@ -2150,7 +2216,6 @@ namespace SyntheticTests.Platform.Host
         with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root}, clear=False), \
              mock.patch("os.getcwd", return_value=self.root), \
              mock.patch.object(te.tempfile, "gettempdir", return_value=temp_build_root), \
-             mock.patch.object(te, "find_msbuild", return_value="msbuild.exe"), \
              mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
              mock.patch.object(te.guid_whitelister, "whitelist_existing_addins"), \
              mock.patch.object(te.subprocess, "run", side_effect=make_pool_runner([], total_tests=2)), \
@@ -2198,7 +2263,6 @@ namespace SyntheticTests.Platform.Host
         with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root}, clear=False), \
              mock.patch("os.getcwd", return_value=self.root), \
              mock.patch.object(te.tempfile, "gettempdir", return_value=temp_build_root), \
-             mock.patch.object(te, "find_msbuild", return_value="msbuild.exe"), \
              mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
              mock.patch.object(te.guid_whitelister, "whitelist_existing_addins"), \
              mock.patch.object(te, "check_legacy_programdata_manifest", side_effect=lambda v: legacy_checked.append(v)), \
@@ -2247,7 +2311,6 @@ namespace SyntheticTests.Platform.Host
         with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root}, clear=False), \
              mock.patch("os.getcwd", return_value=self.root), \
              mock.patch.object(te.tempfile, "gettempdir", return_value=temp_build_root), \
-             mock.patch.object(te, "find_msbuild", return_value="msbuild.exe"), \
              mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
              mock.patch.object(te, "build_test_filter", side_effect=AssertionError("Pool mode must not regex pre-skip categories!")), \
              mock.patch.object(te.guid_whitelister, "whitelist_existing_addins"), \
@@ -2297,7 +2360,6 @@ namespace SyntheticTests.Platform.Host
         with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root, "SYNTHETIC_CLEAN_SHIM": "0"}, clear=False), \
              mock.patch("os.getcwd", return_value=self.root), \
              mock.patch.object(te.tempfile, "gettempdir", return_value=temp_build_root), \
-             mock.patch.object(te, "find_msbuild", return_value="msbuild.exe"), \
              mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
              mock.patch.object(te.guid_whitelister, "whitelist_existing_addins"), \
              mock.patch.object(te, "check_legacy_programdata_manifest", side_effect=lambda v: legacy_checked.append(v)), \
@@ -2340,7 +2402,7 @@ namespace SyntheticTests.Platform.Host
                     "error": None,
                 }
                 return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(payload), stderr="")
-            if os.path.basename(cmd[0]).lower().startswith("dotnet"):
+            if os.path.basename(cmd[0]).lower().startswith("dotnet") and len(cmd) > 1 and cmd[1] == "test":
                 cold_calls.append(list(cmd))
             return subprocess.CompletedProcess(cmd, 0)
 
@@ -2348,7 +2410,6 @@ namespace SyntheticTests.Platform.Host
         with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root}, clear=False), \
              mock.patch("os.getcwd", return_value=self.root), \
              mock.patch.object(te.tempfile, "gettempdir", return_value=temp_build_root), \
-             mock.patch.object(te, "find_msbuild", return_value="msbuild.exe"), \
              mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
              mock.patch.object(te.guid_whitelister, "whitelist_existing_addins"), \
              mock.patch.object(te, "run_worker_journal_cleanliness_gate", return_value=(True, "CLEAN")), \
@@ -2404,7 +2465,6 @@ namespace SyntheticTests.Platform.Host
         with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root}, clear=False), \
              mock.patch("os.getcwd", return_value=self.root), \
              mock.patch.object(te.tempfile, "gettempdir", return_value=temp_build_root), \
-             mock.patch.object(te, "find_msbuild", return_value="msbuild.exe"), \
              mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
              mock.patch.object(te.guid_whitelister, "whitelist_existing_addins"), \
              mock.patch.object(te, "run_worker_journal_cleanliness_gate", side_effect=dirty_gate), \
@@ -2428,7 +2488,6 @@ namespace SyntheticTests.Platform.Host
         with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root}, clear=False), \
              mock.patch("os.getcwd", return_value=self.root), \
              mock.patch.object(te.tempfile, "gettempdir", return_value=temp_build_root), \
-             mock.patch.object(te, "find_msbuild", return_value="msbuild.exe"), \
              mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
              mock.patch.object(te.guid_whitelister, "whitelist_existing_addins"), \
              mock.patch.object(te, "run_worker_journal_cleanliness_gate", side_effect=clean_gate_shim), \
@@ -2452,7 +2511,6 @@ namespace SyntheticTests.Platform.Host
         with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root}, clear=False), \
              mock.patch("os.getcwd", return_value=self.root), \
              mock.patch.object(te.tempfile, "gettempdir", return_value=temp_build_root), \
-             mock.patch.object(te, "find_msbuild", return_value="msbuild.exe"), \
              mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
              mock.patch.object(te.guid_whitelister, "whitelist_existing_addins"), \
              mock.patch.object(te, "run_worker_journal_cleanliness_gate", side_effect=clean_gate_ok), \
