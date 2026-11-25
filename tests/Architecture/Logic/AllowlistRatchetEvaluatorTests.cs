@@ -80,10 +80,10 @@ namespace SyntheticTests.Architecture
             var observed = new[]
             {
                 new TypeLevelViolation(
-                    "BatchPrint",
+                    "MultiModelPdfExport",
                     FitnessRule.TransactionPlacement,
                     "SneakyBatchHelper",
-                    "src/Features/BatchPrint/Addin/Utilities/SneakyBatchHelper.cs:19 uses raw new Transaction(...)"),
+                    "src/Features/MultiModelPdfExport/Addin/Utilities/SneakyBatchHelper.cs:19 uses raw new Transaction(...)"),
                 new TypeLevelViolation(
                     "Worksets",
                     FitnessRule.TransactionPlacement,
@@ -107,7 +107,7 @@ namespace SyntheticTests.Architecture
 
             Assert.AreEqual(1, failures.Count, string.Join(Environment.NewLine, failures));
             Assert.IsTrue(failures[0].Contains("Unlisted violation"), failures[0]);
-            Assert.IsTrue(failures[0].Contains("BatchPrint"), failures[0]);
+            Assert.IsTrue(failures[0].Contains("MultiModelPdfExport"), failures[0]);
             Assert.IsTrue(failures[0].Contains("SneakyBatchHelper"), failures[0]);
         }
 
@@ -208,11 +208,11 @@ namespace SyntheticTests.Architecture
         {
             WorkspaceSourceFile cleanCommand = ArchitectureWorkspaceSnapshot.CreateSyntheticSourceFile(
                 SourceArea.Src,
-                "Features/BatchPrint/Addin/Commands/CmdClean.cs",
+                "Features/MultiModelPdfExport/Addin/Commands/CmdClean.cs",
                 @"
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
-namespace Synthetic.Features.BatchPrint.Commands
+namespace Synthetic.Features.MultiModelPdfExport.Commands
 {
     public class CmdClean : IExternalCommand
     {

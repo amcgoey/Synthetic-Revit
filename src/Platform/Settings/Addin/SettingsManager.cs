@@ -298,7 +298,7 @@ namespace Synthetic.Platform.Settings
         public static bool CheckSyncDrift(Document doc, out string linkedFilePath)
         {
             linkedFilePath = string.Empty;
-            if (doc == null) return false;
+            if (doc == null || SettingsRuntimeOptions.SuppressSyncDriftNotifications) return false;
 
             try
             {

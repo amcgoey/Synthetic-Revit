@@ -156,7 +156,7 @@ namespace SyntheticTests.Architecture
 
             Assert.IsEmpty(integrityErrors, string.Join(Environment.NewLine, integrityErrors));
 
-            foreach (string zeroSlice in new[] { "BatchPrint", "ShadowStudy", "SharedCoordinates", "SheetIndex", "Diagnostics", "Platform/Revit" })
+            foreach (string zeroSlice in new[] { "MultiModelPdfExport", "ShadowStudy", "SharedCoordinates", "SheetIndex", "Diagnostics", "Platform/Revit" })
             {
                 Assert.AreEqual(
                     0,

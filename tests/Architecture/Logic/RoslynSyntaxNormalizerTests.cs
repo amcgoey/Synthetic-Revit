@@ -599,11 +599,11 @@ namespace Synthetic.Features.Worksets.Commands
 
             WorkspaceSourceFile sequentialTxCommand = ArchitectureWorkspaceSnapshot.CreateSyntheticSourceFile(
                 SourceArea.Src,
-                "Features/BatchPrint/Addin/Commands/CmdSequentialTx.cs",
+                "Features/MultiModelPdfExport/Addin/Commands/CmdSequentialTx.cs",
                 @"
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
-namespace Synthetic.Features.BatchPrint.Commands
+namespace Synthetic.Features.MultiModelPdfExport.Commands
 {
     public class CmdSequentialTx : IExternalCommand
     {
