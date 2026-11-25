@@ -606,6 +606,8 @@ namespace Synthetic.Features.MultiModelPdfExport.Adapters
                 }
                 catch (Exception ex)
                 {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[MultiModelPdfExport] Direct open of workshared link '{ResolveDocumentTitle(linkDoc)}' failed, falling back to temp copy: {ex.Message}");
                     directOpenException = ex;
                 }
 

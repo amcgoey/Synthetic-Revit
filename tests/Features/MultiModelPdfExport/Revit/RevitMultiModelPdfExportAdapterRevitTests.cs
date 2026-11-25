@@ -688,16 +688,14 @@ namespace SyntheticTests.Features.MultiModelPdfExport
             string localLinkPath = Path.Combine(linksDir, "LoadedLocalLink.rvt");
             Document localLinkDoc = OpenIsolatedTestTemplateCopy(targetFileName: "LoadedLocalSeed.rvt");
             SeedSimpleSheetAndSet(localLinkDoc, "LL-101", "LOCAL LINK SHEET", "Shared Set");
-            using (var tx = new Transaction(localLinkDoc, "Attach Nested Link"))
+            localLinkDoc.ExecuteTransaction("Attach Nested Link", FailurePipelines.ObserveOnly(), () =>
             {
-                tx.Start();
                 ModelPath nestedMp = ModelPathUtils.ConvertUserVisiblePathToModelPath(nestedPath);
                 LinkLoadResult nestedRes = RevitLinkType.Create(localLinkDoc, nestedMp, new RevitLinkOptions(false));
                 RevitLinkInstance.Create(localLinkDoc, nestedRes.ElementId);
                 var nestedType = (RevitLinkType)localLinkDoc.GetElement(nestedRes.ElementId);
                 nestedType.AttachmentType = AttachmentType.Attachment;
-                tx.Commit();
-            }
+            });
             localLinkDoc.SaveAs(localLinkPath, new SaveAsOptions { OverwriteExistingFile = true });
             localLinkDoc.Close(false);
 
@@ -737,10 +735,9 @@ namespace SyntheticTests.Features.MultiModelPdfExport
             string hostPath = Path.Combine(CurrentTestTempDirectory, "FederatedHost.rvt");
             Document hostSeed = OpenIsolatedTestTemplateCopy(targetFileName: "FederatedHostSeed.rvt");
             SeedSimpleSheetAndSet(hostSeed, "H-101", "HOST SHEET", "Shared Set");
-            ElementId unloadedTypeId;
-            using (var tx = new Transaction(hostSeed, "Link Federated Models"))
+            ElementId unloadedTypeId = ElementId.InvalidElementId;
+            hostSeed.ExecuteTransaction("Link Federated Models", FailurePipelines.ObserveOnly(), () =>
             {
-                tx.Start();
                 LinkLoadResult localRes = RevitLinkType.Create(hostSeed, ModelPathUtils.ConvertUserVisiblePathToModelPath(localLinkPath), new RevitLinkOptions(false));
                 RevitLinkInstance.Create(hostSeed, localRes.ElementId);
 
@@ -754,8 +751,7 @@ namespace SyntheticTests.Features.MultiModelPdfExport
                 LinkLoadResult unloadedRes = RevitLinkType.Create(hostSeed, ModelPathUtils.ConvertUserVisiblePathToModelPath(unloadedPath), new RevitLinkOptions(false));
                 RevitLinkInstance.Create(hostSeed, unloadedRes.ElementId);
                 unloadedTypeId = unloadedRes.ElementId;
-                tx.Commit();
-            }
+            });
 
             var unloadedType = (RevitLinkType)hostSeed.GetElement(unloadedTypeId);
             unloadedType.Unload(null);
@@ -840,9 +836,8 @@ namespace SyntheticTests.Features.MultiModelPdfExport
             string localLinkPath = Path.Combine(linksDir, "LocalWithRoomsAndRefs.rvt");
             Document localSeed = OpenIsolatedTestTemplateCopy(targetFileName: "LocalLinkSeed.rvt");
             SeedSimpleSheetAndSetWithUnenclosedRoom(localSeed, "L-101", "LOCAL ROOM SHEET", "Batch Set");
-            using (var tx = new Transaction(localSeed, "Seed SyncSettings and Overlay Link"))
+            localSeed.ExecuteTransaction("Seed SyncSettings and Overlay Link", FailurePipelines.ObserveOnly(), () =>
             {
-                tx.Start();
                 SettingsManager.Save(localSeed, new SyncSettings { LinkedFilePath = driftedSettingsJson });
                 LinkLoadResult missingRes = RevitLinkType.Create(
                     localSeed,
@@ -851,8 +846,7 @@ namespace SyntheticTests.Features.MultiModelPdfExport
                 RevitLinkInstance.Create(localSeed, missingRes.ElementId);
                 var missingType = (RevitLinkType)localSeed.GetElement(missingRes.ElementId);
                 missingType.AttachmentType = AttachmentType.Overlay;
-                tx.Commit();
-            }
+            });
             localSeed.SaveAs(localLinkPath, new SaveAsOptions { OverwriteExistingFile = true });
             localSeed.Close(false);
             SettingsManager.ClearCache();
@@ -865,12 +859,10 @@ namespace SyntheticTests.Features.MultiModelPdfExport
             Document wsSeed = OpenIsolatedTestTemplateCopy(targetFileName: "WorksharedChildSeed.rvt");
             wsSeed.EnableWorksharing("Shared Levels and Grids", "Workset1");
             SeedSimpleSheetAndSet(wsSeed, "W-101", "WORKSHARED SHEET", "Batch Set");
-            using (var tx = new Transaction(wsSeed, "Seed WS SyncSettings"))
+            wsSeed.ExecuteTransaction("Seed WS SyncSettings", FailurePipelines.ObserveOnly(), () =>
             {
-                tx.Start();
                 SettingsManager.Save(wsSeed, new SyncSettings { LinkedFilePath = driftedSettingsJson });
-                tx.Commit();
-            }
+            });
             var saveCentralOpts = new SaveAsOptions { OverwriteExistingFile = true };
             saveCentralOpts.SetWorksharingOptions(new WorksharingSaveAsOptions { SaveAsCentral = true });
             wsSeed.SaveAs(wsCentralPath, saveCentralOpts);
@@ -894,9 +886,8 @@ namespace SyntheticTests.Features.MultiModelPdfExport
             string hostPath = Path.Combine(CurrentTestTempDirectory, "HostBatch.rvt");
             Document hostSeed = OpenIsolatedTestTemplateCopy(targetFileName: "HostBatchSeed.rvt");
             SeedSimpleSheetAndSet(hostSeed, "A-101", "HOST BATCH SHEET", "Batch Set");
-            using (var tx = new Transaction(hostSeed, "Link Batch Models"))
+            hostSeed.ExecuteTransaction("Link Batch Models", FailurePipelines.ObserveOnly(), () =>
             {
-                tx.Start();
                 LinkLoadResult localRes = RevitLinkType.Create(hostSeed, ModelPathUtils.ConvertUserVisiblePathToModelPath(localLinkPath), new RevitLinkOptions(false));
                 RevitLinkInstance.Create(hostSeed, localRes.ElementId);
 
@@ -905,8 +896,7 @@ namespace SyntheticTests.Features.MultiModelPdfExport
 
                 LinkLoadResult ovRes = RevitLinkType.Create(hostSeed, ModelPathUtils.ConvertUserVisiblePathToModelPath(overlapCentralPath), new RevitLinkOptions(false));
                 RevitLinkInstance.Create(hostSeed, ovRes.ElementId);
-                tx.Commit();
-            }
+            });
             hostSeed.SaveAs(hostPath, new SaveAsOptions { OverwriteExistingFile = true });
             hostSeed.Close(false);
 
@@ -1042,18 +1032,16 @@ namespace SyntheticTests.Features.MultiModelPdfExport
 
             string hostPath = Path.Combine(CurrentTestTempDirectory, "FailHost.rvt");
             Document hostSeed = OpenIsolatedTestTemplateCopy(targetFileName: "FailHostSeed.rvt");
-            ElementId unloadedTypeId;
-            using (var tx = new Transaction(hostSeed, "Link Fail Test Models"))
+            ElementId unloadedTypeId = ElementId.InvalidElementId;
+            hostSeed.ExecuteTransaction("Link Fail Test Models", FailurePipelines.ObserveOnly(), () =>
             {
-                tx.Start();
                 LinkLoadResult localRes = RevitLinkType.Create(hostSeed, ModelPathUtils.ConvertUserVisiblePathToModelPath(localLinkPath), new RevitLinkOptions(false));
                 RevitLinkInstance.Create(hostSeed, localRes.ElementId);
 
                 LinkLoadResult unloadedRes = RevitLinkType.Create(hostSeed, ModelPathUtils.ConvertUserVisiblePathToModelPath(unloadedLinkPath), new RevitLinkOptions(false));
                 RevitLinkInstance.Create(hostSeed, unloadedRes.ElementId);
                 unloadedTypeId = unloadedRes.ElementId;
-                tx.Commit();
-            }
+            });
             ((RevitLinkType)hostSeed.GetElement(unloadedTypeId)).Unload(null);
             hostSeed.SaveAs(hostPath, new SaveAsOptions { OverwriteExistingFile = true });
             hostSeed.Close(false);
@@ -1117,68 +1105,54 @@ namespace SyntheticTests.Features.MultiModelPdfExport
                 .OnFailure(BuiltInFailures.RoomFailures.RoomNotEnclosed)
                 .Build();
 
-            using (var tx = new Transaction(doc, "Seed Sheet With Unenclosed Room and Print Set"))
+            doc.ExecuteTransaction("Seed Sheet With Unenclosed Room and Print Set", roomWarningSuppressor, () =>
             {
-                tx.Start();
-                try
+                Level level = new FilteredElementCollector(doc)
+                    .OfClass(typeof(Level))
+                    .Cast<Level>()
+                    .OrderBy(l => l.Elevation)
+                    .First();
+
+                ElementId planTypeId = doc.GetDefaultElementTypeId(ElementTypeGroup.ViewTypeFloorPlan);
+                if (planTypeId == ElementId.InvalidElementId)
                 {
-                    FailureHandlingOptions fho = tx.GetFailureHandlingOptions();
-                    fho.SetFailuresPreprocessor(roomWarningSuppressor);
-                    tx.SetFailureHandlingOptions(fho);
-
-                    Level level = new FilteredElementCollector(doc)
-                        .OfClass(typeof(Level))
-                        .Cast<Level>()
-                        .OrderBy(l => l.Elevation)
-                        .First();
-
-                    ElementId planTypeId = doc.GetDefaultElementTypeId(ElementTypeGroup.ViewTypeFloorPlan);
-                    if (planTypeId == ElementId.InvalidElementId)
-                    {
-                        planTypeId = new FilteredElementCollector(doc)
-                            .OfClass(typeof(ViewFamilyType))
-                            .Cast<ViewFamilyType>()
-                            .First(vft => vft.ViewFamily == ViewFamily.FloorPlan)
-                            .Id;
-                    }
-
-                    ViewPlan plan = ViewPlan.Create(doc, planTypeId, level.Id);
-                    plan.Name = "PLAN WITH UNENCLOSED ROOM";
-                    plan.DisplayStyle = DisplayStyle.Shading;
-
-                    // Create an unenclosed room on the plan's level (triggers RoomNotEnclosed warning on commit/export)
-                    doc.Create.NewRoom(level, new UV(0, 0));
-
-                    ElementId titleBlockId = new FilteredElementCollector(doc)
-                        .OfCategory(BuiltInCategory.OST_TitleBlocks)
-                        .WhereElementIsElementType()
-                        .FirstElementId() ?? ElementId.InvalidElementId;
-
-                    ViewSheet sheet = ViewSheet.Create(doc, titleBlockId);
-                    sheet.SheetNumber = sheetNumber;
-                    sheet.Name = sheetName;
-                    if (Viewport.CanAddViewToSheet(doc, sheet.Id, plan.Id))
-                    {
-                        Viewport.Create(doc, sheet.Id, plan.Id, XYZ.Zero);
-                    }
-
-                    PrintManager pm = doc.PrintManager;
-                    pm.PrintRange = PrintRange.Select;
-                    pm.Apply();
-                    ViewSheetSetting setting = pm.ViewSheetSetting;
-                    var viewSet = new ViewSet();
-                    viewSet.Insert(sheet);
-                    setting.CurrentViewSheetSet = setting.InSession;
-                    setting.CurrentViewSheetSet.Views = viewSet;
-                    Assert.IsTrue(setting.SaveAs(printSetName), $"Failed to save Print Set '{printSetName}'.");
-                    tx.Commit();
+                    planTypeId = new FilteredElementCollector(doc)
+                        .OfClass(typeof(ViewFamilyType))
+                        .Cast<ViewFamilyType>()
+                        .First(vft => vft.ViewFamily == ViewFamily.FloorPlan)
+                        .Id;
                 }
-                catch
+
+                ViewPlan plan = ViewPlan.Create(doc, planTypeId, level.Id);
+                plan.Name = "PLAN WITH UNENCLOSED ROOM";
+                plan.DisplayStyle = DisplayStyle.Shading;
+
+                // Create an unenclosed room on the plan's level (triggers RoomNotEnclosed warning on commit/export)
+                doc.Create.NewRoom(level, new UV(0, 0));
+
+                ElementId titleBlockId = new FilteredElementCollector(doc)
+                    .OfCategory(BuiltInCategory.OST_TitleBlocks)
+                    .WhereElementIsElementType()
+                    .FirstElementId() ?? ElementId.InvalidElementId;
+
+                ViewSheet sheet = ViewSheet.Create(doc, titleBlockId);
+                sheet.SheetNumber = sheetNumber;
+                sheet.Name = sheetName;
+                if (Viewport.CanAddViewToSheet(doc, sheet.Id, plan.Id))
                 {
-                    if (tx.HasStarted()) tx.RollBack();
-                    throw;
+                    Viewport.Create(doc, sheet.Id, plan.Id, XYZ.Zero);
                 }
-            }
+
+                PrintManager pm = doc.PrintManager;
+                pm.PrintRange = PrintRange.Select;
+                pm.Apply();
+                ViewSheetSetting setting = pm.ViewSheetSetting;
+                var viewSet = new ViewSet();
+                viewSet.Insert(sheet);
+                setting.CurrentViewSheetSet = setting.InSession;
+                setting.CurrentViewSheetSet.Views = viewSet;
+                Assert.IsTrue(setting.SaveAs(printSetName), $"Failed to save Print Set '{printSetName}'.");
+            });
         }
 
         private static MultiModelPdfDocumentJob CreateJob(
@@ -1203,37 +1177,27 @@ namespace SyntheticTests.Features.MultiModelPdfExport
 
         private static void SeedSimpleSheetAndSet(Document doc, string sheetNumber, string sheetName, string printSetName)
         {
-            using (var tx = new Transaction(doc, "Seed Sheet and Print Set"))
+            doc.ExecuteTransaction("Seed Sheet and Print Set", FailurePipelines.ObserveOnly(), () =>
             {
-                tx.Start();
-                try
-                {
-                    ElementId titleBlockId = new FilteredElementCollector(doc)
-                        .OfCategory(BuiltInCategory.OST_TitleBlocks)
-                        .WhereElementIsElementType()
-                        .FirstElementId() ?? ElementId.InvalidElementId;
+                ElementId titleBlockId = new FilteredElementCollector(doc)
+                    .OfCategory(BuiltInCategory.OST_TitleBlocks)
+                    .WhereElementIsElementType()
+                    .FirstElementId() ?? ElementId.InvalidElementId;
 
-                    ViewSheet sheet = ViewSheet.Create(doc, titleBlockId);
-                    sheet.SheetNumber = sheetNumber;
-                    sheet.Name = sheetName;
+                ViewSheet sheet = ViewSheet.Create(doc, titleBlockId);
+                sheet.SheetNumber = sheetNumber;
+                sheet.Name = sheetName;
 
-                    PrintManager pm = doc.PrintManager;
-                    pm.PrintRange = PrintRange.Select;
-                    pm.Apply();
-                    ViewSheetSetting setting = pm.ViewSheetSetting;
-                    var viewSet = new ViewSet();
-                    viewSet.Insert(sheet);
-                    setting.CurrentViewSheetSet = setting.InSession;
-                    setting.CurrentViewSheetSet.Views = viewSet;
-                    Assert.IsTrue(setting.SaveAs(printSetName), $"Failed to save Print Set '{printSetName}'.");
-                    tx.Commit();
-                }
-                catch
-                {
-                    if (tx.HasStarted()) tx.RollBack();
-                    throw;
-                }
-            }
+                PrintManager pm = doc.PrintManager;
+                pm.PrintRange = PrintRange.Select;
+                pm.Apply();
+                ViewSheetSetting setting = pm.ViewSheetSetting;
+                var viewSet = new ViewSet();
+                viewSet.Insert(sheet);
+                setting.CurrentViewSheetSet = setting.InSession;
+                setting.CurrentViewSheetSet.Views = viewSet;
+                Assert.IsTrue(setting.SaveAs(printSetName), $"Failed to save Print Set '{printSetName}'.");
+            });
         }
 
         private static SharedParameterElement BindSheetSharedParamAndSetValue(
@@ -1242,170 +1206,140 @@ namespace SyntheticTests.Features.MultiModelPdfExport
             string sheetNumber,
             string value)
         {
-            using (var tx = new Transaction(doc, "Bind Shared Parameter and Set Sheet Value"))
+            SharedParameterElement? sharedElem = null;
+            doc.ExecuteTransaction("Bind Shared Parameter and Set Sheet Value", FailurePipelines.ObserveOnly(), () =>
             {
-                tx.Start();
-                try
-                {
-                    CategorySet catSet = doc.Application.Create.NewCategorySet();
-                    Category sheetCat = doc.Settings.Categories.get_Item(BuiltInCategory.OST_Sheets);
-                    catSet.Insert(sheetCat);
-                    InstanceBinding binding = doc.Application.Create.NewInstanceBinding(catSet);
+                CategorySet catSet = doc.Application.Create.NewCategorySet();
+                Category sheetCat = doc.Settings.Categories.get_Item(BuiltInCategory.OST_Sheets);
+                catSet.Insert(sheetCat);
+                InstanceBinding binding = doc.Application.Create.NewInstanceBinding(catSet);
 
 #if REVIT2023 || REVIT2024
-                    bool bound = doc.ParameterBindings.Insert(definition, binding, BuiltInParameterGroup.PG_IDENTITY_DATA);
+                bool bound = doc.ParameterBindings.Insert(definition, binding, BuiltInParameterGroup.PG_IDENTITY_DATA);
 #else
-                    bool bound = doc.ParameterBindings.Insert(definition, binding, GroupTypeId.IdentityData);
+                bool bound = doc.ParameterBindings.Insert(definition, binding, GroupTypeId.IdentityData);
 #endif
-                    Assert.IsTrue(bound, $"Expected parameter binding for '{definition.Name}' to succeed.");
+                Assert.IsTrue(bound, $"Expected parameter binding for '{definition.Name}' to succeed.");
 
-                    ViewSheet sheet = new FilteredElementCollector(doc)
-                        .OfClass(typeof(ViewSheet))
-                        .Cast<ViewSheet>()
-                        .First(s => string.Equals(s.SheetNumber, sheetNumber, StringComparison.Ordinal));
-                    Parameter? param = sheet.LookupParameter(definition.Name);
-                    Assert.IsNotNull(param, $"Expected sheet '{sheetNumber}' to expose bound parameter '{definition.Name}'.");
-                    Assert.IsTrue(param!.Set(value), $"Failed to set '{definition.Name}' on sheet '{sheetNumber}'.");
+                ViewSheet sheet = new FilteredElementCollector(doc)
+                    .OfClass(typeof(ViewSheet))
+                    .Cast<ViewSheet>()
+                    .First(s => string.Equals(s.SheetNumber, sheetNumber, StringComparison.Ordinal));
+                Parameter? param = sheet.LookupParameter(definition.Name);
+                Assert.IsNotNull(param, $"Expected sheet '{sheetNumber}' to expose bound parameter '{definition.Name}'.");
+                Assert.IsTrue(param!.Set(value), $"Failed to set '{definition.Name}' on sheet '{sheetNumber}'.");
 
-                    SharedParameterElement? sharedElem = SharedParameterElement.Lookup(doc, definition.GUID);
-                    Assert.IsNotNull(sharedElem, $"Expected SharedParameterElement for '{definition.Name}' ({definition.GUID}).");
-                    tx.Commit();
-                    return sharedElem!;
-                }
-                catch
-                {
-                    if (tx.HasStarted()) tx.RollBack();
-                    throw;
-                }
-            }
+                sharedElem = SharedParameterElement.Lookup(doc, definition.GUID);
+                Assert.IsNotNull(sharedElem, $"Expected SharedParameterElement for '{definition.Name}' ({definition.GUID}).");
+            });
+
+            return sharedElem!;
         }
 
         private static void SeedCustomNamingPdfSetup(Document doc, string setupName, ElementId customParamId)
         {
-            using (var tx = new Transaction(doc, "Seed Custom Naming PDF Setup"))
+            doc.ExecuteTransaction("Seed Custom Naming PDF Setup", FailurePipelines.ObserveOnly(), () =>
             {
-                tx.Start();
-                try
+                TableCellCombinedParameterData sheetNumEntry = TableCellCombinedParameterData.Create();
+                sheetNumEntry.ParamId = new ElementId(BuiltInParameter.SHEET_NUMBER);
+                sheetNumEntry.CategoryId = new ElementId(BuiltInCategory.OST_Sheets);
+                sheetNumEntry.Separator = "_";
+
+                TableCellCombinedParameterData customEntry = TableCellCombinedParameterData.Create();
+                customEntry.ParamId = customParamId;
+                customEntry.CategoryId = new ElementId(BuiltInCategory.OST_Sheets);
+                customEntry.Separator = string.Empty;
+
+                var rule = new List<TableCellCombinedParameterData> { sheetNumEntry, customEntry };
+                Assert.IsTrue(PDFExportOptions.IsValidNamingRule(rule), "Custom naming rule should be valid.");
+
+                var opts = new PDFExportOptions
                 {
-                    TableCellCombinedParameterData sheetNumEntry = TableCellCombinedParameterData.Create();
-                    sheetNumEntry.ParamId = new ElementId(BuiltInParameter.SHEET_NUMBER);
-                    sheetNumEntry.CategoryId = new ElementId(BuiltInCategory.OST_Sheets);
-                    sheetNumEntry.Separator = "_";
-
-                    TableCellCombinedParameterData customEntry = TableCellCombinedParameterData.Create();
-                    customEntry.ParamId = customParamId;
-                    customEntry.CategoryId = new ElementId(BuiltInCategory.OST_Sheets);
-                    customEntry.Separator = string.Empty;
-
-                    var rule = new List<TableCellCombinedParameterData> { sheetNumEntry, customEntry };
-                    Assert.IsTrue(PDFExportOptions.IsValidNamingRule(rule), "Custom naming rule should be valid.");
-
-                    var opts = new PDFExportOptions
-                    {
-                        PaperFormat = ExportPaperFormat.Default,
-                        Combine = false
-                    };
-                    opts.SetNamingRule(rule);
-                    ExportPDFSettings.Create(doc, setupName, opts);
-                    tx.Commit();
-                }
-                catch
-                {
-                    if (tx.HasStarted()) tx.RollBack();
-                    throw;
-                }
-            }
+                    PaperFormat = ExportPaperFormat.Default,
+                    Combine = false
+                };
+                opts.SetNamingRule(rule);
+                ExportPDFSettings.Create(doc, setupName, opts);
+            });
         }
 
         private static ExportFixtureSuite SeedExportFixtureSuite(Document doc)
         {
-            using (var tx = new Transaction(doc, "Seed MultiModelPdfExport Fixture"))
+            ExportFixtureSuite? suite = null;
+            doc.ExecuteTransaction("Seed MultiModelPdfExport Fixture", FailurePipelines.ObserveOnly(), () =>
             {
-                tx.Start();
-                try
+                ElementId titleBlockId = new FilteredElementCollector(doc)
+                    .OfCategory(BuiltInCategory.OST_TitleBlocks)
+                    .WhereElementIsElementType()
+                    .FirstElementId() ?? ElementId.InvalidElementId;
+
+                ViewSheet sheetA101 = ViewSheet.Create(doc, titleBlockId);
+                sheetA101.SheetNumber = "PDF-101";
+                sheetA101.Name = "FLOOR PLAN LEVEL 1";
+
+                ViewSheet sheetA201 = ViewSheet.Create(doc, titleBlockId);
+                sheetA201.SheetNumber = "PDF-201";
+                sheetA201.Name = "EXTERIOR ELEVATIONS";
+
+                ViewSheet placeholderSheet = ViewSheet.CreatePlaceholder(doc);
+                placeholderSheet.SheetNumber = "PDF-900";
+                placeholderSheet.Name = "UNPLACED PLACEHOLDER";
+
+                ViewSchedule wallSchedule = ViewSchedule.CreateSchedule(doc, new ElementId(BuiltInCategory.OST_Walls));
+                wallSchedule.Name = "WALL SCHEDULE";
+
+                PrintManager printManager = doc.PrintManager;
+                printManager.PrintRange = PrintRange.Select;
+                printManager.Apply();
+                ViewSheetSetting setting = printManager.ViewSheetSetting;
+
+                // 1. Ordered manual Print Set: Sheet PDF-201 then Sheet PDF-101
+                var orderedSet = new ViewSet();
+                orderedSet.Insert(sheetA201);
+                orderedSet.Insert(sheetA101);
+                setting.CurrentViewSheetSet = setting.InSession;
+                setting.CurrentViewSheetSet.Views = orderedSet;
+                Assert.IsTrue(setting.SaveAs("CD Ordered Set"), "Failed to seed 'CD Ordered Set'.");
+
+                ViewSheetSet savedOrdered = new FilteredElementCollector(doc)
+                    .OfClass(typeof(ViewSheetSet))
+                    .Cast<ViewSheetSet>()
+                    .First(s => string.Equals(s.Name, "CD Ordered Set", StringComparison.Ordinal));
+                savedOrdered.IsAutomatic = false;
+                savedOrdered.OrderedViewList = new List<View> { sheetA201, sheetA101 };
+
+                // 2. Mixed Print Set with printable sheet + unplaced placeholder sheet + non-printable schedule
+                var mixedSet = new ViewSet();
+                mixedSet.Insert(sheetA101);
+                mixedSet.Insert(placeholderSheet);
+                if (!wallSchedule.CanBePrinted)
                 {
-                    ElementId titleBlockId = new FilteredElementCollector(doc)
-                        .OfCategory(BuiltInCategory.OST_TitleBlocks)
-                        .WhereElementIsElementType()
-                        .FirstElementId() ?? ElementId.InvalidElementId;
-
-                    ViewSheet sheetA101 = ViewSheet.Create(doc, titleBlockId);
-                    sheetA101.SheetNumber = "PDF-101";
-                    sheetA101.Name = "FLOOR PLAN LEVEL 1";
-
-                    ViewSheet sheetA201 = ViewSheet.Create(doc, titleBlockId);
-                    sheetA201.SheetNumber = "PDF-201";
-                    sheetA201.Name = "EXTERIOR ELEVATIONS";
-
-                    ViewSheet placeholderSheet = ViewSheet.CreatePlaceholder(doc);
-                    placeholderSheet.SheetNumber = "PDF-900";
-                    placeholderSheet.Name = "UNPLACED PLACEHOLDER";
-
-                    ViewSchedule wallSchedule = ViewSchedule.CreateSchedule(doc, new ElementId(BuiltInCategory.OST_Walls));
-                    wallSchedule.Name = "WALL SCHEDULE";
-
-                    PrintManager printManager = doc.PrintManager;
-                    printManager.PrintRange = PrintRange.Select;
-                    printManager.Apply();
-                    ViewSheetSetting setting = printManager.ViewSheetSetting;
-
-                    // 1. Ordered manual Print Set: Sheet PDF-201 then Sheet PDF-101
-                    var orderedSet = new ViewSet();
-                    orderedSet.Insert(sheetA201);
-                    orderedSet.Insert(sheetA101);
-                    setting.CurrentViewSheetSet = setting.InSession;
-                    setting.CurrentViewSheetSet.Views = orderedSet;
-                    Assert.IsTrue(setting.SaveAs("CD Ordered Set"), "Failed to seed 'CD Ordered Set'.");
-
-                    ViewSheetSet savedOrdered = new FilteredElementCollector(doc)
-                        .OfClass(typeof(ViewSheetSet))
-                        .Cast<ViewSheetSet>()
-                        .First(s => string.Equals(s.Name, "CD Ordered Set", StringComparison.Ordinal));
-                    savedOrdered.IsAutomatic = false;
-                    savedOrdered.OrderedViewList = new List<View> { sheetA201, sheetA101 };
-
-                    // 2. Mixed Print Set with printable sheet + unplaced placeholder sheet + non-printable schedule
-                    var mixedSet = new ViewSet();
-                    mixedSet.Insert(sheetA101);
-                    mixedSet.Insert(placeholderSheet);
-                    if (!wallSchedule.CanBePrinted)
-                    {
-                        mixedSet.Insert(wallSchedule);
-                    }
-                    setting.CurrentViewSheetSet = setting.InSession;
-                    setting.CurrentViewSheetSet.Views = mixedSet;
-                    Assert.IsTrue(setting.SaveAs("Mixed Skip Set"), "Failed to seed 'Mixed Skip Set'.");
-
-                    // 3. Named ExportPDFSettings option
-                    var pdfOpts = new PDFExportOptions
-                    {
-                        PaperFormat = ExportPaperFormat.ARCH_D,
-                        ZoomType = ZoomType.Zoom,
-                        ZoomPercentage = 100,
-                        Combine = true
-                    };
-                    ExportPDFSettings.Create(doc, "INC_SmokeSetup", pdfOpts);
-
-                    tx.Commit();
-
-                    return new ExportFixtureSuite
-                    {
-                        SheetA101 = sheetA101,
-                        SheetA201 = sheetA201,
-                        PlaceholderSheet = placeholderSheet,
-                        WallSchedule = wallSchedule
-                    };
+                    mixedSet.Insert(wallSchedule);
                 }
-                catch
+                setting.CurrentViewSheetSet = setting.InSession;
+                setting.CurrentViewSheetSet.Views = mixedSet;
+                Assert.IsTrue(setting.SaveAs("Mixed Skip Set"), "Failed to seed 'Mixed Skip Set'.");
+
+                // 3. Named ExportPDFSettings option
+                var pdfOpts = new PDFExportOptions
                 {
-                    if (tx.HasStarted())
-                    {
-                        tx.RollBack();
-                    }
+                    PaperFormat = ExportPaperFormat.ARCH_D,
+                    ZoomType = ZoomType.Zoom,
+                    ZoomPercentage = 100,
+                    Combine = true
+                };
+                ExportPDFSettings.Create(doc, "INC_SmokeSetup", pdfOpts);
 
-                    throw;
-                }
-            }
+                suite = new ExportFixtureSuite
+                {
+                    SheetA101 = sheetA101,
+                    SheetA201 = sheetA201,
+                    PlaceholderSheet = placeholderSheet,
+                    WallSchedule = wallSchedule
+                };
+            });
+
+            return suite!;
         }
 
         private static void AssertPdfHeaderValid(string pdfPath)
