@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>12.0</LangVersion>
+    <AssemblyName>RevitWorkerPool</AssemblyName>
+    <RootNamespace>RevitWorkerPool</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="RevitWorkerPool.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="ricaun.NamedPipeWrapper.Json" Version="1.8.0" />
+    <PackageReference Include="ricaun.NUnit" Version="1.5.0" />
+  </ItemGroup>
+
+</Project>

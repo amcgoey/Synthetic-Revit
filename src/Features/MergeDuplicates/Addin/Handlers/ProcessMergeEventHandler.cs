@@ -13,6 +13,7 @@ using Synthetic.RevitDOM.Operations;
 using Synthetic.Platform.IO;
 using Synthetic.Features.MergeDuplicates.ViewModels;
 using Synthetic.Features.MergeDuplicates.Services;
+using Synthetic.Features.MergeDuplicates.Utilities;
 
 namespace Synthetic.Features.MergeDuplicates.Handlers
 {
@@ -469,16 +470,21 @@ namespace Synthetic.Features.MergeDuplicates.Handlers
                                         doc.Delete(dupItem.RevitElementId.ToElementId());
                                         purgedCount++;
                                     }
-                                     catch (Exception ex)
-                                     {
-                                         try
-                                         {
-                                             System.IO.File.WriteAllText(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "synthetic_test_error.txt"), ex.ToString());
-                                         }
-                                         catch {}
-                                         report.ExecutionSuccessStatus = false;
-                                         report.ErrorMessage = "Family deletion failed: " + ex.Message + " | " + ex.StackTrace;
-                                     }
+                                    catch (Exception ex)
+                                    {
+                                        try
+                                        {
+                                            File.WriteAllText(GetDeletionErrorLogPath(), ex.ToString());
+                                        }
+                                        catch (Exception logEx) when (logEx is IOException or UnauthorizedAccessException)
+                                        {
+                                            app.Application.WriteJournalComment(
+                                                $"{MergeWarningPrefix} Failed to write deletion error log '{GetDeletionErrorLogPath()}': {logEx.Message}",
+                                                true);
+                                        }
+                                        report.ExecutionSuccessStatus = false;
+                                        report.ErrorMessage = "Family deletion failed: " + ex.Message + " | " + ex.StackTrace;
+                                    }
                                 }
                                 else
                                 {
@@ -673,6 +679,11 @@ namespace Synthetic.Features.MergeDuplicates.Handlers
         internal static string GetStep6ResultsLogPath(string? localAppDataOverride)
         {
             return DiagnosticLogPaths.GetStep6ResultsLogPath(localAppDataOverride);
+        }
+
+        internal static string GetDeletionErrorLogPath()
+        {
+            return MergeDiagnosticPaths.GetDeletionErrorLogPath();
         }
 
         private string? ExportStep6ResultsSummary(List<MergeExecutionReport> summaries)
