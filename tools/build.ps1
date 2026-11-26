@@ -161,6 +161,90 @@ function Invoke-AuthenticodeSign {
     }
 }
 
+function Stop-IdleWorkerPoolSupervisorBeforeClean {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$PoolExePath
+    )
+
+    if (-not (Test-Path -LiteralPath $PoolExePath -PathType Leaf)) {
+        return
+    }
+
+    Write-Host "[build] Checking Worker Pool supervisor state via $PoolExePath..."
+    $statusOutput = & $PoolExePath status --json 2>&1
+    $statusExit = $LASTEXITCODE
+    if ($statusExit -ne 0) {
+        $detail = ($statusOutput | Out-String).Trim()
+        throw "Failed to query Worker Pool status via '$PoolExePath' before removing output binaries (exitCode=$statusExit): $detail"
+    }
+
+    $statusJsonLine = ($statusOutput | ForEach-Object { $_.ToString().Trim() } | Where-Object { $_.StartsWith('{') } | Select-Object -Last 1)
+    if ([string]::IsNullOrWhiteSpace($statusJsonLine)) {
+        throw "Worker Pool status command returned invalid JSON from '$PoolExePath'."
+    }
+
+    $statusObj = $statusJsonLine | ConvertFrom-Json
+    if ($statusObj.running) {
+        $activeCount = [int]$statusObj.active
+        $queuedCount = [int]$statusObj.queuedRuns
+        $activeRunsCount = if ($null -ne $statusObj.PSObject.Properties['activeRuns']) { [int]$statusObj.activeRuns } else { 0 }
+        $activeWarmCount = if ($null -ne $statusObj.PSObject.Properties['activeWarmCalls']) { [int]$statusObj.activeWarmCalls } else { 0 }
+        $drainingWhenIdle = if ($null -ne $statusObj.PSObject.Properties['drainingWhenIdle']) { [bool]$statusObj.drainingWhenIdle } else { $false }
+        if ($activeCount -gt 0 -or $queuedCount -gt 0 -or $activeRunsCount -gt 0 -or $activeWarmCount -gt 0 -or $drainingWhenIdle) {
+            throw "Refusing to delete Worker Pool output binaries while supervisor PID=$($statusObj.supervisorPid) has active work (active=$activeCount, activeRuns=$activeRunsCount, queuedRuns=$queuedCount, activeWarmCalls=$activeWarmCount, drainingWhenIdle=$drainingWhenIdle). Wait for tests to finish or run 'RevitWorkerPool drain --when-idle' first."
+        }
+
+        Write-Host "[build] Draining idle Worker Pool supervisor PID=$($statusObj.supervisorPid) before cleaning output binaries..."
+    }
+
+    $drainOutput = & $PoolExePath drain --json 2>&1
+    $drainExit = $LASTEXITCODE
+    $drainJsonLine = ($drainOutput | ForEach-Object { $_.ToString().Trim() } | Where-Object { $_.StartsWith('{') } | Select-Object -Last 1)
+    $drainObj = $null
+    if (-not [string]::IsNullOrWhiteSpace($drainJsonLine)) {
+        try {
+            $drainObj = $drainJsonLine | ConvertFrom-Json
+        }
+        catch {
+            $drainObj = $null
+        }
+    }
+
+    if ($drainExit -ne 0) {
+        if ($null -ne $drainObj) {
+            $errMsg = if (-not [string]::IsNullOrWhiteSpace($drainObj.error)) { $drainObj.error } else { "exitCode=$drainExit" }
+            throw "Refusing to delete Worker Pool output binaries: Worker Pool drain failed (exitCode=$drainExit, activeRuns=$($drainObj.activeRuns), queuedRuns=$($drainObj.queuedRuns), activeWarmCalls=$($drainObj.activeWarmCalls)): $errMsg"
+        }
+
+        $detail = ($drainOutput | Out-String).Trim()
+        throw "Refusing to delete Worker Pool output binaries: Worker Pool drain failed (exitCode=$drainExit): $detail"
+    }
+
+    $supPid = 0
+    if ($null -ne $drainObj -and $null -ne $drainObj.status -and $null -ne $drainObj.status.supervisorPid) {
+        $supPid = [int]$drainObj.status.supervisorPid
+    }
+    elseif ($null -ne $statusObj -and $statusObj.running -and $null -ne $statusObj.supervisorPid) {
+        $supPid = [int]$statusObj.supervisorPid
+    }
+
+    if ($supPid -gt 0) {
+        $deadline = (Get-Date).AddSeconds(10)
+        while ((Get-Date) -lt $deadline) {
+            $proc = Get-Process -Id $supPid -ErrorAction SilentlyContinue
+            if ($null -eq $proc -or $proc.HasExited) {
+                break
+            }
+            Start-Sleep -Milliseconds 50
+        }
+    }
+}
+
+if ($MyInvocation.InvocationName -eq '.') {
+    return
+}
+
 $dotnet = Resolve-DotNetSdk
 $env:DOTNET_ROOT = $dotnet.Root
 $pathEntries = @($env:PATH -split ';')
@@ -172,10 +256,13 @@ $toolsDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $solutionPath = Join-Path $toolsDir 'RevitWorkerPool.sln'
 $poolProjectPath = Join-Path $toolsDir 'RevitWorkerPool\RevitWorkerPool.csproj'
 $poolOutDir = Join-Path $toolsDir 'bin\RevitWorkerPool'
+$poolExe = Join-Path $poolOutDir 'RevitWorkerPool.exe'
 $probeProjectPath = Join-Path $toolsDir 'RevitCleanShim.Probes\Net48Probe\Net48Probe.csproj'
 $probeOutDir = Join-Path $toolsDir 'bin\Probes\Net48Probe'
 $net8ProbeProjectPath = Join-Path $toolsDir 'RevitCleanShim.Probes\Net8Probe\Net8Probe.csproj'
 $net8ProbeOutDir = Join-Path $toolsDir 'bin\Probes\Net8Probe'
+
+Stop-IdleWorkerPoolSupervisorBeforeClean -PoolExePath $poolExe
 
 Write-Host "[build] Using dotnet: $($dotnet.Exe) (DOTNET_ROOT=$($env:DOTNET_ROOT))"
 Write-Host "[build] Building $solutionPath ($Configuration)..."
@@ -186,6 +273,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "[build] Publishing RevitWorkerPool to $poolOutDir..."
+Stop-IdleWorkerPoolSupervisorBeforeClean -PoolExePath $poolExe
 if (Test-Path -LiteralPath $poolOutDir) {
     Remove-Item -LiteralPath $poolOutDir -Recurse -Force
 }
@@ -195,7 +283,6 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-$poolExe = Join-Path $poolOutDir 'RevitWorkerPool.exe'
 if (-not (Test-Path -LiteralPath $poolExe -PathType Leaf)) {
     throw "Expected output executable was not produced: $poolExe"
 }

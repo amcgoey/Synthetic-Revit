@@ -18,6 +18,16 @@ using RevitWorkerPool.Startup;
 namespace RevitWorkerPool.Supervisor;
 
 /// <summary>
+/// Drain behavior requested for <see cref="WorkerPoolSupervisor.DrainAsync(DrainMode, CancellationToken)"/>.
+/// </summary>
+public enum DrainMode
+{
+    Safe = 0,
+    WhenIdle = 1,
+    Force = 2
+}
+
+/// <summary>
 /// On-demand Worker Pool supervisor managing pre-booted, single-use Revit Standby Workers,
 /// host-wide concurrency cap enforcement, lazy auto-start/latest-version replenishment,
 /// shared bundle lease lifetime, clean drain, and idle scale-to-zero.
@@ -47,18 +57,24 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
     private readonly CancellationTokenSource _supervisorCts = new();
     private readonly TaskCompletionSource<bool> _shutdownTcs = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
+    internal const string DrainingWhenIdleErrorMessage =
+        "Supervisor is draining when idle; retry after drain completes or run --no-pool.";
+
     private IDisposable? _bundleLease;
     private ITimer? _idleTimer;
     private SupervisorIpcServer? _ipcServer;
     private DateTimeOffset _lastActivityUtc;
     private long _nextRunSequence;
+    private int _preparingRuns;
     private int _inFlightRuns;
     private int _activeWarmCalls;
     private int _totalTerminatedWorkers;
     private bool _started;
     private bool _draining;
+    private bool _drainingWhenIdle;
     private bool _disposed;
     private Task<DrainResult>? _drainTask;
+    private TaskCompletionSource<DrainResult>? _whenIdleCompletionTcs;
 
     public WorkerPoolSupervisor(
         SupervisorOptions options,
@@ -105,6 +121,17 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
         }
     }
 
+    public bool IsDrainingWhenIdle
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _drainingWhenIdle && !_draining;
+            }
+        }
+    }
+
     public bool HasShutdownCompleted => _shutdownTcs.Task.IsCompleted;
 
     /// <summary>
@@ -129,7 +156,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
         lock (_sync)
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
-            if (_draining)
+            if (_draining || _drainingWhenIdle)
             {
                 return;
             }
@@ -231,6 +258,20 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                 };
             }
 
+            if (_drainingWhenIdle)
+            {
+                return new WarmResult
+                {
+                    Success = false,
+                    ExitCode = 2,
+                    Version = resolvedVersion,
+                    TargetCount = cappedTarget,
+                    ReadyCount = 0,
+                    Error = DrainingWhenIdleErrorMessage,
+                    Status = GetStatusLocked()
+                };
+            }
+
             try
             {
                 EnsureStartedLocked(initialAssemblyDir: null);
@@ -309,6 +350,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
             {
                 _activeWarmCalls--;
                 TouchActivityLocked();
+                MaybeTriggerDrainWhenIdleLocked();
             }
         }
     }
@@ -324,6 +366,29 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
         ArgumentNullException.ThrowIfNull(options);
 
         string fullTrxPath = Path.GetFullPath(options.TrxPath);
+        lock (_sync)
+        {
+            if (_disposed || _draining)
+            {
+                return TestExecutionHelper.InfrastructureFailureResult(
+                    options.RevitVersion,
+                    fullTrxPath,
+                    Array.Empty<string>(),
+                    EffectiveShimEnabled,
+                    "Worker pool supervisor is draining.");
+            }
+
+            if (_drainingWhenIdle)
+            {
+                return TestExecutionHelper.InfrastructureFailureResult(
+                    options.RevitVersion,
+                    fullTrxPath,
+                    Array.Empty<string>(),
+                    EffectiveShimEnabled,
+                    DrainingWhenIdleErrorMessage);
+            }
+        }
+
         if (string.IsNullOrWhiteSpace(options.AssemblyPath) || !File.Exists(options.AssemblyPath))
         {
             return TestExecutionHelper.InfrastructureFailureResult(
@@ -346,105 +411,111 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                 $"Autodesk Revit {options.RevitVersion} installation was not found.");
         }
 
-        lock (_sync)
-        {
-            if (_disposed || _draining)
-            {
-                return TestExecutionHelper.InfrastructureFailureResult(
-                    options.RevitVersion,
-                    fullTrxPath,
-                    Array.Empty<string>(),
-                    EffectiveShimEnabled,
-                    "Worker pool supervisor is draining.");
-            }
-
-            if (_started)
-            {
-                TouchActivityLocked();
-            }
-        }
-
-        RunPlanPreparationResult runPlan = TestExecutionHelper.PrepareRunPlan(
-            options.RevitVersion,
-            fullAssemblyPath,
-            fullTrxPath,
-            options.Filters,
-            options.Category,
-            options.Categories,
-            options.Shards,
-            _options.MaxActiveWorkers,
-            _timingCache,
-            EffectiveShimEnabled,
-            _diagnosticLogger);
-
-        if (!runPlan.ShouldExecute)
-        {
-            return runPlan.ImmediateResult!;
-        }
-
-        IReadOnlyList<TestShardPlan> shards = runPlan.Shards;
-        int? pipelineNextVersion = null;
-        if (options.NextVersion is int requestedNextVersion &&
-            requestedNextVersion != options.RevitVersion &&
-            _discovery.TryFindInstallation(requestedNextVersion) is not null)
-        {
-            pipelineNextVersion = requestedNextVersion;
-        }
-
+        bool countingAsPreparing = false;
+        bool countingAsInFlight = false;
         Guid runId = Guid.NewGuid();
-        using var runExecutionCts = CancellationTokenSource.CreateLinkedTokenSource(
-            cancellationToken,
-            _supervisorCts.Token);
-
-        lock (_sync)
-        {
-            if (_disposed || _draining)
-            {
-                return TestExecutionHelper.InfrastructureFailureResult(
-                    options.RevitVersion,
-                    fullTrxPath,
-                    Array.Empty<string>(),
-                    EffectiveShimEnabled,
-                    "Worker pool supervisor is draining.",
-                    shards.Count);
-            }
-
-            try
-            {
-                EnsureStartedLocked(Path.GetDirectoryName(fullAssemblyPath));
-            }
-            catch (Exception ex)
-            {
-                return TestExecutionHelper.InfrastructureFailureResult(
-                    options.RevitVersion,
-                    fullTrxPath,
-                    Array.Empty<string>(),
-                    EffectiveShimEnabled,
-                    ex.Message,
-                    shards.Count);
-            }
-
-            long runSequence = ++_nextRunSequence;
-            _latestRunSequenceByVersion[options.RevitVersion] = runSequence;
-            _pendingPipelinePrewarms.RemoveAll(p => p.TargetVersion == options.RevitVersion);
-
-            _inFlightRuns++;
-            TouchActivityLocked();
-            _scheduler.RegisterRun(runId);
-            _activeRunTasks[runId] = new ActiveRunTracking(
-                runExecutionCts,
-                shards.Count,
-                pipelineNextVersion,
-                options.RevitVersion,
-                runSequence);
-        }
-
         var stagingDirs = new List<string>();
-        var shardStates = new ShardExecutionState[shards.Count];
+        ShardExecutionState[]? shardStates = null;
         bool completedWithoutInfraError = false;
 
         try
         {
+            lock (_sync)
+            {
+                if (_disposed || _draining)
+                {
+                    return TestExecutionHelper.InfrastructureFailureResult(
+                        options.RevitVersion,
+                        fullTrxPath,
+                        Array.Empty<string>(),
+                        EffectiveShimEnabled,
+                        "Worker pool supervisor is draining.");
+                }
+
+                if (_drainingWhenIdle)
+                {
+                    return TestExecutionHelper.InfrastructureFailureResult(
+                        options.RevitVersion,
+                        fullTrxPath,
+                        Array.Empty<string>(),
+                        EffectiveShimEnabled,
+                        DrainingWhenIdleErrorMessage);
+                }
+
+                _preparingRuns++;
+                countingAsPreparing = true;
+                if (_started)
+                {
+                    TouchActivityLocked();
+                }
+            }
+
+            RunPlanPreparationResult runPlan = TestExecutionHelper.PrepareRunPlan(
+                options.RevitVersion,
+                fullAssemblyPath,
+                fullTrxPath,
+                options.Filters,
+                options.Category,
+                options.Categories,
+                options.Shards,
+                _options.MaxActiveWorkers,
+                _timingCache,
+                EffectiveShimEnabled,
+                _diagnosticLogger);
+
+            if (!runPlan.ShouldExecute)
+            {
+                return runPlan.ImmediateResult!;
+            }
+
+            IReadOnlyList<TestShardPlan> shards = runPlan.Shards;
+            shardStates = new ShardExecutionState[shards.Count];
+
+            int? pipelineNextVersion = null;
+            if (options.NextVersion is int requestedNextVersion &&
+                requestedNextVersion != options.RevitVersion &&
+                _discovery.TryFindInstallation(requestedNextVersion) is not null)
+            {
+                pipelineNextVersion = requestedNextVersion;
+            }
+
+            using var runExecutionCts = CancellationTokenSource.CreateLinkedTokenSource(
+                cancellationToken,
+                _supervisorCts.Token);
+
+            lock (_sync)
+            {
+                if (_disposed || _draining)
+                {
+                    return TestExecutionHelper.InfrastructureFailureResult(
+                        options.RevitVersion,
+                        fullTrxPath,
+                        Array.Empty<string>(),
+                        EffectiveShimEnabled,
+                        "Worker pool supervisor is draining.",
+                        shards.Count);
+                }
+
+                EnsureStartedLocked(Path.GetDirectoryName(fullAssemblyPath));
+
+                long runSequence = ++_nextRunSequence;
+                _latestRunSequenceByVersion[options.RevitVersion] = runSequence;
+                _pendingPipelinePrewarms.RemoveAll(p => p.TargetVersion == options.RevitVersion);
+
+                _preparingRuns--;
+                countingAsPreparing = false;
+                _inFlightRuns++;
+                countingAsInFlight = true;
+                TouchActivityLocked();
+                _scheduler.RegisterRun(runId);
+                _activeRunTasks[runId] = new ActiveRunTracking(
+                    runExecutionCts,
+                    shards.Count,
+                    pipelineNextVersion,
+                    options.RevitVersion,
+                    runSequence);
+            }
+
             var shardAssemblyPaths = new string[shards.Count];
             if (shards.Count == 1)
             {
@@ -556,38 +627,60 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
         }
         catch (Exception ex)
         {
-            string[] workerIds = shardStates
-                .Where(s => s is not null && !string.IsNullOrWhiteSpace(s.WorkerId))
-                .Select(s => s.WorkerId!)
-                .ToArray();
+            string[] workerIds = shardStates is null
+                ? Array.Empty<string>()
+                : shardStates
+                    .Where(s => s is not null && !string.IsNullOrWhiteSpace(s.WorkerId))
+                    .Select(s => s.WorkerId!)
+                    .ToArray();
             return TestExecutionHelper.InfrastructureFailureResult(
                 options.RevitVersion,
                 fullTrxPath,
                 workerIds,
                 EffectiveShimEnabled,
                 ex.Message,
-                shards.Count);
+                shardStates?.Length ?? 0);
         }
         finally
         {
             ShardStagingHelper.CleanupStagingDirectories(stagingDirs, _diagnosticLogger);
 
-            bool anyDispatched = shardStates.Any(s => s is not null && s.Dispatched);
+            bool anyDispatched = shardStates is not null && shardStates.Any(s => s is not null && s.Dispatched);
             lock (_sync)
             {
-                _activeRunTasks.TryRemove(runId, out _);
-                _scheduler.UnregisterRun(runId);
-                if (!completedWithoutInfraError)
+                if (countingAsPreparing)
                 {
-                    _pendingPipelinePrewarms.RemoveAll(p => p.RunId == runId);
+                    _preparingRuns--;
                 }
 
-                _inFlightRuns--;
-                TouchActivityLocked();
-
-                if ((anyDispatched || _pendingPipelinePrewarms.Count > 0) && !_draining && !_disposed)
+                if (countingAsInFlight)
                 {
-                    ScheduleLocked();
+                    _activeRunTasks.TryRemove(runId, out _);
+                    _scheduler.UnregisterRun(runId);
+                    if (!completedWithoutInfraError)
+                    {
+                        _pendingPipelinePrewarms.RemoveAll(p => p.RunId == runId);
+                    }
+
+                    _inFlightRuns--;
+                }
+
+                if (countingAsInFlight || _started)
+                {
+                    TouchActivityLocked();
+                }
+
+                if (!_draining && !_disposed)
+                {
+                    if (_drainingWhenIdle)
+                    {
+                        MaybeTriggerDrainWhenIdleLocked();
+                    }
+
+                    if (!_draining && (anyDispatched || _pendingPipelinePrewarms.Count > 0))
+                    {
+                        ScheduleLocked();
+                    }
                 }
             }
         }
@@ -605,10 +698,22 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
     }
 
     /// <summary>
-    /// Cancels background replenishment, terminates all standby/booting/active workers cleanly,
-    /// disposes the bundle lease, and signals supervisor shutdown. Idempotent.
+    /// Safely drains the supervisor when no work is in flight, refusing with exit code <c>2</c>
+    /// and structured active-work counts if runs, queued shards, warm calls, or active workers exist.
     /// </summary>
     public Task<DrainResult> DrainAsync(CancellationToken cancellationToken = default)
+    {
+        return DrainAsync(DrainMode.Safe, cancellationToken);
+    }
+
+    /// <summary>
+    /// Executes supervisor drain according to <paramref name="mode"/>:
+    /// <see cref="DrainMode.Safe"/> refuses while work is in flight;
+    /// <see cref="DrainMode.WhenIdle"/> latches <c>DrainingWhenIdle</c>, halts standby/warm/lookahead boots,
+    /// and drains once all in-flight runs finish;
+    /// <see cref="DrainMode.Force"/> cancels in-flight runs immediately with zero grace wait.
+    /// </summary>
+    public Task<DrainResult> DrainAsync(DrainMode mode, CancellationToken cancellationToken = default)
     {
         Task<DrainResult> task;
         lock (_sync)
@@ -617,15 +722,148 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
             {
                 task = _drainTask;
             }
+            else if (mode == DrainMode.Force)
+            {
+                task = StartTerminalDrainLocked();
+            }
+            else if (mode == DrainMode.WhenIdle)
+            {
+                EnterDrainingWhenIdleLocked();
+                if (!HasActiveWorkLocked())
+                {
+                    task = StartTerminalDrainLocked();
+                }
+                else
+                {
+                    _whenIdleCompletionTcs ??= new TaskCompletionSource<DrainResult>(
+                        TaskCreationOptions.RunContinuationsAsynchronously);
+                    task = _whenIdleCompletionTcs.Task;
+                }
+            }
             else
             {
-                _draining = true;
-                task = ExecuteDrainAsync();
-                _drainTask = task;
+                (int activeRuns, int queuedRuns, int activeWarmCalls, int activeWorkers) = GetActiveWorkCountsLocked();
+                if (activeRuns > 0 || queuedRuns > 0 || activeWarmCalls > 0 || activeWorkers > 0)
+                {
+                    return Task.FromResult(new DrainResult
+                    {
+                        Success = false,
+                        ExitCode = 2,
+                        TerminatedWorkers = 0,
+                        ActiveRuns = activeRuns,
+                        QueuedRuns = queuedRuns,
+                        ActiveWarmCalls = activeWarmCalls,
+                        DrainingWhenIdle = _drainingWhenIdle,
+                        Error =
+                            $"Cannot drain while work is in flight (activeRuns={activeRuns}, queuedRuns={queuedRuns}, " +
+                            $"activeWarmCalls={activeWarmCalls}, activeWorkers={activeWorkers}). " +
+                            "Use 'drain --when-idle' to wait or 'drain --force' to cancel immediately.",
+                        Status = GetStatusLocked()
+                    });
+                }
+
+                task = StartTerminalDrainLocked();
             }
         }
 
         return task.WaitAsync(cancellationToken);
+    }
+
+    private void EnterDrainingWhenIdleLocked()
+    {
+        if (_drainingWhenIdle)
+        {
+            return;
+        }
+
+        _drainingWhenIdle = true;
+        _standbyTargets.Clear();
+        _pendingPipelinePrewarms.Clear();
+        Log("[supervisor] Entered DrainingWhenIdle state; halting standby/warm/lookahead boots.");
+
+        if (_activeWarmCalls == 0)
+        {
+            foreach (ManagedWorker worker in _workers)
+            {
+                if (worker.State == WorkerState.Booting &&
+                    worker.Purpose != WorkerBootPurpose.Demand &&
+                    !_scheduler.HasPendingMatching((v, item) =>
+                        !item.Cancelled &&
+                        v == worker.Version &&
+                        ProjectRootsEqual(item.ProjectRoot, worker.ProjectRoot)))
+                {
+                    worker.State = WorkerState.Terminating;
+                    DetachDisconnectHandlerLocked(worker);
+                    try
+                    {
+                        worker.BootCts.Cancel();
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                    }
+                }
+            }
+        }
+    }
+
+    private Task<DrainResult> StartTerminalDrainLocked()
+    {
+        if (_drainTask is not null)
+        {
+            return _drainTask;
+        }
+
+        _draining = true;
+        _drainingWhenIdle = false;
+        Task<DrainResult> drainTask = ExecuteDrainAsync();
+        _drainTask = drainTask;
+
+        TaskCompletionSource<DrainResult>? whenIdleTcs = _whenIdleCompletionTcs;
+        if (whenIdleTcs is not null)
+        {
+            _ = drainTask.ContinueWith(
+                t =>
+                {
+                    if (t.IsCompletedSuccessfully)
+                    {
+                        whenIdleTcs.TrySetResult(t.Result);
+                    }
+                    else if (t.IsCanceled)
+                    {
+                        whenIdleTcs.TrySetCanceled();
+                    }
+                    else if (t.Exception is not null)
+                    {
+                        whenIdleTcs.TrySetException(t.Exception.InnerExceptions);
+                    }
+                },
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+        }
+
+        return drainTask;
+    }
+
+    private void MaybeTriggerDrainWhenIdleLocked()
+    {
+        if (!_drainingWhenIdle || _draining || _disposed || HasActiveWorkLocked())
+        {
+            return;
+        }
+
+        _ = StartTerminalDrainLocked();
+    }
+
+    private (int ActiveRuns, int QueuedRuns, int ActiveWarmCalls, int ActiveWorkers) GetActiveWorkCountsLocked()
+    {
+        return (_inFlightRuns + _preparingRuns, _scheduler.PendingCount, _activeWarmCalls, CountActiveLocked());
+    }
+
+    private bool HasActiveWorkLocked()
+    {
+        (int activeRuns, int queuedRuns, int activeWarmCalls, int activeWorkers) = GetActiveWorkCountsLocked();
+        return activeRuns > 0 || queuedRuns > 0 || activeWarmCalls > 0 || activeWorkers > 0;
     }
 
     /// <summary>
@@ -648,6 +886,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                     Success = !status.Draining,
                     ExitCode = status.Draining ? 2 : 0,
                     IsDraining = status.Draining,
+                    IsDrainingWhenIdle = status.DrainingWhenIdle,
                     Status = status
                 };
             }
@@ -661,6 +900,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                     Success = true,
                     ExitCode = 0,
                     IsDraining = status.Draining,
+                    IsDrainingWhenIdle = status.DrainingWhenIdle,
                     Status = status
                 };
             }
@@ -682,7 +922,8 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                     Success = warm.Success,
                     ExitCode = warm.ExitCode,
                     Error = warm.Error,
-                    IsDraining = warm.Status?.Draining ?? false,
+                    IsDraining = warm.Status?.Draining ?? IsDraining,
+                    IsDrainingWhenIdle = warm.Status?.DrainingWhenIdle ?? IsDrainingWhenIdle,
                     Status = warm.Status,
                     WarmResult = warm
                 };
@@ -728,20 +969,53 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                     ExitCode = result.ExitCode,
                     Error = result.Error,
                     IsDraining = IsDraining,
+                    IsDrainingWhenIdle = IsDrainingWhenIdle,
                     RunResult = result
                 };
             }
 
             case SupervisorIpcCommands.Drain:
             {
-                DrainResult drain = await DrainAsync(cancellationToken).ConfigureAwait(false);
+                if (request.WhenIdle && request.Force)
+                {
+                    PoolStatusSnapshot status = GetStatus();
+                    var invalidDrain = new DrainResult
+                    {
+                        Success = false,
+                        ExitCode = 2,
+                        ActiveRuns = status.ActiveRuns,
+                        QueuedRuns = status.QueuedRuns,
+                        ActiveWarmCalls = status.ActiveWarmCalls,
+                        DrainingWhenIdle = status.DrainingWhenIdle,
+                        Error = "--when-idle and --force cannot be combined.",
+                        Status = status
+                    };
+                    return new SupervisorIpcResponse
+                    {
+                        RequestId = request.RequestId,
+                        Success = false,
+                        ExitCode = 2,
+                        Error = invalidDrain.Error,
+                        IsDraining = status.Draining,
+                        IsDrainingWhenIdle = status.DrainingWhenIdle,
+                        Status = status,
+                        DrainResult = invalidDrain
+                    };
+                }
+
+                DrainMode mode = request.Force
+                    ? DrainMode.Force
+                    : (request.WhenIdle ? DrainMode.WhenIdle : DrainMode.Safe);
+
+                DrainResult drain = await DrainAsync(mode, cancellationToken).ConfigureAwait(false);
                 return new SupervisorIpcResponse
                 {
                     RequestId = request.RequestId,
                     Success = drain.Success,
                     ExitCode = drain.ExitCode,
                     Error = drain.Error,
-                    IsDraining = true,
+                    IsDraining = drain.Status?.Draining ?? IsDraining,
+                    IsDrainingWhenIdle = drain.Status?.DrainingWhenIdle ?? IsDrainingWhenIdle,
                     Status = drain.Status,
                     DrainResult = drain
                 };
@@ -770,7 +1044,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
 
         try
         {
-            await DrainAsync(CancellationToken.None).ConfigureAwait(false);
+            await DrainAsync(DrainMode.Force, CancellationToken.None).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -877,7 +1151,15 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
             }
             else if (!_draining && !_disposed)
             {
-                ScheduleLocked();
+                if (_drainingWhenIdle)
+                {
+                    MaybeTriggerDrainWhenIdleLocked();
+                }
+
+                if (!_draining)
+                {
+                    ScheduleLocked();
+                }
             }
         }
 
@@ -907,7 +1189,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
 
         lock (_sync)
         {
-            if (_draining || _disposed)
+            if (_draining || _drainingWhenIdle || _disposed)
             {
                 return;
             }
@@ -1011,7 +1293,8 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
 
         // 3. Strictly demand-gated, shimmed-only, RAM-guarded +1 lookahead standby slot.
         //    Permitted only when all four guards hold simultaneously and TotalResident <= MaxActiveWorkers + 1.
-        if (CountActiveLocked() == _options.MaxActiveWorkers &&
+        if (!_drainingWhenIdle &&
+            CountActiveLocked() == _options.MaxActiveWorkers &&
             CountTotalSlotsLocked() < _options.MaxActiveWorkers + 1 &&
             _launcher.UsesCleanShim &&
             _scheduler.TryPeekNextBootCandidate(out int lookaheadVersion, out PendingWorkItem? lookaheadItem) &&
@@ -1029,7 +1312,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
 
         // 4. Inside baseline cap MaxActiveWorkers: trigger one-time N -> N+1 pipeline pre-warming
         //    and replenish background standby targets only when no pending item is starving for slots.
-        if (_scheduler.PendingCount == 0)
+        if (!_drainingWhenIdle && _scheduler.PendingCount == 0)
         {
             LaunchPendingPipelinePrewarmsLocked(overrideBootTimeout);
 
@@ -1402,17 +1685,20 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                         w.State == WorkerState.ReadyStandby);
 
                     bool keepAsStandbyTarget =
+                        !_drainingWhenIdle &&
                         ProjectRootsEqual(worker.ProjectRoot, defaultProjectRoot) &&
                         existingReady < standbyTarget &&
                         CountNonTerminatingWorkersLocked() <= _options.MaxActiveWorkers;
 
                     bool keepAsPipelinePrewarm =
+                        !_drainingWhenIdle &&
                         worker.Purpose == WorkerBootPurpose.PipelinePrewarm &&
                         ProjectRootsEqual(worker.ProjectRoot, defaultProjectRoot) &&
                         existingReady == 0 &&
                         CountNonTerminatingWorkersLocked() <= _options.MaxActiveWorkers;
 
                     bool keepAsLookaheadStandby =
+                        !_drainingWhenIdle &&
                         _scheduler.HasPendingMatching((v, item) =>
                             !item.Cancelled &&
                             v == worker.Version &&
@@ -1561,7 +1847,15 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
 
             if (!_draining && !_disposed)
             {
-                ScheduleLocked();
+                if (_drainingWhenIdle)
+                {
+                    MaybeTriggerDrainWhenIdleLocked();
+                }
+
+                if (!_draining)
+                {
+                    ScheduleLocked();
+                }
             }
         }
     }
@@ -1625,20 +1919,11 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
             await Task.WhenAll(immediateStops).ConfigureAwait(false);
         }
 
-        // Allow active tests a brief grace window to complete cleanly before cancelling them.
+        // Cancel any active runs immediately with zero grace wait (only reached on --force / DisposeAsync or when idle).
         List<ActiveRunTracking> activeRuns = _activeRunTasks.Values.ToList();
         if (activeRuns.Count > 0)
         {
-            if (_options.DrainGraceTimeout > TimeSpan.Zero)
-            {
-                DateTime deadline = DateTime.UtcNow + _options.DrainGraceTimeout;
-                while (!_activeRunTasks.IsEmpty && DateTime.UtcNow < deadline)
-                {
-                    await Task.Delay(25).ConfigureAwait(false);
-                }
-            }
-
-            foreach (ActiveRunTracking active in _activeRunTasks.Values)
+            foreach (ActiveRunTracking active in activeRuns)
             {
                 try
                 {
@@ -1678,7 +1963,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
             bool empty;
             lock (_sync)
             {
-                empty = _workers.Count == 0 && _inFlightRuns == 0;
+                empty = _workers.Count == 0 && _inFlightRuns == 0 && _preparingRuns == 0;
             }
 
             if (empty)
@@ -1801,7 +2086,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
         {
             lock (_sync)
             {
-                if (_draining || _disposed || worker.State != WorkerState.ReadyStandby)
+                if (_draining || _drainingWhenIdle || _disposed || worker.State != WorkerState.ReadyStandby)
                 {
                     return;
                 }
@@ -1894,17 +2179,12 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
         bool shouldDrain = false;
         lock (_sync)
         {
-            if (_draining || _disposed)
+            if (_draining || _drainingWhenIdle || _disposed)
             {
                 return;
             }
 
-            bool hasActiveWork = _inFlightRuns > 0 ||
-                                 _activeWarmCalls > 0 ||
-                                 _scheduler.PendingCount > 0 ||
-                                 _workers.Any(w => w.State == WorkerState.Active);
-
-            if (hasActiveWork)
+            if (HasActiveWorkLocked())
             {
                 ArmOrResetIdleTimerLocked();
                 return;
@@ -2002,12 +2282,15 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
             PipeName = _options.PipeName,
             ShimEnabled = EffectiveShimEnabled,
             Draining = _draining,
+            DrainingWhenIdle = _drainingWhenIdle && !_draining,
             Booting = booting,
             ReadyStandby = readyStandby,
             Active = active,
             TotalResident = booting + readyStandby + active,
             ActiveCap = _options.MaxActiveWorkers,
             QueuedRuns = _scheduler.PendingCount,
+            ActiveRuns = _inFlightRuns + _preparingRuns,
+            ActiveWarmCalls = _activeWarmCalls,
             LastActivityUtc = _lastActivityUtc,
             Versions = versionDtos
         };

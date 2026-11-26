@@ -37,6 +37,12 @@ public sealed class SupervisorIpcRequest
     [JsonProperty("bootTimeoutSeconds")]
     public double? BootTimeoutSeconds { get; init; }
 
+    [JsonProperty("whenIdle")]
+    public bool WhenIdle { get; init; }
+
+    [JsonProperty("force")]
+    public bool Force { get; init; }
+
     [JsonProperty("run")]
     public SupervisorRunPayload? Run { get; init; }
 }
@@ -106,6 +112,9 @@ public sealed class SupervisorIpcResponse
     [JsonProperty("isDraining")]
     public bool IsDraining { get; init; }
 
+    [JsonProperty("isDrainingWhenIdle")]
+    public bool IsDrainingWhenIdle { get; init; }
+
     [JsonProperty("status")]
     public PoolStatusSnapshot? Status { get; init; }
 
@@ -139,6 +148,9 @@ public sealed class PoolStatusSnapshot
     [JsonProperty("draining")]
     public bool Draining { get; init; }
 
+    [JsonProperty("drainingWhenIdle")]
+    public bool DrainingWhenIdle { get; init; }
+
     [JsonProperty("booting")]
     public int Booting { get; init; }
 
@@ -156,6 +168,12 @@ public sealed class PoolStatusSnapshot
 
     [JsonProperty("queuedRuns")]
     public int QueuedRuns { get; init; }
+
+    [JsonProperty("activeRuns")]
+    public int ActiveRuns { get; init; }
+
+    [JsonProperty("activeWarmCalls")]
+    public int ActiveWarmCalls { get; init; }
 
     [JsonProperty("lastActivityUtc")]
     public DateTimeOffset LastActivityUtc { get; init; }
@@ -229,6 +247,18 @@ public sealed class DrainResult
 
     [JsonProperty("terminatedWorkers")]
     public int TerminatedWorkers { get; init; }
+
+    [JsonProperty("activeRuns")]
+    public int ActiveRuns { get; init; }
+
+    [JsonProperty("queuedRuns")]
+    public int QueuedRuns { get; init; }
+
+    [JsonProperty("activeWarmCalls")]
+    public int ActiveWarmCalls { get; init; }
+
+    [JsonProperty("drainingWhenIdle")]
+    public bool DrainingWhenIdle { get; init; }
 
     [JsonProperty("error")]
     public string? Error { get; init; }
