@@ -22,6 +22,7 @@ namespace Synthetic.Features.DetailItemFactory.ViewModels
         private string _outputPath = string.Empty;
         private string _selectedSubcategory = DetailItemFactorySettings.DefaultTargetSubcategory;
         private bool _overwriteExisting = true;
+        private bool _cleanupTempFiles = true;
 
         /// <summary>
         /// Gets the collection of elements configured for conversion.
@@ -70,6 +71,15 @@ namespace Synthetic.Features.DetailItemFactory.ViewModels
         {
             get => _overwriteExisting;
             set => SetProperty(ref _overwriteExisting, value);
+        }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether temporary DWG and PCP export files are deleted after each element finishes.
+        /// </summary>
+        public bool CleanupTempFiles
+        {
+            get => _cleanupTempFiles;
+            set => SetProperty(ref _cleanupTempFiles, value);
         }
 
         /// <summary>
@@ -163,7 +173,8 @@ namespace Synthetic.Features.DetailItemFactory.ViewModels
                     familyName: e.FamilyName,
                     typeName: e.TypeName,
                     selectedOrientation: e.SelectedOrientation)),
-                fileExistsCheck: fileExistsCheck);
+                fileExistsCheck: fileExistsCheck,
+                cleanupTempFiles: CleanupTempFiles);
         }
 
         private void ExecuteBrowse()

@@ -43,6 +43,7 @@ namespace SyntheticTests.Features.DetailItemFactory
             Assert.AreEqual(@"C:\Project\DetailItems\", vm.OutputPath);
             Assert.AreEqual("Heavy Line", vm.SelectedSubcategory);
             Assert.IsTrue(vm.OverwriteExisting);
+            Assert.IsTrue(vm.CleanupTempFiles);
             Assert.AreEqual(2, vm.Elements.Count);
             Assert.AreEqual(DetailItemOrientations.ElevFront, vm.Elements[0].SelectedOrientation);
             CollectionAssert.AreEqual(new[] { "Thin Line", "Heavy Line", "Detail Items" }, vm.Subcategories);
@@ -112,6 +113,27 @@ namespace SyntheticTests.Features.DetailItemFactory
             vm.CancelCommand.Execute(null);
 
             CollectionAssert.AreEqual(new[] { true, false }, closeResults);
+        }
+
+        [Test]
+        public void DetailItemFactoryViewModel_CleanupTempFiles_DefaultsTrueRaisesPropertyChangedAndPropagatesToPlan()
+        {
+            var snapshot = new FakeDetailItemFactoryAdapter().CaptureSessionSnapshot();
+            var vm = new DetailItemFactoryViewModel(snapshot, new FakeFolderDialogService());
+
+            Assert.IsTrue(vm.CleanupTempFiles);
+            DetailItemBatchPlan defaultPlan = vm.BuildBatchPlan(_ => false);
+            Assert.IsTrue(defaultPlan.CleanupTempFiles);
+
+            var changedProperties = new List<string?>();
+            vm.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName);
+
+            vm.CleanupTempFiles = false;
+            Assert.IsFalse(vm.CleanupTempFiles);
+            CollectionAssert.Contains(changedProperties, nameof(DetailItemFactoryViewModel.CleanupTempFiles));
+
+            DetailItemBatchPlan optOutPlan = vm.BuildBatchPlan(_ => false);
+            Assert.IsFalse(optOutPlan.CleanupTempFiles);
         }
 
         [Test]
@@ -241,7 +263,31 @@ namespace SyntheticTests.Features.DetailItemFactory
                 vm.CloseCommand.Execute(null);
                 Assert.IsTrue(closed);
 
-                // Null IUserPromptService must not throw even when folder is missing.
+                // Locked temp file should be reported without throwing, while unlocked matches still delete.
+                string lockedDwg = Path.Combine(tempDir, "temp_export_locked_0000_.dwg");
+                string unlockedPcp = Path.Combine(tempDir, "temp_export_locked_0000_.pcp");
+                File.WriteAllText(lockedDwg, "locked");
+                File.WriteAllText(unlockedPcp, "unlocked");
+
+                using (new FileStream(lockedDwg, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                {
+                    vm.DeleteTempDwgsCommand.Execute(null);
+                }
+
+                Assert.IsFalse(File.Exists(unlockedPcp));
+                Assert.IsTrue(File.Exists(lockedDwg));
+                Assert.AreEqual(2, prompt.ShownMessages.Count);
+                StringAssert.Contains("deleted 1 temporary CAD file", prompt.ShownMessages[1]);
+                StringAssert.Contains("Failed to delete 1 file", prompt.ShownMessages[1]);
+
+                // Null IUserPromptService must not throw on existing or missing folders.
+                var headlessExistingVm = new DetailItemFactoryResultsViewModel(
+                    tempDir,
+                    results,
+                    userPromptService: null);
+                Assert.DoesNotThrow(() => headlessExistingVm.DeleteTempDwgsCommand.Execute(null));
+                Assert.IsFalse(File.Exists(lockedDwg));
+
                 var headlessVm = new DetailItemFactoryResultsViewModel(
                     Path.Combine(tempDir, "MissingSubfolder"),
                     results,

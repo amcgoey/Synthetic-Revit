@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.IO;
 using System.Windows.Input;
 using Synthetic.Features.DetailItemFactory.Models;
+using Synthetic.Features.DetailItemFactory.Services;
 using Synthetic.Platform.UI;
 
 namespace Synthetic.Features.DetailItemFactory.ViewModels
@@ -63,52 +63,29 @@ namespace Synthetic.Features.DetailItemFactory.ViewModels
 
         private void ExecuteDeleteTempDwgs()
         {
-            if (string.IsNullOrWhiteSpace(_outputFolder) || !Directory.Exists(_outputFolder))
+            DetailItemTempCleanupSummary summary = DetailItemBatchPlanner.CleanupTempExportFiles(_outputFolder);
+
+            if (!summary.DirectoryExists)
             {
                 _userPromptService?.ShowMessage("The output folder does not exist.", "Detail Item Factory");
                 return;
             }
 
-            int deletedCount = 0;
-            int failedCount = 0;
-
-            try
-            {
-                var files = new List<string>();
-                files.AddRange(Directory.GetFiles(_outputFolder, "*.dwg"));
-                files.AddRange(Directory.GetFiles(_outputFolder, "*.pcp"));
-
-                foreach (string file in files)
-                {
-                    string filename = Path.GetFileName(file);
-                    if (filename.StartsWith("temp_export_", StringComparison.OrdinalIgnoreCase))
-                    {
-                        try
-                        {
-                            File.Delete(file);
-                            deletedCount++;
-                        }
-                        catch (Exception)
-                        {
-                            failedCount++;
-                        }
-                    }
-                }
-
-                string msg = $"Garbage Collection Complete.\n\nSuccessfully deleted {deletedCount} temporary CAD file{(deletedCount == 1 ? "" : "s")} (.dwg/.pcp).";
-                if (failedCount > 0)
-                {
-                    msg += $"\nFailed to delete {failedCount} file{(failedCount == 1 ? "" : "s")} (possibly locked or in use).";
-                }
-
-                _userPromptService?.ShowMessage(msg, "Detail Item Factory - Cleanup");
-            }
-            catch (Exception ex)
+            if (!string.IsNullOrEmpty(summary.EnumerationError))
             {
                 _userPromptService?.ShowMessage(
-                    $"An error occurred during DWG cleanup:\n{ex.Message}",
+                    $"An error occurred during DWG cleanup:\n{summary.EnumerationError}",
                     "Detail Item Factory - Error");
+                return;
             }
+
+            string msg = $"Garbage Collection Complete.\n\nSuccessfully deleted {summary.DeletedCount} temporary CAD file{(summary.DeletedCount == 1 ? "" : "s")} (.dwg/.pcp).";
+            if (summary.FailedCount > 0)
+            {
+                msg += $"\nFailed to delete {summary.FailedCount} file{(summary.FailedCount == 1 ? "" : "s")} (possibly locked or in use).";
+            }
+
+            _userPromptService?.ShowMessage(msg, "Detail Item Factory - Cleanup");
         }
 
         private void ExecuteClose()

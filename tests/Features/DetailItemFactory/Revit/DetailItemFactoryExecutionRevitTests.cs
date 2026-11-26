@@ -66,10 +66,12 @@ namespace SyntheticTests.Features.DetailItemFactory
             var vm = new DetailItemFactoryViewModel(snapshot, new FakeFolderDialogService());
             vm.SelectedSubcategory = DetailItemFactorySettings.DefaultTargetSubcategory;
             vm.OverwriteExisting = true;
+            Assert.IsTrue(vm.CleanupTempFiles, "CleanupTempFiles should default to true.");
             DetailItemBatchPlan plan = vm.BuildBatchPlan();
 
             Assert.AreEqual(1, plan.ExecutableCount);
             Assert.AreEqual(0, plan.SkippedCount);
+            Assert.IsTrue(plan.CleanupTempFiles);
 
             var progressReports = new List<ProgressState>();
             DetailItemBatchOutcome outcome = adapter.ExecuteBatch(
@@ -105,6 +107,9 @@ namespace SyntheticTests.Features.DetailItemFactory
                 "Expected 1-based ProgressIndex == 1 to be reported.");
 
             Assert.AreEqual(docsBeforeRun, App.Documents.Size, "ExecuteBatch must close and dispose transient family documents.");
+            Assert.IsEmpty(
+                Directory.GetFiles(CurrentTestTempDirectory, "temp_export_*"),
+                "CleanupTempFiles == true must delete temporary .dwg and .pcp files on success.");
 
             // Verify curves trace directly onto root OST_DetailComponents without creating a nested "Detail Items" subcategory.
             Document generatedFamilyDoc = App.OpenDocumentFile(expectedRfaPath);
@@ -184,6 +189,47 @@ namespace SyntheticTests.Features.DetailItemFactory
             Assert.IsFalse(doc.IsModifiable, "No transaction may remain open after failed SaveAs.");
             Assert.AreEqual(docsBeforeRun, App.Documents.Size, "Transient familyDoc must be closed and disposed on SaveAs failure.");
             Assert.IsTrue(progressReports.Any(r => r.ProgressIndex == 1 && r.MaximumBounds == 1));
+            Assert.IsEmpty(
+                Directory.GetFiles(CurrentTestTempDirectory, "temp_export_*"),
+                "CleanupTempFiles == true must delete temporary .dwg and .pcp files even after SaveAs failure.");
+        }
+
+        [Test]
+        public void ExecuteBatch_CleanupTempFilesFalse_RetainsTempExportsOnDisk_AndManualCleanupRemovesThem()
+        {
+            (Document doc, ViewPlan planView, List<ElementId> wallIds) = CreateSavedHostWithWalls(wallCount: 1);
+            int docsBeforeRun = App.Documents.Size;
+
+            var adapter = new RevitDetailItemFactoryAdapter(doc, null, UiApp, planView, wallIds);
+            DetailItemSessionSnapshot snapshot = adapter.CaptureSessionSnapshot();
+
+            var vm = new DetailItemFactoryViewModel(snapshot, new FakeFolderDialogService());
+            vm.OverwriteExisting = true;
+            vm.CleanupTempFiles = false;
+            DetailItemBatchPlan plan = vm.BuildBatchPlan();
+            Assert.IsFalse(plan.CleanupTempFiles);
+
+            DetailItemBatchOutcome outcome = adapter.ExecuteBatch(plan, null, CancellationToken.None);
+
+            Assert.IsTrue(outcome.Succeeded, outcome.ErrorMessage ?? "Expected ExecuteBatch to succeed.");
+            Assert.AreEqual(1, outcome.CommittedCount);
+            Assert.AreEqual(docsBeforeRun, App.Documents.Size);
+            Assert.IsTrue(File.Exists(plan.Items[0].TargetPath));
+
+            string[] retainedDwgs = Directory.GetFiles(CurrentTestTempDirectory, "temp_export_*.dwg");
+            Assert.IsNotEmpty(
+                retainedDwgs,
+                "CleanupTempFiles == false must retain temp_export_*.dwg files on disk for inspection.");
+
+            var resultsVm = new DetailItemFactoryResultsViewModel(
+                outcome.OutputFolder,
+                outcome.Results,
+                userPromptService: null);
+            resultsVm.DeleteTempDwgsCommand.Execute(null);
+
+            Assert.IsEmpty(
+                Directory.GetFiles(CurrentTestTempDirectory, "temp_export_*"),
+                "Manual Delete Temp DWGs command must clean up all retained temp_export_* files.");
         }
 
         [Test]

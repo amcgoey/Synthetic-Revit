@@ -3,6 +3,9 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Data;
+using System.Windows.Threading;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using Newtonsoft.Json;
@@ -194,11 +197,40 @@ namespace SyntheticTests.Features.DetailItemFactory
                         snapshot.DefaultOutputFolder,
                         "Unsaved document must fall back to My Documents for default output folder.");
 
-                    // 1. DetailItemFactoryView
+                    // 1. DetailItemFactoryView (including CleanupTempFiles CheckBox two-way binding)
                     var mainVm = new DetailItemFactoryViewModel(snapshot, new FakeFolderDialogService());
-                    WpfBindingSmokeHarness.ExerciseWindow(
-                        new DetailItemFactoryView(ownerHandle) { DataContext = mainVm },
-                        clearDataContextOnClose: true);
+                    var factoryView = new DetailItemFactoryView(ownerHandle) { DataContext = mainVm };
+                    try
+                    {
+                        factoryView.Show();
+                        factoryView.UpdateLayout();
+                        Dispatcher.CurrentDispatcher.Invoke(DispatcherPriority.Loaded, new Action(() => { }));
+                        Assert.IsTrue(factoryView.IsVisible, "DetailItemFactoryView should show cleanly without resource exceptions.");
+
+                        var cleanupCheckBox = factoryView.FindName("CleanupTempFilesCheckBox") as CheckBox;
+                        Assert.IsNotNull(cleanupCheckBox, "Expected CleanupTempFilesCheckBox on DetailItemFactoryView.");
+
+                        BindingExpression? cleanupBinding = BindingOperations.GetBindingExpression(
+                            cleanupCheckBox!,
+                            System.Windows.Controls.Primitives.ToggleButton.IsCheckedProperty);
+                        Assert.IsNotNull(cleanupBinding, "Expected IsChecked binding on CleanupTempFilesCheckBox.");
+                        Assert.IsFalse(cleanupBinding!.HasError, "CleanupTempFilesCheckBox binding must not have errors.");
+                        Assert.IsTrue(cleanupCheckBox.IsChecked == true, "CleanupTempFilesCheckBox should default to checked.");
+                        Assert.IsTrue(mainVm.CleanupTempFiles);
+
+                        cleanupCheckBox.IsChecked = false;
+                        Dispatcher.CurrentDispatcher.Invoke(DispatcherPriority.DataBind, new Action(() => { }));
+                        Assert.IsFalse(mainVm.CleanupTempFiles, "Unchecking CleanupTempFilesCheckBox should update ViewModel.CleanupTempFiles.");
+
+                        mainVm.CleanupTempFiles = true;
+                        Dispatcher.CurrentDispatcher.Invoke(DispatcherPriority.DataBind, new Action(() => { }));
+                        Assert.IsTrue(cleanupCheckBox.IsChecked == true, "Setting ViewModel.CleanupTempFiles should update CleanupTempFilesCheckBox.");
+                    }
+                    finally
+                    {
+                        factoryView.DataContext = null;
+                        factoryView.Close();
+                    }
 
                     // 2. DetailItemFactoryResultsView
                     var resultsVm = new DetailItemFactoryResultsViewModel(

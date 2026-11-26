@@ -352,6 +352,7 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
 
             var resultItems = new List<DetailItemResultItem>();
             var executedTargets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            string runToken = DetailItemBatchPlanner.CreateTempRunToken();
             bool wasCancelled = false;
             int committedCount = 0;
 
@@ -482,7 +483,9 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
                                 targetSubcategory,
                                 createCustomSubcategory,
                                 projectSubcategoryStyle,
-                                dwgOptions);
+                                dwgOptions,
+                                runToken,
+                                plan.CleanupTempFiles);
 
                             committedCount++;
 
@@ -547,122 +550,142 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
             string targetSubcategory,
             bool createCustomSubcategory,
             SubcategoryStyleSpec projectSubcategoryStyle,
-            DWGExportOptions dwgOptions)
+            DWGExportOptions dwgOptions,
+            string runToken,
+            bool cleanupTempFiles)
         {
-            XYZ viewRelativeOffset = ComputeViewRelativeOffset(element, activeView);
-            string dwgName = "temp_export_" + Path.GetFileNameWithoutExtension(planned.TargetFileName);
+            string dwgPrefix = DetailItemBatchPlanner.BuildTempExportPrefix(runToken, planned.SequenceIndex);
 
-            ExportIsolatedElementToDwg(doc, activeView, element, outputFolder, dwgName, dwgOptions);
-
-            string[] matchingFiles = Directory.GetFiles(outputFolder, dwgName + "*.dwg");
-            if (matchingFiles.Length == 0)
-            {
-                throw new InvalidOperationException("DWG Export failed to generate a file on disk.");
-            }
-            string dwgPath = matchingFiles[0];
-
-            int skippedCurvesCount = 0;
-            Document? familyDoc = null;
             try
             {
-                familyDoc = doc.Application.NewFamilyDocument(templatePath);
-                if (familyDoc == null)
-                {
-                    throw new InvalidOperationException("Failed to generate a new family document from the template.");
-                }
+                XYZ viewRelativeOffset = ComputeViewRelativeOffset(element, activeView);
 
-                GraphicsStyle? subcategoryStyle = null;
-                if (createCustomSubcategory)
-                {
-                    subcategoryStyle = EnsureFamilySubcategory(
-                        doc,
-                        familyDoc,
-                        targetSubcategory,
-                        projectSubcategoryStyle);
-                }
+                ExportIsolatedElementToDwg(doc, activeView, element, outputFolder, dwgPrefix, dwgOptions);
 
-                int createdCurvesCount = 0;
-                ExecuteVerifiedTransaction(
-                    familyDoc,
-                    "Import and Trace DWG",
-                    () =>
+                string[] matchingFiles = Directory
+                    .GetFiles(outputFolder, dwgPrefix + "*.dwg", SearchOption.TopDirectoryOnly)
+                    .Where(f => Path.GetFileName(f).StartsWith(dwgPrefix, StringComparison.OrdinalIgnoreCase))
+                    .ToArray();
+                if (matchingFiles.Length == 0)
+                {
+                    throw new InvalidOperationException("DWG Export failed to generate a file on disk.");
+                }
+                string dwgPath = matchingFiles[0];
+
+                int skippedCurvesCount = 0;
+                Document? familyDoc = null;
+                try
+                {
+                    familyDoc = doc.Application.NewFamilyDocument(templatePath);
+                    if (familyDoc == null)
                     {
-                        View? planView = ResolveFamilyPlanView(familyDoc);
-                        if (planView == null)
-                        {
-                            throw new InvalidOperationException("Could not find a valid Floor Plan view inside the Family template.");
-                        }
+                        throw new InvalidOperationException("Failed to generate a new family document from the template.");
+                    }
 
-                        var importOptions = new DWGImportOptions { ThisViewOnly = true };
-                        ElementId importedElementId;
-                        bool importSuccess = familyDoc.Import(dwgPath, importOptions, planView, out importedElementId);
+                    GraphicsStyle? subcategoryStyle = null;
+                    if (createCustomSubcategory)
+                    {
+                        subcategoryStyle = EnsureFamilySubcategory(
+                            doc,
+                            familyDoc,
+                            targetSubcategory,
+                            projectSubcategoryStyle);
+                    }
 
-                        if (!importSuccess || importedElementId == ElementId.InvalidElementId)
+                    int createdCurvesCount = 0;
+                    ExecuteVerifiedTransaction(
+                        familyDoc,
+                        "Import and Trace DWG",
+                        () =>
                         {
-                            throw new InvalidOperationException("Failed to import the temporary DWG payload into the Family Document.");
-                        }
+                            View? planView = ResolveFamilyPlanView(familyDoc);
+                            if (planView == null)
+                            {
+                                throw new InvalidOperationException("Could not find a valid Floor Plan view inside the Family template.");
+                            }
 
-                        if (!(familyDoc.GetElement(importedElementId) is ImportInstance importInstance))
-                        {
-                            throw new InvalidOperationException("Imported DWG element could not be resolved as an ImportInstance.");
-                        }
+                            var importOptions = new DWGImportOptions { ThisViewOnly = true };
+                            ElementId importedElementId;
+                            bool importSuccess = familyDoc.Import(dwgPath, importOptions, planView, out importedElementId);
 
-                        BoundingBoxXYZ? importBBox = importInstance.get_BoundingBox(planView);
-                        if (importBBox != null)
-                        {
-                            XYZ importCenter = (importBBox.Max + importBBox.Min) / 2.0;
-                            XYZ currentDesiredOrigin = importCenter + viewRelativeOffset;
-                            XYZ moveVector = XYZ.Zero - currentDesiredOrigin;
-                            moveVector = new XYZ(moveVector.X, moveVector.Y, 0);
+                            if (!importSuccess || importedElementId == ElementId.InvalidElementId)
+                            {
+                                throw new InvalidOperationException("Failed to import the temporary DWG payload into the Family Document.");
+                            }
+
+                            if (!(familyDoc.GetElement(importedElementId) is ImportInstance importInstance))
+                            {
+                                throw new InvalidOperationException("Imported DWG element could not be resolved as an ImportInstance.");
+                            }
+
+                            BoundingBoxXYZ? importBBox = importInstance.get_BoundingBox(planView);
+                            if (importBBox != null)
+                            {
+                                XYZ importCenter = (importBBox.Max + importBBox.Min) / 2.0;
+                                XYZ currentDesiredOrigin = importCenter + viewRelativeOffset;
+                                XYZ moveVector = XYZ.Zero - currentDesiredOrigin;
+                                moveVector = new XYZ(moveVector.X, moveVector.Y, 0);
+
+                                importInstance.Pinned = false;
+                                ElementTransformUtils.MoveElement(familyDoc, importInstance.Id, moveVector);
+                            }
+
+                            var geomOptions = new Options { ComputeReferences = true };
+                            GeometryElement geomElement = importInstance.get_Geometry(geomOptions);
+                            double shortCurveTolerance = familyDoc.Application.ShortCurveTolerance;
+
+                            ProcessGeometry(
+                                geomElement,
+                                familyDoc,
+                                planView,
+                                shortCurveTolerance,
+                                subcategoryStyle,
+                                ref createdCurvesCount,
+                                ref skippedCurvesCount);
 
                             importInstance.Pinned = false;
-                            ElementTransformUtils.MoveElement(familyDoc, importInstance.Id, moveVector);
-                        }
+                            familyDoc.Delete(importInstance.Id);
 
-                        var geomOptions = new Options { ComputeReferences = true };
-                        GeometryElement geomElement = importInstance.get_Geometry(geomOptions);
-                        double shortCurveTolerance = familyDoc.Application.ShortCurveTolerance;
+                            if (createdCurvesCount == 0)
+                            {
+                                throw new InvalidOperationException(
+                                    $"No 2D detail curves could be traced for '{planned.CleanFamilyName} - {planned.CleanTypeName}'.");
+                            }
+                        });
 
-                        ProcessGeometry(
-                            geomElement,
-                            familyDoc,
-                            planView,
-                            shortCurveTolerance,
-                            subcategoryStyle,
-                            ref createdCurvesCount,
-                            ref skippedCurvesCount);
+                    var saveOptions = new SaveAsOptions { OverwriteExistingFile = true };
+                    familyDoc.SaveAs(planned.TargetPath, saveOptions);
+                }
+                finally
+                {
+                    CloseAndDisposeDocument(familyDoc);
+                }
 
-                        importInstance.Pinned = false;
-                        familyDoc.Delete(importInstance.Id);
-
-                        if (createdCurvesCount == 0)
+                ExecuteVerifiedTransaction(
+                    doc,
+                    "Load Family: " + planned.CleanFamilyName,
+                    () =>
+                    {
+                        bool loaded = doc.LoadFamily(planned.TargetPath, new SimpleFamilyLoadOptions(), out Family? loadedFamily);
+                        if (!loaded || loadedFamily == null)
                         {
-                            throw new InvalidOperationException(
-                                $"No 2D detail curves could be traced for '{planned.CleanFamilyName} - {planned.CleanTypeName}'.");
+                            throw new InvalidOperationException($"Revit failed to load family '{planned.TargetFileName}' into the project.");
                         }
                     });
 
-                var saveOptions = new SaveAsOptions { OverwriteExistingFile = true };
-                familyDoc.SaveAs(planned.TargetPath, saveOptions);
+                return skippedCurvesCount;
             }
             finally
             {
-                CloseAndDisposeDocument(familyDoc);
-            }
-
-            ExecuteVerifiedTransaction(
-                doc,
-                "Load Family: " + planned.CleanFamilyName,
-                () =>
+                if (cleanupTempFiles)
                 {
-                    bool loaded = doc.LoadFamily(planned.TargetPath, new SimpleFamilyLoadOptions(), out Family? loadedFamily);
-                    if (!loaded || loadedFamily == null)
+                    DetailItemTempCleanupSummary cleanup = DetailItemBatchPlanner.CleanupTempExportFiles(outputFolder, dwgPrefix);
+                    foreach (string error in cleanup.Errors)
                     {
-                        throw new InvalidOperationException($"Revit failed to load family '{planned.TargetFileName}' into the project.");
+                        Debug.WriteLine($"RevitDetailItemFactoryAdapter: {error}");
                     }
-                });
-
-            return skippedCurvesCount;
+                }
+            }
         }
 
         private void ExportIsolatedElementToDwg(
