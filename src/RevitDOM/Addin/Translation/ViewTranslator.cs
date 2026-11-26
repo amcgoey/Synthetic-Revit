@@ -32,7 +32,11 @@ namespace Synthetic.RevitDOM.Translation
                    type != ViewType.Undefined &&
                    type != ViewType.CostReport &&
                    type != ViewType.LoadsReport &&
+#if REVIT2023 || REVIT2024 || REVIT2025 || REVIT2026
                    type != ViewType.PresureLossReport;
+#else
+                   type != ViewType.PressureLossReport;
+#endif
         }
 
         public void ExtractSpecifics(RevitView view, ViewModel model, Document doc)

@@ -1,6 +1,6 @@
 # Synthetic Coding Standards
 
-Authoritative architecture, design, and review rules across `Synthetic.Core` (`net48;net8.0-windows8.0`, C# 9.0), `Synthetic<Year>` (`2023–2026`), and `tests/` (see [GLOSSARY.md](GLOSSARY.md) for domain vocabulary).
+Authoritative architecture, design, and review rules across `Synthetic.Core` (`net48;net8.0-windows8.0;net10.0-windows8.0`, C# 9.0), `Synthetic<Year>` (`2023–2027`), and `tests/` (see [GLOSSARY.md](GLOSSARY.md) for domain vocabulary and [revit-config.md](docs/agents/revit-config.md) for `CURRENT_LATEST_VERSION`).
 
 ## 1. Canonical Patterns (9)
 
@@ -17,7 +17,7 @@ Authoritative architecture, design, and review rules across `Synthetic.Core` (`n
 ([ADR 0021](docs/adrs/0021-decouple-mergeanalysisengine-into-pure-poco-engine-and-duplicate-candidate-harvesting.md), [ADR 0023](docs/adrs/0023-transform-based-shared-site-link-repositioning-and-single-adapter-seam.md), [ADR 0025](docs/adrs/0025-non-mutating-shadow-study-export-and-base-ratio-multiply-compositing.md))
 
 - Harvest live Revit state at `I<Slice>Adapter` into immutable `Core/` snapshots/POCOs (e.g., `SheetIndexSnapshot`, **Duplicate Candidate Harvesting**).
-- Compute schedules, coordinate transforms, matrices, or diffs headlessly in `Core/` (**Logic Tests** across `net48` and `net8.0-windows8.0`).
+- Compute schedules, coordinate transforms, matrices, or diffs headlessly in `Core/` (**Logic Tests** across `net48`, `net8.0-windows8.0`, and `net10.0-windows8.0`).
 - Apply the resulting plan atomically at the adapter seam.
 
 ### 3. Seam CQS (Command–Query Separation)

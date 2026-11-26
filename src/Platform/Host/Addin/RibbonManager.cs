@@ -5,6 +5,7 @@ using System.IO;
 using System.Reflection;
 using System.Windows.Media.Imaging;
 using Newtonsoft.Json;
+using Synthetic.Platform.Revit;
 using Synthetic.Platform.UI;
 
 namespace Synthetic.Platform.Host
@@ -131,6 +132,8 @@ namespace Synthetic.Platform.Host
                 return;
             }
 
+            int activeVersion = ResolveActiveVersion(appControlled);
+
             // Create Ribbon Tab
             appControlled.CreateRibbonTab(config.TabName);
 
@@ -139,15 +142,6 @@ namespace Synthetic.Platform.Host
 #else
             bool isDebug = false;
 #endif
-
-            int activeVersion = 2026;
-            if (appControlled?.ControlledApplication != null)
-            {
-                if (int.TryParse(appControlled.ControlledApplication.VersionNumber, out int parsedVersion))
-                {
-                    activeVersion = parsedVersion;
-                }
-            }
 
             if (config.Panels != null)
             {
@@ -183,6 +177,28 @@ namespace Synthetic.Platform.Host
                     }
                 }
             }
+        }
+
+        internal static int ResolveActiveVersion(UIControlledApplication? appControlled)
+        {
+            return ResolveActiveVersion(
+                appControlled?.ControlledApplication?.VersionNumber,
+                typeof(RibbonManager).Assembly);
+        }
+
+        internal static int ResolveActiveVersion(string? hostVersionNumber, Assembly metadataAssembly)
+        {
+            if (metadataAssembly == null)
+            {
+                throw new ArgumentNullException(nameof(metadataAssembly));
+            }
+
+            if (RevitVersionMetadata.TryParseRevitYear(hostVersionNumber, out int hostYear))
+            {
+                return hostYear;
+            }
+
+            return RevitVersionMetadata.ReadRevitYear(metadataAssembly);
         }
 
         private static void AddItemsToPanel(RibbonPanel panel, List<RibbonItemConfig> items, string assemblyPath, string assetsDir, bool isDebug, int activeVersion)

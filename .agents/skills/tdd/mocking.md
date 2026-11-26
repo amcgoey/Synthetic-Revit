@@ -22,8 +22,8 @@ Don't mock:
 
 Synthetic isolates Revit database calls in `Addin/` behind `I<Slice>Adapter` interfaces and **RevitDOM** translators:
 
-1. **Headless Logic Seam (`Synthetic.LogicTests`):** Pure `Core/` modules, ViewModels, `Fake<Slice>Adapter` test doubles, and **RevitDOM** POCOs (`ElementModel`, `ParameterModel`, `CategoryModel`) execute headlessly across `net48` and `net8.0-windows8.0` via `python .agents/skills/revit-tests/scripts/test_executor.py --version Logic` with zero Revit API dependencies or mocks.
-2. **Revit Database Seam (`Synthetic.RevitTests.<Year>`):** `Revit<Slice>Adapter` implementations and **RevitDOM** translators (`RevitDOM` ↔ `Autodesk.Revit.DB`) run inside live Revit `Document` fixtures (`RevitTemplateRollbackFixture` / `RevitIsolatedDocumentFixture`) via `python .agents/skills/revit-tests/scripts/test_executor.py --version 2026`.
+1. **Headless Logic Seam (`Synthetic.LogicTests`):** Pure `Core/` modules, ViewModels, `Fake<Slice>Adapter` test doubles, and **RevitDOM** POCOs (`ElementModel`, `ParameterModel`, `CategoryModel`) execute headlessly across all [`Synthetic.LogicTests.csproj`](../../../tests/Projects/Synthetic.LogicTests/Synthetic.LogicTests.csproj) target frameworks via `python .agents/skills/revit-tests/scripts/test_executor.py --version Logic` with zero Revit API dependencies or mocks.
+2. **Revit Database Seam (`Synthetic.RevitTests.<Year>`):** `Revit<Slice>Adapter` implementations and **RevitDOM** translators (`RevitDOM` ↔ `Autodesk.Revit.DB`) run inside live Revit `Document` fixtures (`RevitTemplateRollbackFixture` / `RevitIsolatedDocumentFixture`) via `python .agents/skills/revit-tests/scripts/test_executor.py --version <CURRENT_LATEST_VERSION>` (see [`revit-config.md`](../../../docs/agents/revit-config.md)).
 
 ## Designing for Mockability and Substitutability
 

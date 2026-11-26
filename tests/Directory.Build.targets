@@ -66,5 +66,19 @@
                       Lines="$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..'))"
                       Overwrite="true"
                       Encoding="utf-8" />
+
+    <PropertyGroup Condition="'$(IsRevitTestProject)' == 'true'">
+      <_SyntheticBootstrapYear>$(RevitVersion)</_SyntheticBootstrapYear>
+      <_SyntheticBootstrapYear Condition="'$(_SyntheticBootstrapYear)' == '' And $(MSBuildProjectName.StartsWith('Synthetic.RevitTests.'))">$(MSBuildProjectName.Substring(21))</_SyntheticBootstrapYear>
+      <_SyntheticRepoOutputRoot Condition="'$(RepoOutputRoot)' != ''">$(RepoOutputRoot.TrimEnd('\').TrimEnd('/'))</_SyntheticRepoOutputRoot>
+      <_SyntheticRepoOutputRoot Condition="'$(_SyntheticRepoOutputRoot)' == ''">$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\output'))</_SyntheticRepoOutputRoot>
+      <_SyntheticBootstrapDllPath Condition="'$(SyntheticIsolatedBuildRoot)' != ''">$([System.IO.Path]::GetFullPath('$(_SyntheticIsolatedBuildRootTrimmed)\bin\Synthetic.Bootstrap$(_SyntheticBootstrapYear)_$(SyntheticRunId)\Synthetic.Bootstrap$(_SyntheticBootstrapYear).dll'))</_SyntheticBootstrapDllPath>
+      <_SyntheticBootstrapDllPath Condition="'$(SyntheticIsolatedBuildRoot)' == ''">$([System.IO.Path]::GetFullPath('$(_SyntheticRepoOutputRoot)\Synthetic\Bootstrap\v1\Synthetic.Bootstrap$(_SyntheticBootstrapYear).dll'))</_SyntheticBootstrapDllPath>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(TargetDir)synthetic_bootstrap_path.txt"
+                      Lines="$(_SyntheticBootstrapDllPath)"
+                      Overwrite="true"
+                      Encoding="utf-8"
+                      Condition="'$(IsRevitTestProject)' == 'true' And '$(_SyntheticBootstrapYear)' != ''" />
   </Target>
 </Project>

@@ -2,8 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
+using System.Reflection;
 using NUnit.Framework;
 using Synthetic.Bootstrap;
+using SyntheticTests.Helpers;
 
 namespace SyntheticTests.Platform.Host
 {
@@ -293,6 +295,106 @@ namespace SyntheticTests.Platform.Host
             Assert.AreEqual(LaunchMode.Failed, directPlan.Mode);
             StringAssert.Contains("Synthetic2026.dll", directPlan.ErrorMessage);
             Assert.IsFalse(Directory.Exists(Path.Combine(_localAppDataDir, "Synthetic")));
+        }
+
+        [Test]
+        public void TryResolveRevitVersion_PrioritizesHostVersion_FallsBackToMetadata_AndFailsFast()
+        {
+            Assembly metadata2027 = DynamicAssemblyTestHelper.CreateDynamicAssembly(null, ("RevitVersion", " 2027 "));
+
+            // 1. Live host version overrides assembly metadata
+            Assert.IsTrue(ShadowCacheManager.TryResolveRevitVersion(" 2026 ", metadata2027, out string resolvedHost, out string hostErr));
+            Assert.AreEqual("2026", resolvedHost);
+            Assert.IsEmpty(hostErr);
+
+            // 2. Null or whitespace host version falls back to assembly metadata
+            Assert.IsTrue(ShadowCacheManager.TryResolveRevitVersion(null, metadata2027, out string resolvedNull, out string nullErr));
+            Assert.AreEqual("2027", resolvedNull);
+            Assert.IsEmpty(nullErr);
+
+            Assert.IsTrue(ShadowCacheManager.TryResolveRevitVersion("   ", metadata2027, out string resolvedBlank, out string blankErr));
+            Assert.AreEqual("2027", resolvedBlank);
+            Assert.IsEmpty(blankErr);
+
+            // 3. Invalid host version falls back to assembly metadata
+            Assert.IsTrue(ShadowCacheManager.TryResolveRevitVersion("26", metadata2027, out string resolvedInvalidHost, out string invalidHostErr));
+            Assert.AreEqual("2027", resolvedInvalidHost);
+            Assert.IsEmpty(invalidHostErr);
+
+            // 4. Missing or unparseable metadata fails cleanly without silent fallback
+            Assembly missingMetadata = DynamicAssemblyTestHelper.CreateDynamicAssembly(null, ("OtherKey", "2027"));
+            Assembly badAlphaMetadata = DynamicAssemblyTestHelper.CreateDynamicAssembly(null, ("RevitVersion", "not-a-year"));
+            Assembly twoDigitMetadata = DynamicAssemblyTestHelper.CreateDynamicAssembly(null, ("RevitVersion", "27"));
+            Assembly blankMetadata = DynamicAssemblyTestHelper.CreateDynamicAssembly(null, ("RevitVersion", "   "));
+
+            foreach (Assembly brokenAsm in new[] { missingMetadata, badAlphaMetadata, twoDigitMetadata, blankMetadata })
+            {
+                Assert.IsFalse(ShadowCacheManager.TryResolveRevitVersion("   ", brokenAsm, out string failedVersion, out string err));
+                Assert.IsEmpty(failedVersion);
+                StringAssert.Contains("RevitVersion", err);
+            }
+        }
+
+        [Test]
+        public void PrepareHostLaunch_PrioritizesHost_FallsBackToMetadata_AndFailsWithDiagnostics()
+        {
+            SeedPayload();
+            string payload2027Dir = Path.Combine(_tempRoot, "Payload", "2027");
+            Directory.CreateDirectory(payload2027Dir);
+            File.WriteAllText(Path.Combine(payload2027Dir, "Synthetic2027.dll"), "payload-2027-bytes");
+
+            Assembly metadata2027 = DynamicAssemblyTestHelper.CreateDynamicAssembly(null, ("RevitVersion", "2027"));
+
+            ShadowCacheHooks CreateHooks() => new ShadowCacheHooks
+            {
+                GetEnvironmentVariable = EnvMap(new Dictionary<string, string?>()),
+                LocalAppDataDir = _localAppDataDir,
+                CurrentProcessId = 31337,
+                CurrentProcessUtcStartTicks = 638999999999999999L
+            };
+
+            // 1. Host version overrides metadata ("2026" wins over "2027")
+            LaunchPlan hostOverridePlan = ShadowCacheManager.PrepareHostLaunch(
+                "2026",
+                metadata2027,
+                _bootstrapDllPath,
+                out string overrideVersion,
+                CreateHooks());
+
+            Assert.AreEqual("2026", overrideVersion);
+            Assert.AreEqual(LaunchMode.ShadowCopy, hostOverridePlan.Mode);
+            StringAssert.EndsWith("Synthetic2026.dll", hostOverridePlan.TargetAssemblyPath);
+
+            // 2. Null or whitespace host version falls back to metadata ("2027")
+            LaunchPlan fallbackPlan = ShadowCacheManager.PrepareHostLaunch(
+                "   ",
+                metadata2027,
+                _bootstrapDllPath,
+                out string fallbackVersion,
+                CreateHooks());
+
+            Assert.AreEqual("2027", fallbackVersion);
+            Assert.AreEqual(LaunchMode.ShadowCopy, fallbackPlan.Mode);
+            StringAssert.EndsWith("Synthetic2027.dll", fallbackPlan.TargetAssemblyPath);
+
+            // 3. Missing or unparseable metadata returns Failed LaunchPlan with diagnostics
+            Assembly missingMetadata = DynamicAssemblyTestHelper.CreateDynamicAssembly(null, ("OtherKey", "2027"));
+            Assembly badMetadata = DynamicAssemblyTestHelper.CreateDynamicAssembly(null, ("RevitVersion", "bad-year"));
+
+            foreach (Assembly brokenAsm in new[] { missingMetadata, badMetadata })
+            {
+                LaunchPlan failedPlan = ShadowCacheManager.PrepareHostLaunch(
+                    null,
+                    brokenAsm,
+                    _bootstrapDllPath,
+                    out string failedVersion,
+                    CreateHooks());
+
+                Assert.AreEqual(string.Empty, failedVersion);
+                Assert.AreEqual(LaunchMode.Failed, failedPlan.Mode);
+                StringAssert.Contains("RevitVersion", failedPlan.ErrorMessage);
+                Assert.IsNotEmpty(failedPlan.Diagnostics);
+            }
         }
     }
 }

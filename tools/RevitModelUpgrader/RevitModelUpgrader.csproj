@@ -1,0 +1,65 @@
+<Project>
+
+  <PropertyGroup>
+    <RevitVersion Condition="'$(RevitVersion)' == ''">2027</RevitVersion>
+    <TargetFramework Condition="'$(RevitVersion)' == '2023' Or '$(RevitVersion)' == '2024'">net48</TargetFramework>
+    <TargetFramework Condition="'$(RevitVersion)' == '2025' Or '$(RevitVersion)' == '2026'">net8.0-windows8.0</TargetFramework>
+    <TargetFramework Condition="'$(TargetFramework)' == ''">net10.0-windows8.0</TargetFramework>
+
+    <RevitApiPackageVersion Condition="'$(RevitApiPackageVersion)' == '' And '$(RevitVersion)' == '2023'">2023.0.0</RevitApiPackageVersion>
+    <RevitApiPackageVersion Condition="'$(RevitApiPackageVersion)' == '' And '$(RevitVersion)' == '2024'">2024.2.0</RevitApiPackageVersion>
+    <RevitApiPackageVersion Condition="'$(RevitApiPackageVersion)' == '' And '$(RevitVersion)' == '2025'">2025.0.0</RevitApiPackageVersion>
+    <RevitApiPackageVersion Condition="'$(RevitApiPackageVersion)' == '' And '$(RevitVersion)' == '2026'">2026.0.0</RevitApiPackageVersion>
+    <RevitApiPackageVersion Condition="'$(RevitApiPackageVersion)' == '' And '$(RevitVersion)' == '2027'">2027.2.0</RevitApiPackageVersion>
+    <RevitApiPackageVersion Condition="'$(RevitApiPackageVersion)' == ''">$(RevitVersion).0.0</RevitApiPackageVersion>
+
+    <LangVersion>9.0</LangVersion>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <IsTestProject>true</IsTestProject>
+    <AssemblyName>RevitModelUpgrader</AssemblyName>
+    <RootNamespace>Synthetic.Tools.ModelUpgrader</RootNamespace>
+    <DefineConstants>$(DefineConstants);REVIT$(RevitVersion)</DefineConstants>
+    <GenerateMSBuildEditorConfigFile>false</GenerateMSBuildEditorConfigFile>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(UpgraderBuildRoot)' != ''">
+    <_UpgraderBuildRootTrimmed>$(UpgraderBuildRoot.TrimEnd('\').TrimEnd('/'))</_UpgraderBuildRootTrimmed>
+    <BaseIntermediateOutputPath>$(_UpgraderBuildRootTrimmed)\obj\$(RevitVersion)\</BaseIntermediateOutputPath>
+    <MSBuildProjectExtensionsPath>$(BaseIntermediateOutputPath)</MSBuildProjectExtensionsPath>
+    <OutputPath>$(_UpgraderBuildRootTrimmed)\bin\$(RevitVersion)\</OutputPath>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(UpgraderBuildRoot)' == ''">
+    <BaseIntermediateOutputPath>obj\$(RevitVersion)\</BaseIntermediateOutputPath>
+    <MSBuildProjectExtensionsPath>$(BaseIntermediateOutputPath)</MSBuildProjectExtensionsPath>
+    <OutputPath>bin\$(Configuration)\$(RevitVersion)\</OutputPath>
+  </PropertyGroup>
+
+  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="NUnit" Version="3.13.3" />
+    <PackageReference Include="ricaun.RevitTest.TestAdapter" Version="1.11.1" />
+    <PackageReference Include="Revit_All_Main_Versions_API_x64" Version="$(RevitApiPackageVersion)">
+      <ExcludeAssets>runtime</ExcludeAssets>
+    </PackageReference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyMetadata Include="NUnit.Version" Value="$(RevitVersion)" />
+    <AssemblyMetadata Include="NUnit.Open" Value="true" />
+    <AssemblyMetadata Include="NUnit.Close" Value="true" />
+    <AssemblyMetadata Include="NUnit.Timeout" Value="30" />
+    <AssemblyMetadata Include="ricaun.RevitTest.Application.Tasks.Timeout" Value="10" />
+  </ItemGroup>
+
+  <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
+
+</Project>

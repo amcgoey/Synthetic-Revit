@@ -26,7 +26,7 @@ class TestConfigParsing(unittest.TestCase):
     def test_parses_repo_revit_config_markdown_table(self):
         config_path = os.path.join(REPO_ROOT, "docs", "agents", "revit-config.md")
         self.assertTrue(os.path.exists(config_path))
-        self.assertEqual(rjt.get_current_latest_version(config_path), "2026")
+        self.assertEqual(rjt.get_current_latest_version(config_path), "2027")
 
     def test_parses_markdown_table_arbitrary_version(self):
         content = (
@@ -44,10 +44,10 @@ class TestConfigParsing(unittest.TestCase):
             rjt.parse_current_latest_version('CURRENT_LATEST_VERSION="2024"'), "2024"
         )
 
-    def test_missing_config_falls_back_to_2026(self):
+    def test_missing_config_falls_back_to_2027(self):
         self.assertEqual(
             rjt.get_current_latest_version(os.path.join(REPO_ROOT, "nonexistent.md")),
-            "2026",
+            "2027",
         )
 
 

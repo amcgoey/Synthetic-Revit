@@ -8,7 +8,7 @@ Classify dependencies first; the category selects where the seam lives and how [
 
 ### 1. In-process
 
-Pure C# models and computation in `Core/` (`Synthetic.Core`, `net48;net8.0-windows8.0`) with zero Revit references: **RevitDOM** POCOs (`Synthetic.RevitDOM.Models`), `PocoIdentityService` (`Synthetic.RevitDOM.Translation`), `MergeAnalysisEngine` (`Synthetic.Features.MergeDuplicates.Services`), `SharedCoordinatesMath` (`Synthetic.Features.SharedCoordinates.Models`), and `SolarScheduleCalculator` (`Synthetic.Features.ShadowStudy.Services`). Collapse shallow helpers directly into deep `Core/` modules and test through the public interface in **Logic Tests** (`[UnitTest]`).
+Pure C# models and computation in `Core/` ([`Synthetic.Core`](../../../src/Synthetic.Core/Synthetic.Core.csproj)) with zero Revit references: **RevitDOM** POCOs (`Synthetic.RevitDOM.Models`), `PocoIdentityService` (`Synthetic.RevitDOM.Translation`), `MergeAnalysisEngine` (`Synthetic.Features.MergeDuplicates.Services`), `SharedCoordinatesMath` (`Synthetic.Features.SharedCoordinates.Models`), and `SolarScheduleCalculator` (`Synthetic.Features.ShadowStudy.Services`). Collapse shallow helpers directly into deep `Core/` modules and test through the public interface in **Logic Tests** (`[UnitTest]`).
 
 ### 2. Local-substitutable
 

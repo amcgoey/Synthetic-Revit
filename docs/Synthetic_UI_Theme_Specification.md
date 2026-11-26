@@ -4,7 +4,7 @@
 
 This document establishes the official visual specification for the **Synthetic Revit Add-on** user interface.
 These choices are optimized specifically for the Revit user ecosystem to:
-- Ensure visual immersion when docked within native dark-mode hosting frames (e.g., Revit 2025/2026 modern dark environments).
+- Ensure visual immersion when docked within native dark-mode hosting frames (e.g., Revit 2025–2027 modern dark environments).
 - Limit eye strain by maintaining desaturated surface spaces.
 - Meet mathematical accessibility contrast compliance thresholds under **WCAG 2.1 AA** without sacrificing high-end UI design.
 - Strictly enforce structural clarity using flat elevation, eliminating performance-heavy drop shadow overheads.
@@ -70,7 +70,7 @@ Under the tailored Minimal density scheme:
 
 Synthetic splits WPF UI primitives across two assemblies that share the `Synthetic.Platform.UI` CLR namespace:
 - **`Synthetic.Core`** (`src/Platform/UI/Core/`): Assembly-neutral helpers including [WindowChromeBehavior.cs](../src/Platform/UI/Core/WindowChromeBehavior.cs), [EnumToBooleanConverter.cs](../src/Platform/UI/Core/EnumToBooleanConverter.cs), and [SingleItemSelectionDisplayConverter.cs](../src/Platform/UI/Core/SingleItemSelectionDisplayConverter.cs).
-- **Owning Revit Add-in Assembly** (`Synthetic2023`–`Synthetic2026`, compiled from `src/Platform/UI/Addin/`): Hosts [SyntheticTheme.xaml](../src/Platform/UI/Addin/SyntheticTheme.xaml) (embedded as BAML at `Platform/UI/Addin/SyntheticTheme.xaml`) and [SyntheticThemeDictionary.cs](../src/Platform/UI/Addin/SyntheticThemeDictionary.cs).
+- **Owning Revit Add-in Assembly** (`Synthetic2023`–`Synthetic2027`, compiled from `src/Platform/UI/Addin/`): Hosts [SyntheticTheme.xaml](../src/Platform/UI/Addin/SyntheticTheme.xaml) (embedded as BAML at `Platform/UI/Addin/SyntheticTheme.xaml`) and [SyntheticThemeDictionary.cs](../src/Platform/UI/Addin/SyntheticThemeDictionary.cs).
 
 Every `Window` and `UserControl` XAML view must merge the theme locally using `SyntheticThemeDictionary`:
 1. **Local theme namespace:** Declare `xmlns:theme="clr-namespace:Synthetic.Platform.UI"` (with no `;assembly=...` suffix) so XAML resolves `SyntheticThemeDictionary` from the owning add-in assembly.

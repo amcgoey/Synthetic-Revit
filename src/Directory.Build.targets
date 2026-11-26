@@ -48,11 +48,16 @@
     <InternalsVisibleTo Include="Synthetic.RevitTests.2024" />
     <InternalsVisibleTo Include="Synthetic.RevitTests.2025" />
     <InternalsVisibleTo Include="Synthetic.RevitTests.2026" />
+    <InternalsVisibleTo Include="Synthetic.RevitTests.2027" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(IsRevitPayloadProject)' == 'true' And '$(RevitVersion)' != ''">
     <InternalsVisibleTo Include="Synthetic.RevitTests.$(RevitVersion)" />
-    <InternalsVisibleTo Include="Synthetic.LegacyMockTests" Condition="'$(RevitVersion)' == '2026'" />
+    <InternalsVisibleTo Include="Synthetic.LegacyMockTests" Condition="'$(RevitVersion)' == '2027'" />
+  </ItemGroup>
+
+  <ItemGroup Condition="('$(IsRevitPayloadProject)' == 'true' Or '$(IsBootstrapProject)' == 'true') And '$(RevitVersion)' != ''">
+    <AssemblyMetadata Include="RevitVersion" Value="$(RevitVersion)" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(IsRevitPayloadProject)' == 'true' And '$(RevitVersion)' != ''">

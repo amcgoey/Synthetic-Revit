@@ -1,6 +1,7 @@
 import ctypes
 from ctypes import wintypes
 import glob
+import hashlib
 import io
 import json
 import os
@@ -39,60 +40,105 @@ STARTUP_FAILURE_WINDOW_TEXT_MARKERS = (
     "revit cannot run the external application",
 )
 LEGACY_MANIFEST_EXPECTED_CLASS = "Synthetic.Bootstrap.BootstrapApp"
+TEST_TEMPLATE_UPGRADE_MUTEX_PREFIX = r"Local\Synthetic_TestTemplateUpgrade_"
+DEFAULT_TEMPLATE_UPGRADE_LOCK_TIMEOUT_MS = 1800000
+TEST_TEMPLATE_FILE_RE = re.compile(r"^TestTemplate(20\d{2})?\.rvt$", re.IGNORECASE)
+TRAILING_YEAR_RE = re.compile(r"(20\d{2})$")
+BASIC_FILE_INFO_FORMAT_MARKER = "Format:".encode("utf-16-le")
+BASIC_FILE_INFO_FORMAT_RE = re.compile(r"Format:\s*(20\d{2})")
 
 
-def check_legacy_programdata_manifest(version, program_data=None):
+def _parse_revit_major_version(version):
+    """Parse a Revit version value into an integer year, or None if non-numeric."""
+    try:
+        return int(str(version).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _resolve_program_files_root(program_files=None, env=None):
+    """Resolve 64-bit Program Files root, preferring ProgramW6432 before ProgramFiles."""
+    if program_files is not None:
+        return program_files
+    env_map = os.environ if env is None else env
+    return env_map.get("ProgramW6432") or env_map.get("ProgramFiles") or r"C:\Program Files"
+
+
+def _resolve_program_data_root(program_data=None, env=None):
+    """Resolve ProgramData root from explicit override or environment."""
+    if program_data is not None:
+        return program_data
+    env_map = os.environ if env is None else env
+    return env_map.get("ProgramData") or r"C:\ProgramData"
+
+
+def check_legacy_programdata_manifest(version, program_data=None, program_files=None, env=None):
     """
-    Read-only preflight check for legacy machine-wide %ProgramData% Synthetic*.addin manifests.
+    Read-only preflight check for legacy machine-wide Synthetic*.addin manifests.
+    For Revit 2027+, inspects Program Files (primary) and ProgramData (secondary);
+    for Revit 2023-2026, inspects ProgramData.
     Warns if any <FullClassName> entry differs from Synthetic.Bootstrap.BootstrapApp due to shadow-loading risk.
     """
-    resolved_pd = (
-        program_data
-        if program_data is not None
-        else (os.environ.get("ProgramData") or r"C:\ProgramData")
-    )
-    if not resolved_pd:
-        return []
+    ver_str = str(version)
+    ver_num = _parse_revit_major_version(ver_str)
+    resolved_pf = _resolve_program_files_root(program_files=program_files, env=env)
+    resolved_pd = _resolve_program_data_root(program_data=program_data, env=env)
 
-    addins_dir = os.path.join(resolved_pd, "Autodesk", "Revit", "Addins", str(version))
-    if not os.path.isdir(addins_dir):
-        return []
+    candidate_roots = []
+    if ver_num is not None and ver_num >= 2027:
+        if resolved_pf:
+            candidate_roots.append(("Program Files", resolved_pf))
+        if resolved_pd:
+            candidate_roots.append(("ProgramData", resolved_pd))
+    else:
+        if resolved_pd:
+            candidate_roots.append(("ProgramData", resolved_pd))
 
     flagged = []
-    try:
-        entries = sorted(os.listdir(addins_dir))
-    except OSError:
-        return []
+    seen_dirs = set()
+    for root_label, root_dir in candidate_roots:
+        addins_dir = os.path.join(root_dir, "Autodesk", "Revit", "Addins", ver_str)
+        norm_dir = os.path.normcase(os.path.abspath(addins_dir))
+        if norm_dir in seen_dirs:
+            continue
+        seen_dirs.add(norm_dir)
+        if not os.path.isdir(addins_dir):
+            continue
 
-    for entry in entries:
-        lower = entry.lower()
-        if not (lower.startswith("synthetic") and lower.endswith(".addin")):
-            continue
-        manifest_path = os.path.join(addins_dir, entry)
-        if not os.path.isfile(manifest_path):
-            continue
         try:
-            tree = ET.parse(manifest_path)
-            root = tree.getroot()
-        except (ET.ParseError, OSError) as exc:
-            print(f"[WARN] Could not parse ProgramData manifest '{manifest_path}': {exc}")
+            entries = sorted(os.listdir(addins_dir))
+        except OSError:
             continue
 
-        full_classes = [
-            (elem.text or "").strip()
-            for elem in root.iter()
-            if elem.tag.split("}")[-1] == "FullClassName"
-        ]
-        legacy_classes = [fc for fc in full_classes if fc != LEGACY_MANIFEST_EXPECTED_CLASS]
-        if legacy_classes:
-            flagged.append(manifest_path)
-            classes_desc = ", ".join(legacy_classes)
-            print(
-                f"[WARN] Legacy machine-wide manifest detected for Revit {version} at '{manifest_path}' "
-                f"(FullClassName={classes_desc}; expected {LEGACY_MANIFEST_EXPECTED_CLASS}). "
-                "Risk of shadow-loading stale binaries alongside %APPDATA% Debug Manifest "
-                "(read-only warning; file left untouched)."
-            )
+        for entry in entries:
+            lower = entry.lower()
+            if not (lower.startswith("synthetic") and lower.endswith(".addin")):
+                continue
+            manifest_path = os.path.join(addins_dir, entry)
+            if not os.path.isfile(manifest_path):
+                continue
+            try:
+                tree = ET.parse(manifest_path)
+                root = tree.getroot()
+            except (ET.ParseError, OSError) as exc:
+                print(f"[WARN] Could not parse {root_label} manifest '{manifest_path}': {exc}")
+                continue
+
+            full_classes = [
+                (elem.text or "").strip()
+                for elem in root.iter()
+                if elem.tag.split("}")[-1] == "FullClassName"
+            ]
+            legacy_classes = [fc for fc in full_classes if fc != LEGACY_MANIFEST_EXPECTED_CLASS]
+            if legacy_classes:
+                flagged.append(manifest_path)
+                classes_desc = ", ".join(legacy_classes)
+                print(
+                    f"[WARN] Legacy machine-wide manifest detected for Revit {version} at '{manifest_path}' "
+                    f"(FullClassName={classes_desc}; expected {LEGACY_MANIFEST_EXPECTED_CLASS}). "
+                    "Risk of shadow-loading stale binaries alongside %APPDATA% Debug Manifest "
+                    "(read-only warning; file left untouched)."
+                )
 
     return flagged
 
@@ -151,7 +197,7 @@ def find_ricaun_testadapter_dll(search_dirs=None, env=None):
     if not os.path.isdir(pkg_dir):
         return None
 
-    tfm_priority = {"net8.0": 3, "net6.0": 2, "net45": 1}
+    tfm_priority = {"net10.0": 4, "net8.0": 3, "net6.0": 2, "net45": 1}
     candidates = []
     for root, _, files in os.walk(pkg_dir):
         if "ricaun.RevitTest.TestAdapter.dll" in files:
@@ -427,22 +473,7 @@ class RevitStartupGate:
 
 RUN_DIR_PATTERN = re.compile(r"^\d{8}_\d{6}_\d+_[0-9a-fA-F]+$")
 MAX_TEST_RESULT_RUNS = 10
-
-
-def find_msbuild():
-    paths = [
-        r"C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\MSBuild.exe",
-        r"C:\Program Files\Microsoft Visual Studio\18\BuildTools\MSBuild\Current\Bin\amd64\MSBuild.exe",
-        r"C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Current\Bin\amd64\MSBuild.exe",
-        r"C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\MSBuild\Current\Bin\MSBuild.exe",
-        r"C:\Program Files\Microsoft Visual Studio\2022\Community\MSBuild\Current\Bin\MSBuild.exe",
-        r"C:\Program Files\Microsoft Visual Studio\2022\Professional\MSBuild\Current\Bin\MSBuild.exe",
-        r"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Current\Bin\MSBuild.exe",
-    ]
-    for p in paths:
-        if os.path.exists(p):
-            return p
-    return "msbuild"  # fallback to PATH
+MIN_DOTNET_SDK_VERSION = "10.0.100"
 
 
 def parse_sdk_version(version_str):
@@ -476,56 +507,16 @@ def get_default_dotnet_sdk_roots(env=None):
     ]
 
 
-def _msbuild_has_broken_dotnet_releases_redirect(msbuild_path):
-    """Return True if MSBuild.exe.config pins Microsoft.Deployment.DotNet.Releases to a missing file."""
-    if not msbuild_path or not os.path.isfile(msbuild_path):
-        return False
-    config_path = msbuild_path + ".config"
-    if not os.path.isfile(config_path):
-        return False
-    try:
-        tree = ET.parse(config_path)
-        root = tree.getroot()
-    except (ET.ParseError, OSError):
-        return False
-
-    for elem in root.iter():
-        if elem.tag.split("}")[-1] != "dependentAssembly":
-            continue
-        has_releases_id = False
-        codebase_hrefs = []
-        for child in elem:
-            child_tag = child.tag.split("}")[-1]
-            if child_tag == "assemblyIdentity" and child.attrib.get("name") == "Microsoft.Deployment.DotNet.Releases":
-                has_releases_id = True
-            elif child_tag == "codeBase" and child.attrib.get("href"):
-                codebase_hrefs.append(child.attrib["href"])
-        if has_releases_id and codebase_hrefs:
-            base_dir = os.path.dirname(os.path.abspath(msbuild_path))
-            return any(not os.path.isfile(os.path.normpath(os.path.join(base_dir, href))) for href in codebase_hrefs)
-
-    return False
-
-
-def is_sdk_compatible_with_msbuild(sdk_path, version_str, msbuild_path=None):
-    """Skip .NET 10+ SDKs when paired with an MSBuild.exe whose config redirects DotNet.Releases to a missing resolver."""
+def is_net10_sdk_version(version_str, min_version=MIN_DOTNET_SDK_VERSION):
+    """Return True if version_str parses semantically as >= min_version (default 10.0.100)."""
     parsed = parse_sdk_version(version_str)
-    if parsed is None or parsed[0][0] < 10:
-        return True
-    sdk_releases = os.path.join(
-        sdk_path, "Sdks", "Microsoft.NET.Sdk", "tools", "net472", "Microsoft.Deployment.DotNet.Releases.dll"
-    )
-    if not os.path.isfile(sdk_releases):
-        return True
-    resolved_msbuild = msbuild_path if msbuild_path is not None else find_msbuild()
-    return not _msbuild_has_broken_dotnet_releases_redirect(resolved_msbuild)
+    min_parsed = parse_sdk_version(min_version)
+    return parsed is not None and min_parsed is not None and parsed >= min_parsed
 
 
-def find_best_dotnet_sdk(sdk_roots=None, msbuild_path=None):
-    """Return metadata for the highest compatible semantic .NET SDK across candidate sdk roots."""
+def find_best_dotnet_sdk(sdk_roots=None):
+    """Return metadata for the highest semantic .NET SDK across candidate sdk roots."""
     roots = get_default_dotnet_sdk_roots() if sdk_roots is None else sdk_roots
-    best_compatible = None
-    best_compatible_key = None
     best_any = None
     best_any_key = None
 
@@ -552,18 +543,58 @@ def find_best_dotnet_sdk(sdk_roots=None, msbuild_path=None):
             if best_any_key is None or parsed > best_any_key:
                 best_any_key = parsed
                 best_any = candidate
-            if is_sdk_compatible_with_msbuild(sdk_path, entry, msbuild_path=msbuild_path):
-                if best_compatible_key is None or parsed > best_compatible_key:
-                    best_compatible_key = parsed
-                    best_compatible = candidate
 
-    return best_compatible if best_compatible is not None else best_any
+    return best_any
 
 
-def configure_dotnet_environment(env=None, sdk_roots=None, msbuild_path=None):
-    env = os.environ if env is None else env
+def require_net10_sdk(sdk_roots=None, env=None):
+    """
+    Read-only fail-fast preflight verifying at least one .NET 10.0 SDK (10.0.100+)
+    is present across machine Program Files or user LocalAppData SDK roots.
+    """
     roots = get_default_dotnet_sdk_roots(env) if sdk_roots is None else sdk_roots
-    best = find_best_dotnet_sdk(sdk_roots=roots, msbuild_path=msbuild_path)
+    best = find_best_dotnet_sdk(sdk_roots=roots)
+    if best and is_net10_sdk_version(best["version"]):
+        return best
+
+    detected = best["version"] if best else "none"
+    roots_desc = ", ".join(r for r in roots if r) or "(none)"
+    print(
+        f"[ERROR] .NET 10.0 SDK ({MIN_DOTNET_SDK_VERSION}+) is required for dotnet build, "
+        f"but highest discovered SDK is '{detected}' (scanned: {roots_desc})."
+    )
+    print("[ERROR] Remediation options:")
+    print("  1. Install machine-wide .NET 10.0 SDK (elevated):")
+    print("       winget install Microsoft.DotNet.SDK.10")
+    print("     If a user-level DOTNET_ROOT shadows Program Files, clear it:")
+    print("       Remove-Item Env:DOTNET_ROOT -ErrorAction SilentlyContinue")
+    print("       [Environment]::SetEnvironmentVariable('DOTNET_ROOT', $null, 'User')")
+    print("  2. Or install per-user without elevation via dotnet-install:")
+    print("       https://dot.net/v1/dotnet-install.ps1 -Channel 10.0")
+    sys.exit(1)
+
+
+def resolve_dotnet_exe(sdk_info=None):
+    """Return path to dotnet.exe under sdk_info['dotnet_root'] if present, else 'dotnet'."""
+    if sdk_info:
+        candidate = os.path.join(sdk_info["dotnet_root"], "dotnet.exe")
+        if os.path.exists(candidate):
+            return candidate
+    return "dotnet"
+
+
+def _pop_env_case_insensitive(env, key):
+    """Remove all keys matching `key` case-insensitively (handles os.environ.copy() dicts on Windows)."""
+    target = key.casefold()
+    for existing in [k for k in list(env.keys()) if k.casefold() == target]:
+        env.pop(existing, None)
+
+
+def configure_dotnet_environment(env=None, sdk_roots=None):
+    env = os.environ if env is None else env
+    _pop_env_case_insensitive(env, "MSBuildSdksPath")
+    roots = get_default_dotnet_sdk_roots(env) if sdk_roots is None else sdk_roots
+    best = require_net10_sdk(sdk_roots=roots, env=env)
     if best:
         dotnet_root = best["dotnet_root"]
         env["DOTNET_ROOT"] = dotnet_root
@@ -571,11 +602,6 @@ def configure_dotnet_environment(env=None, sdk_roots=None, msbuild_path=None):
         path_parts = current_path.split(os.pathsep) if current_path else []
         if not path_parts or os.path.normcase(path_parts[0]) != os.path.normcase(dotnet_root):
             env["PATH"] = dotnet_root + (os.pathsep + current_path if current_path else "")
-
-        sdks_path = os.path.join(best["sdk_path"], "Sdks")
-        if os.path.isdir(sdks_path):
-            env["MSBuildSdksPath"] = sdks_path
-            env["MSBuildEnableWorkloadResolver"] = "false"
 
     system_net48 = r"C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.8"
     if not os.path.exists(system_net48):
@@ -1226,6 +1252,355 @@ def get_journal_tool_path():
     return os.path.abspath(
         os.path.join(_SCRIPT_DIR, "..", "..", "revit-journal-telemetry", "scripts", "revit_journal_tool.py")
     )
+
+
+def get_model_upgrader_path():
+    """Return the path to the standalone RevitModelUpgrader CLI driver."""
+    return os.path.abspath(
+        os.path.join(_SCRIPT_DIR, "..", "..", "..", "..", "tools", "RevitModelUpgrader", "revit_model_upgrader.py")
+    )
+
+
+def inspect_model_format_year(model_path):
+    """
+    Read the BasicFileInfo UTF-16LE 'Format: <Year>' marker from a .rvt/.rte/.rfa file
+    without launching Revit. Returns an integer year or None if unreadable/missing.
+    """
+    if not model_path or not os.path.isfile(model_path):
+        return None
+
+    chunk_size = 1024 * 1024
+    overlap_size = 64
+    overlap = b""
+
+    try:
+        with open(model_path, "rb") as f:
+            while True:
+                chunk = f.read(chunk_size)
+                if not chunk:
+                    break
+                buf = overlap + chunk
+                idx = buf.find(BASIC_FILE_INFO_FORMAT_MARKER)
+                while idx != -1:
+                    tail_bytes = buf[idx : idx + 128]
+                    if len(tail_bytes) % 2 == 1:
+                        tail_bytes = tail_bytes[:-1]
+                    tail_text = tail_bytes.decode("utf-16-le", errors="ignore")
+                    match = BASIC_FILE_INFO_FORMAT_RE.search(tail_text)
+                    if match:
+                        return int(match.group(1))
+                    idx = buf.find(BASIC_FILE_INFO_FORMAT_MARKER, idx + 2)
+                overlap = buf[-overlap_size:] if len(buf) >= overlap_size else buf
+    except OSError:
+        return None
+
+    return None
+
+
+def atomic_stage_file(staging_path, target_path):
+    """
+    Atomically move or replace `target_path` using verified `staging_path` on disk.
+    Falls back to copying into a sibling temp file when staging resides on a different volume.
+    """
+    abs_staging = os.path.abspath(staging_path)
+    abs_target = os.path.abspath(target_path)
+    if not os.path.isfile(abs_staging):
+        raise FileNotFoundError(f"Verified staging file not found: '{abs_staging}'.")
+
+    target_dir = os.path.dirname(abs_target)
+    os.makedirs(target_dir, exist_ok=True)
+
+    staging_drive = os.path.splitdrive(abs_staging)[0].casefold()
+    target_drive = os.path.splitdrive(abs_target)[0].casefold()
+    if staging_drive != target_drive:
+        sibling_temp = os.path.join(
+            target_dir, f".{os.path.basename(abs_target)}.staging_{os.getpid()}"
+        )
+        try:
+            shutil.copy2(abs_staging, sibling_temp)
+            os.replace(sibling_temp, abs_target)
+        finally:
+            if os.path.exists(sibling_temp):
+                try:
+                    os.remove(sibling_temp)
+                except OSError:
+                    pass
+        return abs_target
+
+    os.replace(abs_staging, abs_target)
+    return abs_target
+
+
+def get_test_template_upgrade_mutex_name(version, test_models_dir):
+    """Return the Win32 named mutex used to serialize missing-TestTemplate upgrades."""
+    norm_dir = os.path.normcase(os.path.abspath(test_models_dir))
+    dir_digest = hashlib.sha256(norm_dir.encode("utf-8")).hexdigest()[:12]
+    return f"{TEST_TEMPLATE_UPGRADE_MUTEX_PREFIX}{version}_{dir_digest}"
+
+
+def select_earlier_versioned_source(
+    candidates,
+    target_year,
+    inspect_fn=inspect_model_format_year,
+    allow_same_year=False,
+):
+    """
+    Pick the best source model targeting `target_year` from `candidates`:
+      1. Prefer `<Family><target_year - 1>.<ext>` when its effective year < target_year.
+      2. Fall back to the newest earlier copy (effective year < target_year).
+      3. When `allow_same_year` is True and no earlier copy exists, allow effective year == target_year.
+    Returns (source_path, source_year) or (None, None).
+    """
+    scored = []
+    for path in candidates or ():
+        stem = os.path.splitext(os.path.basename(path))[0]
+        year_match = TRAILING_YEAR_RE.search(stem)
+        name_year = int(year_match.group(1)) if year_match else None
+        file_format = inspect_fn(path)
+        effective_year = file_format if file_format is not None else name_year
+        if effective_year is None:
+            continue
+        is_prev_year = name_year == (target_year - 1)
+        has_explicit_year = name_year is not None
+        scored.append((path, effective_year, is_prev_year, has_explicit_year))
+
+    earlier = [item for item in scored if item[1] < target_year]
+    if earlier:
+        earlier.sort(
+            key=lambda item: (
+                1 if item[2] else 0,
+                item[1],
+                1 if item[3] else 0,
+                item[0],
+            ),
+            reverse=True,
+        )
+        return earlier[0][0], earlier[0][1]
+
+    if allow_same_year:
+        same_year = [item for item in scored if item[1] == target_year]
+        if same_year:
+            same_year.sort(key=lambda item: (1 if item[3] else 0, item[0]), reverse=True)
+            return same_year[0][0], same_year[0][1]
+
+    return None, None
+
+
+def _find_earlier_test_template(test_models_dir, target_year, inspect_fn=inspect_model_format_year):
+    """
+    Locate the newest earlier TestTemplate*.rvt (< target_year) under `test_models_dir`,
+    preferring `TestTemplate<target_year - 1>.rvt`. Returns (path, source_year) or (None, None).
+    """
+    if not os.path.isdir(test_models_dir):
+        return None, None
+
+    candidates = []
+    for entry in sorted(os.listdir(test_models_dir)):
+        if not TEST_TEMPLATE_FILE_RE.match(entry):
+            continue
+        full_path = os.path.join(test_models_dir, entry)
+        if os.path.isfile(full_path):
+            candidates.append(full_path)
+
+    return select_earlier_versioned_source(
+        candidates,
+        target_year,
+        inspect_fn=inspect_fn,
+        allow_same_year=False,
+    )
+
+
+def _verify_staged_test_template(
+    staged_path,
+    report_path,
+    target_year,
+    inspect_fn=inspect_model_format_year,
+):
+    """Verify staged TestTemplate output exists, passes report checks, and matches target_year."""
+    if not os.path.isfile(staged_path) or os.path.getsize(staged_path) == 0:
+        raise RuntimeError(
+            f"RevitModelUpgrader verification failed: missing or empty staged template '{staged_path}'."
+        )
+
+    if report_path and os.path.isfile(report_path):
+        try:
+            with open(report_path, "r", encoding="utf-8") as rf:
+                report_data = json.load(rf)
+        except (OSError, json.JSONDecodeError) as exc:
+            raise RuntimeError(
+                f"RevitModelUpgrader verification failed: unreadable upgrade report '{report_path}': {exc}"
+            ) from exc
+
+        batches = report_data.get("Batches") or []
+        if not batches:
+            raise RuntimeError(
+                f"RevitModelUpgrader verification failed: upgrade report '{report_path}' recorded no executed batches."
+            )
+        for batch in batches:
+            if not batch.get("JournalClean"):
+                raise RuntimeError(
+                    f"RevitModelUpgrader verification failed: journal cleanliness gate failed for Revit {target_year}."
+                )
+            jobs = batch.get("Jobs") or []
+            if not jobs:
+                raise RuntimeError(
+                    f"RevitModelUpgrader verification failed: batch for Revit {target_year} recorded no jobs."
+                )
+            for job in jobs:
+                if not job.get("Success"):
+                    detail = job.get("ErrorMessage") or "job reported Success=false"
+                    raise RuntimeError(
+                        f"RevitModelUpgrader verification failed for Revit {target_year}: {detail}"
+                    )
+                verified_fmt = str(job.get("VerifiedFormat") or "").strip()
+                if verified_fmt and verified_fmt != str(target_year):
+                    raise RuntimeError(
+                        f"RevitModelUpgrader verification failed: report VerifiedFormat '{verified_fmt}' != '{target_year}'."
+                    )
+
+    actual_format = inspect_fn(staged_path)
+    if actual_format != target_year:
+        raise RuntimeError(
+            f"RevitModelUpgrader verification failed for '{staged_path}': "
+            f"expected BasicFileInfo Format {target_year}, got {actual_format}."
+        )
+
+
+def ensure_test_template_ready(
+    version,
+    workspace_path,
+    no_auto_upgrade=False,
+    python_exe=sys.executable,
+    upgrader_script_path=None,
+    lock_factory=None,
+    upgrader_runner=None,
+    inspect_fn=inspect_model_format_year,
+):
+    """
+    Ensure `tests/Assets/test_models/TestTemplate<Year>.rvt` exists prior to dispatching live
+    Revit workers. Takes a <1ms no-op path when present; when missing and an earlier
+    TestTemplate exists, acquires a Win32 mutex, emits a loud diagnostic log, invokes
+    RevitModelUpgrader with atomic staging (never auto-upgrading INC Standards models),
+    and verifies the staged template before promotion.
+    Returns True if an upgrade was performed, False if already present or no earlier source exists.
+    """
+    ver_num = _parse_revit_major_version(version)
+    if ver_num is None:
+        return False
+
+    ver_str = str(ver_num)
+    test_models_dir = os.path.join(os.path.abspath(workspace_path), "tests", "Assets", "test_models")
+    target_filename = f"TestTemplate{ver_str}.rvt"
+    target_template_path = os.path.join(test_models_dir, target_filename)
+
+    # Fast <1ms no-op path when target template is already on disk
+    if os.path.isfile(target_template_path):
+        return False
+
+    if no_auto_upgrade:
+        raise RuntimeError(
+            f"Missing '{target_template_path}' for Revit {ver_str}, and --no-auto-upgrade was specified. "
+            f"Generate or restore it before running live Revit {ver_str} tests, e.g.: "
+            f"python tools/RevitModelUpgrader/revit_model_upgrader.py --preset test-models --versions {ver_str}"
+        )
+
+    if (
+        os.environ.get("SYNTHETIC_TEST_WORKER", "").strip() == "1"
+        or os.environ.get("SYNTHETIC_UPGRADER_MANIFEST", "").strip()
+    ):
+        raise RuntimeError(
+            f"Missing '{target_template_path}' inside an active Revit worker process; "
+            "refusing nested RevitModelUpgrader launch."
+        )
+
+    if not os.path.isdir(test_models_dir):
+        return False
+
+    source_path, _ = _find_earlier_test_template(test_models_dir, ver_num, inspect_fn=inspect_fn)
+    if source_path is None:
+        print(
+            f"[WARN] Missing '{target_template_path}' for Revit {ver_str}, and no earlier "
+            f"TestTemplate*.rvt exists under '{test_models_dir}' to auto-upgrade from."
+        )
+        return False
+
+    upgrader_path = upgrader_script_path or get_model_upgrader_path()
+    if not os.path.isfile(upgrader_path):
+        raise RuntimeError(f"RevitModelUpgrader script not found at '{upgrader_path}'.")
+
+    lock_obj = (
+        lock_factory(ver_str, test_models_dir)
+        if lock_factory is not None
+        else RevitStartupGate(
+            ver_str,
+            mutex_name=get_test_template_upgrade_mutex_name(ver_str, test_models_dir),
+            acquire_timeout_ms=DEFAULT_TEMPLATE_UPGRADE_LOCK_TIMEOUT_MS,
+        )
+    )
+    run_fn = subprocess.run if upgrader_runner is None else upgrader_runner
+
+    with lock_obj:
+        # Double-checked locking: another concurrent runner may have staged it while we waited
+        if os.path.isfile(target_template_path):
+            print(
+                f"[PRE-RUN UPGRADE] '{target_template_path}' became ready while waiting on lock; skipping duplicate upgrade."
+            )
+            return False
+
+        source_path, source_year = _find_earlier_test_template(
+            test_models_dir, ver_num, inspect_fn=inspect_fn
+        )
+        if source_path is None:
+            return False
+
+        print("=" * 72)
+        print(f"[PRE-RUN UPGRADE] Missing '{target_template_path}' for Revit {ver_str}.")
+        print(
+            f"[PRE-RUN UPGRADE] Synchronization lock acquired; invoking RevitModelUpgrader "
+            f"for '{source_path}' (Format {source_year}) -> Revit {ver_str}..."
+        )
+        print("[PRE-RUN UPGRADE] Pass --no-auto-upgrade to fail fast instead of auto-upgrading.")
+        print("=" * 72)
+
+        staging_dir = tempfile.mkdtemp(prefix=f"SyntheticTestTemplateStage_{ver_str}_")
+        report_path = os.path.join(staging_dir, f"upgrade_report_{ver_str}.json")
+        staged_template_path = os.path.join(staging_dir, target_filename)
+        try:
+            cmd = [
+                python_exe,
+                upgrader_path,
+                source_path,
+                "--versions",
+                ver_str,
+                "--output-dir",
+                staging_dir,
+                "--report",
+                report_path,
+            ]
+            res = run_fn(cmd)
+            if res.returncode != 0:
+                detail = (getattr(res, "stderr", None) or getattr(res, "stdout", None) or "").strip()
+                suffix = f": {detail}" if detail else ""
+                raise RuntimeError(
+                    f"RevitModelUpgrader failed while generating '{target_template_path}' "
+                    f"(exit code {res.returncode}){suffix}"
+                )
+
+            _verify_staged_test_template(
+                staged_template_path,
+                report_path=report_path,
+                target_year=ver_num,
+                inspect_fn=inspect_fn,
+            )
+            atomic_stage_file(staged_template_path, target_template_path)
+        finally:
+            shutil.rmtree(staging_dir, ignore_errors=True)
+
+    print(
+        f"[PRE-RUN UPGRADE] Verified and atomically staged '{target_template_path}' "
+        f"(Format {ver_str})."
+    )
+    return True
 
 
 def run_journal_cleanliness_gate(
@@ -2220,6 +2595,7 @@ def run_test_suite(
     target_framework="",
     no_shim=False,
     shards=None,
+    no_auto_upgrade=False,
 ):
     if shards is not None and shards < 1:
         print(f"[ERROR] --shards must be >= 1 (got {shards}).")
@@ -2227,8 +2603,8 @@ def run_test_suite(
 
     workspace_path = os.getcwd()
     os.environ["SYNTHETIC_PROJECT_ROOT"] = workspace_path
+    _pop_env_case_insensitive(os.environ, "MSBuildSdksPath")
     sdk_info = configure_dotnet_environment()
-    msbuild_path = find_msbuild()
 
     # 1. Discover test projects dynamically
     test_dir = os.path.join(workspace_path, "tests")
@@ -2266,11 +2642,7 @@ def run_test_suite(
         if worker_mode == "cold" and shards is not None:
             print("[TESTS] Note: --shards is only used in RevitWorkerPool mode; running single cold worker.")
 
-    dotnet_exe = "dotnet"
-    if sdk_info:
-        candidate_dotnet = os.path.join(sdk_info["dotnet_root"], "dotnet.exe")
-        if os.path.exists(candidate_dotnet):
-            dotnet_exe = candidate_dotnet
+    dotnet_exe = resolve_dotnet_exe(sdk_info)
 
     executed_any = False
     had_execution_error = False
@@ -2308,6 +2680,17 @@ def run_test_suite(
                 print(f"[TESTS] 0 matching tests for {ver} (category: {category}).")
                 continue
 
+            if not is_headless:
+                try:
+                    ensure_test_template_ready(
+                        ver,
+                        workspace_path=workspace_path,
+                        no_auto_upgrade=no_auto_upgrade,
+                    )
+                except (RuntimeError, OSError, ValueError) as exc:
+                    print(f"[ERROR] {exc}")
+                    sys.exit(1)
+
             if is_headless or worker_mode != "pool":
                 executed_any = True
 
@@ -2316,21 +2699,21 @@ def run_test_suite(
 
             proj_name = os.path.splitext(os.path.basename(csproj_path))[0]
             if is_headless:
-                print(f"[TESTS] Building {proj_name} ({ver}) with MSBuild ({run_id}): {msbuild_path}...")
+                print(f"[TESTS] Building {proj_name} ({ver}) with dotnet build ({run_id}): {dotnet_exe}...")
             else:
-                print(f"[TESTS] Building {proj_name} for Revit {ver} with MSBuild ({run_id}): {msbuild_path}...")
+                print(f"[TESTS] Building {proj_name} for Revit {ver} with dotnet build ({run_id}): {dotnet_exe}...")
 
             build_cmd = [
-                msbuild_path,
+                dotnet_exe,
+                "build",
                 csproj_path,
-                "/t:Build",
-                "/restore",
-                "/p:Configuration=Debug",
-                "/p:Platform=x64",
-                f"/p:SyntheticIsolatedBuildRoot={run_build_root}",
-                f"/p:SyntheticRunId={run_id}",
-                "/v:minimal",
-                "/clp:ErrorsOnly;Summary",
+                "-c",
+                "Debug",
+                "-p:Platform=x64",
+                f"-p:SyntheticIsolatedBuildRoot={run_build_root}",
+                f"-p:SyntheticRunId={run_id}",
+                "-v:minimal",
+                "-clp:ErrorsOnly;Summary",
             ]
             try:
                 subprocess.run(build_cmd, check=True)
@@ -2557,7 +2940,7 @@ def parse_cli_args(argv=None):
         "--version",
         dest="target_version",
         default="",
-        help="Revit version to target (e.g. 2026 or Logic). Omit to run all.",
+        help="Revit version to target (e.g. 2027, 2026, or Logic). Omit to run all.",
     )
     parser.add_argument(
         "--category",
@@ -2569,7 +2952,7 @@ def parse_cli_args(argv=None):
         "--framework",
         dest="target_framework",
         default="",
-        help="Target framework to execute for multi-TFM test projects (e.g. net48 or net8.0-windows8.0)",
+        help="Target framework to execute for multi-TFM test projects (e.g. net48, net8.0-windows8.0, or net10.0-windows8.0)",
     )
     parser.add_argument(
         "--no-pool",
@@ -2591,6 +2974,13 @@ def parse_cli_args(argv=None):
         type=int,
         default=None,
         help="Override Test Shard worker count for RevitWorkerPool (>= 1)",
+    )
+    parser.add_argument(
+        "--no-auto-upgrade",
+        dest="no_auto_upgrade",
+        action="store_true",
+        default=False,
+        help="Fail fast instead of invoking RevitModelUpgrader when TestTemplate<Year>.rvt is missing",
     )
     # Legacy positional support: test_executor.py [class] [version]
     parser.add_argument("pos_class", nargs="?", default="")
@@ -2619,5 +3009,6 @@ if __name__ == "__main__":
         target_framework=_args.target_framework,
         no_shim=_args.no_shim,
         shards=_args.shards,
+        no_auto_upgrade=_args.no_auto_upgrade,
     )
 

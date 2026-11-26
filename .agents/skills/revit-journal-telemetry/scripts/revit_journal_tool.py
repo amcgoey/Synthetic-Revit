@@ -23,7 +23,7 @@ BENIGN_LOG_PATTERNS = (
     "[MERGE_ERROR]",
 )
 
-# Verified 2023-2026 journal transaction patterns
+# Verified 2023-2027 journal transaction patterns
 IN_TRANSACTION_RE = re.compile(r"'inTransaction\s+(\S+)\s+(.+)")
 CPP_SOURCE_RE = re.compile(r"\.cpp:\d+$", re.IGNORECASE)
 TRANSACTION_SUCCESS_RE = re.compile(r'"Transaction Successful"\s*,\s*"([^"]+)"')
@@ -94,7 +94,7 @@ def get_current_latest_version(config_path=None):
                     return parsed
     except Exception:
         pass
-    return "2026"
+    return "2027"
 
 
 def get_default_journals_dir(version):
@@ -402,7 +402,7 @@ def analyze_line_for_diagnostics(line, line_idx, state_dict, limit_actions=10):
     if "RAM Statistics:" in line or "Delta VM:" in line:
         state_dict["memory_logs"].append((line_idx + 1, line_clean))
 
-    # 4. Verified 2023-2026 Transaction-Seam Auditing
+    # 4. Verified 2023-2027 Transaction-Seam Auditing
     in_tx = IN_TRANSACTION_RE.search(line_clean)
     if in_tx:
         source = in_tx.group(1).strip()

@@ -76,6 +76,7 @@ def get_bundle_and_addin_paths(
     bundle_paths = [
         os.path.join(ad, "Autodesk", "ApplicationPlugins"),
         os.path.join(pd, "Autodesk", "ApplicationPlugins"),
+        os.path.join(pf, "Autodesk", "ApplicationPlugins"),
     ]
     return paths, bundle_paths
 

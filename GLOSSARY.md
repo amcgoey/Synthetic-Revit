@@ -1,11 +1,11 @@
 # Synthetic
 
-The multi-version Revit add-in designed to automate BIM tasks, manage model standards, and streamline coordination across Revit 2023 to 2026.
+The multi-version Revit add-in designed to automate BIM tasks, manage model standards, and streamline coordination across Revit 2023 to 2027.
 
 ## Language
 
 **Revit Version**:
-The specific annual release of Autodesk Revit targeted by the add-in (2023 to 2026).
+The specific annual release of Autodesk Revit targeted by the add-in (2023 to 2027).
 
 **Debug Manifest**:
 A developer registration manifest that points Revit at the local **Add-In Bootstrap** and active build payload for local execution and debugging, taking precedence over machine-wide installations.

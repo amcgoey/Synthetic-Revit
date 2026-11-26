@@ -33,23 +33,48 @@ namespace Synthetic.Bootstrap
         /// <inheritdoc />
         public Result OnStartup(UIControlledApplication appControlled)
         {
-            string? testWorker = Environment.GetEnvironmentVariable("SYNTHETIC_TEST_WORKER");
+            return OnStartupCore(appControlled, typeof(BootstrapApp).Assembly, hooks: null);
+        }
+
+        internal Result OnStartupCore(
+            UIControlledApplication? appControlled,
+            Assembly metadataAssembly,
+            ShadowCacheHooks? hooks = null)
+        {
+            if (metadataAssembly == null)
+            {
+                throw new ArgumentNullException(nameof(metadataAssembly));
+            }
+
+            Func<string, string?> getEnv = hooks?.GetEnvironmentVariable ?? Environment.GetEnvironmentVariable;
+            string? testWorker = getEnv("SYNTHETIC_TEST_WORKER");
             if (string.Equals(testWorker?.Trim(), "1", StringComparison.Ordinal))
             {
-                TryWriteEnvVarJournalComment(appControlled, "SYNTHETIC_TEST_RUN_ID", "SYNTHETIC_TEST_RUN");
-                TryWriteEnvVarJournalComment(appControlled, "SYNTHETIC_WORKER_ID", "SYNTHETIC_WORKER_ID");
+                TryWriteEnvVarJournalComment(appControlled, "SYNTHETIC_TEST_RUN_ID", "SYNTHETIC_TEST_RUN", getEnv, hooks);
+                TryWriteEnvVarJournalComment(appControlled, "SYNTHETIC_WORKER_ID", "SYNTHETIC_WORKER_ID", getEnv, hooks);
 
                 return Result.Succeeded;
             }
 
-            string revitVersion = ResolveRevitVersion(appControlled);
-            string bootstrapPath = typeof(BootstrapApp).Assembly.Location;
-            LaunchPlan plan = ShadowCacheManager.PrepareLaunch(bootstrapPath, revitVersion);
+            string? hostVersionNumber = appControlled?.ControlledApplication?.VersionNumber;
+            string bootstrapPath = metadataAssembly.IsDynamic ? string.Empty : metadataAssembly.Location;
+            LaunchPlan plan = ShadowCacheManager.PrepareHostLaunch(
+                hostVersionNumber,
+                metadataAssembly,
+                bootstrapPath,
+                out string revitVersion,
+                hooks);
 
             if (plan.Mode == LaunchMode.Failed)
             {
-                WriteBootstrapDiagnosticLog(revitVersion, plan.ErrorMessage, plan.Diagnostics, exception: null);
-                TryWriteJournalComment(appControlled, $"SYNTHETIC_BOOTSTRAP_ERROR: {plan.ErrorMessage}");
+                string logVersion = string.IsNullOrWhiteSpace(revitVersion) ? "unknown" : revitVersion;
+                WriteBootstrapDiagnosticLog(
+                    logVersion,
+                    plan.ErrorMessage,
+                    plan.Diagnostics,
+                    exception: null,
+                    localAppDataOverride: hooks?.LocalAppDataDir);
+                TryWriteJournalComment(appControlled, $"SYNTHETIC_BOOTSTRAP_ERROR: {plan.ErrorMessage}", hooks);
                 return Result.Failed;
             }
 
@@ -70,7 +95,7 @@ namespace Synthetic.Bootstrap
                     throw new InvalidOperationException($"Type '{hostType.FullName}' did not instantiate as IExternalApplication.");
                 }
 
-                Result startupResult = hostApp.OnStartup(appControlled);
+                Result startupResult = hostApp.OnStartup(appControlled!);
                 if (startupResult == Result.Succeeded)
                 {
                     _innerApp = hostApp;
@@ -78,7 +103,8 @@ namespace Synthetic.Bootstrap
 
                 TryWriteJournalComment(
                     appControlled,
-                    $"SYNTHETIC_BOOTSTRAP: Loaded {plan.TargetAssemblyPath} (Root={plan.SourcePayloadDir}, Mode={plan.Mode})");
+                    $"SYNTHETIC_BOOTSTRAP: Loaded {plan.TargetAssemblyPath} (Root={plan.SourcePayloadDir}, Mode={plan.Mode})",
+                    hooks);
 
                 return startupResult;
             }
@@ -89,8 +115,13 @@ namespace Synthetic.Bootstrap
                     TryDeleteDirectoryBestEffort(plan.ShadowDir);
                 }
 
-                WriteBootstrapDiagnosticLog(revitVersion, ex.Message, plan.Diagnostics, ex);
-                TryWriteJournalComment(appControlled, $"SYNTHETIC_BOOTSTRAP_ERROR: {ex.Message}");
+                WriteBootstrapDiagnosticLog(
+                    revitVersion,
+                    ex.Message,
+                    plan.Diagnostics,
+                    ex,
+                    localAppDataOverride: hooks?.LocalAppDataDir);
+                TryWriteJournalComment(appControlled, $"SYNTHETIC_BOOTSTRAP_ERROR: {ex.Message}", hooks);
                 return Result.Failed;
             }
         }
@@ -104,25 +135,6 @@ namespace Synthetic.Bootstrap
             }
 
             return _innerApp.OnShutdown(appControlled);
-        }
-
-        private static string ResolveRevitVersion(UIControlledApplication? appControlled)
-        {
-            string? versionNumber = appControlled?.ControlledApplication?.VersionNumber;
-            if (!string.IsNullOrWhiteSpace(versionNumber))
-            {
-                return versionNumber.Trim();
-            }
-
-#if REVIT2023
-            return "2023";
-#elif REVIT2024
-            return "2024";
-#elif REVIT2025
-            return "2025";
-#else
-            return "2026";
-#endif
         }
 
         private static Assembly LoadPayloadIntoDefaultContext(string targetAssemblyPath)
@@ -298,19 +310,30 @@ namespace Synthetic.Bootstrap
         private static void TryWriteEnvVarJournalComment(
             UIControlledApplication? appControlled,
             string envVarName,
-            string markerPrefix)
+            string markerPrefix,
+            Func<string, string?> getEnvironmentVariable,
+            ShadowCacheHooks? hooks = null)
         {
-            string? value = Environment.GetEnvironmentVariable(envVarName);
+            string? value = getEnvironmentVariable(envVarName);
             if (!string.IsNullOrWhiteSpace(value))
             {
-                TryWriteJournalComment(appControlled, $"{markerPrefix}:{value!.Trim()}");
+                TryWriteJournalComment(appControlled, $"{markerPrefix}:{value!.Trim()}", hooks);
             }
         }
 
-        private static void TryWriteJournalComment(UIControlledApplication? appControlled, string comment)
+        private static void TryWriteJournalComment(
+            UIControlledApplication? appControlled,
+            string comment,
+            ShadowCacheHooks? hooks = null)
         {
             try
             {
+                if (hooks?.WriteJournalComment != null)
+                {
+                    hooks.WriteJournalComment.Invoke(comment);
+                    return;
+                }
+
                 appControlled?.ControlledApplication?.WriteJournalComment(comment, true);
             }
             catch
@@ -338,11 +361,12 @@ namespace Synthetic.Bootstrap
             string revitVersion,
             string errorMessage,
             IReadOnlyList<string>? diagnostics,
-            Exception? exception)
+            Exception? exception,
+            string? localAppDataOverride = null)
         {
             try
             {
-                string logsDir = ShadowCacheManager.ResolveDiagnosticLogsDir();
+                string logsDir = ShadowCacheManager.ResolveDiagnosticLogsDir(localAppDataOverride);
                 if (string.IsNullOrWhiteSpace(logsDir))
                 {
                     return;
