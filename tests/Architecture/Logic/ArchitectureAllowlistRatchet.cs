@@ -256,6 +256,7 @@ namespace SyntheticTests.Architecture
     {
         public static readonly IReadOnlyCollection<string> ExemplarZeroAllowlistSlices = new[]
         {
+            "DetailItemFactory",
             "Diagnostics",
             "MultiModelPdfExport",
             "ShadowStudy",
@@ -278,7 +279,6 @@ namespace SyntheticTests.Architecture
         public static readonly IReadOnlyCollection<string> ExpectedDormantSlices = new[]
         {
             "AutoTagger",
-            "DetailItemFactory",
             "FamilyManagement",
             "MaterialManagement"
         };

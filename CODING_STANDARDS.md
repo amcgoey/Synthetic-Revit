@@ -10,7 +10,7 @@ Authoritative architecture, design, and review rules across `Synthetic.Core` (`n
 - Co-locate pure C# in `Core/` (`Synthetic.Core`) and Revit/XAML in `Addin/` (`Synthetic<Year>`) under `src/{Features/<Slice>, RevitDOM, Platform/<Submodule>}/`.
 - Omit `.Core`/`.Addin` from slice namespaces (`Synthetic.<Root>.<Slice>`), use distinct cross-assembly static names (`CS0433` prevention), and keep `CURRENT_LATEST_VERSION` ([revit-config.md](docs/agents/revit-config.md)) in unconditioned `#else` blocks.
 - **Direct Slices** (`Diagnostics`, `ViewManagement`, `Worksets`, `FamilyManagement`, `MaterialManagement`) execute in `Addin/Commands/` + `Addin/Utilities/` (plus slice settings tabs in `Addin/Settings/`) without pass-through adapters.
-- **Interactive Slices** (`MultiModelPdfExport`, `SheetIndex`, `SharedCoordinates`, `ShadowStudy`, migrating slices) isolate all Revit API access behind one narrow `I<Slice>Adapter` in `Core/Adapters/`, implemented by `Revit<Slice>Adapter` (`Addin/`) and `Fake<Slice>Adapter` (`tests/Fixtures/Shared/`).
+- **Interactive Slices** (`DetailItemFactory`, `MultiModelPdfExport`, `SheetIndex`, `SharedCoordinates`, `ShadowStudy`, migrating slices) isolate all Revit API access behind one narrow `I<Slice>Adapter` in `Core/Adapters/`, implemented by `Revit<Slice>Adapter` (`Addin/`) and `Fake<Slice>Adapter` (`tests/Fixtures/Shared/`).
 - Enforce the 4-band acyclic DAG (`Features` -> `Domain` -> `RevitDOM` -> `Platform/{Settings, UI, Revit, IO}`), isolate `Platform/Host`, and graduate shared code to `src/Domain/` only when `>= 2` sub-modules each serve `>= 2` slices.
 
 ### 2. Harvest -> Pure Plan -> Atomic Apply
@@ -62,7 +62,7 @@ Authoritative architecture, design, and review rules across `Synthetic.Core` (`n
 ### 9. Single-Field JSON Settings + Local User Prefs
 ([ADR 0025](docs/adrs/0025-non-mutating-shadow-study-export-and-base-ratio-multiply-compositing.md), [revit-extensible-storage](.agents/skills/revit-extensible-storage/SKILL.md))
 
-- Persist project-stored **Firmwide Settings** (`ISettingModule`, using parameterless `IsValid()` on migrated slices such as `ShadowStudySettings`; remaining modules migrate from `IsValid(Document)` in Spec 6) through `SyntheticSettingsJsonSchema` (`JsonData` + `ModuleKey` string fields on `DataStorage`).
+- Persist project-stored **Firmwide Settings** (`ISettingModule`, using parameterless `IsValid()` on migrated slices such as `ShadowStudySettings` and `DetailItemFactorySettings`; remaining modules migrate from `IsValid(Document)` in Spec 6) through `SyntheticSettingsJsonSchema` (`JsonData` + `ModuleKey` string fields on `DataStorage`).
 - Maintain 1-to-1 `ModuleKey` parity across concrete `ISettingModule` types, `HostSettingsRegistrar`, and `SyntheticSettings.template.json` (`SyncSettings` excluded from template).
 - Store machine-local **Local User Preferences** (last folder, pixel widths, toggles) under `%APPDATA%\Synthetic\` (`ShadowStudyUserPrefsStore`) outside the model so normal runs leave Undo history clean.
 
@@ -100,11 +100,11 @@ Enforced in **Logic Tests** (`python .agents/skills/revit-tests/scripts/test_exe
 | 11 | `ExternalEventAndDialogPurity` | Ratcheted | Zero `static ExternalEvent`, zero raw `DeleteAllWarnings()`, zero `ExternalEvent.Create` in `ViewModels/`, zero modal dialogs in restricted scopes. |
 | 12 | `SingleSchemaExtensibleStorage` | Ratcheted | `new SchemaBuilder(...)` permitted only in `Platform/Settings/Addin`. |
 
-- **Global vs. Ratcheted Enforcement:** Rules `1–7` permit `0` debt repo-wide; rules `8–12` enforce exact `(Slice, FitnessRule, TypeName)` entries in `TransitionalSpecBacklog` and `DormantBoyScoutAllowlist` (`0` entries allowed in `MultiModelPdfExport`, `Diagnostics`, `ShadowStudy`, `SharedCoordinates`, `SheetIndex`, and `Platform/Revit`), failing on both unlisted violations (**ceiling lock**) and stale entries (**one-way ratchet**).
+- **Global vs. Ratcheted Enforcement:** Rules `1–7` permit `0` debt repo-wide; rules `8–12` enforce exact `(Slice, FitnessRule, TypeName)` entries in `TransitionalSpecBacklog` and `DormantBoyScoutAllowlist` (`0` entries allowed in `DetailItemFactory`, `MultiModelPdfExport`, `Diagnostics`, `ShadowStudy`, `SharedCoordinates`, `SheetIndex`, and `Platform/Revit`), failing on both unlisted violations (**ceiling lock**) and stale entries (**one-way ratchet**).
 
 ## 4. 3-Tier Boy-Scout Trigger Rule
 
-Applies to allowlisted legacy types in `TransitionalSpecBacklog` (`MergeDuplicates`, `SettingsDashboard`, `StandardsManagement`, `ViewManagement`, `Worksets`, `Platform/Settings`, `RevitDOM`; plus the Spec 6 prose note on `Diagnostics`/`StorageUtil.PurgeSchema` silent-catch hardening) and `DormantBoyScoutAllowlist` (`AutoTagger`, `DetailItemFactory`, `FamilyManagement`, `MaterialManagement`):
+Applies to allowlisted legacy types in `TransitionalSpecBacklog` (`MergeDuplicates`, `SettingsDashboard`, `StandardsManagement`, `ViewManagement`, `Worksets`, `Platform/Settings`, `RevitDOM`; plus the Spec 6 prose note on `Diagnostics`/`StorageUtil.PurgeSchema` silent-catch hardening) and `DormantBoyScoutAllowlist` (`AutoTagger`, `FamilyManagement`, `MaterialManagement`):
 
 - **Tier A — Mechanical Sweeps (Exempt):** Folder/namespace moves, unused `using` sweeps, Revit version/`#if` updates, or `Platform` helper renames require zero architectural rewrites.
 
