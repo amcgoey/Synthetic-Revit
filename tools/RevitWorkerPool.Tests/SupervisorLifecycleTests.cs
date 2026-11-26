@@ -1468,9 +1468,14 @@ public class SupervisorLifecycleTests
 
         // EnsureSupervisorRunningAsync must NOT spawn a competing second supervisor while DrainingWhenIdle is active.
         int spawnCalls = 0;
+        var countingSupervisorLauncher = new DelegateSupervisorLauncher((_, _) =>
+        {
+            Interlocked.Increment(ref spawnCalls);
+            return new SupervisorLaunchResult(SupervisorLaunchMethod.BreakawayProcess, Environment.ProcessId, "unexpected");
+        });
         await SupervisorIpcClient.EnsureSupervisorRunningAsync(
             new SupervisorClientLaunchOptions { PipeName = pipeName, StartupTimeout = TimeSpan.FromSeconds(2) },
-            spawnSupervisorAction: (_, _) => Interlocked.Increment(ref spawnCalls));
+            countingSupervisorLauncher);
         Assert.That(Volatile.Read(ref spawnCalls), Is.EqualTo(0));
 
         // Release run1 -> run2 executes while run3 is still queued; verify no lookahead worker boots alongside run2.
