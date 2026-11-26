@@ -30,7 +30,8 @@ public static class Program
         Func<OneShotRunOptions, IWorkerProcessLauncher>? launcherFactory = null,
         RevitInstallationDiscovery? discoveryOverride = null,
         TextWriter? stdout = null,
-        TextWriter? stderr = null)
+        TextWriter? stderr = null,
+        ISupervisorLauncher? supervisorLauncher = null)
     {
         TextWriter outWriter = stdout ?? Console.Out;
         TextWriter errWriter = stderr ?? Console.Error;
@@ -53,7 +54,7 @@ public static class Program
 
         if (string.Equals(command, "warm", StringComparison.OrdinalIgnoreCase))
         {
-            return await ExecuteWarmCommandAsync(args[1..], wantsJson, outWriter, errWriter).ConfigureAwait(false);
+            return await ExecuteWarmCommandAsync(args[1..], wantsJson, supervisorLauncher, outWriter, errWriter).ConfigureAwait(false);
         }
 
         if (string.Equals(command, "run", StringComparison.OrdinalIgnoreCase))
@@ -63,6 +64,7 @@ public static class Program
                 wantsJson,
                 launcherFactory,
                 discoveryOverride,
+                supervisorLauncher,
                 outWriter,
                 errWriter).ConfigureAwait(false);
         }
@@ -165,7 +167,7 @@ public static class Program
         }
 
         var discovery = new RevitInstallationDiscovery(logger);
-        var clientFactory = new DiagnosticPipeClientFactory(logger);
+        var clientFactory = new RevitPipeTestClientFactory(logger);
         var supervisorOptions = new SupervisorOptions
         {
             PipeName = cliOptions.PipeName,
@@ -220,6 +222,7 @@ public static class Program
     private static async Task<int> ExecuteWarmCommandAsync(
         string[] args,
         bool wantsJson,
+        ISupervisorLauncher? supervisorLauncher,
         TextWriter outWriter,
         TextWriter errWriter)
     {
@@ -253,6 +256,7 @@ public static class Program
             await EnsureSupervisorMatchingShimModeAsync(
                 launchOptions,
                 expectedShim,
+                supervisorLauncher,
                 logger,
                 cancellationToken).ConfigureAwait(false);
 
@@ -316,6 +320,7 @@ public static class Program
         bool wantsJson,
         Func<OneShotRunOptions, IWorkerProcessLauncher>? launcherFactory,
         RevitInstallationDiscovery? discoveryOverride,
+        ISupervisorLauncher? supervisorLauncher,
         TextWriter outWriter,
         TextWriter errWriter)
     {
@@ -352,7 +357,7 @@ public static class Program
                     effectiveLauncher = windowingLauncher;
                 }
 
-                var clientFactory = new DiagnosticPipeClientFactory(logger);
+                var clientFactory = new RevitPipeTestClientFactory(logger);
                 var runner = new OneShotTestRunner(
                     discovery,
                     effectiveLauncher,
@@ -420,6 +425,7 @@ public static class Program
             await EnsureSupervisorMatchingShimModeAsync(
                 launchOptions,
                 expectedShim,
+                supervisorLauncher,
                 logger,
                 cancellationToken).ConfigureAwait(false);
 
@@ -480,6 +486,7 @@ public static class Program
     private static async Task EnsureSupervisorMatchingShimModeAsync(
         SupervisorClientLaunchOptions launchOptions,
         bool expectedShim,
+        ISupervisorLauncher? supervisorLauncher,
         Action<string>? logger,
         CancellationToken cancellationToken)
     {
@@ -494,8 +501,21 @@ public static class Program
             return;
         }
 
-        await SupervisorIpcClient.EnsureSupervisorRunningAsync(launchOptions, logger, cancellationToken)
-            .ConfigureAwait(false);
+        if (supervisorLauncher is not null)
+        {
+            await SupervisorIpcClient.EnsureSupervisorRunningAsync(
+                launchOptions,
+                supervisorLauncher,
+                logger,
+                cancellationToken).ConfigureAwait(false);
+        }
+        else
+        {
+            await SupervisorIpcClient.EnsureSupervisorRunningAsync(
+                launchOptions,
+                logger,
+                cancellationToken).ConfigureAwait(false);
+        }
 
         SupervisorIpcResponse? postPing = await SupervisorIpcClient.TryPingAsync(
             launchOptions.PipeName,
@@ -1302,22 +1322,6 @@ public static class Program
         {
             Console.CancelKeyPress -= _handler;
             _cts.Dispose();
-        }
-    }
-
-    private sealed class DiagnosticPipeClientFactory : IPipeTestClientFactory
-    {
-        private readonly Action<string>? _logger;
-
-        public DiagnosticPipeClientFactory(Action<string>? logger)
-        {
-            _logger = logger;
-        }
-
-        public IPipeTestClient CreateClient(LaunchedWorkerProcess worker)
-        {
-            ArgumentNullException.ThrowIfNull(worker);
-            return new RevitPipeTestClient(worker.PipeName, _logger);
         }
     }
 }
