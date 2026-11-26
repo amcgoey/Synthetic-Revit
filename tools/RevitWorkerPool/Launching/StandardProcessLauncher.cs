@@ -21,11 +21,6 @@ namespace RevitWorkerPool.Launching;
 [SupportedOSPlatform("windows")]
 public sealed class StandardProcessLauncher : IWorkerProcessLauncher
 {
-    private const uint CreateSuspended = 0x00000004;
-    private const uint CreateUnicodeEnvironment = 0x00000400;
-    private const uint StartfUseShowWindow = 0x00000001;
-    private const short SwShowMinNoActive = 7;
-
     public bool UsesCleanShim => false;
 
     public Task<LaunchedWorkerProcess> LaunchAsync(
@@ -58,24 +53,31 @@ public sealed class StandardProcessLauncher : IWorkerProcessLauncher
 
         byte[] environmentBlock = BuildUnicodeEnvironmentBlock(request, workerId);
 
-        var startupInfo = new StartupInfoW
+        string? desktopName = string.IsNullOrWhiteSpace(request.DesktopName)
+            ? null
+            : request.DesktopName.Trim();
+
+        var startupInfo = new Win32ProcessLaunchUtilities.StartupInfoW
         {
-            cb = Marshal.SizeOf<StartupInfoW>(),
-            dwFlags = StartfUseShowWindow,
-            wShowWindow = SwShowMinNoActive
+            cb = Marshal.SizeOf<Win32ProcessLaunchUtilities.StartupInfoW>(),
+            lpDesktop = desktopName,
+            dwFlags = Win32ProcessLaunchUtilities.StartfUseShowWindow,
+            wShowWindow = desktopName is not null
+                ? Win32ProcessLaunchUtilities.SwShowNormal
+                : Win32ProcessLaunchUtilities.SwShowMinNoActive
         };
 
-        ProcessInformation pi = default;
+        Win32ProcessLaunchUtilities.ProcessInformation pi = default;
         GCHandle envPin = GCHandle.Alloc(environmentBlock, GCHandleType.Pinned);
         try
         {
-            if (!NativeMethods.CreateProcessW(
+            if (!Win32ProcessLaunchUtilities.CreateProcessW(
                     fullExePath,
                     commandLineBuffer,
                     IntPtr.Zero,
                     IntPtr.Zero,
                     bInheritHandles: false,
-                    CreateSuspended | CreateUnicodeEnvironment,
+                    Win32ProcessLaunchUtilities.CreateSuspended | Win32ProcessLaunchUtilities.CreateUnicodeEnvironment,
                     envPin.AddrOfPinnedObject(),
                     workingDir,
                     ref startupInfo,
@@ -123,7 +125,7 @@ public sealed class StandardProcessLauncher : IWorkerProcessLauncher
 
             onProcessCreatedBeforeResume?.Invoke(processId);
 
-            uint resumeResult = NativeMethods.ResumeThread(rawThreadHandle);
+            uint resumeResult = Win32ProcessLaunchUtilities.ResumeThread(rawThreadHandle);
             if (resumeResult == uint.MaxValue)
             {
                 int error = Marshal.GetLastWin32Error();
@@ -149,10 +151,10 @@ public sealed class StandardProcessLauncher : IWorkerProcessLauncher
         {
             if (rawProcessHandle != IntPtr.Zero)
             {
-                NativeMethods.TerminateProcess(rawProcessHandle, 1);
+                Win32ProcessLaunchUtilities.TerminateProcess(rawProcessHandle, 1);
                 if (processHandle is null)
                 {
-                    NativeMethods.CloseHandle(rawProcessHandle);
+                    Win32ProcessLaunchUtilities.CloseHandle(rawProcessHandle);
                 }
             }
 
@@ -164,7 +166,7 @@ public sealed class StandardProcessLauncher : IWorkerProcessLauncher
         {
             if (rawThreadHandle != IntPtr.Zero)
             {
-                NativeMethods.CloseHandle(rawThreadHandle);
+                Win32ProcessLaunchUtilities.CloseHandle(rawThreadHandle);
             }
         }
     }
@@ -242,65 +244,5 @@ public sealed class StandardProcessLauncher : IWorkerProcessLauncher
 
         sb.Append('\0');
         return Encoding.Unicode.GetBytes(sb.ToString());
-    }
-
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    private struct StartupInfoW
-    {
-        public int cb;
-        public string? lpReserved;
-        public string? lpDesktop;
-        public string? lpTitle;
-        public int dwX;
-        public int dwY;
-        public int dwXSize;
-        public int dwYSize;
-        public int dwXCountChars;
-        public int dwYCountChars;
-        public int dwFillAttribute;
-        public uint dwFlags;
-        public short wShowWindow;
-        public short cbReserved2;
-        public IntPtr lpReserved2;
-        public IntPtr hStdInput;
-        public IntPtr hStdOutput;
-        public IntPtr hStdError;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct ProcessInformation
-    {
-        public IntPtr hProcess;
-        public IntPtr hThread;
-        public uint dwProcessId;
-        public uint dwThreadId;
-    }
-
-    private static class NativeMethods
-    {
-        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool CreateProcessW(
-            string? lpApplicationName,
-            StringBuilder? lpCommandLine,
-            IntPtr lpProcessAttributes,
-            IntPtr lpThreadAttributes,
-            [MarshalAs(UnmanagedType.Bool)] bool bInheritHandles,
-            uint dwCreationFlags,
-            IntPtr lpEnvironment,
-            string? lpCurrentDirectory,
-            ref StartupInfoW lpStartupInfo,
-            out ProcessInformation lpProcessInformation);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        public static extern uint ResumeThread(IntPtr hThread);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool TerminateProcess(IntPtr hProcess, uint uExitCode);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool CloseHandle(IntPtr hObject);
     }
 }

@@ -125,26 +125,60 @@ public sealed class CleanDetoursProcessLauncher : IWorkerProcessLauncher
                     ex);
             }
 
-            if (!NativeLibrary.TryGetExport(launcherModule, "SyntheticLaunchSuspendedWithShimW", out IntPtr exportPtr))
+            string? desktopName = string.IsNullOrWhiteSpace(request.DesktopName)
+                ? null
+                : request.DesktopName.Trim();
+
+            bool hasDesktopExport = NativeLibrary.TryGetExport(
+                launcherModule,
+                "SyntheticLaunchSuspendedWithShimOnDesktopW",
+                out IntPtr desktopExportPtr);
+
+            if (desktopName is not null && !hasDesktopExport)
+            {
+                throw new CleanShimLaunchException(
+                    $"Clean-Launch Launcher DLL '{_launcherDllPath}' does not export 'SyntheticLaunchSuspendedWithShimOnDesktopW' required for isolated desktop launch '{desktopName}'.");
+            }
+
+            IntPtr legacyExportPtr = IntPtr.Zero;
+            if (!hasDesktopExport &&
+                !NativeLibrary.TryGetExport(launcherModule, "SyntheticLaunchSuspendedWithShimW", out legacyExportPtr))
             {
                 throw new CleanShimLaunchException(
                     $"Clean-Launch Launcher DLL '{_launcherDllPath}' does not export 'SyntheticLaunchSuspendedWithShimW'.");
             }
 
-            var launchProc = Marshal.GetDelegateForFunctionPointer<SyntheticLaunchSuspendedWithShimDelegate>(exportPtr);
-
             GCHandle envPin = GCHandle.Alloc(environmentBlock, GCHandleType.Pinned);
             try
             {
-                uint win32Error = launchProc(
-                    fullExePath,
-                    commandLineText,
-                    workingDir,
-                    envPin.AddrOfPinnedObject(),
-                    _shimDllPath,
-                    out rawProcessHandle,
-                    out rawThreadHandle,
-                    out rawProcessId);
+                uint win32Error;
+                if (hasDesktopExport)
+                {
+                    var launchProc = Marshal.GetDelegateForFunctionPointer<SyntheticLaunchSuspendedWithShimOnDesktopDelegate>(desktopExportPtr);
+                    win32Error = launchProc(
+                        fullExePath,
+                        commandLineText,
+                        workingDir,
+                        envPin.AddrOfPinnedObject(),
+                        _shimDllPath,
+                        desktopName,
+                        out rawProcessHandle,
+                        out rawThreadHandle,
+                        out rawProcessId);
+                }
+                else
+                {
+                    var launchProc = Marshal.GetDelegateForFunctionPointer<SyntheticLaunchSuspendedWithShimDelegate>(legacyExportPtr);
+                    win32Error = launchProc(
+                        fullExePath,
+                        commandLineText,
+                        workingDir,
+                        envPin.AddrOfPinnedObject(),
+                        _shimDllPath,
+                        out rawProcessHandle,
+                        out rawThreadHandle,
+                        out rawProcessId);
+                }
 
                 if (win32Error != 0 ||
                     rawProcessHandle == IntPtr.Zero ||
@@ -153,14 +187,14 @@ public sealed class CleanDetoursProcessLauncher : IWorkerProcessLauncher
                 {
                     if (rawThreadHandle != IntPtr.Zero)
                     {
-                        NativeMethods.CloseHandle(rawThreadHandle);
+                        Win32ProcessLaunchUtilities.CloseHandle(rawThreadHandle);
                         rawThreadHandle = IntPtr.Zero;
                     }
 
                     if (rawProcessHandle != IntPtr.Zero)
                     {
-                        NativeMethods.TerminateProcess(rawProcessHandle, 1);
-                        NativeMethods.CloseHandle(rawProcessHandle);
+                        Win32ProcessLaunchUtilities.TerminateProcess(rawProcessHandle, 1);
+                        Win32ProcessLaunchUtilities.CloseHandle(rawProcessHandle);
                         rawProcessHandle = IntPtr.Zero;
                     }
 
@@ -363,6 +397,18 @@ public sealed class CleanDetoursProcessLauncher : IWorkerProcessLauncher
         out IntPtr outThreadHandle,
         out uint outProcessId);
 
+    [UnmanagedFunctionPointer(CallingConvention.StdCall, CharSet = CharSet.Unicode)]
+    private delegate uint SyntheticLaunchSuspendedWithShimOnDesktopDelegate(
+        [MarshalAs(UnmanagedType.LPWStr)] string applicationPath,
+        [MarshalAs(UnmanagedType.LPWStr)] string? commandLine,
+        [MarshalAs(UnmanagedType.LPWStr)] string? currentDirectory,
+        IntPtr unicodeEnvironmentBlock,
+        [MarshalAs(UnmanagedType.LPWStr)] string shimDllPath,
+        [MarshalAs(UnmanagedType.LPWStr)] string? desktopName,
+        out IntPtr outProcessHandle,
+        out IntPtr outThreadHandle,
+        out uint outProcessId);
+
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct WinTrustFileInfo
     {
@@ -397,16 +443,5 @@ public sealed class CleanDetoursProcessLauncher : IWorkerProcessLauncher
             IntPtr hwnd,
             ref Guid pgActionID,
             ref WinTrustData pWVTData);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        public static extern uint ResumeThread(IntPtr hThread);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool TerminateProcess(IntPtr hProcess, uint uExitCode);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool CloseHandle(IntPtr hObject);
     }
 }

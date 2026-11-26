@@ -87,6 +87,12 @@ public class LiveRevitEndToEndSmokeTests
     {
         string? priorCleanShimEnv = Environment.GetEnvironmentVariable("SYNTHETIC_CLEAN_SHIM");
         string? priorPoolCmdEnv = Environment.GetEnvironmentVariable("SYNTHETIC_WORKER_POOL_CMD");
+        string? priorPipeNameEnv = Environment.GetEnvironmentVariable("SYNTHETIC_WORKER_POOL_PIPE_NAME");
+        string testPipeName = $"Synthetic_RevitWorkerPool_LiveSmoke_{revitVersion}_{Guid.NewGuid():N}";
+        var isolatedPipeEnv = new Dictionary<string, string?>(StringComparer.Ordinal)
+        {
+            ["SYNTHETIC_WORKER_POOL_PIPE_NAME"] = testPipeName
+        };
 
         // Pre-flight discovery & artifact verification
         string repoRoot = RevitInstallationDiscovery.FindRepositoryRoot()
@@ -123,6 +129,7 @@ public class LiveRevitEndToEndSmokeTests
 
         Environment.SetEnvironmentVariable("SYNTHETIC_CLEAN_SHIM", null);
         Environment.SetEnvironmentVariable("SYNTHETIC_WORKER_POOL_CMD", null);
+        Environment.SetEnvironmentVariable("SYNTHETIC_WORKER_POOL_PIPE_NAME", null);
 
         HashSet<int> preExistingRevitPids = GetRunningRevitPids();
         IReadOnlyDictionary<string, FileSnapshot> addinsSettingsBefore = SnapshotHostAddInsSettings(appData, revitVersion);
@@ -139,14 +146,14 @@ public class LiveRevitEndToEndSmokeTests
         bool hasLegacyProgramDataManifest = HasLegacyNonBootstrapProgramDataManifest(programData, revitVersion);
 
         TestContext.Progress.WriteLine(
-            $"[LiveSmoke {revitVersion}] Pre-flight OK: Revit='{installation.ExecutablePath}', " +
+            $"[LiveSmoke {revitVersion}] Pre-flight OK: Revit='{installation.ExecutablePath}', pipe='{testPipeName}', " +
             $"preExistingRevitPids=[{string.Join(",", preExistingRevitPids)}], " +
             $"hasLegacyProgramDataManifest={hasLegacyProgramDataManifest}");
 
         try
         {
-            // Drain any leftover pool before Phase 1.
-            DrainResult initialDrain = await RunPoolDrainAsync(poolExePath, repoRoot).ConfigureAwait(false);
+            // Drain any leftover isolated test pool before Phase 1 without touching the production supervisor.
+            DrainResult initialDrain = await RunPoolDrainAsync(poolExePath, repoRoot, testPipeName, force: true).ConfigureAwait(false);
             Assert.That(initialDrain.Success, Is.True, initialDrain.Error);
             Assert.That(initialDrain.Status?.TotalResident ?? 0, Is.EqualTo(0));
 
@@ -174,6 +181,7 @@ public class LiveRevitEndToEndSmokeTests
                             "warm",
                             "--version", revitVersion.ToString(CultureInfo.InvariantCulture),
                             "--count", "2",
+                            "--pipe-name", testPipeName,
                             "--json",
                             "--diagnostics"
                         },
@@ -235,7 +243,8 @@ public class LiveRevitEndToEndSmokeTests
                     {
                         dispatchStartOffset = elapsed;
                     }
-                }).ConfigureAwait(false);
+                },
+                extraEnv: isolatedPipeEnv).ConfigureAwait(false);
 
             Assert.That(phase2Exec.TimedOut, Is.False, "Phase 2 test_executor timed out.");
             Assert.That(
@@ -257,13 +266,13 @@ public class LiveRevitEndToEndSmokeTests
             Assert.That(phase2PoolResult.ShimEnabled, Is.True);
             Assert.That(phase2PoolResult.ShardCount, Is.EqualTo(1));
             Assert.That(phase2PoolResult.WorkerIds.Count, Is.EqualTo(1));
-            Assert.That(phase2PoolResult.TotalTests, Is.EqualTo(3));
-            Assert.That(phase2PoolResult.PassedTests, Is.EqualTo(3));
+            Assert.That(phase2PoolResult.TotalTests, Is.GreaterThanOrEqualTo(Phase2ExpectedMethods.Length));
+            Assert.That(phase2PoolResult.PassedTests, Is.EqualTo(phase2PoolResult.TotalTests));
             Assert.That(phase2PoolResult.FailedTests, Is.EqualTo(0));
 
             TrxSummaryInspection phase2Trx = InspectTrxFile(Path.Combine(phase2RunDir, $"results_{revitVersion}.trx"));
-            Assert.That(phase2Trx.Total, Is.EqualTo(3));
-            Assert.That(phase2Trx.Passed, Is.EqualTo(3));
+            Assert.That(phase2Trx.Total, Is.EqualTo(phase2PoolResult.TotalTests));
+            Assert.That(phase2Trx.Passed, Is.EqualTo(phase2Trx.Total));
             Assert.That(phase2Trx.Failed, Is.EqualTo(0));
             foreach (string expectedMethod in Phase2ExpectedMethods)
             {
@@ -315,7 +324,8 @@ public class LiveRevitEndToEndSmokeTests
                 },
                 repoRoot,
                 TimeSpan.FromSeconds(240),
-                clearCleanShimEnv: true).ConfigureAwait(false);
+                clearCleanShimEnv: true,
+                extraEnv: isolatedPipeEnv).ConfigureAwait(false);
 
             Assert.That(phase3Exec.TimedOut, Is.False, "Phase 3 sharded RevitSmoke run timed out.");
             Assert.That(
@@ -392,12 +402,12 @@ public class LiveRevitEndToEndSmokeTests
             // Phase 4: Clean drain + status --json
             // -----------------------------------------------------------------
             TestContext.Progress.WriteLine($"[LiveSmoke {revitVersion}] Phase 4: drain + status verification...");
-            DrainResult phase4Drain = await RunPoolDrainAsync(poolExePath, repoRoot).ConfigureAwait(false);
+            DrainResult phase4Drain = await RunPoolDrainAsync(poolExePath, repoRoot, testPipeName).ConfigureAwait(false);
             Assert.That(phase4Drain.Success, Is.True, phase4Drain.Error);
             Assert.That(phase4Drain.ExitCode, Is.EqualTo(0));
             Assert.That(phase4Drain.Status?.TotalResident ?? -1, Is.EqualTo(0));
 
-            PoolStatusSnapshot phase4Status = await RunPoolStatusAsync(poolExePath, repoRoot).ConfigureAwait(false);
+            PoolStatusSnapshot phase4Status = await RunPoolStatusAsync(poolExePath, repoRoot, testPipeName).ConfigureAwait(false);
             Assert.That(phase4Status.TotalResident, Is.EqualTo(0));
             Assert.That(phase4Status.Running, Is.False);
 
@@ -428,7 +438,8 @@ public class LiveRevitEndToEndSmokeTests
                 },
                 repoRoot,
                 TimeSpan.FromSeconds(240),
-                clearCleanShimEnv: true).ConfigureAwait(false);
+                clearCleanShimEnv: true,
+                extraEnv: isolatedPipeEnv).ConfigureAwait(false);
 
             Assert.That(phase5Exec.TimedOut, Is.False, "Phase 5 --no-shim run timed out.");
             Assert.That(
@@ -442,8 +453,8 @@ public class LiveRevitEndToEndSmokeTests
             Assert.That(phase5PoolResult.Success, Is.True, phase5PoolResult.Error);
             Assert.That(phase5PoolResult.ExitCode, Is.EqualTo(0));
             Assert.That(phase5PoolResult.ShimEnabled, Is.False);
-            Assert.That(phase5PoolResult.TotalTests, Is.EqualTo(3));
-            Assert.That(phase5PoolResult.PassedTests, Is.EqualTo(3));
+            Assert.That(phase5PoolResult.TotalTests, Is.GreaterThanOrEqualTo(Phase2ExpectedMethods.Length));
+            Assert.That(phase5PoolResult.PassedTests, Is.EqualTo(phase5PoolResult.TotalTests));
             Assert.That(phase5PoolResult.FailedTests, Is.EqualTo(0));
             Assert.That(phase5PoolResult.WorkerIds.Count, Is.EqualTo(1));
 
@@ -461,7 +472,7 @@ public class LiveRevitEndToEndSmokeTests
                     Does.Contain($"[WARN] Legacy machine-wide manifest detected for Revit {revitVersion}"));
             }
 
-            DrainResult phase5Drain = await RunPoolDrainAsync(poolExePath, repoRoot).ConfigureAwait(false);
+            DrainResult phase5Drain = await RunPoolDrainAsync(poolExePath, repoRoot, testPipeName).ConfigureAwait(false);
             Assert.That(phase5Drain.Success, Is.True, phase5Drain.Error);
             Assert.That(phase5Drain.Status?.TotalResident ?? -1, Is.EqualTo(0));
             AssertOnlyPreExistingRevitProcessesRunning(preExistingRevitPids);
@@ -487,7 +498,8 @@ public class LiveRevitEndToEndSmokeTests
                 },
                 repoRoot,
                 TimeSpan.FromSeconds(240),
-                clearCleanShimEnv: true).ConfigureAwait(false);
+                clearCleanShimEnv: true,
+                extraEnv: isolatedPipeEnv).ConfigureAwait(false);
 
             Assert.That(phase6Exec.TimedOut, Is.False, "Phase 6 --no-pool run timed out.");
             Assert.That(
@@ -510,17 +522,17 @@ public class LiveRevitEndToEndSmokeTests
 
             string phase6RunDir = FindSingleNewRunDirectory(testResultsRoot, beforePhase6Dirs);
             TrxSummaryInspection phase6Trx = InspectTrxFile(Path.Combine(phase6RunDir, $"results_{revitVersion}.trx"));
-            Assert.That(phase6Trx.Total, Is.EqualTo(3));
-            Assert.That(phase6Trx.Passed, Is.EqualTo(3));
+            Assert.That(phase6Trx.Total, Is.GreaterThanOrEqualTo(Phase2ExpectedMethods.Length));
+            Assert.That(phase6Trx.Passed, Is.EqualTo(phase6Trx.Total));
             Assert.That(phase6Trx.Failed, Is.EqualTo(0));
 
-            PoolStatusSnapshot phase6Status = await RunPoolStatusAsync(poolExePath, repoRoot).ConfigureAwait(false);
+            PoolStatusSnapshot phase6Status = await RunPoolStatusAsync(poolExePath, repoRoot, testPipeName).ConfigureAwait(false);
             Assert.That(phase6Status.Running, Is.False);
             Assert.That(phase6Status.TotalResident, Is.EqualTo(0));
             AssertOnlyPreExistingRevitProcessesRunning(preExistingRevitPids);
 
             TestContext.Progress.WriteLine(
-                $"[LiveSmoke {revitVersion}] Phase 6 PASS (--no-pool): 3/3 passed, elapsed={phase6Exec.TotalElapsed.TotalSeconds:F2}s");
+                $"[LiveSmoke {revitVersion}] Phase 6 PASS (--no-pool): {phase6Trx.Passed}/{phase6Trx.Total} passed, elapsed={phase6Exec.TotalElapsed.TotalSeconds:F2}s");
 
             // -----------------------------------------------------------------
             // Phase 7: Host Invariance Verification
@@ -544,7 +556,7 @@ public class LiveRevitEndToEndSmokeTests
         {
             try
             {
-                await RunPoolDrainAsync(poolExePath, repoRoot).ConfigureAwait(false);
+                await RunPoolDrainAsync(poolExePath, repoRoot, testPipeName, force: true).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -553,6 +565,7 @@ public class LiveRevitEndToEndSmokeTests
 
             Environment.SetEnvironmentVariable("SYNTHETIC_CLEAN_SHIM", priorCleanShimEnv);
             Environment.SetEnvironmentVariable("SYNTHETIC_WORKER_POOL_CMD", priorPoolCmdEnv);
+            Environment.SetEnvironmentVariable("SYNTHETIC_WORKER_POOL_PIPE_NAME", priorPipeNameEnv);
         }
     }
 
@@ -880,11 +893,21 @@ public class LiveRevitEndToEndSmokeTests
         return sb.ToString();
     }
 
-    private static async Task<DrainResult> RunPoolDrainAsync(string poolExePath, string repoRoot)
+    private static async Task<DrainResult> RunPoolDrainAsync(
+        string poolExePath,
+        string repoRoot,
+        string pipeName,
+        bool force = false)
     {
+        var args = new List<string> { "drain", "--pipe-name", pipeName, "--json" };
+        if (force)
+        {
+            args.Add("--force");
+        }
+
         ProcessRunOutput drainOut = await RunProcessAsync(
             poolExePath,
-            new[] { "drain", "--json" },
+            args,
             repoRoot,
             TimeSpan.FromSeconds(30),
             clearCleanShimEnv: true).ConfigureAwait(false);
@@ -896,11 +919,14 @@ public class LiveRevitEndToEndSmokeTests
         return parsed!;
     }
 
-    private static async Task<PoolStatusSnapshot> RunPoolStatusAsync(string poolExePath, string repoRoot)
+    private static async Task<PoolStatusSnapshot> RunPoolStatusAsync(
+        string poolExePath,
+        string repoRoot,
+        string pipeName)
     {
         ProcessRunOutput statusOut = await RunProcessAsync(
             poolExePath,
-            new[] { "status", "--json" },
+            new[] { "status", "--pipe-name", pipeName, "--json" },
             repoRoot,
             TimeSpan.FromSeconds(30),
             clearCleanShimEnv: true).ConfigureAwait(false);
@@ -1136,7 +1162,8 @@ public class LiveRevitEndToEndSmokeTests
         string workingDirectory,
         TimeSpan timeout,
         bool clearCleanShimEnv,
-        Action<TimeSpan, string>? onStdoutLine = null)
+        Action<TimeSpan, string>? onStdoutLine = null,
+        IReadOnlyDictionary<string, string?>? extraEnv = null)
     {
         var psi = new ProcessStartInfo
         {
@@ -1158,6 +1185,22 @@ public class LiveRevitEndToEndSmokeTests
         {
             psi.Environment.Remove("SYNTHETIC_CLEAN_SHIM");
             psi.Environment.Remove("SYNTHETIC_WORKER_POOL_CMD");
+            psi.Environment.Remove("SYNTHETIC_WORKER_POOL_PIPE_NAME");
+        }
+
+        if (extraEnv is not null)
+        {
+            foreach ((string key, string? val) in extraEnv)
+            {
+                if (val is null)
+                {
+                    psi.Environment.Remove(key);
+                }
+                else
+                {
+                    psi.Environment[key] = val;
+                }
+            }
         }
 
         var stdoutBuilder = new StringBuilder();

@@ -56,7 +56,7 @@ public sealed class StartupModalWatchdog
     };
 
     private readonly Func<IReadOnlyList<ProcessSnapshotEntry>> _processSnapshotProvider;
-    private readonly Func<IReadOnlySet<int>, IReadOnlyList<TopLevelDialogWindow>> _windowEnumerator;
+    private readonly Func<IReadOnlySet<int>, IReadOnlyList<TopLevelDialogWindow>>? _customWindowEnumerator;
     private readonly Func<int, string, StartupModalDetection?>? _customWindowDetector;
 
     public StartupModalWatchdog(
@@ -65,7 +65,7 @@ public sealed class StartupModalWatchdog
         Func<int, string, StartupModalDetection?>? customWindowDetector = null)
     {
         _processSnapshotProvider = processSnapshotProvider ?? CaptureProcessSnapshot;
-        _windowEnumerator = windowEnumerator ?? EnumerateDialogWindowsForPids;
+        _customWindowEnumerator = windowEnumerator;
         _customWindowDetector = customWindowDetector;
     }
 
@@ -101,7 +101,8 @@ public sealed class StartupModalWatchdog
         int workerProcessId,
         string workerId,
         string? journalsDirectory,
-        IReadOnlySet<string>? knownJournals = null)
+        IReadOnlySet<string>? knownJournals = null,
+        IntPtr desktopHandle = default)
     {
         StartupModalDetection? journalDetection = CheckJournals(
             workerProcessId,
@@ -113,7 +114,7 @@ public sealed class StartupModalWatchdog
             return journalDetection;
         }
 
-        return CheckWindows(workerProcessId, workerId);
+        return CheckWindows(workerProcessId, workerId, desktopHandle);
     }
 
     public async Task<StartupModalDetection?> WaitForModalAsync(
@@ -134,7 +135,8 @@ public sealed class StartupModalWatchdog
                 worker.ProcessId,
                 worker.WorkerId,
                 journalsDirectory,
-                knownJournals);
+                knownJournals,
+                worker.DesktopHandle);
             if (match is not null)
             {
                 return match;
@@ -232,7 +234,7 @@ public sealed class StartupModalWatchdog
         return null;
     }
 
-    public StartupModalDetection? CheckWindows(int workerProcessId, string workerId)
+    public StartupModalDetection? CheckWindows(int workerProcessId, string workerId, IntPtr desktopHandle = default)
     {
         if (workerProcessId <= 0)
         {
@@ -245,7 +247,9 @@ public sealed class StartupModalWatchdog
         }
 
         HashSet<int> treePids = GetProcessTreePids(workerProcessId, _processSnapshotProvider());
-        IReadOnlyList<TopLevelDialogWindow> windows = _windowEnumerator(treePids);
+        IReadOnlyList<TopLevelDialogWindow> windows = _customWindowEnumerator is not null
+            ? _customWindowEnumerator(treePids)
+            : EnumerateDialogWindowsForPids(treePids, desktopHandle);
 
         foreach (TopLevelDialogWindow win in windows)
         {
@@ -495,7 +499,8 @@ public sealed class StartupModalWatchdog
     }
 
     public static IReadOnlyList<TopLevelDialogWindow> EnumerateDialogWindowsForPids(
-        IReadOnlySet<int> targetPids)
+        IReadOnlySet<int> targetPids,
+        IntPtr desktopHandle = default)
     {
         if (targetPids.Count == 0)
         {
@@ -540,7 +545,15 @@ public sealed class StartupModalWatchdog
             return true;
         };
 
-        NativeMethods.EnumWindows(topProc, IntPtr.Zero);
+        if (desktopHandle != IntPtr.Zero)
+        {
+            NativeMethods.EnumDesktopWindows(desktopHandle, topProc, IntPtr.Zero);
+        }
+        else
+        {
+            NativeMethods.EnumWindows(topProc, IntPtr.Zero);
+        }
+
         GC.KeepAlive(topProc);
         return results;
     }
@@ -613,6 +626,10 @@ public sealed class StartupModalWatchdog
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool EnumDesktopWindows(IntPtr hDesktop, EnumWindowsProc lpfn, IntPtr lParam);
 
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]

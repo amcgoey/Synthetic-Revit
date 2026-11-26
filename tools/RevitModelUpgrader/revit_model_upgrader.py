@@ -23,8 +23,8 @@ import test_executor as te
 
 SUPPORTED_EXTENSIONS = (".rvt", ".rte", ".rfa", ".rft")
 BACKUP_FILE_RE = re.compile(r"\.\d{4}\.(?:rvt|rte|rfa|rft)$", re.IGNORECASE)
-TRAILING_YEAR_RE = re.compile(r"(20\d{2})$")
-TEST_TEMPLATE_FILE_RE = re.compile(r"^TestTemplate(20\d{2})?\.rvt$", re.IGNORECASE)
+TRAILING_YEAR_RE = te.TRAILING_YEAR_RE
+TEST_TEMPLATE_FILE_RE = te.TEST_TEMPLATE_FILE_RE
 INC_STANDARDS_FILE_RE = re.compile(
     r"^INC Standards - Assemblies & Details(20\d{2})?\.rvt$", re.IGNORECASE
 )
@@ -183,38 +183,38 @@ def _select_preset_source(candidates, target_version, force, inspect_fn):
       3. When `force` is True and no earlier copy exists, allow format == target_version.
     Returns (source_path, source_format) or (None, None).
     """
-    scored = []
-    for path in candidates:
-        stem = os.path.splitext(os.path.basename(path))[0]
-        name_year = extract_trailing_year(stem)
-        file_format = inspect_fn(path)
-        effective_year = file_format if file_format is not None else name_year
-        if effective_year is None:
-            continue
-        is_prev_year = name_year == (target_version - 1)
-        has_explicit_year = name_year is not None
-        scored.append((path, effective_year, is_prev_year, has_explicit_year))
+    return te.select_earlier_versioned_source(
+        candidates,
+        target_version,
+        inspect_fn=inspect_fn,
+        allow_same_year=force,
+    )
 
-    earlier = [item for item in scored if item[1] < target_version]
-    if earlier:
-        earlier.sort(
-            key=lambda item: (
-                1 if item[2] else 0,
-                item[1],
-                1 if item[3] else 0,
-                item[0],
-            ),
-            reverse=True,
-        )
-        return earlier[0][0], earlier[0][1]
 
-    if force:
-        same_year = [item for item in scored if item[1] == target_version]
-        if same_year:
-            same_year.sort(key=lambda item: (1 if item[3] else 0, item[0]), reverse=True)
-            return same_year[0][0], same_year[0][1]
-
-    return None, None
+def _skip_if_up_to_date(
+    plan,
+    source_path,
+    target_path,
+    target_ver,
+    force,
+    inspect_fn,
+    preset_group="",
+) -> bool:
+    """Record a SkippedTarget and return True when target already matches target_ver."""
+    if not force and os.path.isfile(target_path):
+        existing_format = inspect_fn(target_path)
+        if existing_format == target_ver:
+            plan.skipped.append(
+                SkippedTarget(
+                    source_path=source_path,
+                    target_path=target_path,
+                    target_version=target_ver,
+                    reason=f"already up-to-date (Format {existing_format})",
+                    preset_group=preset_group,
+                )
+            )
+            return True
+    return False
 
 
 def _plan_preset_family(
@@ -246,19 +246,16 @@ def _plan_preset_family(
 
     for target_ver in target_versions:
         target_path = os.path.join(dest_dir, f"{family_label}{target_ver}.rvt")
-        if not force and os.path.isfile(target_path):
-            existing_format = inspect_fn(target_path)
-            if existing_format == target_ver:
-                plan.skipped.append(
-                    SkippedTarget(
-                        source_path=target_path,
-                        target_path=target_path,
-                        target_version=target_ver,
-                        reason=f"already up-to-date (Format {existing_format})",
-                        preset_group=family_label,
-                    )
-                )
-                continue
+        if _skip_if_up_to_date(
+            plan,
+            source_path=target_path,
+            target_path=target_path,
+            target_ver=target_ver,
+            force=force,
+            inspect_fn=inspect_fn,
+            preset_group=family_label,
+        ):
+            continue
 
         source_path, _ = _select_preset_source(candidates, target_ver, force, inspect_fn)
         if source_path is None:
@@ -355,18 +352,15 @@ def plan_upgrade_jobs(
                     )
 
                 target_path = compute_output_path(source_path, target_ver, output_dir=output_dir)
-                if not force and os.path.isfile(target_path):
-                    existing_format = inspect_fn(target_path)
-                    if existing_format == target_ver:
-                        plan.skipped.append(
-                            SkippedTarget(
-                                source_path=source_path,
-                                target_path=target_path,
-                                target_version=target_ver,
-                                reason=f"already up-to-date (Format {existing_format})",
-                            )
-                        )
-                        continue
+                if _skip_if_up_to_date(
+                    plan,
+                    source_path=source_path,
+                    target_path=target_path,
+                    target_ver=target_ver,
+                    force=force,
+                    inspect_fn=inspect_fn,
+                ):
+                    continue
 
                 plan.jobs.append(
                     UpgradeJob(

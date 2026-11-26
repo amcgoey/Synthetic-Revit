@@ -104,20 +104,37 @@ public class ShardingAndTrxMergerTests
     }
 
     [Test]
-    public void CreatePlan_RespectsRequestedShards_AndClampsAtCapFour()
+    public void CreatePlan_DecouplesAutoShardCapFourFromHostCap_AndScalesExplicitShardsToHostCap()
     {
         var sixFixtures = Enumerable.Range(1, 6)
             .Select(i => new DiscoveredFixtureTests($"Suite.Fix{i}", new[] { $"Suite.Fix{i}.Run" }, 1))
             .ToArray();
+        var tenFixtures = Enumerable.Range(1, 10)
+            .Select(i => new DiscoveredFixtureTests($"Suite.Fix{i}", new[] { $"Suite.Fix{i}.Run" }, 1))
+            .ToArray();
 
+        // Auto-sharding caps at 4 independent of host-wide MaxActiveWorkers (4, 8, 10).
         Assert.That(DurationWeightedLptSharder.CreatePlan(sixFixtures, null, requestedShards: null, maxActiveCap: 4).Count, Is.EqualTo(4));
+        Assert.That(DurationWeightedLptSharder.CreatePlan(tenFixtures, null, requestedShards: null, maxActiveCap: 8).Count, Is.EqualTo(4));
+        Assert.That(DurationWeightedLptSharder.CreatePlan(tenFixtures, null, requestedShards: null, maxActiveCap: 10).Count, Is.EqualTo(4));
+        Assert.That(DurationWeightedLptSharder.CreatePlan(sixFixtures, null, requestedShards: null, maxActiveCap: 2).Count, Is.EqualTo(2));
+
+        // Explicit --shards scales up to min(fixtureCount, hostMaxActiveWorkers).
         Assert.That(DurationWeightedLptSharder.CreatePlan(sixFixtures, null, requestedShards: 8, maxActiveCap: 4).Count, Is.EqualTo(4));
-        Assert.That(DurationWeightedLptSharder.CreatePlan(sixFixtures, null, requestedShards: 8, maxActiveCap: 8).Count, Is.EqualTo(4));
-        Assert.That(DurationWeightedLptSharder.CreatePlan(sixFixtures, null, requestedShards: 3, maxActiveCap: 4).Count, Is.EqualTo(3));
-        Assert.That(DurationWeightedLptSharder.CreatePlan(sixFixtures, null, requestedShards: 1, maxActiveCap: 4).Count, Is.EqualTo(1));
+        Assert.That(DurationWeightedLptSharder.CreatePlan(sixFixtures, null, requestedShards: 8, maxActiveCap: 8).Count, Is.EqualTo(6));
+        Assert.That(DurationWeightedLptSharder.CreatePlan(tenFixtures, null, requestedShards: 8, maxActiveCap: 8).Count, Is.EqualTo(8));
+        Assert.That(DurationWeightedLptSharder.CreatePlan(tenFixtures, null, requestedShards: 10, maxActiveCap: 10).Count, Is.EqualTo(10));
+        Assert.That(DurationWeightedLptSharder.CreatePlan(tenFixtures, null, requestedShards: 12, maxActiveCap: 10).Count, Is.EqualTo(10));
+        Assert.That(DurationWeightedLptSharder.CreatePlan(sixFixtures, null, requestedShards: 3, maxActiveCap: 8).Count, Is.EqualTo(3));
+        Assert.That(DurationWeightedLptSharder.CreatePlan(sixFixtures, null, requestedShards: 1, maxActiveCap: 8).Count, Is.EqualTo(1));
         Assert.That(DurationWeightedLptSharder.CreatePlan(sixFixtures, null, requestedShards: 4, maxActiveCap: 2).Count, Is.EqualTo(2));
 
-        IReadOnlyList<TestShardPlan> forcedOne = DurationWeightedLptSharder.CreatePlan(sixFixtures, null, requestedShards: 1, maxActiveCap: 4);
+        Assert.That(DurationWeightedLptSharder.ResolveShardCount(0, requestedShards: 4, maxActiveCap: 8), Is.EqualTo(0));
+        Assert.That(DurationWeightedLptSharder.ResolveShardCount(1, requestedShards: 8, maxActiveCap: 8), Is.EqualTo(1));
+        Assert.That(DurationWeightedLptSharder.ResolveShardCount(10, requestedShards: null, maxActiveCap: 10), Is.EqualTo(4));
+        Assert.That(DurationWeightedLptSharder.ResolveShardCount(10, requestedShards: 9, maxActiveCap: 10), Is.EqualTo(9));
+
+        IReadOnlyList<TestShardPlan> forcedOne = DurationWeightedLptSharder.CreatePlan(sixFixtures, null, requestedShards: 1, maxActiveCap: 8);
         Assert.That(forcedOne[0].Fixtures.Count, Is.EqualTo(6));
         Assert.That(forcedOne[0].RicaunTestFilters.Count, Is.EqualTo(6));
     }
@@ -205,6 +222,322 @@ public class ShardingAndTrxMergerTests
 
         Assert.That(mixedPlan[0].Fixtures.Select(f => f.FixtureFullName), Is.EqualTo(new[] { "Suite.KnownSlow" }));
         Assert.That(mixedPlan[1].Fixtures.Select(f => f.FixtureFullName), Is.EqualTo(new[] { "Suite.UnseenTen", "Suite.UnseenTwo" }));
+    }
+
+    [Test]
+    public void CreatePlan_MakespanAwareAutoSharding_ReducesStragglerShardsAndHandlesNonBinaryMakespans()
+    {
+        // Straggler-dominated (300s + 50s + 50s + 50s): k=4 makespan is 300s, achieved already at k=2.
+        var stragglerFixtures = new[]
+        {
+            new DiscoveredFixtureTests("Suite.Straggler", new[] { "Suite.Straggler.Run" }, 1),
+            new DiscoveredFixtureTests("Suite.SmallA", new[] { "Suite.SmallA.Run" }, 1),
+            new DiscoveredFixtureTests("Suite.SmallB", new[] { "Suite.SmallB.Run" }, 1),
+            new DiscoveredFixtureTests("Suite.SmallC", new[] { "Suite.SmallC.Run" }, 1)
+        };
+        var stragglerTimings = new Dictionary<string, double>(StringComparer.Ordinal)
+        {
+            ["Suite.Straggler"] = 300_000.0,
+            ["Suite.SmallA"] = 50_000.0,
+            ["Suite.SmallB"] = 50_000.0,
+            ["Suite.SmallC"] = 50_000.0
+        };
+
+        IReadOnlyList<TestShardPlan> stragglerPlan = DurationWeightedLptSharder.CreatePlan(
+            stragglerFixtures,
+            stragglerTimings,
+            requestedShards: null,
+            maxActiveCap: 8);
+
+        Assert.That(stragglerPlan.Count, Is.EqualTo(2));
+        Assert.That(stragglerPlan.Max(s => s.EstimatedWeightMs), Is.EqualTo(300_000.0));
+
+        // Explicit --shards override must still be honored without makespan reduction.
+        IReadOnlyList<TestShardPlan> explicitStragglerPlan = DurationWeightedLptSharder.CreatePlan(
+            stragglerFixtures,
+            stragglerTimings,
+            requestedShards: 4,
+            maxActiveCap: 8);
+        Assert.That(explicitStragglerPlan.Count, Is.EqualTo(4));
+
+        // Non-binary case 1: 300s straggler vs 350s remaining [150, 100, 100] -> k=2 makespan 350s, k=3 makespan 300s == k=4 -> 3 shards.
+        var nonBinaryThreeFixtures = new[]
+        {
+            new DiscoveredFixtureTests("Suite.S300", new[] { "Suite.S300.Run" }, 1),
+            new DiscoveredFixtureTests("Suite.S150", new[] { "Suite.S150.Run" }, 1),
+            new DiscoveredFixtureTests("Suite.S100A", new[] { "Suite.S100A.Run" }, 1),
+            new DiscoveredFixtureTests("Suite.S100B", new[] { "Suite.S100B.Run" }, 1)
+        };
+        var nonBinaryThreeTimings = new Dictionary<string, double>(StringComparer.Ordinal)
+        {
+            ["Suite.S300"] = 300_000.0,
+            ["Suite.S150"] = 150_000.0,
+            ["Suite.S100A"] = 100_000.0,
+            ["Suite.S100B"] = 100_000.0
+        };
+
+        IReadOnlyList<TestShardPlan> threeShardPlan = DurationWeightedLptSharder.CreatePlan(
+            nonBinaryThreeFixtures,
+            nonBinaryThreeTimings,
+            requestedShards: null,
+            maxActiveCap: 10);
+
+        Assert.That(threeShardPlan.Count, Is.EqualTo(3));
+        Assert.That(threeShardPlan.Max(s => s.EstimatedWeightMs), Is.EqualTo(300_000.0));
+
+        // Non-binary case 2: [100, 70, 70, 40] -> k=1: 280, k=2: 140, k=3: 110, k=4: 100 -> 4 shards.
+        var nonBinaryFourFixtures = new[]
+        {
+            new DiscoveredFixtureTests("Suite.W100", new[] { "Suite.W100.Run" }, 1),
+            new DiscoveredFixtureTests("Suite.W70A", new[] { "Suite.W70A.Run" }, 1),
+            new DiscoveredFixtureTests("Suite.W70B", new[] { "Suite.W70B.Run" }, 1),
+            new DiscoveredFixtureTests("Suite.W40", new[] { "Suite.W40.Run" }, 1)
+        };
+        var nonBinaryFourTimings = new Dictionary<string, double>(StringComparer.Ordinal)
+        {
+            ["Suite.W100"] = 100_000.0,
+            ["Suite.W70A"] = 70_000.0,
+            ["Suite.W70B"] = 70_000.0,
+            ["Suite.W40"] = 40_000.0
+        };
+
+        IReadOnlyList<TestShardPlan> fourShardPlan = DurationWeightedLptSharder.CreatePlan(
+            nonBinaryFourFixtures,
+            nonBinaryFourTimings,
+            requestedShards: null,
+            maxActiveCap: 8);
+
+        Assert.That(fourShardPlan.Count, Is.EqualTo(4));
+        Assert.That(fourShardPlan.Max(s => s.EstimatedWeightMs), Is.EqualTo(100_000.0));
+    }
+
+    [Test]
+    public void CreatePlan_MakespanAwareAutoSharding_Requires100PercentPositiveCachedTimings()
+    {
+        var fixtures = new[]
+        {
+            new DiscoveredFixtureTests("Suite.Slow", new[] { "Suite.Slow.Run" }, 1),
+            new DiscoveredFixtureTests("Suite.FastA", new[] { "Suite.FastA.Run" }, 1),
+            new DiscoveredFixtureTests("Suite.FastB", new[] { "Suite.FastB.Run" }, 1),
+            new DiscoveredFixtureTests("Suite.FastC", new[] { "Suite.FastC.Run" }, 1),
+            new DiscoveredFixtureTests("Suite.FastD", new[] { "Suite.FastD.Run" }, 1)
+        };
+
+        // Cold cache (empty) falls back to min(N, 4) = 4.
+        Assert.That(
+            DurationWeightedLptSharder.CreatePlan(fixtures, new Dictionary<string, double>(), requestedShards: null, maxActiveCap: 8).Count,
+            Is.EqualTo(4));
+
+        // Partial cache (1 matched fixture unseen) falls back to min(N, 4) = 4 even with dominant straggler.
+        var partialTimings = new Dictionary<string, double>(StringComparer.Ordinal)
+        {
+            ["Suite.Slow"] = 300_000.0,
+            ["Suite.FastA"] = 10_000.0,
+            ["Suite.FastB"] = 10_000.0,
+            ["Suite.FastC"] = 10_000.0
+        };
+        Assert.That(
+            DurationWeightedLptSharder.CreatePlan(fixtures, partialTimings, requestedShards: null, maxActiveCap: 8).Count,
+            Is.EqualTo(4));
+
+        // Zero cached duration on any matched fixture falls back to min(N, 4) = 4.
+        var zeroDurationTimings = new Dictionary<string, double>(partialTimings, StringComparer.Ordinal)
+        {
+            ["Suite.FastD"] = 0.0
+        };
+        Assert.That(
+            DurationWeightedLptSharder.CreatePlan(fixtures, zeroDurationTimings, requestedShards: null, maxActiveCap: 8).Count,
+            Is.EqualTo(4));
+
+        // Negative / non-finite cached duration also fails the positive-timing guard.
+        var negativeDurationTimings = new Dictionary<string, double>(partialTimings, StringComparer.Ordinal)
+        {
+            ["Suite.FastD"] = -5.0
+        };
+        Assert.That(
+            DurationWeightedLptSharder.CreatePlan(fixtures, negativeDurationTimings, requestedShards: null, maxActiveCap: 8).Count,
+            Is.EqualTo(4));
+
+        // Unrelated zero entry in cache does not block makespan reduction when 100% of matched fixtures are positive.
+        var allMatchedPositiveWithUnrelatedZero = new Dictionary<string, double>(partialTimings, StringComparer.Ordinal)
+        {
+            ["Suite.FastD"] = 10_000.0,
+            ["Suite.UnmatchedOther"] = 0.0
+        };
+        Assert.That(
+            DurationWeightedLptSharder.CreatePlan(fixtures, allMatchedPositiveWithUnrelatedZero, requestedShards: null, maxActiveCap: 8).Count,
+            Is.EqualTo(2));
+    }
+
+    [Test]
+    public void PrepareRunPlan_DecouplesAutoCapFromHostCap_AndAppliesMakespanReductionOnlyWhenAllMatchedFixturesHavePositiveCachedTimings()
+    {
+        string asmDir = Path.Combine(_tempRoot, "PlanPrep");
+        Directory.CreateDirectory(asmDir);
+        string assemblyPath = TestAssemblyCompiler.CompileToFile(
+            Path.Combine(asmDir, "Synthetic.RevitTests.2026.dll"),
+            "Synthetic.RevitTests.2026",
+            """
+            using NUnit.Framework;
+
+            namespace PlanSuite
+            {
+                [TestFixture, Category("Subset")]
+                public class S300 { [Test] public void Run() { } }
+
+                [TestFixture, Category("Subset")]
+                public class S150 { [Test] public void Run() { } }
+
+                [TestFixture, Category("Subset")]
+                public class S100A { [Test] public void Run() { } }
+
+                [TestFixture, Category("Subset")]
+                public class S100B { [Test] public void Run() { } }
+
+                [TestFixture]
+                public class ExtraFastA { [Test] public void Run() { } }
+
+                [TestFixture]
+                public class ExtraFastB { [Test] public void Run() { } }
+            }
+            """);
+
+        string trxPath = Path.Combine(_tempRoot, "out", "plan_prep.trx");
+        var timingCache = new FixtureTimingCache(_timingDir);
+
+        // Cold cache: auto-sharding caps at 4 even when host MaxActiveWorkers is 8.
+        RunPlanPreparationResult coldAutoPlan = TestExecutionHelper.PrepareRunPlan(
+            2026,
+            assemblyPath,
+            trxPath,
+            filters: null,
+            category: null,
+            categories: null,
+            requestedShards: null,
+            maxActiveWorkers: 8,
+            timingCache,
+            shimEnabled: false,
+            logger: null);
+        Assert.That(coldAutoPlan.ShouldExecute, Is.True);
+        Assert.That(coldAutoPlan.Shards.Count, Is.EqualTo(4));
+
+        // Explicit --shards 6 scales up to min(fixtureCount=6, hostMaxActiveWorkers=8) = 6.
+        RunPlanPreparationResult explicitSixPlan = TestExecutionHelper.PrepareRunPlan(
+            2026,
+            assemblyPath,
+            trxPath,
+            filters: null,
+            category: null,
+            categories: null,
+            requestedShards: 6,
+            maxActiveWorkers: 8,
+            timingCache,
+            shimEnabled: false,
+            logger: null);
+        Assert.That(explicitSixPlan.ShouldExecute, Is.True);
+        Assert.That(explicitSixPlan.Shards.Count, Is.EqualTo(6));
+
+        // Partial cache on Subset (3/4 cached): falls back to min(4, 4) = 4.
+        timingCache.RecordObservedDurations(2026, new Dictionary<string, double>
+        {
+            ["PlanSuite.S300"] = 300_000.0,
+            ["PlanSuite.S150"] = 150_000.0,
+            ["PlanSuite.S100A"] = 100_000.0
+        });
+        RunPlanPreparationResult partialSubsetPlan = TestExecutionHelper.PrepareRunPlan(
+            2026,
+            assemblyPath,
+            trxPath,
+            filters: null,
+            category: "Subset",
+            categories: null,
+            requestedShards: null,
+            maxActiveWorkers: 8,
+            timingCache,
+            shimEnabled: false,
+            logger: null);
+        Assert.That(partialSubsetPlan.ShouldExecute, Is.True);
+        Assert.That(partialSubsetPlan.Shards.Count, Is.EqualTo(4));
+
+        // Zero cached duration on S100B still falls back to min(4, 4) = 4.
+        timingCache.RecordObservedDurations(2026, new Dictionary<string, double>
+        {
+            ["PlanSuite.S100B"] = 0.0,
+            ["PlanSuite.ExtraFastB"] = 0.0
+        });
+        RunPlanPreparationResult zeroDurationSubsetPlan = TestExecutionHelper.PrepareRunPlan(
+            2026,
+            assemblyPath,
+            trxPath,
+            filters: null,
+            category: "Subset",
+            categories: null,
+            requestedShards: null,
+            maxActiveWorkers: 8,
+            timingCache,
+            shimEnabled: false,
+            logger: null);
+        Assert.That(zeroDurationSubsetPlan.ShouldExecute, Is.True);
+        Assert.That(zeroDurationSubsetPlan.Shards.Count, Is.EqualTo(4));
+
+        // 100% positive cached durations on Subset (EMA updates S100B from 0 to 0.6 * 100,000 + 0.4 * 0 = 60,000):
+        // Record a second pass so S100B = 100,000 (or direct fresh cache for exact 300s/350s -> 3).
+        var cleanTimingCache = new FixtureTimingCache(Path.Combine(_tempRoot, "TimingCacheClean"));
+        cleanTimingCache.RecordObservedDurations(2026, new Dictionary<string, double>
+        {
+            ["PlanSuite.S300"] = 300_000.0,
+            ["PlanSuite.S150"] = 150_000.0,
+            ["PlanSuite.S100A"] = 100_000.0,
+            ["PlanSuite.S100B"] = 100_000.0,
+            ["PlanSuite.ExtraFastB"] = 0.0
+        });
+
+        RunPlanPreparationResult reducedSubsetPlan = TestExecutionHelper.PrepareRunPlan(
+            2026,
+            assemblyPath,
+            trxPath,
+            filters: null,
+            category: "Subset",
+            categories: null,
+            requestedShards: null,
+            maxActiveWorkers: 8,
+            cleanTimingCache,
+            shimEnabled: false,
+            logger: null);
+        Assert.That(reducedSubsetPlan.ShouldExecute, Is.True);
+        Assert.That(reducedSubsetPlan.Shards.Count, Is.EqualTo(3));
+
+        // Full assembly still has unseen ExtraFastA + zero ExtraFastB -> falls back to 4 shards.
+        RunPlanPreparationResult fullWithUnseenPlan = TestExecutionHelper.PrepareRunPlan(
+            2026,
+            assemblyPath,
+            trxPath,
+            filters: null,
+            category: null,
+            categories: null,
+            requestedShards: null,
+            maxActiveWorkers: 8,
+            cleanTimingCache,
+            shimEnabled: false,
+            logger: null);
+        Assert.That(fullWithUnseenPlan.ShouldExecute, Is.True);
+        Assert.That(fullWithUnseenPlan.Shards.Count, Is.EqualTo(4));
+
+        // Explicit --shards 4 on Subset overrides makespan reduction.
+        RunPlanPreparationResult explicitFourSubsetPlan = TestExecutionHelper.PrepareRunPlan(
+            2026,
+            assemblyPath,
+            trxPath,
+            filters: null,
+            category: "Subset",
+            categories: null,
+            requestedShards: 4,
+            maxActiveWorkers: 8,
+            cleanTimingCache,
+            shimEnabled: false,
+            logger: null);
+        Assert.That(explicitFourSubsetPlan.ShouldExecute, Is.True);
+        Assert.That(explicitFourSubsetPlan.Shards.Count, Is.EqualTo(4));
     }
 
     [Test]

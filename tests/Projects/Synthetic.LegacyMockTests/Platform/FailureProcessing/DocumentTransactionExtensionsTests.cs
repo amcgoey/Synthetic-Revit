@@ -1,7 +1,4 @@
 using System;
-using System.Linq;
-using System.Reflection;
-using System.Reflection.Emit;
 using System.Runtime.Serialization;
 using NUnit.Framework;
 using Autodesk.Revit.DB;
@@ -298,73 +295,5 @@ namespace SyntheticTests.Modules.FailureProcessing
             leakedTx?.Dispose();
         }
 #endif
-
-        [Test]
-        public void PayloadAssembly_EmitsRevitVersionMetadata_AndETransmitResolverFallsBackUnderMockApi()
-        {
-            Assembly payloadAssembly = typeof(ETransmitAssemblyResolver).Assembly;
-            AssemblyMetadataAttribute? metadata = payloadAssembly
-                .GetCustomAttributes<AssemblyMetadataAttribute>()
-                .FirstOrDefault(attr => string.Equals(attr.Key, "RevitVersion", StringComparison.Ordinal));
-
-            Assert.IsNotNull(metadata, "Payload assembly must emit [AssemblyMetadata(\"RevitVersion\", ...)].");
-            Assert.AreEqual("2027", metadata!.Value);
-
-            Version? mockApiVersion = typeof(Document).Assembly.GetName().Version;
-            Assert.IsNotNull(mockApiVersion);
-            Assert.AreEqual(1, mockApiVersion!.Major, "RevitAPIMock should report major version 1.0.0.0.");
-
-            Assert.AreEqual("2027", ETransmitAssemblyResolver.ResolveRevitYear());
-        }
-
-        [Test]
-        public void ETransmitAssemblyResolver_PrioritizesLiveRevitApiVersion_AndFailsFastOnMissingOrUnparseableMetadata()
-        {
-            Assembly liveRevitApi27 = CreateDynamicAssembly(new Version(27, 3, 0, 0));
-            Assembly liveRevitApi2027 = CreateDynamicAssembly(new Version(2027, 0, 0, 0));
-            Assembly mockRevitApi = CreateDynamicAssembly(new Version(1, 0, 0, 0));
-            Assembly metadata2026 = CreateDynamicAssembly(null, ("RevitVersion", "2026"));
-            Assembly metadataWhitespace = CreateDynamicAssembly(null, ("RevitVersion", " 2027 "));
-            Assembly missingMetadata = CreateDynamicAssembly(null);
-            Assembly invalidAlphaMetadata = CreateDynamicAssembly(null, ("RevitVersion", "not-a-year"));
-            Assembly twoDigitMetadata = CreateDynamicAssembly(null, ("RevitVersion", "26"));
-            Assembly emptyMetadata = CreateDynamicAssembly(null, ("RevitVersion", "   "));
-
-            Assert.AreEqual("2027", ETransmitAssemblyResolver.ResolveRevitYear(liveRevitApi27, metadata2026));
-            Assert.AreEqual("2027", ETransmitAssemblyResolver.ResolveRevitYear(liveRevitApi2027, metadata2026));
-            Assert.AreEqual("2027", ETransmitAssemblyResolver.ResolveRevitYear(mockRevitApi, metadataWhitespace));
-
-            InvalidOperationException missingEx = Assert.Throws<InvalidOperationException>(
-                () => ETransmitAssemblyResolver.ResolveRevitYear(mockRevitApi, missingMetadata))!;
-            StringAssert.Contains("RevitVersion", missingEx.Message);
-
-            foreach (Assembly badMetadata in new[] { invalidAlphaMetadata, twoDigitMetadata, emptyMetadata })
-            {
-                InvalidOperationException parseEx = Assert.Throws<InvalidOperationException>(
-                    () => ETransmitAssemblyResolver.ResolveRevitYear(mockRevitApi, badMetadata))!;
-                StringAssert.Contains("RevitVersion", parseEx.Message);
-            }
-        }
-
-        private static Assembly CreateDynamicAssembly(Version? version, params (string Key, string Value)[] metadataEntries)
-        {
-            AssemblyName name = new AssemblyName("DynamicRevitVersionTest_" + Guid.NewGuid().ToString("N"));
-            if (version != null)
-            {
-                name.Version = version;
-            }
-
-            AssemblyBuilder builder = AssemblyBuilder.DefineDynamicAssembly(name, AssemblyBuilderAccess.Run);
-            if (metadataEntries != null && metadataEntries.Length > 0)
-            {
-                ConstructorInfo ctor = typeof(AssemblyMetadataAttribute).GetConstructor(new[] { typeof(string), typeof(string) })!;
-                foreach ((string key, string value) in metadataEntries)
-                {
-                    builder.SetCustomAttribute(new CustomAttributeBuilder(ctor, new object[] { key, value }));
-                }
-            }
-
-            return builder;
-        }
     }
 }

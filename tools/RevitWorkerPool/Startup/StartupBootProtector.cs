@@ -206,7 +206,8 @@ public sealed class StartupBootProtector
                                 worker.ProcessId,
                                 worker.WorkerId,
                                 resolvedJournalsDir,
-                                attemptKnownJournals);
+                                attemptKnownJournals,
+                                worker.DesktopHandle);
                             if (modalDetection is null)
                             {
                                 throw;
@@ -234,7 +235,8 @@ public sealed class StartupBootProtector
                             worker.ProcessId,
                             worker.WorkerId,
                             resolvedJournalsDir,
-                            attemptKnownJournals);
+                            attemptKnownJournals,
+                            worker.DesktopHandle);
 
                         if (modalDetection is null)
                         {
@@ -318,6 +320,7 @@ public sealed class StartupBootProtector
             WorkerId = workerId,
             ProjectRoot = source.ProjectRoot,
             WorkingDirectory = source.WorkingDirectory,
+            DesktopName = source.DesktopName,
             AdditionalEnvironmentVariables = source.AdditionalEnvironmentVariables,
             OnProcessCreatedBeforeResume = source.OnProcessCreatedBeforeResume
         };
