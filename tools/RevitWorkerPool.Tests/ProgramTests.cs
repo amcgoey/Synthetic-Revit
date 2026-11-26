@@ -359,6 +359,68 @@ public class ProgramTests
     }
 
     [Test]
+    public void PipeNameOption_ReadsEnvFallbackAcrossAllCommands_AndCliOverridesEnv()
+    {
+        string? EnvPipe(string name) => name == "SYNTHETIC_WORKER_POOL_PIPE_NAME" ? "  EnvTestPipe_263  " : null;
+        string? EnvBlank(string name) => name == "SYNTHETIC_WORKER_POOL_PIPE_NAME" ? "   " : null;
+
+        Assert.That(
+            Program.TryParseRunArguments(
+                new[] { "--version", "2026", "--assembly", "a.dll", "--trx", "a.trx" },
+                out OneShotRunOptions? runEnv,
+                out string? runErr,
+                EnvPipe),
+            Is.True,
+            runErr);
+        Assert.That(runEnv!.PipeName, Is.EqualTo("EnvTestPipe_263"));
+
+        Assert.That(
+            Program.TryParseRunArguments(
+                new[] { "--version", "2026", "--assembly", "a.dll", "--trx", "a.trx", "--pipe-name", "CliPipe" },
+                out OneShotRunOptions? runCli,
+                out string? runCliErr,
+                EnvPipe),
+            Is.True,
+            runCliErr);
+        Assert.That(runCli!.PipeName, Is.EqualTo("CliPipe"));
+
+        Assert.That(
+            Program.TryParseWarmArguments(Array.Empty<string>(), out Program.WarmCliOptions? warmEnv, out string? warmErr, EnvPipe),
+            Is.True,
+            warmErr);
+        Assert.That(warmEnv!.PipeName, Is.EqualTo("EnvTestPipe_263"));
+
+        Assert.That(
+            Program.TryParseSupervisorArguments(Array.Empty<string>(), out Program.SupervisorCliOptions? supEnv, out string? supErr, EnvPipe),
+            Is.True,
+            supErr);
+        Assert.That(supEnv!.PipeName, Is.EqualTo("EnvTestPipe_263"));
+
+        Assert.That(
+            Program.TryParsePipeControlArguments(Array.Empty<string>(), "status", out Program.PipeControlCliOptions? statusEnv, out string? statusErr, EnvPipe),
+            Is.True,
+            statusErr);
+        Assert.That(statusEnv!.PipeName, Is.EqualTo("EnvTestPipe_263"));
+
+        Assert.That(
+            Program.TryParsePipeControlArguments(new[] { "--force" }, "drain", out Program.PipeControlCliOptions? drainEnv, out string? drainErr, EnvPipe),
+            Is.True,
+            drainErr);
+        Assert.That(drainEnv!.PipeName, Is.EqualTo("EnvTestPipe_263"));
+
+        Assert.That(
+            Program.TryParsePipeControlArguments(new[] { "--pipe-name", "ExplicitDrainPipe" }, "drain", out Program.PipeControlCliOptions? drainCli, out string? drainCliErr, EnvPipe),
+            Is.True,
+            drainCliErr);
+        Assert.That(drainCli!.PipeName, Is.EqualTo("ExplicitDrainPipe"));
+
+        Assert.That(
+            Program.TryParseWarmArguments(Array.Empty<string>(), out Program.WarmCliOptions? warmBlank, out _, EnvBlank),
+            Is.True);
+        Assert.That(warmBlank!.PipeName, Is.EqualTo(SupervisorIpcConstants.DefaultPipeName));
+    }
+
+    [Test]
     public async Task RunCliAsync_MaxWorkersOutOfRange_ReturnsExitCode2_InTextAndJsonModes()
     {
         foreach (string[] args in new[]

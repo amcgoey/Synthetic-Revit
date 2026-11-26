@@ -778,7 +778,7 @@ public static class Program
         int? shards = null;
         string? workerId = null;
         string? projectRoot = null;
-        string pipeName = SupervisorIpcConstants.DefaultPipeName;
+        string? cliPipeName = null;
         int idleTtlMinutes = SupervisorIpcConstants.DefaultIdleTtlMinutes;
         int? cliMaxWorkers = null;
         bool noShim = false;
@@ -792,7 +792,7 @@ public static class Program
             if (TryParseCommonSupervisorOption(
                     args,
                     ref i,
-                    ref pipeName,
+                    ref cliPipeName,
                     ref idleTtlMinutes,
                     ref cliMaxWorkers,
                     ref noShim,
@@ -887,6 +887,8 @@ public static class Program
             return false;
         }
 
+        string pipeName = ResolvePipeName(cliPipeName, getEnvironmentVariable);
+
         if (version is null)
         {
             error = "--version <Year> is required.";
@@ -951,7 +953,7 @@ public static class Program
         int? version = null;
         int count = SupervisorOptions.DefaultWarmWorkerCount;
         double bootTimeoutSeconds = 120;
-        string pipeName = SupervisorIpcConstants.DefaultPipeName;
+        string? cliPipeName = null;
         int idleTtlMinutes = SupervisorIpcConstants.DefaultIdleTtlMinutes;
         int? cliMaxWorkers = null;
         string? projectRoot = null;
@@ -965,7 +967,7 @@ public static class Program
             if (TryParseCommonSupervisorOption(
                     args,
                     ref i,
-                    ref pipeName,
+                    ref cliPipeName,
                     ref idleTtlMinutes,
                     ref cliMaxWorkers,
                     ref noShim,
@@ -1017,6 +1019,8 @@ public static class Program
             return false;
         }
 
+        string pipeName = ResolvePipeName(cliPipeName, getEnvironmentVariable);
+
         options = new WarmCliOptions(
             version,
             count,
@@ -1040,7 +1044,7 @@ public static class Program
         options = null;
         error = null;
 
-        string pipeName = SupervisorIpcConstants.DefaultPipeName;
+        string? cliPipeName = null;
         int idleTtlMinutes = SupervisorIpcConstants.DefaultIdleTtlMinutes;
         int? cliMaxWorkers = null;
         string? projectRoot = null;
@@ -1054,7 +1058,7 @@ public static class Program
             if (TryParseCommonSupervisorOption(
                     args,
                     ref i,
-                    ref pipeName,
+                    ref cliPipeName,
                     ref idleTtlMinutes,
                     ref cliMaxWorkers,
                     ref noShim,
@@ -1084,6 +1088,8 @@ public static class Program
             return false;
         }
 
+        string pipeName = ResolvePipeName(cliPipeName, getEnvironmentVariable);
+
         options = new SupervisorCliOptions(pipeName, idleTtlMinutes, noShim, projectRoot, diagnostics, resolvedMaxWorkers);
         return true;
     }
@@ -1092,12 +1098,13 @@ public static class Program
         IReadOnlyList<string> args,
         string commandName,
         out PipeControlCliOptions? options,
-        out string? error)
+        out string? error,
+        Func<string, string?>? getEnvironmentVariable = null)
     {
         options = null;
         error = null;
 
-        string pipeName = SupervisorIpcConstants.DefaultPipeName;
+        string? cliPipeName = null;
         bool jsonOutput = false;
         bool diagnostics = false;
         bool whenIdle = false;
@@ -1117,7 +1124,7 @@ public static class Program
                         error = "--pipe-name must not be empty.";
                         return false;
                     }
-                    pipeName = parsedPipe.Trim();
+                    cliPipeName = parsedPipe.Trim();
                     break;
 
                 case "--json":
@@ -1148,6 +1155,7 @@ public static class Program
             return false;
         }
 
+        string pipeName = ResolvePipeName(cliPipeName, getEnvironmentVariable);
         options = new PipeControlCliOptions(pipeName, jsonOutput, diagnostics, whenIdle, force);
         return true;
     }
@@ -1155,7 +1163,7 @@ public static class Program
     private static bool TryParseCommonSupervisorOption(
         IReadOnlyList<string> args,
         ref int index,
-        ref string pipeName,
+        ref string? pipeName,
         ref int idleTtlMinutes,
         ref int? maxWorkers,
         ref bool noShim,
@@ -1231,6 +1239,22 @@ public static class Program
                 matched = false;
                 return false;
         }
+    }
+
+    private static string ResolvePipeName(
+        string? cliPipeName,
+        Func<string, string?>? getEnvironmentVariable)
+    {
+        if (!string.IsNullOrWhiteSpace(cliPipeName))
+        {
+            return cliPipeName.Trim();
+        }
+
+        Func<string, string?> envLookup = getEnvironmentVariable ?? Environment.GetEnvironmentVariable;
+        string? rawEnv = envLookup("SYNTHETIC_WORKER_POOL_PIPE_NAME");
+        return string.IsNullOrWhiteSpace(rawEnv)
+            ? SupervisorIpcConstants.DefaultPipeName
+            : rawEnv.Trim();
     }
 
     private static bool TryResolveMaxWorkers(
