@@ -274,6 +274,13 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
             string outputFolder = plan.OutputFolder;
             int totalCount = plan.Items.Count;
 
+            if (_doc.IsReadOnly || _doc.IsModifiable)
+            {
+                return DetailItemBatchOutcome.Failure(
+                    outputFolder,
+                    "Cannot execute Detail Item Factory while the document is read-only or has an active transaction.");
+            }
+
             if (plan.ExecutableCount > 0 && !DetailItemFactorySettings.IsValidOutputPathSyntax(outputFolder))
             {
                 return DetailItemBatchOutcome.Failure(
@@ -344,140 +351,185 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
             };
 
             var resultItems = new List<DetailItemResultItem>();
+            var executedTargets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             bool wasCancelled = false;
+            int committedCount = 0;
 
-            for (int i = 0; i < totalCount; i++)
-            {
-                if (cancellationToken.IsCancellationRequested)
+            _doc.ExecuteCommittedBatchGroup(
+                "Batch Convert to 2D Detail Items",
+                () =>
                 {
-                    wasCancelled = true;
-                    for (int j = i; j < totalCount; j++)
+                    for (int i = 0; i < totalCount; i++)
                     {
-                        DetailItemPlannedElement cancelledItem = plan.Items[j];
-                        int cancelledProgressIndex = j + 1;
-                        resultItems.Add(new DetailItemResultItem
+                        if (cancellationToken.IsCancellationRequested)
                         {
-                            ElementName = cancelledItem.DisplayName,
-                            ElementId = cancelledItem.ElementId,
-                            Status = DetailItemResultStatus.Skipped,
-                            Message = "Cancelled by user."
-                        });
+                            wasCancelled = true;
+                            for (int j = i; j < totalCount; j++)
+                            {
+                                DetailItemPlannedElement cancelledItem = plan.Items[j];
+                                int cancelledProgressIndex = j + 1;
+                                resultItems.Add(new DetailItemResultItem
+                                {
+                                    ElementName = cancelledItem.DisplayName,
+                                    ElementId = cancelledItem.ElementId,
+                                    Status = DetailItemResultStatus.Skipped,
+                                    Message = "Cancelled by user."
+                                });
+                                ReportProgress(
+                                    progress,
+                                    "Cancelled by user...",
+                                    cancelledItem.DisplayName,
+                                    cancelledProgressIndex,
+                                    totalCount);
+                            }
+                            break;
+                        }
+
+                        DetailItemPlannedElement planned = plan.Items[i];
+                        int progressIndex = i + 1;
+                        string displayLabel = $"{planned.CleanFamilyName} - {planned.CleanTypeName}";
+
+                        if (planned.Disposition != DetailItemPlanDisposition.Execute)
+                        {
+                            resultItems.Add(new DetailItemResultItem
+                            {
+                                ElementName = displayLabel,
+                                ElementId = planned.ElementId,
+                                Status = DetailItemResultStatus.Skipped,
+                                Message = planned.SkipReason ?? "Skipped."
+                            });
+                            ReportProgress(
+                                progress,
+                                $"Skipped element {progressIndex} of {totalCount}",
+                                displayLabel,
+                                progressIndex,
+                                totalCount);
+                            continue;
+                        }
+
+                        if (!plan.OverwriteExisting && File.Exists(planned.TargetPath))
+                        {
+                            resultItems.Add(new DetailItemResultItem
+                            {
+                                ElementName = displayLabel,
+                                ElementId = planned.ElementId,
+                                Status = DetailItemResultStatus.Skipped,
+                                Message = "Family file already exists and overwrite flag is disabled."
+                            });
+                            ReportProgress(
+                                progress,
+                                $"Skipped element {progressIndex} of {totalCount}",
+                                displayLabel,
+                                progressIndex,
+                                totalCount);
+                            continue;
+                        }
+
+                        if (!executedTargets.Add(planned.TargetPath))
+                        {
+                            resultItems.Add(new DetailItemResultItem
+                            {
+                                ElementName = displayLabel,
+                                ElementId = planned.ElementId,
+                                Status = DetailItemResultStatus.Skipped,
+                                Message = $"Duplicate target family '{planned.TargetFileName}' skipped (already included in batch)."
+                            });
+                            ReportProgress(
+                                progress,
+                                $"Skipped element {progressIndex} of {totalCount}",
+                                displayLabel,
+                                progressIndex,
+                                totalCount);
+                            continue;
+                        }
+
+                        Element? element = _doc.GetElement(planned.ElementUniqueId);
+                        if (element == null || activeView == null || !IsEligibleElement(element, activeView))
+                        {
+                            resultItems.Add(new DetailItemResultItem
+                            {
+                                ElementName = displayLabel,
+                                ElementId = planned.ElementId,
+                                Status = DetailItemResultStatus.Skipped,
+                                Message = "Element is no longer available or is not a convertible 3D model element."
+                            });
+                            ReportProgress(
+                                progress,
+                                $"Skipped element {progressIndex} of {totalCount}",
+                                displayLabel,
+                                progressIndex,
+                                totalCount);
+                            continue;
+                        }
+
+                        string itemStatusLabel = element.Name ?? $"ID: {element.Id}";
                         ReportProgress(
                             progress,
-                            "Cancelled by user...",
-                            cancelledItem.DisplayName,
-                            cancelledProgressIndex,
+                            $"Processing element {progressIndex} of {totalCount}: {itemStatusLabel}...",
+                            itemStatusLabel,
+                            i,
                             totalCount);
-                    }
-                    break;
-                }
 
-                DetailItemPlannedElement planned = plan.Items[i];
-                int progressIndex = i + 1;
-
-                if (planned.Disposition != DetailItemPlanDisposition.Execute)
-                {
-                    string displayLabel = $"{planned.CleanFamilyName} - {planned.CleanTypeName}";
-                    resultItems.Add(new DetailItemResultItem
-                    {
-                        ElementName = displayLabel,
-                        ElementId = planned.ElementId,
-                        Status = DetailItemResultStatus.Skipped,
-                        Message = planned.SkipReason ?? "Skipped."
-                    });
-                    ReportProgress(
-                        progress,
-                        $"Skipped element {progressIndex} of {totalCount}",
-                        displayLabel,
-                        progressIndex,
-                        totalCount);
-                    continue;
-                }
-
-                Element? element = _doc.GetElement(planned.ElementUniqueId);
-                if (element == null || activeView == null || !IsEligibleElement(element, activeView))
-                {
-                    string missingLabel = $"{planned.CleanFamilyName} - {planned.CleanTypeName}";
-                    resultItems.Add(new DetailItemResultItem
-                    {
-                        ElementName = missingLabel,
-                        ElementId = planned.ElementId,
-                        Status = DetailItemResultStatus.Skipped,
-                        Message = "Element is no longer available or is not a convertible 3D model element."
-                    });
-                    ReportProgress(
-                        progress,
-                        $"Skipped element {progressIndex} of {totalCount}",
-                        missingLabel,
-                        progressIndex,
-                        totalCount);
-                    continue;
-                }
-
-                string itemStatusLabel = element.Name ?? $"ID: {element.Id}";
-                ReportProgress(
-                    progress,
-                    $"Processing element {progressIndex} of {totalCount}: {itemStatusLabel}...",
-                    itemStatusLabel,
-                    i,
-                    totalCount);
-
-                try
-                {
-                    int skippedCurvesCount = ProcessSingleElement(
-                        _doc,
-                        activeView,
-                        element,
-                        planned,
-                        outputFolder,
-                        templatePath!,
-                        targetSubcategory,
-                        createCustomSubcategory,
-                        projectSubcategoryStyle,
-                        dwgOptions);
-
-                    string resultName = $"{planned.CleanFamilyName} - {planned.CleanTypeName}";
-                    if (skippedCurvesCount == 0)
-                    {
-                        resultItems.Add(new DetailItemResultItem
+                        try
                         {
-                            ElementName = resultName,
-                            ElementId = planned.ElementId,
-                            Status = DetailItemResultStatus.Success,
-                            Message = "Successfully generated and loaded family."
-                        });
-                    }
-                    else
-                    {
-                        resultItems.Add(new DetailItemResultItem
+                            int skippedCurvesCount = ProcessSingleElement(
+                                _doc,
+                                activeView,
+                                element,
+                                planned,
+                                outputFolder,
+                                templatePath!,
+                                targetSubcategory,
+                                createCustomSubcategory,
+                                projectSubcategoryStyle,
+                                dwgOptions);
+
+                            committedCount++;
+
+                            if (skippedCurvesCount == 0)
+                            {
+                                resultItems.Add(new DetailItemResultItem
+                                {
+                                    ElementName = displayLabel,
+                                    ElementId = planned.ElementId,
+                                    Status = DetailItemResultStatus.Success,
+                                    Message = "Successfully generated and loaded family."
+                                });
+                            }
+                            else
+                            {
+                                resultItems.Add(new DetailItemResultItem
+                                {
+                                    ElementName = displayLabel,
+                                    ElementId = planned.ElementId,
+                                    Status = DetailItemResultStatus.PartialSuccess,
+                                    Message = $"Successfully generated, but skipped {skippedCurvesCount} microscopic or invalid curve{(skippedCurvesCount == 1 ? "" : "s")} during tracing."
+                                });
+                            }
+                        }
+                        catch (Exception ex)
                         {
-                            ElementName = resultName,
-                            ElementId = planned.ElementId,
-                            Status = DetailItemResultStatus.PartialSuccess,
-                            Message = $"Successfully generated, but skipped {skippedCurvesCount} microscopic or invalid curve{(skippedCurvesCount == 1 ? "" : "s")} during tracing."
-                        });
+                            resultItems.Add(new DetailItemResultItem
+                            {
+                                ElementName = displayLabel,
+                                ElementId = planned.ElementId,
+                                Status = DetailItemResultStatus.Failed,
+                                Message = ex.Message
+                            });
+                        }
+                        finally
+                        {
+                            ReportProgress(
+                                progress,
+                                $"Processed element {progressIndex} of {totalCount}",
+                                itemStatusLabel,
+                                progressIndex,
+                                totalCount);
+                        }
                     }
-                }
-                catch (Exception ex)
-                {
-                    resultItems.Add(new DetailItemResultItem
-                    {
-                        ElementName = $"{planned.CleanFamilyName} - {planned.CleanTypeName}",
-                        ElementId = planned.ElementId,
-                        Status = DetailItemResultStatus.Failed,
-                        Message = ex.Message
-                    });
-                }
-                finally
-                {
-                    ReportProgress(
-                        progress,
-                        $"Processed element {progressIndex} of {totalCount}",
-                        itemStatusLabel,
-                        progressIndex,
-                        totalCount);
-                }
-            }
+
+                    return committedCount > 0;
+                });
 
             return DetailItemBatchOutcome.Completed(
                 outputFolder: outputFolder,
@@ -529,9 +581,10 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
                         projectSubcategoryStyle);
                 }
 
-                familyDoc.ExecuteTransaction(
+                int createdCurvesCount = 0;
+                ExecuteVerifiedTransaction(
+                    familyDoc,
                     "Import and Trace DWG",
-                    FailurePipelines.ObserveOnly(),
                     () =>
                     {
                         View? planView = ResolveFamilyPlanView(familyDoc);
@@ -549,34 +602,43 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
                             throw new InvalidOperationException("Failed to import the temporary DWG payload into the Family Document.");
                         }
 
-                        if (familyDoc.GetElement(importedElementId) is ImportInstance importInstance)
+                        if (!(familyDoc.GetElement(importedElementId) is ImportInstance importInstance))
                         {
-                            BoundingBoxXYZ? importBBox = importInstance.get_BoundingBox(planView);
-                            if (importBBox != null)
-                            {
-                                XYZ importCenter = (importBBox.Max + importBBox.Min) / 2.0;
-                                XYZ currentDesiredOrigin = importCenter + viewRelativeOffset;
-                                XYZ moveVector = XYZ.Zero - currentDesiredOrigin;
-                                moveVector = new XYZ(moveVector.X, moveVector.Y, 0);
+                            throw new InvalidOperationException("Imported DWG element could not be resolved as an ImportInstance.");
+                        }
 
-                                importInstance.Pinned = false;
-                                ElementTransformUtils.MoveElement(familyDoc, importInstance.Id, moveVector);
-                            }
-
-                            var geomOptions = new Options { ComputeReferences = true };
-                            GeometryElement geomElement = importInstance.get_Geometry(geomOptions);
-                            double shortCurveTolerance = familyDoc.Application.ShortCurveTolerance;
-
-                            ProcessGeometry(
-                                geomElement,
-                                familyDoc,
-                                planView,
-                                shortCurveTolerance,
-                                subcategoryStyle,
-                                ref skippedCurvesCount);
+                        BoundingBoxXYZ? importBBox = importInstance.get_BoundingBox(planView);
+                        if (importBBox != null)
+                        {
+                            XYZ importCenter = (importBBox.Max + importBBox.Min) / 2.0;
+                            XYZ currentDesiredOrigin = importCenter + viewRelativeOffset;
+                            XYZ moveVector = XYZ.Zero - currentDesiredOrigin;
+                            moveVector = new XYZ(moveVector.X, moveVector.Y, 0);
 
                             importInstance.Pinned = false;
-                            familyDoc.Delete(importInstance.Id);
+                            ElementTransformUtils.MoveElement(familyDoc, importInstance.Id, moveVector);
+                        }
+
+                        var geomOptions = new Options { ComputeReferences = true };
+                        GeometryElement geomElement = importInstance.get_Geometry(geomOptions);
+                        double shortCurveTolerance = familyDoc.Application.ShortCurveTolerance;
+
+                        ProcessGeometry(
+                            geomElement,
+                            familyDoc,
+                            planView,
+                            shortCurveTolerance,
+                            subcategoryStyle,
+                            ref createdCurvesCount,
+                            ref skippedCurvesCount);
+
+                        importInstance.Pinned = false;
+                        familyDoc.Delete(importInstance.Id);
+
+                        if (createdCurvesCount == 0)
+                        {
+                            throw new InvalidOperationException(
+                                $"No 2D detail curves could be traced for '{planned.CleanFamilyName} - {planned.CleanTypeName}'.");
                         }
                     });
 
@@ -588,20 +650,17 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
                 CloseAndDisposeDocument(familyDoc);
             }
 
-            Family? loadedFamily = null;
-            bool loaded = false;
-            doc.ExecuteTransaction(
+            ExecuteVerifiedTransaction(
+                doc,
                 "Load Family: " + planned.CleanFamilyName,
-                FailurePipelines.ObserveOnly(),
                 () =>
                 {
-                    loaded = doc.LoadFamily(planned.TargetPath, new SimpleFamilyLoadOptions(), out loadedFamily);
+                    bool loaded = doc.LoadFamily(planned.TargetPath, new SimpleFamilyLoadOptions(), out Family? loadedFamily);
+                    if (!loaded || loadedFamily == null)
+                    {
+                        throw new InvalidOperationException($"Revit failed to load family '{planned.TargetFileName}' into the project.");
+                    }
                 });
-
-            if (!loaded || loadedFamily == null)
-            {
-                throw new InvalidOperationException($"Revit failed to load family '{planned.TargetFileName}' into the project.");
-            }
 
             return skippedCurvesCount;
         }
@@ -622,7 +681,7 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
                     if (args is TaskDialogShowingEventArgs taskArgs &&
                         string.Equals(taskArgs.DialogId, "TaskDialog_Really_Print_Or_Export_Temp_View_Modes", StringComparison.Ordinal))
                     {
-                        taskArgs.OverrideResult(1002);
+                        taskArgs.OverrideResult((int)TaskDialogResult.CommandLink2);
                     }
                 };
                 _uiapp.DialogBoxShowing += dialogHandler;
@@ -634,15 +693,12 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
                     "Temporary Isolate for Export",
                     () =>
                     {
-                        doc.ExecuteTransaction(
+                        ExecuteVerifiedTransaction(
+                            doc,
                             "Temporary Isolate for Export",
-                            FailurePipelines.ObserveOnly(),
                             () =>
                             {
-                                if (activeView.ViewType != ViewType.Legend && activeView.CropBoxVisible)
-                                {
-                                    activeView.CropBoxVisible = false;
-                                }
+                                DisableCropBoxIfModifiable(activeView);
 
                                 var idsToIsolate = new List<ElementId> { element.Id };
                                 if (element is FamilyInstance familyInstance)
@@ -657,9 +713,12 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
                                 activeView.IsolateElementsTemporary(idsToIsolate);
                                 doc.Regenerate();
 
-                                doc.Export(outputFolder, dwgName, new List<ElementId> { activeView.Id }, dwgOptions);
-                            },
-                            clearAfterRollback: true);
+                                bool exported = doc.Export(outputFolder, dwgName, new List<ElementId> { activeView.Id }, dwgOptions);
+                                if (!exported)
+                                {
+                                    throw new InvalidOperationException($"DWG export returned false for element '{element.Id}'.");
+                                }
+                            });
                     });
             }
             finally
@@ -671,6 +730,29 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
             }
         }
 
+        private static void DisableCropBoxIfModifiable(View activeView)
+        {
+            if (activeView.ViewType == ViewType.Legend || !activeView.CropBoxVisible)
+            {
+                return;
+            }
+
+            Parameter? cropVisibleParam = activeView.get_Parameter(BuiltInParameter.VIEWER_CROP_REGION_VISIBLE);
+            if (cropVisibleParam != null && cropVisibleParam.IsReadOnly)
+            {
+                return;
+            }
+
+            try
+            {
+                activeView.CropBoxVisible = false;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"RevitDetailItemFactoryAdapter: could not hide crop box on view '{activeView.Name}': {ex.Message}");
+            }
+        }
+
         private static GraphicsStyle? EnsureFamilySubcategory(
             Document projectDoc,
             Document familyDoc,
@@ -678,9 +760,9 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
             SubcategoryStyleSpec projectStyle)
         {
             GraphicsStyle? subcategoryStyle = null;
-            familyDoc.ExecuteTransaction(
+            ExecuteVerifiedTransaction(
+                familyDoc,
                 "Serialize Subcategory",
-                FailurePipelines.ObserveOnly(),
                 () =>
                 {
                     Category? familyDetailComponentsCategory = familyDoc.Settings.Categories.get_Item(BuiltInCategory.OST_DetailComponents);
@@ -698,8 +780,15 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
                         return;
                     }
 
-                    familySubcategory.LineColor = projectStyle.LineColor;
-                    familySubcategory.SetLineWeight(projectStyle.LineWeight, GraphicsStyleType.Projection);
+                    if (projectStyle.LineColor != null && projectStyle.LineColor.IsValid)
+                    {
+                        familySubcategory.LineColor = projectStyle.LineColor;
+                    }
+
+                    if (projectStyle.LineWeight >= 1 && projectStyle.LineWeight <= 16)
+                    {
+                        familySubcategory.SetLineWeight(projectStyle.LineWeight, GraphicsStyleType.Projection);
+                    }
 
                     if (!string.IsNullOrEmpty(projectStyle.LinePatternName))
                     {
@@ -734,6 +823,35 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
             return subcategoryStyle;
         }
 
+        private static void ExecuteVerifiedTransaction(Document doc, string transactionName, Action action)
+        {
+            using (Transaction tx = doc.CreateTransaction(
+                transactionName,
+                FailurePipelines.ObserveOnly(),
+                clearAfterRollback: true))
+            {
+                tx.Start();
+                try
+                {
+                    action();
+
+                    TransactionStatus status = tx.Commit();
+                    if (status != TransactionStatus.Committed)
+                    {
+                        throw new InvalidOperationException($"Failed to commit '{transactionName}' transaction (status: {status}).");
+                    }
+                }
+                catch
+                {
+                    if (tx.GetStatus() == TransactionStatus.Started)
+                    {
+                        tx.RollBack();
+                    }
+                    throw;
+                }
+            }
+        }
+
         private static SubcategoryStyleSpec CaptureProjectSubcategoryStyle(Document doc, string targetSubcategory)
         {
             Category? detailComponentsCategory = doc.Settings.Categories.get_Item(BuiltInCategory.OST_DetailComponents);
@@ -748,8 +866,11 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
                 return SubcategoryStyleSpec.Default;
             }
 
-            Autodesk.Revit.DB.Color lineColor = projectSubcategory.LineColor;
-            int lineWeight = projectSubcategory.GetLineWeight(GraphicsStyleType.Projection) ?? 1;
+            Autodesk.Revit.DB.Color lineColor = projectSubcategory.LineColor != null && projectSubcategory.LineColor.IsValid
+                ? projectSubcategory.LineColor
+                : new Autodesk.Revit.DB.Color(0, 0, 0);
+            int rawLineWeight = projectSubcategory.GetLineWeight(GraphicsStyleType.Projection) ?? 1;
+            int lineWeight = Math.Max(1, Math.Min(16, rawLineWeight));
             ElementId patternId = projectSubcategory.GetLinePatternId(GraphicsStyleType.Projection);
             string? patternName = null;
 
@@ -848,7 +969,9 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
             ElementId typeId = element.GetTypeId();
             if (typeId != ElementId.InvalidElementId && doc.GetElement(typeId) is ElementType et)
             {
-                return (et.FamilyName, et.Name);
+                return (
+                    et.FamilyName ?? "UnknownFamily",
+                    et.Name ?? "UnknownType");
             }
 
             if (isLegendComponent)
@@ -859,7 +982,9 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
                     ElementId symbolId = componentParam.AsElementId();
                     if (symbolId != ElementId.InvalidElementId && doc.GetElement(symbolId) is ElementType legendType)
                     {
-                        return (legendType.FamilyName, legendType.Name);
+                        return (
+                            legendType.FamilyName ?? "UnknownFamily",
+                            legendType.Name ?? "UnknownType");
                     }
                 }
             }
@@ -912,7 +1037,14 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
             }
             finally
             {
-                document.Dispose();
+                try
+                {
+                    document.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"RevitDetailItemFactoryAdapter: failed to dispose temporary family document: {ex.Message}");
+                }
             }
         }
 
@@ -938,6 +1070,7 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
             View planView,
             double shortCurveTolerance,
             GraphicsStyle? subcategoryStyle,
+            ref int createdCurvesCount,
             ref int skippedCurvesCount)
         {
             if (geomElement == null)
@@ -949,7 +1082,7 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
             {
                 if (geomObj is GeometryInstance geomInst)
                 {
-                    ProcessGeometry(geomInst.GetInstanceGeometry(), familyDoc, planView, shortCurveTolerance, subcategoryStyle, ref skippedCurvesCount);
+                    ProcessGeometry(geomInst.GetInstanceGeometry(), familyDoc, planView, shortCurveTolerance, subcategoryStyle, ref createdCurvesCount, ref skippedCurvesCount);
                 }
                 else if (geomObj is Curve curve)
                 {
@@ -974,13 +1107,11 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
 
                                     if (flat1 != null)
                                     {
-                                        DetailCurve dc1 = familyDoc.FamilyCreate.NewDetailCurve(planView, flat1);
-                                        if (dc1 != null && subcategoryStyle != null) dc1.LineStyle = subcategoryStyle;
+                                        TryCreateDetailCurve(familyDoc, planView, flat1, subcategoryStyle, ref createdCurvesCount);
                                     }
                                     if (flat2 != null)
                                     {
-                                        DetailCurve dc2 = familyDoc.FamilyCreate.NewDetailCurve(planView, flat2);
-                                        if (dc2 != null && subcategoryStyle != null) dc2.LineStyle = subcategoryStyle;
+                                        TryCreateDetailCurve(familyDoc, planView, flat2, subcategoryStyle, ref createdCurvesCount);
                                     }
                                 }
                                 catch (Exception)
@@ -1007,13 +1138,11 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
 
                                     if (flat1 != null)
                                     {
-                                        DetailCurve dc1 = familyDoc.FamilyCreate.NewDetailCurve(planView, flat1);
-                                        if (dc1 != null && subcategoryStyle != null) dc1.LineStyle = subcategoryStyle;
+                                        TryCreateDetailCurve(familyDoc, planView, flat1, subcategoryStyle, ref createdCurvesCount);
                                     }
                                     if (flat2 != null)
                                     {
-                                        DetailCurve dc2 = familyDoc.FamilyCreate.NewDetailCurve(planView, flat2);
-                                        if (dc2 != null && subcategoryStyle != null) dc2.LineStyle = subcategoryStyle;
+                                        TryCreateDetailCurve(familyDoc, planView, flat2, subcategoryStyle, ref createdCurvesCount);
                                     }
                                 }
                                 catch (Exception)
@@ -1029,13 +1158,13 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
 
                         if (curve.Length < shortCurveTolerance)
                         {
-                            DrawHealedCurve(curve, familyDoc, planView, shortCurveTolerance, subcategoryStyle, ref skippedCurvesCount);
+                            DrawHealedCurve(curve, familyDoc, planView, shortCurveTolerance, subcategoryStyle, ref createdCurvesCount, ref skippedCurvesCount);
                             continue;
                         }
 
                         if (curve is NurbSpline || curve is HermiteSpline)
                         {
-                            DrawHealedCurve(curve, familyDoc, planView, shortCurveTolerance, subcategoryStyle, ref skippedCurvesCount);
+                            DrawHealedCurve(curve, familyDoc, planView, shortCurveTolerance, subcategoryStyle, ref createdCurvesCount, ref skippedCurvesCount);
                             continue;
                         }
 
@@ -1048,15 +1177,11 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
 
                         if (flatCurve.Length < shortCurveTolerance)
                         {
-                            DrawHealedCurve(flatCurve, familyDoc, planView, shortCurveTolerance, subcategoryStyle, ref skippedCurvesCount);
+                            DrawHealedCurve(flatCurve, familyDoc, planView, shortCurveTolerance, subcategoryStyle, ref createdCurvesCount, ref skippedCurvesCount);
                             continue;
                         }
 
-                        DetailCurve detailCurve = familyDoc.FamilyCreate.NewDetailCurve(planView, flatCurve);
-                        if (detailCurve != null && subcategoryStyle != null)
-                        {
-                            detailCurve.LineStyle = subcategoryStyle;
-                        }
+                        TryCreateDetailCurve(familyDoc, planView, flatCurve, subcategoryStyle, ref createdCurvesCount);
                     }
                     catch (Exception)
                     {
@@ -1081,11 +1206,7 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
                         try
                         {
                             Line segmentLine = Line.CreateBound(p1Flat, p2Flat);
-                            DetailCurve detailCurve = familyDoc.FamilyCreate.NewDetailCurve(planView, segmentLine);
-                            if (detailCurve != null && subcategoryStyle != null)
-                            {
-                                detailCurve.LineStyle = subcategoryStyle;
-                            }
+                            TryCreateDetailCurve(familyDoc, planView, segmentLine, subcategoryStyle, ref createdCurvesCount);
                         }
                         catch (Exception)
                         {
@@ -1102,6 +1223,7 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
             View planView,
             double shortCurveTolerance,
             GraphicsStyle? subcategoryStyle,
+            ref int createdCurvesCount,
             ref int skippedCurvesCount)
         {
             try
@@ -1156,11 +1278,7 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
                     try
                     {
                         Line segmentLine = Line.CreateBound(p0Flat, p1Flat);
-                        DetailCurve detailCurve = familyDoc.FamilyCreate.NewDetailCurve(planView, segmentLine);
-                        if (detailCurve != null && subcategoryStyle != null)
-                        {
-                            detailCurve.LineStyle = subcategoryStyle;
-                        }
+                        TryCreateDetailCurve(familyDoc, planView, segmentLine, subcategoryStyle, ref createdCurvesCount);
                     }
                     catch (Exception)
                     {
@@ -1171,6 +1289,24 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
             catch (Exception)
             {
                 skippedCurvesCount++;
+            }
+        }
+
+        private static void TryCreateDetailCurve(
+            Document familyDoc,
+            View planView,
+            Curve curve,
+            GraphicsStyle? subcategoryStyle,
+            ref int createdCurvesCount)
+        {
+            DetailCurve detailCurve = familyDoc.FamilyCreate.NewDetailCurve(planView, curve);
+            if (detailCurve != null)
+            {
+                createdCurvesCount++;
+                if (subcategoryStyle != null)
+                {
+                    detailCurve.LineStyle = subcategoryStyle;
+                }
             }
         }
 
