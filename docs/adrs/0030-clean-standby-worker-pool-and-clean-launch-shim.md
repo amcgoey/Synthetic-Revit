@@ -1,6 +1,6 @@
 # ADR 0030 - Clean Standby Worker Pool, Clean-Launch Shim, and Startup Gate
 
-Status: Accepted
+Status: Accepted (amended by the Spec #256 Addendum below)
 
 ## Context
 Isolated cold **Revit Tests** ([ADR 0018](0018-universal-add-in-bootstrap-manifest-routing-and-studio-deployment.md)) allow concurrent builds and preserve open interactive Revit sessions, but four operational bottlenecks remain across Revit `2023–2027`:
@@ -50,3 +50,38 @@ We adopt a standalone tooling subsystem (`tools/RevitWorkerPool` and `tools/Revi
 ## Consequences
 * **Pros:** Delivers ~1–3s warm test runs, eliminates third-party add-in boot overhead and CTC concurrency deadlocks, removes ~26s of full-suite tail skew via duration-weighted LPT sharding, pipelines multi-version sweeps inside cap `4`, absorbs multi-agent saturation via RAM-guarded `+1` lookahead without speculative idle waste, keeps interactive Revit untouched with zero host file mutation, and preserves deterministic `--assert-clean` journal gating across pooled and sharded runs.
 * **Cons:** Introduces a standalone native C++ Detours DLL requiring MSVC x64 builds, local `CN=Synthetic` code signing, EDR/antivirus compatibility monitoring, and maintenance across future Windows/Revit `.NET` directory-enumeration changes (mitigated by the fail-closed `--no-shim` + **Startup Gate** and `--no-pool` fallbacks).
+
+## Addendum: Multi-Version Scaling, Detached Lifecycle, and Safe Drain (Spec #256)
+
+Status: Accepted — supersedes the `4`-worker host cap, `TotalResident <= 5` lookahead, `N -> N+1` sequential version pipelining, Job-Object-bound supervisor spawn, unguarded `drain`, and fixed `min(N, 4)` LPT clamping above, and resolves the post-Spec #216 `RicaunBundleLease` `net10.0` priority note.
+
+1. **Detached Supervisor Launch (`ISupervisorLauncher`) & Retained Child-Worker Containment (Supersedes Decision §1 Job-Object-bound supervisor spawn):**
+   - Supervisor startup routes through `ISupervisorLauncher` (`DetachedSupervisorLauncher`) evaluating two detached adapters in priority order:
+     1. `ScheduledTaskSupervisorLauncher` (primary for default pipe `Synthetic_RevitWorkerPool_Control`): auto-registers and updates the per-user interactive Windows Scheduled Task `Synthetic\RevitWorkerPoolSupervisor` (`InteractiveToken` logon in Session 1 without elevation, `MultipleInstancesPolicy = Parallel`, hidden `conhost.exe --headless` bootstrap, explicit forwarded CLI flags). Task registration lives solely in C# (removed from [tools/build.ps1](../../tools/build.ps1) so temporary worktree builds never skew the host task path).
+     2. `BreakawayProcessSupervisorLauncher` (fallback for default pipe; primary for custom `--pipe-name` test supervisors): calls `CreateProcessW` with `CREATE_BREAKAWAY_FROM_JOB | CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS | CREATE_UNICODE_ENVIRONMENT`, failing closed on `ERROR_ACCESS_DENIED` without attached fallback.
+   - Fails closed with an aggregated `SupervisorLaunchException` if both detached adapters fail, keeping lazy auto-start enabled across callers.
+   - Child `Revit.exe` **Standby Workers** retain strict Win32 Job Object containment (`JobObjectContainer` with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) owned by the detached supervisor.
+   - `WorkerPoolSupervisor` honors each run's own `ProjectRoot` (supporting concurrent multi-worktree agents), and [tools/build.ps1](../../tools/build.ps1) drains an idle supervisor safely (or fails when work is active) before deleting output binaries.
+
+2. **Safe `drain`, `DrainingWhenIdle` State, & Zero-Grace `drain --force` (Supersedes Decision §1 unguarded `drain` & `--no-shim` mismatch advice):**
+   - Plain `drain` (`DrainMode.Safe`) refuses shutdown (`exitCode = 2`) with `activeRuns`, `queuedRuns`, and `activeWarmCalls` counts whenever runs, queued shards, active warm calls, or active workers are in flight, draining immediately only when idle.
+   - `drain --when-idle` (`DrainMode.WhenIdle`) enters a distinct `DrainingWhenIdle` state that lets in-flight runs and their queued **Test Shards** finish, halts standby/warm/lookahead boots, rejects new `run` and `warm` requests fail-closed (`"Supervisor is draining when idle; retry after drain completes or run --no-pool."`), keeps IPC open for `status` and preempting `drain --force`, stays latched if the caller disconnects, and prevents `EnsureSupervisorRunningAsync` from spawning a competing supervisor on the same pipe.
+   - `drain --force` (`DrainMode.Force`) cancels in-flight runs immediately with zero grace wait, terminates all workers cleanly, releases the bundle lease, and exits (`DisposeAsync` invokes force-drain explicitly).
+   - Mode-mismatch diagnostics (`--no-shim` vs. shimmed) direct callers to wait via `drain --when-idle` or run `--no-pool`.
+
+3. **Host-Wide `8`–`10` Worker Cap, `10 GiB` RAM Admission Guard, `MaxConcurrentBoots = 4`, & Scaled Lookahead (Supersedes Decision §1 `4`-worker cap & `TotalResident <= 5`):**
+   - Raises `SupervisorOptions.DefaultMaxActiveWorkers` from `4` to `8`, configurable across `1..10` via `--max-workers <1-10>` (`--supervisor`, `warm`, `run`) and `SYNTHETIC_WORKER_POOL_MAX_WORKERS` (out-of-range exits `2`; a running-supervisor cap mismatch emits a diagnostic warning without disrupting sibling runs).
+   - Adds a **RAM admission guard** (`IMemoryProbe`) over non-terminating resident slots (`Booting + ReadyStandby + Active`): guarantees a floor of `min(4, MaxActiveWorkers)` slots regardless of free RAM (evicting idle mismatched `ReadyStandby` workers when `< 10 GiB` blocks scaling above the floor), and requires `effectiveAvailableBytes >= 10 GiB` (`ullAvailPhys - bootingAboveFloor * 2 GiB`) before launching workers `5..MaxActiveWorkers`.
+   - Enforces global `SupervisorOptions.MaxConcurrentBoots = 4` across demand, standby-target, and lookahead boots with multi-wave continuation (`warm --count 5..10`).
+   - Preserves the `+1` lookahead **Standby Worker** as `TotalResident <= MaxActiveWorkers + 1` when all four guards hold (`Active == MaxActiveWorkers`, queued work exists, **Clean-Launch Shim** enabled, free physical RAM `>= 12 GiB`) within `MaxConcurrentBoots = 4`.
+
+4. **Makespan-Aware Per-Run Auto-Sharding Decoupled From Host Cap (Supersedes Decision §4 fixed `min(N, 4)` LPT clamping):**
+   - `DurationWeightedLptSharder` keeps `DefaultAutoShardCap = 4` independent of the `8`–`10` host cap: explicit `--shards` requests scale up to `min(fixtureCount, MaxActiveWorkers)`.
+   - When auto-sharding without `--shards` and 100% of matched fixtures have positive cached timings in `fixture_timings_<Year>.json`, `SelectMakespanOptimalBuckets` evaluates LPT across `k = 1..min(fixtureCount, 4)` and picks the smallest `k` matching the `min(fixtureCount, 4)` makespan; cold or partial caches fall back to `min(fixtureCount, 4)`.
+
+5. **Parallel Multi-Version Execution & Retirement of `--next-version` (Supersedes Decision §1 sequential `N -> N+1` pipelining):**
+   - Retires `--next-version` (`PipelinePrewarm`) from both [test_executor.py](../../.agents/skills/revit-tests/scripts/test_executor.py) and `WorkerPoolSupervisor`.
+   - [test_executor.py](../../.agents/skills/revit-tests/scripts/test_executor.py) accepts comma-separated `--version` targets (or omits `--version` for all discovered targets), executes `Logic`/`LegacyMock` first in isolated `<RunBuildRoot>\<TargetKey>` subfolders, runs sequential ascending `TestTemplate` upgrade preflight, caps concurrent `dotnet build` processes at `2` (`MAX_CONCURRENT_BUILDS = 2`) in isolated per-target subfolders, dispatches each **Revit Version** to the **Worker Pool** immediately upon build completion, flushes thread-safe `[TESTS] Revit <Ver>: ...` completion lines, emits one combined Markdown summary (preserving failed build roots), and supports `--fail-fast` to cancel unstarted builds/dispatches while letting in-flight workers finish `--assert-clean`. Cold `--no-pool` runs remain sequential under **Startup Gate**.
+
+6. **`RicaunBundleLease` `net10.0` Priority (Resolves Decision §4 Spec #216 note):**
+   - `RicaunBundleLease.FindRicaunTestAdapterDll` prioritizes `net10.0` (`4`) ahead of `net8.0` (`3`), `net6.0` (`2`), and `net45` (`1`) when seeding `ricaun.RevitTest.Application.bundle` for live Revit `2027` runs alongside `2023`–`2026` (while `RevitWorkerPool` remains `net8.0-windows`).
