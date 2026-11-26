@@ -10,6 +10,7 @@ using NUnit.Framework;
 using Synthetic.Features.DetailItemFactory.Commands;
 using Synthetic.Features.DetailItemFactory.Handlers;
 using Synthetic.Features.DetailItemFactory.Models;
+using Synthetic.Features.DetailItemFactory.Services;
 using Synthetic.Features.DetailItemFactory.Settings;
 using Synthetic.Features.DetailItemFactory.ViewModels;
 using Synthetic.Features.DetailItemFactory.Views;
@@ -206,7 +207,7 @@ namespace SyntheticTests.Features.DetailItemFactory
                         clearDataContextOnClose: true);
 
                     // 3. DetailItemFactorySettingsView
-                    var settingsVm = new DetailItemFactorySettingsViewModel(doc, ownerHandle);
+                    var settingsVm = DetailItemFactorySettingsService.CreateSettingsViewModel(doc, ownerHandle);
                     var settingsView = new DetailItemFactorySettingsView { DataContext = settingsVm };
                     var hostWindow = new Window
                     {
@@ -231,6 +232,7 @@ namespace SyntheticTests.Features.DetailItemFactory
                         }
                         doc.Dispose();
                     }
+                    doc?.Dispose();
                 }
             }
         }

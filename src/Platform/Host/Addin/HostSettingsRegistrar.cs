@@ -4,6 +4,7 @@ using Synthetic.Features.SettingsDashboard.Views;
 using Synthetic.Features.StandardsManagement.Settings;
 using Synthetic.Features.ViewManagement.Settings;
 using Synthetic.Features.Worksets.Settings;
+using Synthetic.Features.DetailItemFactory.Services;
 using Synthetic.Features.DetailItemFactory.Settings;
 using Synthetic.Features.DetailItemFactory.Views;
 using Synthetic.Features.ShadowStudy.Adapters;
@@ -53,7 +54,7 @@ namespace Synthetic.Platform.Host
                 SettingsTabRegistry.Register((doc, hwnd) => new ProjectMaterialsViewModel(doc, hwnd));
                 SettingsTabRegistry.Register((doc, hwnd) => new FileUtilitySettingsViewModel(doc, hwnd));
                 SettingsTabRegistry.Register((doc, hwnd) => new StandardsSettingsViewModel(doc, hwnd), typeof(StandardsSettingsView));
-                SettingsTabRegistry.Register((doc, hwnd) => new DetailItemFactorySettingsViewModel(doc, hwnd), typeof(DetailItemFactorySettingsView));
+                SettingsTabRegistry.Register((doc, hwnd) => DetailItemFactorySettingsService.CreateSettingsViewModel(doc, hwnd), typeof(DetailItemFactorySettingsView));
                 SettingsTabRegistry.Register((doc, hwnd) => RevitShadowStudyAdapter.CreateSettingsViewModel(doc, hwnd), typeof(ShadowStudySettingsView));
                 SettingsTabRegistry.Register((doc, hwnd) => new SyncSettingsViewModel(doc, hwnd), typeof(SyncSettingsView));
 

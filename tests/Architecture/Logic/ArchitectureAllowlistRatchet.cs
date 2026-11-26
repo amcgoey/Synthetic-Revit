@@ -388,8 +388,6 @@ namespace SyntheticTests.Architecture
 
             // DetailItemFactory
             Dormant("DetailItemFactory", FitnessRule.InteractiveSliceSeamPurity, "DetailItemFactoryResultsViewModel", "BoyScout"),
-            Dormant("DetailItemFactory", FitnessRule.InteractiveSliceSeamPurity, "DetailItemFactorySettings", "BoyScout"),
-            Dormant("DetailItemFactory", FitnessRule.InteractiveSliceSeamPurity, "DetailItemFactorySettingsViewModel", "BoyScout"),
             Dormant("DetailItemFactory", FitnessRule.InteractiveSliceSeamPurity, "DetailItemFactoryViewModel", "BoyScout"),
             Dormant("DetailItemFactory", FitnessRule.InteractiveSliceSeamPurity, "SelectedElementItemViewModel", "BoyScout"),
             Dormant("DetailItemFactory", FitnessRule.TransactionFailureGuard, "DetailItemFactoryEventHandler", "BoyScout"),
