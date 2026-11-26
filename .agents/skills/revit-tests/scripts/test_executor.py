@@ -1,5 +1,7 @@
+import concurrent.futures
 import ctypes
 from ctypes import wintypes
+from dataclasses import dataclass, field
 import glob
 import hashlib
 import io
@@ -665,8 +667,13 @@ def discover_test_projects(test_dir):
 
 
 def select_run_projects(test_projects, target_version=""):
-    """Select target test projects for --version, bundling LegacyMock once under --version Logic."""
-    if not target_version:
+    """
+    Select target test projects for --version, bundling LegacyMock once under Logic.
+    Accepts a single target or comma-separated list, trims and deduplicates repeated or
+    overlapping tokens while preserving deterministic order, and fails fast on empty or
+    unknown tokens. Empty string/None selects all discovered targets.
+    """
+    if target_version is None or target_version == "":
         ordered = {}
         for key in ("Logic", "LegacyMock"):
             if key in test_projects:
@@ -676,21 +683,28 @@ def select_run_projects(test_projects, target_version=""):
                 ordered[key] = test_projects[key]
         return ordered
 
-    matched_key = None
-    if target_version in test_projects:
-        matched_key = target_version
-    else:
-        for key in test_projects:
-            if key.casefold() == target_version.casefold():
-                matched_key = key
-                break
+    raw_tokens = str(target_version).split(",")
+    casefold_map = {key.casefold(): key for key in test_projects}
+    selected = {}
+    for raw_token in raw_tokens:
+        token = raw_token.strip()
+        if not token:
+            raise ValueError(
+                f"Empty target token in --version '{target_version}'. "
+                f"Expected one or more of {list(test_projects.keys())}."
+            )
 
-    if not matched_key:
-        return {}
+        matched_key = token if token in test_projects else casefold_map.get(token.casefold())
+        if not matched_key:
+            raise ValueError(
+                f"Target version '{token}' test project not found in {list(test_projects.keys())}."
+            )
 
-    selected = {matched_key: test_projects[matched_key]}
-    if matched_key.casefold() == "logic" and "LegacyMock" in test_projects:
-        selected["LegacyMock"] = test_projects["LegacyMock"]
+        if matched_key not in selected:
+            selected[matched_key] = test_projects[matched_key]
+        if matched_key.casefold() == "logic" and "LegacyMock" in test_projects and "LegacyMock" not in selected:
+            selected["LegacyMock"] = test_projects["LegacyMock"]
+
     return selected
 
 
@@ -2313,32 +2327,6 @@ def resolve_isolated_test_assembly_path(run_build_root, proj_name, run_id, tfm="
     return direct_path
 
 
-def get_next_revit_version_map(run_projects, target_framework=""):
-    """Map each Revit target key in run_projects to its subsequent Revit target key, or None."""
-    target_tfm = (target_framework or "").strip()
-    ordered_revit_keys = []
-    for ver, csproj_list in run_projects.items():
-        if ver.lower() in ("logic", "legacymock"):
-            continue
-        if target_tfm:
-            if isinstance(csproj_list, str):
-                csproj_list = [csproj_list]
-            has_matching_tfm = False
-            for csproj_path in csproj_list:
-                proj_tfms, _ = get_project_target_frameworks(csproj_path)
-                if any(t and t.casefold() == target_tfm.casefold() for t in proj_tfms):
-                    has_matching_tfm = True
-                    break
-            if not has_matching_tfm:
-                continue
-        ordered_revit_keys.append(ver)
-
-    next_map = {}
-    for idx, ver in enumerate(ordered_revit_keys):
-        next_map[ver] = ordered_revit_keys[idx + 1] if idx + 1 < len(ordered_revit_keys) else None
-    return next_map
-
-
 def build_worker_pool_run_command(
     pool_cmd,
     version,
@@ -2349,7 +2337,6 @@ def build_worker_pool_run_command(
     category="",
     shards=None,
     no_shim=False,
-    next_version=None,
     python_exe=sys.executable,
 ):
     """Build the RevitWorkerPool run CLI command passing raw filter/category for ECMA-335 discovery."""
@@ -2388,9 +2375,6 @@ def build_worker_pool_run_command(
     if no_shim:
         cmd.append("--no-shim")
 
-    if next_version is not None and str(next_version).strip():
-        cmd.extend(["--next-version", str(next_version).strip()])
-
     return cmd
 
 
@@ -2428,19 +2412,25 @@ def _write_pool_log(out_file_path, pool_args, stderr_text, stdout_text, parsed_j
                 out_f.write("\n")
 
 
-def _run_worker_journal_gates(gate_fn, version, worker_ids):
+def _run_worker_journal_gates(gate_fn, version, worker_ids, print_fn=None, error_collector=None):
     """Run --assert-clean journal gates for all consumed worker_ids and return True iff all pass."""
+    emit = print if print_fn is None else print_fn
     all_clean = True
     for wid in worker_ids:
         is_clean, gate_output = gate_fn(version, wid)
         if gate_output:
-            print(gate_output)
+            emit(gate_output)
         if not is_clean:
             all_clean = False
-            print(
+            msg = (
                 f"[ERROR] Revit {version} worker '{wid}' failed post-run journal "
                 "cleanliness gate (--assert-clean)."
             )
+            emit(msg)
+            if error_collector is not None:
+                if gate_output:
+                    error_collector.append(gate_output)
+                error_collector.append(msg)
     return all_clean
 
 
@@ -2455,10 +2445,11 @@ def execute_revit_tests_via_pool(
     category="",
     shards=None,
     no_shim=False,
-    next_version=None,
     runner=None,
     journal_gate_fn=None,
     expect_shim=None,
+    details_out=None,
+    print_fn=None,
 ):
     """
     Execute a Revit test target via RevitWorkerPool run, enforcing fail-closed shim
@@ -2467,6 +2458,13 @@ def execute_revit_tests_via_pool(
     """
     run_fn = subprocess.run if runner is None else runner
     gate_fn = run_worker_journal_cleanliness_gate if journal_gate_fn is None else journal_gate_fn
+    emit = print if print_fn is None else print_fn
+    details = details_out if isinstance(details_out, dict) else {}
+    details.setdefault("pool_error", "")
+    details.setdefault("journal_clean", True)
+    details.setdefault("journal_error", "")
+    details.setdefault("worker_ids", [])
+    details.setdefault("zero_matches", False)
 
     pool_args = build_worker_pool_run_command(
         pool_cmd=pool_cmd,
@@ -2478,14 +2476,15 @@ def execute_revit_tests_via_pool(
         category=category,
         shards=shards,
         no_shim=no_shim,
-        next_version=next_version,
     )
 
     try:
         res = run_fn(pool_args, capture_output=True, text=True)
     except OSError as exc:
         _write_pool_log(out_file_path, pool_args, str(exc), "", None)
-        print(f"[ERROR] Failed to invoke RevitWorkerPool for Revit {version}: {exc}")
+        msg = f"[ERROR] Failed to invoke RevitWorkerPool for Revit {version}: {exc}"
+        emit(msg)
+        details["pool_error"] = msg
         return False, True, 2
 
     pool_returncode = res.returncode
@@ -2496,10 +2495,12 @@ def execute_revit_tests_via_pool(
 
     if parsed_json is None:
         detail = stderr_text.strip() or stdout_text.strip() or "empty stdout"
-        print(
+        msg = (
             f"[ERROR] RevitWorkerPool run for Revit {version} exited with code {pool_returncode} "
             f"without valid JSON output ({detail}). See {out_file_path}"
         )
+        emit(msg)
+        details["pool_error"] = msg
         return False, True, pool_returncode if pool_returncode != 0 else 2
 
     json_exit_code = parsed_json.get("exitCode")
@@ -2513,6 +2514,8 @@ def execute_revit_tests_via_pool(
         if isinstance(raw_worker_ids, list)
         else []
     )
+    details["worker_ids"] = worker_ids
+    details["zero_matches"] = zero_matches
 
     effective_rc = json_exit_code if json_exit_code is not None else pool_returncode
     is_fail_closed = (
@@ -2529,62 +2532,771 @@ def execute_revit_tests_via_pool(
         else bool(expect_shim)
     )
 
+    journal_errors = []
+
     if is_fail_closed:
         err_detail = json_error or stderr_text.strip() or f"exitCode={effective_rc}"
-        print(
+        msg = (
             f"[ERROR] RevitWorkerPool run for Revit {version} failed closed "
             f"(exitCode={effective_rc}): {err_detail}. See {out_file_path}"
         )
+        emit(msg)
+        details["pool_error"] = msg
         if worker_ids:
-            _run_worker_journal_gates(gate_fn, version, worker_ids)
+            if not _run_worker_journal_gates(gate_fn, version, worker_ids, print_fn=emit, error_collector=journal_errors):
+                details["journal_clean"] = False
+                details["journal_error"] = "\n".join(journal_errors)
         return False, True, effective_rc
 
     if zero_matches:
         if worker_ids:
             if resolved_expect_shim and parsed_json.get("shimEnabled") is False:
-                print(
+                msg = (
                     f"[ERROR] RevitWorkerPool reported shimEnabled=false for Revit {version} "
                     "while Clean-Launch Shim was required."
                 )
-                _run_worker_journal_gates(gate_fn, version, worker_ids)
+                emit(msg)
+                details["pool_error"] = msg
+                if not _run_worker_journal_gates(gate_fn, version, worker_ids, print_fn=emit, error_collector=journal_errors):
+                    details["journal_clean"] = False
+                    details["journal_error"] = "\n".join(journal_errors)
                 return False, True, 2
 
-            if not _run_worker_journal_gates(gate_fn, version, worker_ids):
+            if not _run_worker_journal_gates(gate_fn, version, worker_ids, print_fn=emit, error_collector=journal_errors):
+                details["journal_clean"] = False
+                details["journal_error"] = "\n".join(journal_errors)
                 return False, True, pool_returncode or 1
 
-        print(
+        emit(
             f"[TESTS] 0 matching tests for {version} "
             f"(filter: {target_class or '-'}, category: {category or '-'})."
         )
         return False, False, 0
 
     if resolved_expect_shim and parsed_json.get("shimEnabled") is False:
-        print(
+        msg = (
             f"[ERROR] RevitWorkerPool reported shimEnabled=false for Revit {version} "
             "while Clean-Launch Shim was required."
         )
+        emit(msg)
+        details["pool_error"] = msg
         if worker_ids:
-            _run_worker_journal_gates(gate_fn, version, worker_ids)
+            if not _run_worker_journal_gates(gate_fn, version, worker_ids, print_fn=emit, error_collector=journal_errors):
+                details["journal_clean"] = False
+                details["journal_error"] = "\n".join(journal_errors)
         return False, True, 2
 
     had_error = False
     if not worker_ids:
         had_error = True
-        print(
+        msg = (
             f"[ERROR] Revit {version} worker pool run completed (totalTests={total_tests}) "
             "without returning any workerIds for journal cleanliness gating."
         )
-    elif not _run_worker_journal_gates(gate_fn, version, worker_ids):
+        emit(msg)
+        details["pool_error"] = msg
+    elif not _run_worker_journal_gates(gate_fn, version, worker_ids, print_fn=emit, error_collector=journal_errors):
         had_error = True
+        details["journal_clean"] = False
+        details["journal_error"] = "\n".join(journal_errors)
 
     if pool_returncode != 0 and not os.path.exists(trx_path):
         had_error = True
-        print(
+        msg = (
             f"[ERROR] RevitWorkerPool exited with code {pool_returncode} without generating "
             f"{os.path.basename(trx_path)}. See {out_file_path}"
         )
+        emit(msg)
+        if not details["pool_error"]:
+            details["pool_error"] = msg
 
     return True, had_error, pool_returncode
+
+
+MAX_CONCURRENT_BUILDS = 2
+
+
+@dataclass
+class VersionExecutionResult:
+    """Structured per-target execution result returned by worker tasks to the top-level coordinator."""
+
+    version: str
+    is_headless: bool = False
+    executed: bool = False
+    succeeded: bool = True
+    cancelled: bool = False
+    passed_count: int = 0
+    failed_count: int = 0
+    total_count: int = 0
+    journal_clean: bool = True
+    duration_seconds: float = 0.0
+    build_error: str = ""
+    build_log_path: str = ""
+    pool_error: str = ""
+    pool_exit_code: int = 0
+    journal_error: str = ""
+    execution_errors: list = field(default_factory=list)
+    failing_tests: list = field(default_factory=list)
+    trx_paths: list = field(default_factory=list)
+
+
+def _parse_trx_file(trx_path):
+    """Parse a single .trx file into (total, passed, failed, failing_tests, parse_error)."""
+    ns = {"ns": "http://microsoft.com/schemas/VisualStudio/TeamTest/2010"}
+    total = 0
+    passed = 0
+    failed = 0
+    failing = []
+    try:
+        tree = ET.parse(trx_path)
+        root = tree.getroot()
+
+        counters = root.find(".//ns:ResultSummary/ns:Counters", ns)
+        if counters is not None:
+            total = int(counters.attrib.get("total", 0))
+            failed = int(counters.attrib.get("failed", 0))
+            passed = int(counters.attrib.get("passed", 0))
+
+        base_name = os.path.basename(trx_path)
+        ver_str = base_name.replace("results_", "").replace(".trx", "")
+        for result in root.findall(".//ns:UnitTestResult", ns):
+            if result.attrib.get("outcome") != "Failed":
+                continue
+            test_name = result.attrib.get("testName")
+            error_message = ""
+            stack_trace = ""
+            error_info = result.find(".//ns:ErrorInfo", ns)
+            if error_info is not None:
+                msg_el = error_info.find("ns:Message", ns)
+                if msg_el is not None:
+                    error_message = msg_el.text or ""
+                stack_el = error_info.find("ns:StackTrace", ns)
+                if stack_el is not None:
+                    stack_trace = stack_el.text or ""
+            failing.append(
+                {
+                    "name": f"[{ver_str}] {test_name}",
+                    "message": error_message.strip(),
+                    "stack_trace": stack_trace.strip(),
+                }
+            )
+        return total, passed, failed, failing, ""
+    except Exception as exc:
+        return 0, 0, 0, [], f"Failed to parse TRX file '{trx_path}': {exc}"
+
+
+def _build_isolated_project(
+    dotnet_exe,
+    csproj_path,
+    proj_name,
+    target_key,
+    target_build_root,
+    run_id,
+    build_log_path,
+    is_headless,
+    print_fn,
+):
+    """Build one target project inside its isolated <RunBuildRoot>/<TargetKey> directory."""
+    os.makedirs(target_build_root, exist_ok=True)
+    if is_headless:
+        print_fn(f"[TESTS] Building {proj_name} ({target_key}) with dotnet build ({run_id}): {dotnet_exe}...")
+    else:
+        print_fn(f"[TESTS] Building {proj_name} for Revit {target_key} with dotnet build ({run_id}): {dotnet_exe}...")
+
+    build_cmd = [
+        dotnet_exe,
+        "build",
+        csproj_path,
+        "-c",
+        "Debug",
+        "-p:Platform=x64",
+        f"-p:SyntheticIsolatedBuildRoot={target_build_root}",
+        f"-p:SyntheticRunId={run_id}",
+        "-v:minimal",
+        "-clp:ErrorsOnly;Summary",
+    ]
+    output_text = ""
+    returncode = 0
+    try:
+        res = subprocess.run(build_cmd, capture_output=True, text=True)
+        returncode = res.returncode
+        parts = [p for p in (getattr(res, "stdout", None), getattr(res, "stderr", None)) if p]
+        output_text = "\n".join(parts).strip()
+    except subprocess.CalledProcessError as exc:
+        returncode = exc.returncode or 1
+        parts = [
+            p
+            for p in (
+                getattr(exc, "stdout", None),
+                getattr(exc, "stderr", None),
+                getattr(exc, "output", None),
+                str(exc),
+            )
+            if p
+        ]
+        output_text = "\n".join(str(p) for p in parts).strip()
+    except OSError as exc:
+        returncode = 1
+        output_text = str(exc)
+
+    if build_log_path and output_text:
+        try:
+            with open(build_log_path, "w", encoding="utf-8") as bf:
+                bf.write(output_text + "\n")
+        except OSError:
+            pass
+
+    if returncode == 0:
+        print_fn(f"[TESTS] Build succeeded for {proj_name}.")
+        return True, ""
+
+    detail = output_text or f"dotnet build exited with code {returncode}"
+    err_msg = f"Build failed for {proj_name} ({target_key}, exit code {returncode}): {detail}"
+    print_fn(f"[ERROR] {err_msg}")
+    return False, err_msg
+
+
+def _collect_target_trx_results(result):
+    """Parse all TRX files associated with a VersionExecutionResult and update its counters."""
+    for trx_path in result.trx_paths:
+        if not os.path.exists(trx_path):
+            continue
+        total, passed, failed, failing, parse_err = _parse_trx_file(trx_path)
+        result.total_count += total
+        result.passed_count += passed
+        result.failed_count += failed
+        result.failing_tests.extend(failing)
+        if parse_err:
+            result.execution_errors.append(parse_err)
+
+
+def _format_revit_completion_line(result):
+    """Format the thread-safe single-line Revit version completion summary."""
+    status = "PASS" if result.succeeded else "FAIL"
+    journal_state = "clean" if result.journal_clean else "dirty"
+    return (
+        f"[TESTS] Revit {result.version}: {status} "
+        f"({result.passed_count} passed, {result.failed_count} failed, "
+        f"{journal_state} journal, {result.duration_seconds:.1f}s)"
+    )
+
+
+def _select_project_tfms(csproj_path, target_framework):
+    proj_tfms, is_multi_tfm = get_project_target_frameworks(csproj_path)
+    if target_framework:
+        selected_tfms = [t for t in proj_tfms if t and t.casefold() == target_framework.casefold()]
+    else:
+        selected_tfms = proj_tfms
+    return selected_tfms, is_multi_tfm
+
+
+def _execute_headless_target(
+    ver,
+    csproj_list,
+    target_class,
+    category,
+    target_framework,
+    test_dir,
+    run_build_root,
+    run_results_dir,
+    run_id,
+    dotnet_exe,
+    print_fn,
+):
+    """Build and execute a headless target (Logic or LegacyMock) inside <RunBuildRoot>/<TargetKey>."""
+    start = time.monotonic()
+    result = VersionExecutionResult(version=ver, is_headless=True, succeeded=True)
+    target_build_root = os.path.join(run_build_root, ver)
+
+    for csproj_path in csproj_list:
+        selected_tfms, is_multi_tfm = _select_project_tfms(csproj_path, target_framework)
+        if not selected_tfms:
+            continue
+
+        filter_expr, matched_zero = build_test_filter(
+            is_logic=True,
+            target_class=target_class,
+            category=category,
+            tests_dir=test_dir,
+            version=None,
+        )
+        if matched_zero:
+            print_fn(f"[TESTS] 0 matching tests for {ver} (category: {category}).")
+            continue
+
+        result.executed = True
+        os.makedirs(run_build_root, exist_ok=True)
+        os.makedirs(run_results_dir, exist_ok=True)
+        proj_name = os.path.splitext(os.path.basename(csproj_path))[0]
+        build_log_path = os.path.join(run_results_dir, f"build_{ver}.log")
+        result.build_log_path = build_log_path
+
+        ok_build, build_err = _build_isolated_project(
+            dotnet_exe,
+            csproj_path,
+            proj_name,
+            ver,
+            target_build_root,
+            run_id,
+            build_log_path,
+            is_headless=True,
+            print_fn=print_fn,
+        )
+        if not ok_build:
+            result.build_error = build_err
+            result.succeeded = False
+            result.duration_seconds = time.monotonic() - start
+            return result
+
+        for tfm in selected_tfms:
+            log_name = build_trx_filename(ver, tfm=tfm, is_multi_tfm=is_multi_tfm)
+            trx_path = os.path.join(run_results_dir, log_name)
+            out_file_path = os.path.join(run_results_dir, build_log_filename(ver, tfm=tfm, is_multi_tfm=is_multi_tfm))
+            tfm_label = f" [{tfm}]" if is_multi_tfm and tfm else ""
+            print_fn(f"[TESTS] Executing headless NUnit tests for {proj_name}{tfm_label}...")
+
+            cmd = [
+                dotnet_exe,
+                "test",
+                csproj_path,
+                "--no-build",
+                "--logger",
+                f"trx;LogFileName={log_name}",
+                "--results-directory",
+                run_results_dir,
+                "-p:Configuration=Debug",
+                "-p:Platform=x64",
+                f"-p:SyntheticIsolatedBuildRoot={target_build_root}",
+                f"-p:SyntheticRunId={run_id}",
+            ]
+            if is_multi_tfm and tfm:
+                cmd.extend(["--framework", tfm])
+            if filter_expr:
+                cmd.extend(["--filter", filter_expr])
+
+            with open(out_file_path, "w", encoding="utf-8") as out_f:
+                res = subprocess.run(cmd, stdout=out_f, stderr=out_f)
+                proc_returncode = res.returncode
+
+            result.trx_paths.append(trx_path)
+            if proc_returncode != 0 and not os.path.exists(trx_path):
+                err_msg = (
+                    f"Test runner exited with code {proc_returncode} without generating {log_name}. "
+                    f"See {out_file_path}"
+                )
+                print_fn(f"[ERROR] {err_msg}")
+                result.execution_errors.append(err_msg)
+
+    _collect_target_trx_results(result)
+    result.duration_seconds = time.monotonic() - start
+    if result.build_error or result.execution_errors or result.failed_count > 0 or result.failing_tests:
+        result.succeeded = False
+    return result
+
+
+def _execute_revit_target_pool(
+    ver,
+    csproj_list,
+    target_class,
+    category,
+    target_framework,
+    shards,
+    no_shim,
+    pool_cmd,
+    workspace_path,
+    run_build_root,
+    run_results_dir,
+    run_id,
+    dotnet_exe,
+    build_semaphore,
+    fail_fast,
+    fail_fast_event,
+    print_fn,
+):
+    """Build one Revit target under build_semaphore and immediately dispatch to RevitWorkerPool."""
+    start = time.monotonic()
+    result = VersionExecutionResult(version=ver, is_headless=False, succeeded=True)
+    target_build_root = os.path.join(run_build_root, ver)
+
+    if fail_fast and fail_fast_event.is_set():
+        result.cancelled = True
+        return result
+
+    for csproj_path in csproj_list:
+        selected_tfms, is_multi_tfm = _select_project_tfms(csproj_path, target_framework)
+        if not selected_tfms:
+            continue
+
+        if fail_fast and fail_fast_event.is_set():
+            result.cancelled = True
+            return result
+
+        proj_name = os.path.splitext(os.path.basename(csproj_path))[0]
+        build_log_path = os.path.join(run_results_dir, f"build_{ver}.log")
+        result.build_log_path = build_log_path
+
+        with build_semaphore:
+            if fail_fast and fail_fast_event.is_set():
+                result.cancelled = True
+                return result
+
+            ok_build, build_err = _build_isolated_project(
+                dotnet_exe,
+                csproj_path,
+                proj_name,
+                ver,
+                target_build_root,
+                run_id,
+                build_log_path,
+                is_headless=False,
+                print_fn=print_fn,
+            )
+
+        if not ok_build:
+            result.build_error = build_err
+            result.succeeded = False
+            if fail_fast:
+                fail_fast_event.set()
+            result.duration_seconds = time.monotonic() - start
+            print_fn(_format_revit_completion_line(result))
+            return result
+
+        for tfm in selected_tfms:
+            if fail_fast and fail_fast_event.is_set():
+                result.cancelled = True
+                return result
+
+            log_name = build_trx_filename(ver, tfm=tfm, is_multi_tfm=is_multi_tfm)
+            trx_path = os.path.join(run_results_dir, log_name)
+            out_file_path = os.path.join(run_results_dir, build_log_filename(ver, tfm=tfm, is_multi_tfm=is_multi_tfm))
+            dll_path = resolve_isolated_test_assembly_path(
+                target_build_root,
+                proj_name,
+                run_id,
+                tfm=tfm,
+                is_multi_tfm=is_multi_tfm,
+            )
+
+            is_unshimmed = bool(no_shim or os.environ.get("SYNTHETIC_CLEAN_SHIM", "").strip() == "0")
+            guid_whitelister.whitelist_existing_addins(ver)
+            if is_unshimmed:
+                check_legacy_programdata_manifest(ver)
+
+            shard_label = f", shards={shards}" if shards is not None else ""
+            shim_label = " [no-shim]" if is_unshimmed else ""
+            print_fn(f"[TESTS] Executing Revit {ver} tests via RevitWorkerPool{shim_label}{shard_label}...")
+
+            pool_details = {}
+            ran_pool, pool_err, pool_rc = execute_revit_tests_via_pool(
+                pool_cmd=pool_cmd,
+                version=ver,
+                dll_path=dll_path,
+                trx_path=trx_path,
+                workspace_path=workspace_path,
+                out_file_path=out_file_path,
+                target_class=target_class,
+                category=category,
+                shards=shards,
+                no_shim=no_shim,
+                expect_shim=not is_unshimmed,
+                details_out=pool_details,
+                print_fn=print_fn,
+            )
+            result.trx_paths.append(trx_path)
+            if ran_pool:
+                result.executed = True
+                result.pool_exit_code = pool_rc
+            elif pool_err:
+                result.pool_exit_code = pool_rc
+
+            if not pool_details.get("journal_clean", True):
+                result.journal_clean = False
+                if pool_details.get("journal_error"):
+                    result.journal_error = (
+                        f"{result.journal_error}\n{pool_details['journal_error']}".strip()
+                    )
+
+            if pool_details.get("pool_error"):
+                result.pool_error = (
+                    f"{result.pool_error}\n{pool_details['pool_error']}".strip()
+                )
+            elif pool_err and pool_details.get("journal_clean", True):
+                result.pool_error = f"RevitWorkerPool failed for Revit {ver} (exitCode={pool_rc})."
+
+    _collect_target_trx_results(result)
+    if (
+        result.executed
+        and result.pool_exit_code != 0
+        and result.failed_count == 0
+        and not result.failing_tests
+        and not result.pool_error
+        and not result.execution_errors
+        and result.journal_clean
+    ):
+        msg = (
+            f"[ERROR] RevitWorkerPool reported test failures for Revit {ver}, "
+            "but TRX recorded 0 failed tests."
+        )
+        print_fn(msg)
+        result.pool_error = msg
+
+    result.duration_seconds = time.monotonic() - start
+    if (
+        result.build_error
+        or result.pool_error
+        or not result.journal_clean
+        or result.execution_errors
+        or result.failed_count > 0
+        or result.failing_tests
+    ):
+        result.succeeded = False
+        if fail_fast:
+            fail_fast_event.set()
+
+    if result.executed or not result.succeeded or result.pool_exit_code == 0:
+        print_fn(_format_revit_completion_line(result))
+    return result
+
+
+def _execute_revit_target_cold(
+    ver,
+    csproj_list,
+    target_class,
+    category,
+    target_framework,
+    test_dir,
+    workspace_path,
+    run_build_root,
+    run_results_dir,
+    run_id,
+    dotnet_exe,
+    print_fn,
+):
+    """Build and execute one Revit target sequentially using an isolated cold dotnet test worker."""
+    start = time.monotonic()
+    result = VersionExecutionResult(version=ver, is_headless=False, succeeded=True)
+    target_build_root = os.path.join(run_build_root, ver)
+
+    for csproj_path in csproj_list:
+        selected_tfms, is_multi_tfm = _select_project_tfms(csproj_path, target_framework)
+        if not selected_tfms:
+            continue
+
+        filter_expr, matched_zero = build_test_filter(
+            is_logic=False,
+            target_class=target_class,
+            category=category,
+            tests_dir=test_dir,
+            version=ver,
+        )
+        if matched_zero:
+            print_fn(f"[TESTS] 0 matching tests for {ver} (category: {category}).")
+            continue
+
+        result.executed = True
+        os.makedirs(run_build_root, exist_ok=True)
+        os.makedirs(run_results_dir, exist_ok=True)
+        proj_name = os.path.splitext(os.path.basename(csproj_path))[0]
+        build_log_path = os.path.join(run_results_dir, f"build_{ver}.log")
+        result.build_log_path = build_log_path
+
+        ok_build, build_err = _build_isolated_project(
+            dotnet_exe,
+            csproj_path,
+            proj_name,
+            ver,
+            target_build_root,
+            run_id,
+            build_log_path,
+            is_headless=False,
+            print_fn=print_fn,
+        )
+        if not ok_build:
+            result.build_error = build_err
+            result.succeeded = False
+            result.duration_seconds = time.monotonic() - start
+            print_fn(_format_revit_completion_line(result))
+            return result
+
+        for tfm in selected_tfms:
+            log_name = build_trx_filename(ver, tfm=tfm, is_multi_tfm=is_multi_tfm)
+            trx_path = os.path.join(run_results_dir, log_name)
+            out_file_path = os.path.join(run_results_dir, build_log_filename(ver, tfm=tfm, is_multi_tfm=is_multi_tfm))
+            print_fn(f"[TESTS] Executing dotnet test for Revit {ver}...")
+
+            cmd = [
+                dotnet_exe,
+                "test",
+                csproj_path,
+                "--no-build",
+                "--logger",
+                f"trx;LogFileName={log_name}",
+                "--results-directory",
+                run_results_dir,
+                "-p:Configuration=Debug",
+                "-p:Platform=x64",
+                f"-p:SyntheticIsolatedBuildRoot={target_build_root}",
+                f"-p:SyntheticRunId={run_id}",
+            ]
+            if is_multi_tfm and tfm:
+                cmd.extend(["--framework", tfm])
+            if filter_expr:
+                cmd.extend(["--filter", filter_expr])
+
+            guid_whitelister.whitelist_existing_addins(ver)
+            check_legacy_programdata_manifest(ver)
+            snapshot_path = os.path.join(run_results_dir, f"known_journals_{ver}.json")
+            snapshot_known_journals(ver, snapshot_path)
+            worker_env = build_worker_env(workspace_path, run_id)
+            isolated_test_outdir = os.path.join(target_build_root, "bin", f"{proj_name}_{run_id}")
+            timeout = 660  # 11 min: matches 10m NUnit.Timeout + 60s Revit boot buffer
+
+            with open(out_file_path, "w", encoding="utf-8") as out_f:
+                with RicaunBundleLease(testadapter_search_dirs=[isolated_test_outdir]):
+                    print_fn(f"[TESTS] Waiting for Revit {ver} test execution to complete (timeout: {timeout}s)...")
+                    proc_returncode, timed_out, effective_run_id, modal_aborted = execute_revit_test_with_startup_gate(
+                        cmd,
+                        out_f,
+                        worker_env,
+                        version=ver,
+                        run_id=run_id,
+                        snapshot_path=snapshot_path,
+                        timeout=timeout,
+                    )
+                    if timed_out or modal_aborted:
+                        err_kind = "timed out" if timed_out else "aborted on startup modal"
+                        result.execution_errors.append(
+                            f"Cold Revit {ver} test execution {err_kind}. See {out_file_path}"
+                        )
+
+            is_clean, gate_output = run_journal_cleanliness_gate(ver, effective_run_id, snapshot_path)
+            if gate_output:
+                print_fn(gate_output)
+            if not is_clean:
+                result.journal_clean = False
+                err_msg = f"[ERROR] Revit {ver} failed post-run journal cleanliness gate (--assert-clean)."
+                print_fn(err_msg)
+                result.journal_error = "\n".join(p for p in (gate_output, err_msg) if p)
+
+            result.trx_paths.append(trx_path)
+            if proc_returncode != 0 and not os.path.exists(trx_path):
+                err_msg = (
+                    f"Test runner exited with code {proc_returncode} without generating {log_name}. "
+                    f"See {out_file_path}"
+                )
+                print_fn(f"[ERROR] {err_msg}")
+                result.execution_errors.append(err_msg)
+
+    _collect_target_trx_results(result)
+    result.duration_seconds = time.monotonic() - start
+    if (
+        result.build_error
+        or not result.journal_clean
+        or result.execution_errors
+        or result.failed_count > 0
+        or result.failing_tests
+    ):
+        result.succeeded = False
+    if result.executed or not result.succeeded:
+        print_fn(_format_revit_completion_line(result))
+    return result
+
+
+def _emit_combined_summary_and_exit(results, run_build_root, run_id, results_root):
+    """Emit one combined Markdown summary across all executed targets and exit cleanly."""
+    active_results = [r for r in results if not r.cancelled]
+    executed_any = any(r.executed for r in active_results)
+    failing_tests = []
+    build_failures = []
+    pool_failures = []
+    journal_failures = []
+    other_errors = []
+    total_run = 0
+    total_passed = 0
+    total_failed = 0
+
+    for r in active_results:
+        total_run += r.total_count
+        total_passed += r.passed_count
+        total_failed += r.failed_count
+        failing_tests.extend(r.failing_tests)
+        if r.build_error:
+            build_failures.append(r)
+        if r.pool_error:
+            pool_failures.append(r)
+        if not r.journal_clean or r.journal_error:
+            journal_failures.append(r)
+        if r.execution_errors:
+            other_errors.append(r)
+
+    had_any_error = bool(build_failures or pool_failures or journal_failures or other_errors)
+
+    if not executed_any and not had_any_error:
+        shutil.rmtree(run_build_root, ignore_errors=True)
+        cleanup_revit_test_temp(run_id)
+        rotate_test_results(results_root)
+        print("0 matching tests")
+        sys.exit(0)
+
+    rotate_test_results(results_root)
+
+    print("\n# Test Execution Summary\n")
+    if failing_tests or total_failed > 0 or had_any_error:
+        if failing_tests or total_failed > 0:
+            print(f"## [FAIL] Failing Tests ({len(failing_tests)} / {total_run})\n")
+            for idx, t in enumerate(failing_tests, 1):
+                print(f"### {idx}. Test Name: `{t['name']}`")
+                print("**Error Message:**")
+                print("```")
+                print(t["message"])
+                print("```\n")
+                print("**Stack Trace:**")
+                print("```")
+                print(t["stack_trace"])
+                print("```\n")
+                print("---")
+
+        if build_failures:
+            print(f"## [FAIL] Build Errors ({len(build_failures)})\n")
+            for r in build_failures:
+                log_note = f" (log: `{r.build_log_path}`)" if r.build_log_path else ""
+                print(f"- **Target `{r.version}`**{log_note}:")
+                print("```")
+                print(r.build_error)
+                print("```")
+
+        if pool_failures or other_errors:
+            combined_exec = pool_failures + [r for r in other_errors if r not in pool_failures]
+            print(f"## [FAIL] Worker Pool / Execution Errors ({len(combined_exec)})\n")
+            for r in combined_exec:
+                detail_parts = []
+                if r.pool_error:
+                    detail_parts.append(r.pool_error)
+                detail_parts.extend(r.execution_errors)
+                rc_note = f" (exitCode={r.pool_exit_code})" if r.pool_exit_code else ""
+                print(f"- **Target `{r.version}`**{rc_note}:")
+                print("```")
+                print("\n".join(detail_parts))
+                print("```")
+
+        if journal_failures:
+            print(f"## [FAIL] Journal Cleanliness Errors ({len(journal_failures)})\n")
+            for r in journal_failures:
+                print(f"- **Target `{r.version}`**:")
+                print("```")
+                print(r.journal_error or "Journal cleanliness gate failed (--assert-clean).")
+                print("```")
+
+        print(f"[TESTS] Preserving failed isolated build root for inspection: {run_build_root}")
+        sys.exit(1)
+
+    shutil.rmtree(run_build_root, ignore_errors=True)
+    cleanup_revit_test_temp(run_id)
+    if total_run > 0:
+        print(f"## All tests passed successfully! [PASS] (Total: {total_passed})")
+    else:
+        print("## No tests were executed. [WARN]")
+    sys.exit(0)
 
 
 def run_test_suite(
@@ -2596,6 +3308,7 @@ def run_test_suite(
     no_shim=False,
     shards=None,
     no_auto_upgrade=False,
+    fail_fast=False,
 ):
     if shards is not None and shards < 1:
         print(f"[ERROR] --shards must be >= 1 (got {shards}).")
@@ -2617,8 +3330,12 @@ def run_test_suite(
         except OSError as exc:
             print(f"[WARN] Failed restoring legacy AddInsSettings backup for Revit {v}: {exc}")
 
-    # Filter by version if specified (case-insensitive fallback)
-    run_projects = select_run_projects(test_projects, target_version=target_version)
+    # Filter by version if specified (case-insensitive fallback, comma-separated targets)
+    try:
+        run_projects = select_run_projects(test_projects, target_version=target_version)
+    except ValueError as exc:
+        print(f"[ERROR] {exc}")
+        sys.exit(1)
     if target_version and not run_projects:
         print(f"[ERROR] Target version '{target_version}' test project not found in {list(test_projects.keys())}")
         sys.exit(1)
@@ -2633,296 +3350,152 @@ def run_test_suite(
     results_root = os.path.join(test_dir, "TestResults")
     run_results_dir = os.path.join(results_root, run_id)
 
-    has_revit_targets = any(ver.lower() not in ("logic", "legacymock") for ver in run_projects)
+    headless_targets = []
+    revit_targets = []
+    for ver, csproj_list in run_projects.items():
+        if isinstance(csproj_list, str):
+            csproj_list = [csproj_list]
+        if ver.lower() in ("logic", "legacymock"):
+            headless_targets.append((ver, csproj_list))
+        else:
+            revit_targets.append((ver, csproj_list))
+
     worker_mode = "cold"
     pool_cmd = None
-    if has_revit_targets:
+    if revit_targets:
         worker_mode, pool_cmd, pool_msg = resolve_worker_mode(no_pool, workspace_path)
         print(pool_msg)
         if worker_mode == "cold" and shards is not None:
             print("[TESTS] Note: --shards is only used in RevitWorkerPool mode; running single cold worker.")
 
     dotnet_exe = resolve_dotnet_exe(sdk_info)
-
-    executed_any = False
-    had_execution_error = False
-    had_nonzero_pool_rc = False
     target_framework = (target_framework or "").strip()
-    next_revit_versions = get_next_revit_version_map(run_projects, target_framework=target_framework)
+    print_lock = threading.Lock()
 
-    for ver, csproj_list in run_projects.items():
-        if isinstance(csproj_list, str):
-            csproj_list = [csproj_list]
-        is_headless = ver.lower() in ("logic", "legacymock")
+    def _safe_print(msg):
+        with print_lock:
+            print(msg, flush=True)
 
-        for csproj_path in csproj_list:
-            proj_tfms, is_multi_tfm = get_project_target_frameworks(csproj_path)
-            if target_framework:
-                selected_tfms = [t for t in proj_tfms if t and t.casefold() == target_framework.casefold()]
-                if not selected_tfms:
-                    continue
-            else:
-                selected_tfms = proj_tfms
+    all_results = []
 
-            if not is_headless and worker_mode == "pool":
-                # RevitWorkerPool performs authoritative cross-TFM ECMA-335 metadata discovery (#231).
-                filter_expr, matched_zero = "", False
-            else:
-                filter_expr, matched_zero = build_test_filter(
-                    is_logic=is_headless,
-                    target_class=target_class,
-                    category=category,
-                    tests_dir=test_dir,
-                    version=None if is_headless else ver,
-                )
+    # Phase 1: Execute headless targets (Logic, LegacyMock) first in isolated <RunBuildRoot>\<TargetKey> subfolders.
+    for ver, csproj_list in headless_targets:
+        res = _execute_headless_target(
+            ver=ver,
+            csproj_list=csproj_list,
+            target_class=target_class,
+            category=category,
+            target_framework=target_framework,
+            test_dir=test_dir,
+            run_build_root=run_build_root,
+            run_results_dir=run_results_dir,
+            run_id=run_id,
+            dotnet_exe=dotnet_exe,
+            print_fn=_safe_print,
+        )
+        all_results.append(res)
+        if fail_fast and not res.succeeded:
+            break
 
+    # Fail fast before booting Revit if any headless target failed
+    if revit_targets and any(not r.succeeded for r in all_results):
+        _emit_combined_summary_and_exit(all_results, run_build_root, run_id, results_root)
+
+    # Phase 2: Filter eligible Revit targets and run sequential ascending TestTemplate upgrade preflight
+    eligible_revit_targets = []
+    for ver, csproj_list in revit_targets:
+        has_matching_tfm = any(_select_project_tfms(p, target_framework)[0] for p in csproj_list)
+        if not has_matching_tfm:
+            continue
+        if worker_mode != "pool":
+            _, matched_zero = build_test_filter(
+                is_logic=False,
+                target_class=target_class,
+                category=category,
+                tests_dir=test_dir,
+                version=ver,
+            )
             if matched_zero:
                 print(f"[TESTS] 0 matching tests for {ver} (category: {category}).")
                 continue
+        eligible_revit_targets.append((ver, csproj_list))
 
-            if not is_headless:
-                try:
-                    ensure_test_template_ready(
-                        ver,
-                        workspace_path=workspace_path,
-                        no_auto_upgrade=no_auto_upgrade,
-                    )
-                except (RuntimeError, OSError, ValueError) as exc:
-                    print(f"[ERROR] {exc}")
-                    sys.exit(1)
-
-            if is_headless or worker_mode != "pool":
-                executed_any = True
-
-            os.makedirs(run_build_root, exist_ok=True)
-            os.makedirs(run_results_dir, exist_ok=True)
-
-            proj_name = os.path.splitext(os.path.basename(csproj_path))[0]
-            if is_headless:
-                print(f"[TESTS] Building {proj_name} ({ver}) with dotnet build ({run_id}): {dotnet_exe}...")
-            else:
-                print(f"[TESTS] Building {proj_name} for Revit {ver} with dotnet build ({run_id}): {dotnet_exe}...")
-
-            build_cmd = [
-                dotnet_exe,
-                "build",
-                csproj_path,
-                "-c",
-                "Debug",
-                "-p:Platform=x64",
-                f"-p:SyntheticIsolatedBuildRoot={run_build_root}",
-                f"-p:SyntheticRunId={run_id}",
-                "-v:minimal",
-                "-clp:ErrorsOnly;Summary",
-            ]
-            try:
-                subprocess.run(build_cmd, check=True)
-                print(f"[TESTS] Build succeeded for {proj_name}.")
-            except subprocess.CalledProcessError as e:
-                print(f"[ERROR] Build failed for {proj_name}: {e}")
-                print(f"[TESTS] Preserving failed isolated build root for inspection: {run_build_root}")
-                rotate_test_results(results_root)
-                sys.exit(1)
-
-            for tfm_idx, tfm in enumerate(selected_tfms):
-                log_name = build_trx_filename(ver, tfm=tfm, is_multi_tfm=is_multi_tfm)
-                out_file_path = os.path.join(run_results_dir, build_log_filename(ver, tfm=tfm, is_multi_tfm=is_multi_tfm))
-
-                if not is_headless and worker_mode == "pool":
-                    trx_path = os.path.join(run_results_dir, log_name)
-                    dll_path = resolve_isolated_test_assembly_path(
-                        run_build_root,
-                        proj_name,
-                        run_id,
-                        tfm=tfm,
-                        is_multi_tfm=is_multi_tfm,
-                    )
-                    is_unshimmed = bool(no_shim or os.environ.get("SYNTHETIC_CLEAN_SHIM", "").strip() == "0")
-                    guid_whitelister.whitelist_existing_addins(ver)
-                    if is_unshimmed:
-                        check_legacy_programdata_manifest(ver)
-
-                    next_ver = (
-                        next_revit_versions.get(ver)
-                        if tfm_idx == len(selected_tfms) - 1
-                        else None
-                    )
-                    shard_label = f", shards={shards}" if shards is not None else ""
-                    shim_label = " [no-shim]" if is_unshimmed else ""
-                    next_label = f", next={next_ver}" if next_ver else ""
-                    print(f"[TESTS] Executing Revit {ver} tests via RevitWorkerPool{shim_label}{shard_label}{next_label}...")
-
-                    ran_pool, pool_err, pool_rc = execute_revit_tests_via_pool(
-                        pool_cmd=pool_cmd,
-                        version=ver,
-                        dll_path=dll_path,
-                        trx_path=trx_path,
-                        workspace_path=workspace_path,
-                        out_file_path=out_file_path,
-                        target_class=target_class,
-                        category=category,
-                        shards=shards,
-                        no_shim=no_shim,
-                        next_version=next_ver,
-                        expect_shim=not is_unshimmed,
-                    )
-                    if ran_pool:
-                        executed_any = True
-                        if pool_rc != 0:
-                            had_nonzero_pool_rc = True
-                    if pool_err:
-                        had_execution_error = True
-                    continue
-
-                if is_headless:
-                    tfm_label = f" [{tfm}]" if is_multi_tfm and tfm else ""
-                    print(f"[TESTS] Executing headless NUnit tests for {proj_name}{tfm_label}...")
-                else:
-                    print(f"[TESTS] Executing dotnet test for Revit {ver}...")
-
-                cmd = [
-                    dotnet_exe, "test", csproj_path,
-                    "--no-build",
-                    "--logger", f"trx;LogFileName={log_name}",
-                    "--results-directory", run_results_dir,
-                    "-p:Configuration=Debug",
-                    "-p:Platform=x64",
-                    f"-p:SyntheticIsolatedBuildRoot={run_build_root}",
-                    f"-p:SyntheticRunId={run_id}",
-                ]
-                if is_multi_tfm and tfm:
-                    cmd.extend(["--framework", tfm])
-                if filter_expr:
-                    cmd.extend(["--filter", filter_expr])
-
-                proc_returncode = 0
-                if is_headless:
-                    with open(out_file_path, "w", encoding="utf-8") as out_f:
-                        res = subprocess.run(cmd, stdout=out_f, stderr=out_f)
-                        proc_returncode = res.returncode
-                else:
-                    guid_whitelister.whitelist_existing_addins(ver)
-                    check_legacy_programdata_manifest(ver)
-                    snapshot_path = os.path.join(run_results_dir, f"known_journals_{ver}.json")
-                    snapshot_known_journals(ver, snapshot_path)
-                    worker_env = build_worker_env(workspace_path, run_id)
-                    isolated_test_outdir = os.path.join(
-                        run_build_root, "bin", f"{proj_name}_{run_id}"
-                    )
-                    timeout = 660  # 11 min: matches 10m NUnit.Timeout + 60s Revit boot buffer
-
-                    with open(out_file_path, "w", encoding="utf-8") as out_f:
-                        with RicaunBundleLease(testadapter_search_dirs=[isolated_test_outdir]):
-                            print(f"[TESTS] Waiting for Revit {ver} test execution to complete (timeout: {timeout}s)...")
-                            proc_returncode, timed_out, effective_run_id, modal_aborted = execute_revit_test_with_startup_gate(
-                                cmd,
-                                out_f,
-                                worker_env,
-                                version=ver,
-                                run_id=run_id,
-                                snapshot_path=snapshot_path,
-                                timeout=timeout,
-                            )
-                            if timed_out or modal_aborted:
-                                had_execution_error = True
-
-                    is_clean, gate_output = run_journal_cleanliness_gate(ver, effective_run_id, snapshot_path)
-                    if gate_output:
-                        print(gate_output)
-                    if not is_clean:
-                        had_execution_error = True
-                        print(f"[ERROR] Revit {ver} failed post-run journal cleanliness gate (--assert-clean).")
-
-                if proc_returncode != 0 and not os.path.exists(os.path.join(run_results_dir, log_name)):
-                    had_execution_error = True
-                    print(f"[ERROR] Test runner exited with code {proc_returncode} without generating {log_name}. See {out_file_path}")
-
-    if not executed_any and not had_execution_error:
-        shutil.rmtree(run_build_root, ignore_errors=True)
-        cleanup_revit_test_temp(run_id)
-        rotate_test_results(results_root)
-        print("0 matching tests")
-        sys.exit(0)
-
-    # 3. Ingest and parse TRX files for this run
-    failing_tests = []
-    total_run = 0
-    total_failed = 0
-    total_passed = 0
-
-    ns = {'ns': 'http://microsoft.com/schemas/VisualStudio/TeamTest/2010'}
-    trx_files = glob.glob(os.path.join(run_results_dir, "results_*.trx"))
-
-    for trx_path in trx_files:
+    ascending_revit_targets = sorted(
+        eligible_revit_targets,
+        key=lambda item: (_parse_revit_major_version(item[0]) or 0, item[0]),
+    )
+    for ver, _ in ascending_revit_targets:
         try:
-            tree = ET.parse(trx_path)
-            root = tree.getroot()
+            ensure_test_template_ready(
+                ver,
+                workspace_path=workspace_path,
+                no_auto_upgrade=no_auto_upgrade,
+            )
+        except (RuntimeError, OSError, ValueError) as exc:
+            print(f"[ERROR] {exc}")
+            sys.exit(1)
 
-            counters = root.find('.//ns:ResultSummary/ns:Counters', ns)
-            if counters is not None:
-                total_run += int(counters.attrib.get('total', 0))
-                total_failed += int(counters.attrib.get('failed', 0))
-                total_passed += int(counters.attrib.get('passed', 0))
+    if eligible_revit_targets:
+        os.makedirs(run_build_root, exist_ok=True)
+        os.makedirs(run_results_dir, exist_ok=True)
 
-            for result in root.findall('.//ns:UnitTestResult', ns):
-                outcome = result.attrib.get('outcome')
-                if outcome == 'Failed':
-                    test_name = result.attrib.get('testName')
-                    error_message = ""
-                    stack_trace = ""
+    # Phase 3: Execute Revit targets (parallel builds + immediate pipelined dispatch in Worker Pool mode; sequential in cold mode)
+    if eligible_revit_targets:
+        if worker_mode == "pool":
+            build_semaphore = threading.Semaphore(MAX_CONCURRENT_BUILDS)
+            fail_fast_event = threading.Event()
+            revit_results_by_ver = {}
+            with concurrent.futures.ThreadPoolExecutor(max_workers=len(eligible_revit_targets)) as executor:
+                future_to_ver = {
+                    executor.submit(
+                        _execute_revit_target_pool,
+                        ver,
+                        csproj_list,
+                        target_class,
+                        category,
+                        target_framework,
+                        shards,
+                        no_shim,
+                        pool_cmd,
+                        workspace_path,
+                        run_build_root,
+                        run_results_dir,
+                        run_id,
+                        dotnet_exe,
+                        build_semaphore,
+                        fail_fast,
+                        fail_fast_event,
+                        _safe_print,
+                    ): ver
+                    for ver, csproj_list in eligible_revit_targets
+                }
+                for future in concurrent.futures.as_completed(future_to_ver):
+                    ver_key = future_to_ver[future]
+                    revit_results_by_ver[ver_key] = future.result()
 
-                    error_info = result.find('.//ns:ErrorInfo', ns)
-                    if error_info is not None:
-                        msg_el = error_info.find('ns:Message', ns)
-                        if msg_el is not None:
-                            error_message = msg_el.text or ""
-                        stack_el = error_info.find('ns:StackTrace', ns)
-                        if stack_el is not None:
-                            stack_trace = stack_el.text or ""
-
-                    base_name = os.path.basename(trx_path)
-                    ver_str = base_name.replace("results_", "").replace(".trx", "")
-
-                    failing_tests.append({
-                        'name': f"[{ver_str}] {test_name}",
-                        'message': error_message.strip(),
-                        'stack_trace': stack_trace.strip()
-                    })
-        except Exception as e:
-            had_execution_error = True
-            print(f"[ERROR] Failed to parse TRX file '{trx_path}': {e}")
-
-    if had_nonzero_pool_rc and not failing_tests and total_failed == 0 and not had_execution_error:
-        had_execution_error = True
-        print("[ERROR] RevitWorkerPool reported test failures, but TRX recorded 0 failed tests.")
-
-    rotate_test_results(results_root)
-
-    # 4. Output Markdown formatted summary
-    print("\n# Test Execution Summary\n")
-    if failing_tests or total_failed > 0 or had_execution_error:
-        print(f"## [FAIL] Failing Tests ({len(failing_tests)} / {total_run})\n")
-        for idx, t in enumerate(failing_tests, 1):
-            print(f"### {idx}. Test Name: `{t['name']}`")
-            print("**Error Message:**")
-            print("```")
-            print(t['message'])
-            print("```\n")
-            print("**Stack Trace:**")
-            print("```")
-            print(t['stack_trace'])
-            print("```\n")
-            print("---")
-        print(f"[TESTS] Preserving failed isolated build root for inspection: {run_build_root}")
-        sys.exit(1)
-    else:
-        shutil.rmtree(run_build_root, ignore_errors=True)
-        cleanup_revit_test_temp(run_id)
-        if total_run > 0:
-            print(f"## All tests passed successfully! [PASS] (Total: {total_passed})")
+            for ver, _ in eligible_revit_targets:
+                all_results.append(revit_results_by_ver[ver])
         else:
-            print("## No tests were executed. [WARN]")
-        sys.exit(0)
+            for ver, csproj_list in eligible_revit_targets:
+                res = _execute_revit_target_cold(
+                    ver=ver,
+                    csproj_list=csproj_list,
+                    target_class=target_class,
+                    category=category,
+                    target_framework=target_framework,
+                    test_dir=test_dir,
+                    workspace_path=workspace_path,
+                    run_build_root=run_build_root,
+                    run_results_dir=run_results_dir,
+                    run_id=run_id,
+                    dotnet_exe=dotnet_exe,
+                    print_fn=_safe_print,
+                )
+                all_results.append(res)
+                if fail_fast and not res.succeeded:
+                    break
+
+    _emit_combined_summary_and_exit(all_results, run_build_root, run_id, results_root)
 
 
 def parse_cli_args(argv=None):
@@ -2939,8 +3512,8 @@ def parse_cli_args(argv=None):
     parser.add_argument(
         "--version",
         dest="target_version",
-        default="",
-        help="Revit version to target (e.g. 2027, 2026, or Logic). Omit to run all.",
+        default=None,
+        help="Target or comma-separated targets (e.g. 2025,2026,2027, Logic, LegacyMock). Omit to run all.",
     )
     parser.add_argument(
         "--category",
@@ -2982,6 +3555,13 @@ def parse_cli_args(argv=None):
         default=False,
         help="Fail fast instead of invoking RevitModelUpgrader when TestTemplate<Year>.rvt is missing",
     )
+    parser.add_argument(
+        "--fail-fast",
+        dest="fail_fast",
+        action="store_true",
+        default=False,
+        help="Cancel unstarted builds and dispatches on first failure while letting in-flight workers finish",
+    )
     # Legacy positional support: test_executor.py [class] [version]
     parser.add_argument("pos_class", nargs="?", default="")
     parser.add_argument("pos_version", nargs="?", default="")
@@ -2990,8 +3570,15 @@ def parse_cli_args(argv=None):
     if args.shards is not None and args.shards < 1:
         parser.error("--shards must be >= 1.")
 
+    if args.target_version is not None:
+        raw_ver = args.target_version
+        if not raw_ver.strip() or any(not tok.strip() for tok in raw_ver.split(",")):
+            parser.error("--version must be a non-empty target or comma-separated list of targets.")
+        args.target_version = raw_ver.strip()
+    else:
+        args.target_version = (args.pos_version or "").strip()
+
     args.target_class = (args.target_class or args.pos_class or "").strip()
-    args.target_version = (args.target_version or args.pos_version or "").strip()
     args.category = (args.category or "").strip()
     args.target_framework = (args.target_framework or "").strip()
     if args.target_class == "DefaultAlignmentTests":
@@ -3010,5 +3597,6 @@ if __name__ == "__main__":
         no_shim=_args.no_shim,
         shards=_args.shards,
         no_auto_upgrade=_args.no_auto_upgrade,
+        fail_fast=_args.fail_fast,
     )
 

@@ -85,9 +85,6 @@ public sealed class SupervisorRunPayload
     [JsonProperty("shards")]
     public int? Shards { get; init; }
 
-    [JsonProperty("nextVersion")]
-    public int? NextVersion { get; init; }
-
     [JsonProperty("diagnostics")]
     public bool Diagnostics { get; init; }
 }
