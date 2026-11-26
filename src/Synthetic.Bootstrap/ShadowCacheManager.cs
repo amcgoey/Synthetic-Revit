@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
+using System.Reflection;
 
 namespace Synthetic.Bootstrap
 {
@@ -69,6 +71,8 @@ namespace Synthetic.Bootstrap
         public Func<int, long>? GetProcessUtcStartTicks { get; set; }
 
         public Action<string, string>? CopyFile { get; set; }
+
+        public Action<string>? WriteJournalComment { get; set; }
     }
 
     /// <summary>
@@ -79,6 +83,7 @@ namespace Synthetic.Bootstrap
     {
         private const string TestWorkerEnvVar = "SYNTHETIC_TEST_WORKER";
         private const string DisableShadowCopyEnvVar = "SYNTHETIC_DISABLE_SHADOW_COPY";
+        private const string RevitVersionMetadataKey = "RevitVersion";
 
         /// <summary>
         /// Resolves the user-local diagnostic logs directory (<c>%LOCALAPPDATA%\Synthetic\Logs</c>)
@@ -96,6 +101,137 @@ namespace Synthetic.Bootstrap
             }
 
             return Path.Combine(localAppData, "Synthetic", "Logs");
+        }
+
+        /// <summary>
+        /// Resolves the Revit release year from <paramref name="hostVersionNumber"/> first, falling back
+        /// to compile-time <c>RevitVersion</c> metadata on <paramref name="metadataAssembly"/>, and stages
+        /// the host launch plan.
+        /// </summary>
+        public static LaunchPlan PrepareHostLaunch(
+            string? hostVersionNumber,
+            Assembly metadataAssembly,
+            string bootstrapAssemblyPath,
+            out string resolvedRevitVersion,
+            ShadowCacheHooks? hooks = null)
+        {
+            if (metadataAssembly == null)
+            {
+                throw new ArgumentNullException(nameof(metadataAssembly));
+            }
+
+            if (!TryResolveRevitVersion(hostVersionNumber, metadataAssembly, out resolvedRevitVersion, out string versionError))
+            {
+                resolvedRevitVersion = string.Empty;
+                return new LaunchPlan(
+                    LaunchMode.Failed,
+                    string.Empty,
+                    string.Empty,
+                    string.Empty,
+                    versionError,
+                    new[]
+                    {
+                        $"HostVersionNumber: {hostVersionNumber ?? "<null>"}",
+                        versionError
+                    });
+            }
+
+            return PrepareLaunch(bootstrapAssemblyPath, resolvedRevitVersion, hooks);
+        }
+
+        /// <summary>
+        /// Resolves a four-digit Revit release year from <paramref name="hostVersionNumber"/> first,
+        /// falling back to compile-time <c>RevitVersion</c> metadata on <paramref name="metadataAssembly"/>.
+        /// </summary>
+        public static bool TryResolveRevitVersion(
+            string? hostVersionNumber,
+            Assembly metadataAssembly,
+            out string revitVersion,
+            out string errorMessage)
+        {
+            if (metadataAssembly == null)
+            {
+                throw new ArgumentNullException(nameof(metadataAssembly));
+            }
+
+            if (TryParseRevitYear(hostVersionNumber, out string hostYear))
+            {
+                revitVersion = hostYear;
+                errorMessage = string.Empty;
+                return true;
+            }
+
+            return TryReadRevitVersionMetadata(metadataAssembly, out revitVersion, out errorMessage);
+        }
+
+        /// <summary>
+        /// Reads and validates the compile-time <c>RevitVersion</c> assembly metadata attribute on <paramref name="assembly"/>.
+        /// </summary>
+        public static bool TryReadRevitVersionMetadata(Assembly assembly, out string revitVersion, out string errorMessage)
+        {
+            if (assembly == null)
+            {
+                throw new ArgumentNullException(nameof(assembly));
+            }
+
+            revitVersion = string.Empty;
+            errorMessage = string.Empty;
+
+            AssemblyMetadataAttribute? metadata = null;
+            foreach (AssemblyMetadataAttribute attr in assembly.GetCustomAttributes<AssemblyMetadataAttribute>())
+            {
+                if (string.Equals(attr.Key, RevitVersionMetadataKey, StringComparison.Ordinal))
+                {
+                    metadata = attr;
+                    break;
+                }
+            }
+
+            string assemblyName = assembly.GetName().Name ?? assembly.FullName ?? "<unknown>";
+            if (metadata == null)
+            {
+                errorMessage =
+                    $"Assembly '{assemblyName}' is missing required [AssemblyMetadata(\"{RevitVersionMetadataKey}\", \"<Year>\")] attribute.";
+                return false;
+            }
+
+            if (!TryParseRevitYear(metadata.Value, out string parsedYear))
+            {
+                errorMessage =
+                    $"Assembly '{assemblyName}' has unparseable '{RevitVersionMetadataKey}' metadata value '{metadata.Value ?? "<null>"}'. Expected a four-digit Revit release year.";
+                return false;
+            }
+
+            revitVersion = parsedYear;
+            return true;
+        }
+
+        /// <summary>
+        /// Validates and normalizes a four-digit Revit release year (e.g. <c>"2026"</c>).
+        /// </summary>
+        public static bool TryParseRevitYear(string? rawValue, out string normalizedYear)
+        {
+            normalizedYear = string.Empty;
+            if (string.IsNullOrWhiteSpace(rawValue))
+            {
+                return false;
+            }
+
+            string trimmed = rawValue!.Trim();
+            if (trimmed.Length != 4)
+            {
+                return false;
+            }
+
+            if (!int.TryParse(trimmed, NumberStyles.None, CultureInfo.InvariantCulture, out int parsed) ||
+                parsed < 2000 ||
+                parsed > 9999)
+            {
+                return false;
+            }
+
+            normalizedYear = parsed.ToString(CultureInfo.InvariantCulture);
+            return true;
         }
 
         /// <summary>

@@ -7,14 +7,14 @@ namespace Synthetic.Platform.Revit
     /// <summary>
     /// Reads and validates compile-time <c>RevitVersion</c> assembly metadata emitted onto payload assemblies.
     /// </summary>
-    internal static class RevitVersionMetadata
+    public static class RevitVersionMetadata
     {
-        internal const string MetadataKey = "RevitVersion";
+        public const string MetadataKey = "RevitVersion";
 
         /// <summary>
         /// Validates and parses a four-digit Revit release year (e.g. <c>"2026"</c>).
         /// </summary>
-        internal static bool TryParseRevitYear(string? rawValue, out int year)
+        public static bool TryParseRevitYear(string? rawValue, out int year)
         {
             year = 0;
             if (string.IsNullOrWhiteSpace(rawValue))
@@ -46,7 +46,7 @@ namespace Synthetic.Platform.Revit
         /// Reads the compile-time <c>RevitVersion</c> assembly metadata as a four-digit integer year,
         /// throwing <see cref="InvalidOperationException"/> when missing or unparseable.
         /// </summary>
-        internal static int ReadRevitYear(Assembly assembly)
+        public static int ReadRevitYear(Assembly assembly)
         {
             if (assembly == null)
             {
@@ -83,7 +83,7 @@ namespace Synthetic.Platform.Revit
         /// Reads the compile-time <c>RevitVersion</c> assembly metadata as a normalized four-digit year string,
         /// throwing <see cref="InvalidOperationException"/> when missing or unparseable.
         /// </summary>
-        internal static string ReadRevitYearString(Assembly assembly)
+        public static string ReadRevitYearString(Assembly assembly)
         {
             return ReadRevitYear(assembly).ToString(CultureInfo.InvariantCulture);
         }

@@ -1338,6 +1338,54 @@ def get_test_template_upgrade_mutex_name(version, test_models_dir):
     return f"{TEST_TEMPLATE_UPGRADE_MUTEX_PREFIX}{version}_{dir_digest}"
 
 
+def select_earlier_versioned_source(
+    candidates,
+    target_year,
+    inspect_fn=inspect_model_format_year,
+    allow_same_year=False,
+):
+    """
+    Pick the best source model targeting `target_year` from `candidates`:
+      1. Prefer `<Family><target_year - 1>.<ext>` when its effective year < target_year.
+      2. Fall back to the newest earlier copy (effective year < target_year).
+      3. When `allow_same_year` is True and no earlier copy exists, allow effective year == target_year.
+    Returns (source_path, source_year) or (None, None).
+    """
+    scored = []
+    for path in candidates or ():
+        stem = os.path.splitext(os.path.basename(path))[0]
+        year_match = TRAILING_YEAR_RE.search(stem)
+        name_year = int(year_match.group(1)) if year_match else None
+        file_format = inspect_fn(path)
+        effective_year = file_format if file_format is not None else name_year
+        if effective_year is None:
+            continue
+        is_prev_year = name_year == (target_year - 1)
+        has_explicit_year = name_year is not None
+        scored.append((path, effective_year, is_prev_year, has_explicit_year))
+
+    earlier = [item for item in scored if item[1] < target_year]
+    if earlier:
+        earlier.sort(
+            key=lambda item: (
+                1 if item[2] else 0,
+                item[1],
+                1 if item[3] else 0,
+                item[0],
+            ),
+            reverse=True,
+        )
+        return earlier[0][0], earlier[0][1]
+
+    if allow_same_year:
+        same_year = [item for item in scored if item[1] == target_year]
+        if same_year:
+            same_year.sort(key=lambda item: (1 if item[3] else 0, item[0]), reverse=True)
+            return same_year[0][0], same_year[0][1]
+
+    return None, None
+
+
 def _find_earlier_test_template(test_models_dir, target_year, inspect_fn=inspect_model_format_year):
     """
     Locate the newest earlier TestTemplate*.rvt (< target_year) under `test_models_dir`,
@@ -1346,37 +1394,20 @@ def _find_earlier_test_template(test_models_dir, target_year, inspect_fn=inspect
     if not os.path.isdir(test_models_dir):
         return None, None
 
-    scored = []
+    candidates = []
     for entry in sorted(os.listdir(test_models_dir)):
         if not TEST_TEMPLATE_FILE_RE.match(entry):
             continue
         full_path = os.path.join(test_models_dir, entry)
-        if not os.path.isfile(full_path):
-            continue
-        stem = os.path.splitext(entry)[0]
-        year_match = TRAILING_YEAR_RE.search(stem)
-        name_year = int(year_match.group(1)) if year_match else None
-        file_format = inspect_fn(full_path)
-        effective_year = file_format if file_format is not None else name_year
-        if effective_year is None or effective_year >= target_year:
-            continue
-        is_prev_year = name_year == (target_year - 1)
-        has_explicit_year = name_year is not None
-        scored.append((full_path, effective_year, is_prev_year, has_explicit_year))
+        if os.path.isfile(full_path):
+            candidates.append(full_path)
 
-    if not scored:
-        return None, None
-
-    scored.sort(
-        key=lambda item: (
-            1 if item[2] else 0,
-            item[1],
-            1 if item[3] else 0,
-            item[0],
-        ),
-        reverse=True,
+    return select_earlier_versioned_source(
+        candidates,
+        target_year,
+        inspect_fn=inspect_fn,
+        allow_same_year=False,
     )
-    return scored[0][0], scored[0][1]
 
 
 def _verify_staged_test_template(
