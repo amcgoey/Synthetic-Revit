@@ -25,6 +25,7 @@ public sealed class LaunchedWorkerProcess : IAsyncDisposable, IDisposable
     private readonly Action? _onDispose;
     private readonly object _cleanupSync = new();
     private readonly List<Action> _exitOrDisposeCallbacks = new();
+    private readonly List<IDisposable> _disposeAfterExitResources = new();
 
     private RegisteredWaitHandle? _registeredExitWait;
     private WaitHandle? _exitWaitHandle;
@@ -78,6 +79,10 @@ public sealed class LaunchedWorkerProcess : IAsyncDisposable, IDisposable
 
     public string WorkerId { get; }
 
+    public IntPtr DesktopHandle { get; private set; }
+
+    public string? DesktopName { get; private set; }
+
     public string PipeName => $"ricaun.{ProcessName}.{ProcessId}";
 
     public bool HasExited
@@ -124,6 +129,34 @@ public sealed class LaunchedWorkerProcess : IAsyncDisposable, IDisposable
             return NativeMethods.GetExitCodeProcess(_processHandle, out uint code)
                 ? unchecked((int)code)
                 : null;
+        }
+    }
+
+    /// <summary>
+    /// Attaches an isolated desktop resource to this worker so its handle stays open
+    /// for the worker's lifetime and is disposed only after the Job Object exits all processes.
+    /// </summary>
+    internal void AttachDesktop(IDisposable desktopResource, IntPtr desktopHandle, string desktopName)
+    {
+        ArgumentNullException.ThrowIfNull(desktopResource);
+
+        if (Volatile.Read(ref _disposed) != 0)
+        {
+            desktopResource.Dispose();
+            return;
+        }
+
+        lock (_cleanupSync)
+        {
+            if (Volatile.Read(ref _disposed) != 0)
+            {
+                desktopResource.Dispose();
+                return;
+            }
+
+            DesktopHandle = desktopHandle;
+            DesktopName = desktopName;
+            _disposeAfterExitResources.Add(desktopResource);
         }
     }
 
@@ -208,6 +241,23 @@ public sealed class LaunchedWorkerProcess : IAsyncDisposable, IDisposable
             }
         }
 
+        if (_jobObject is not null && OperatingSystem.IsWindows())
+        {
+            if (_jobObject.GetActiveProcessCount() > 0)
+            {
+                _jobObject.Terminate(1);
+                try
+                {
+                    await _jobObject.WaitForAllProcessesExitedAsync(TimeSpan.FromSeconds(3), cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                {
+                    // Proceed to disposal.
+                }
+            }
+        }
+
         InvokeCleanupCallbacks();
     }
 
@@ -240,9 +290,52 @@ public sealed class LaunchedWorkerProcess : IAsyncDisposable, IDisposable
         }
 
         exitWaitHandle?.Dispose();
-        _jobObject?.Dispose();
+
+        if (_jobObject is not null && OperatingSystem.IsWindows())
+        {
+            if (_jobObject.GetActiveProcessCount() > 0)
+            {
+                try
+                {
+                    _jobObject.Terminate(1);
+                }
+                catch (Exception)
+                {
+                    // Best-effort termination during synchronous Dispose.
+                }
+
+                _jobObject.WaitForAllProcessesExited(TimeSpan.FromSeconds(3));
+            }
+
+            _jobObject.Dispose();
+        }
+        else
+        {
+            _jobObject?.Dispose();
+        }
+
         _processHandle?.Dispose();
         _onDispose?.Invoke();
+
+        IDisposable[] postExitResources;
+        lock (_cleanupSync)
+        {
+            DesktopHandle = IntPtr.Zero;
+            postExitResources = _disposeAfterExitResources.ToArray();
+            _disposeAfterExitResources.Clear();
+        }
+
+        foreach (IDisposable resource in postExitResources)
+        {
+            try
+            {
+                resource.Dispose();
+            }
+            catch (Exception)
+            {
+                // Best-effort post-exit resource cleanup.
+            }
+        }
     }
 
     public async ValueTask DisposeAsync()

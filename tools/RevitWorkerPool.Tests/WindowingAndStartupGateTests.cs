@@ -23,9 +23,6 @@ namespace RevitWorkerPool.Tests;
 [SupportedOSPlatform("windows")]
 public class WindowingAndStartupGateTests
 {
-    private const uint WsOverlappedWindow = 0x00CF0000;
-    private const int SwShowNa = 8;
-
     private string _tempRoot = string.Empty;
     private string _guiFocusProbeExe = string.Empty;
     private string _fakeAssemblyPath = string.Empty;
@@ -64,17 +61,16 @@ public class WindowingAndStartupGateTests
     }
 
     [Test]
-    public async Task OffScreenWindowingLauncher_MovesProbeOffScreenWithNoActivate_PreservesVisibilityAndForegroundWindow()
+    public async Task IsolatedDesktopLauncher_StandardProbe_NeverExposesWindowsOnCallerDesktop_PreservesVisibilityOnIsolatedDesktop_AndClosesDesktopOnDispose()
     {
         string statusFile = Path.Combine(_tempRoot, "probe_status.txt");
         string exitEventName = $@"Local\GuiFocusProbe_Exit_{Guid.NewGuid():N}";
         using var exitEvent = new EventWaitHandle(false, EventResetMode.ManualReset, exitEventName);
 
-        using var tracker = new OffScreenWindowTracker();
-        using var launcher = new OffScreenWindowingLauncher(new StandardProcessLauncher(), tracker);
-
+        var launcher = new IsolatedDesktopLauncher(new StandardProcessLauncher());
+        IntPtr callerDesktop = NativeMethods.GetThreadDesktop(NativeMethods.GetCurrentThreadId());
         IntPtr foregroundBefore = NativeMethods.GetForegroundWindow();
-        bool trackedBeforeResume = false;
+        bool hookCalledBeforeResume = false;
 
         var request = new WorkerLaunchRequest
         {
@@ -83,56 +79,46 @@ public class WindowingAndStartupGateTests
             Arguments = $"--mode window --title \"FocusProbe_{Guid.NewGuid():N}\" --status-file \"{statusFile}\" --exit-event \"{exitEventName}\"",
             WorkerId = $"w_probe_{Guid.NewGuid():N}",
             ProjectRoot = _tempRoot,
-            OnProcessCreatedBeforeResume = pid => trackedBeforeResume = tracker.IsTracked(pid)
+            OnProcessCreatedBeforeResume = _ => hookCalledBeforeResume = true
         };
 
+        string? createdDesktopName = null;
         LaunchedWorkerProcess worker = await launcher.LaunchAsync(request);
         try
         {
-            Assert.That(trackedBeforeResume, Is.True, "PID must be registered before ResumeThread.");
-            Assert.That(tracker.IsTracked(worker.ProcessId), Is.True);
+            createdDesktopName = worker.DesktopName;
+            Assert.That(hookCalledBeforeResume, Is.True);
+            Assert.That(worker.DesktopHandle, Is.Not.EqualTo(IntPtr.Zero));
+            Assert.That(createdDesktopName, Is.Not.Null.And.Not.Empty);
+            Assert.That(IsolatedDesktopHost.DesktopExists(createdDesktopName!), Is.True);
 
-            IntPtr probeHwnd = IntPtr.Zero;
-            NativeMethods.Rect probeRect = default;
+            IntPtr isolatedHwnd = IntPtr.Zero;
             var sw = Stopwatch.StartNew();
             while (sw.Elapsed < TimeSpan.FromSeconds(3))
             {
-                probeHwnd = FindFirstVisibleTopLevelWindowForPid(worker.ProcessId);
-                if (probeHwnd != IntPtr.Zero &&
-                    NativeMethods.GetWindowRect(probeHwnd, out probeRect) &&
-                    probeRect.Left == OffScreenWindowTracker.DefaultOffScreenX &&
-                    probeRect.Top == OffScreenWindowTracker.DefaultOffScreenY)
+                AssertZeroWindowsForPidOnDesktop(callerDesktop, worker.ProcessId, "caller desktop");
+
+                IReadOnlyList<IntPtr> isolatedWindows =
+                    IsolatedDesktopHost.EnumerateTopLevelWindowsForProcess(worker.DesktopHandle, worker.ProcessId);
+                isolatedHwnd = isolatedWindows.FirstOrDefault(h => NativeMethods.IsWindowVisible(h));
+                if (isolatedHwnd != IntPtr.Zero)
                 {
                     break;
                 }
 
-                await Task.Delay(15);
+                await Task.Delay(10);
             }
 
-            Assert.That(probeHwnd, Is.Not.EqualTo(IntPtr.Zero), "GuiFocusProbe top-level window did not appear.");
-            Assert.That(NativeMethods.IsWindowVisible(probeHwnd), Is.True, "Window must remain visible (IsWindowVisible == true).");
-            Assert.That(NativeMethods.IsIconic(probeHwnd), Is.False, "Window should be moved off-screen, not minimized.");
-            Assert.That(probeRect.Left, Is.EqualTo(OffScreenWindowTracker.DefaultOffScreenX));
-            Assert.That(probeRect.Top, Is.EqualTo(OffScreenWindowTracker.DefaultOffScreenY));
-            Assert.That(probeRect.Right - probeRect.Left, Is.EqualTo(320));
-            Assert.That(probeRect.Bottom - probeRect.Top, Is.EqualTo(240));
+            Assert.That(isolatedHwnd, Is.Not.EqualTo(IntPtr.Zero), "GuiFocusProbe top-level window did not appear on isolated desktop.");
+            Assert.That(NativeMethods.IsWindowVisible(isolatedHwnd), Is.True, "Window must remain visible (IsWindowVisible == true).");
+            Assert.That(NativeMethods.IsIconic(isolatedHwnd), Is.False, "Window on isolated desktop should not be forced minimized.");
+            Assert.That(NativeMethods.GetForegroundWindow(), Is.EqualTo(foregroundBefore), "GetForegroundWindow() on caller desktop must not change.");
 
-            IntPtr foregroundDuring = NativeMethods.GetForegroundWindow();
-            Assert.That(foregroundDuring, Is.EqualTo(foregroundBefore), "GetForegroundWindow() must not change.");
-            Assert.That(foregroundDuring, Is.Not.EqualTo(probeHwnd));
-
-            // Strict PID scoping: an untracked window in this test process must stay at (120, 120).
-            IntPtr untrackedHwnd = CreateAndShowUntrackedLocalWindow(120, 120, 200, 150);
-            try
+            // Keep polling caller desktop briefly to prove zero late window leakage.
+            for (int i = 0; i < 10; i++)
             {
-                PumpCurrentThreadMessages(30);
-                Assert.That(NativeMethods.GetWindowRect(untrackedHwnd, out NativeMethods.Rect localRect), Is.True);
-                Assert.That(localRect.Left, Is.EqualTo(120));
-                Assert.That(localRect.Top, Is.EqualTo(120));
-            }
-            finally
-            {
-                NativeMethods.DestroyWindow(untrackedHwnd);
+                AssertZeroWindowsForPidOnDesktop(callerDesktop, worker.ProcessId, "caller desktop");
+                await Task.Delay(10);
             }
 
             if (File.Exists(statusFile))
@@ -143,27 +129,161 @@ public class WindowingAndStartupGateTests
 
             exitEvent.Set();
             await worker.WaitForExitAsync();
-
-            Assert.That(tracker.IsTracked(worker.ProcessId), Is.False, "Tracked PID must be removed upon process exit.");
+            Assert.That(IsolatedDesktopHost.DesktopExists(createdDesktopName!), Is.True, "Desktop handle stays open until worker disposal.");
         }
         finally
         {
             exitEvent.Set();
             await worker.DisposeAsync();
-            Assert.That(tracker.IsTracked(worker.ProcessId), Is.False);
         }
+
+        Assert.That(worker.DesktopHandle, Is.EqualTo(IntPtr.Zero));
+        Assert.That(IsolatedDesktopHost.DesktopExists(createdDesktopName!), Is.False, "Desktop handle must close cleanly after worker/job exit with no zombie leak.");
+    }
+
+    [TestCase("--mode maximized")]
+    [TestCase("--mode maximized --clamp-pos")]
+    [TestCase("--mode window --reposition-after-ms 150")]
+    public async Task IsolatedDesktopLauncher_AggressiveWindowModes_NeverTouchCallerDesktop_PreservesVisibilityAndClosesDesktop(
+        string modeArgs)
+    {
+        string statusFile = Path.Combine(_tempRoot, $"probe_{Guid.NewGuid():N}.txt");
+        string exitEventName = $@"Local\GuiFocusProbe_ModeExit_{Guid.NewGuid():N}";
+        using var exitEvent = new EventWaitHandle(false, EventResetMode.ManualReset, exitEventName);
+
+        var launcher = new IsolatedDesktopLauncher(new StandardProcessLauncher());
+        IntPtr callerDesktop = NativeMethods.GetThreadDesktop(NativeMethods.GetCurrentThreadId());
+        IntPtr foregroundBefore = NativeMethods.GetForegroundWindow();
+
+        var request = new WorkerLaunchRequest
+        {
+            RevitVersion = 2026,
+            ExecutablePath = _guiFocusProbeExe,
+            Arguments = $"{modeArgs} --title \"ModeProbe_{Guid.NewGuid():N}\" --status-file \"{statusFile}\" --exit-event \"{exitEventName}\"",
+            WorkerId = $"w_mode_{Guid.NewGuid():N}",
+            ProjectRoot = _tempRoot
+        };
+
+        string? createdDesktopName = null;
+        LaunchedWorkerProcess worker = await launcher.LaunchAsync(request);
+        try
+        {
+            createdDesktopName = worker.DesktopName;
+            Assert.That(worker.DesktopHandle, Is.Not.EqualTo(IntPtr.Zero));
+
+            IntPtr isolatedHwnd = IntPtr.Zero;
+            var sw = Stopwatch.StartNew();
+            while (sw.Elapsed < TimeSpan.FromMilliseconds(500))
+            {
+                AssertZeroWindowsForPidOnDesktop(callerDesktop, worker.ProcessId, "caller desktop");
+
+                if (isolatedHwnd == IntPtr.Zero)
+                {
+                    IReadOnlyList<IntPtr> isolatedWindows =
+                        IsolatedDesktopHost.EnumerateTopLevelWindowsForProcess(worker.DesktopHandle, worker.ProcessId);
+                    isolatedHwnd = isolatedWindows.FirstOrDefault(h => NativeMethods.IsWindowVisible(h));
+                }
+
+                await Task.Delay(10);
+            }
+
+            Assert.That(isolatedHwnd, Is.Not.EqualTo(IntPtr.Zero), "GuiFocusProbe window did not appear on isolated desktop.");
+            Assert.That(NativeMethods.IsWindowVisible(isolatedHwnd), Is.True, "Window must remain visible (IsWindowVisible == true).");
+            Assert.That(NativeMethods.GetForegroundWindow(), Is.EqualTo(foregroundBefore), "GetForegroundWindow() on caller desktop must not change.");
+
+            exitEvent.Set();
+            await worker.WaitForExitAsync();
+        }
+        finally
+        {
+            exitEvent.Set();
+            await worker.DisposeAsync();
+        }
+
+        Assert.That(IsolatedDesktopHost.DesktopExists(createdDesktopName!), Is.False, "Isolated desktop must not leak after teardown.");
     }
 
     [Test]
-    public async Task OffScreenWindowingLauncher_ComposesOverStubAndUntracksOnInnerLaunchFailure()
+    public async Task IsolatedDesktopLauncher_WithCleanDetoursLauncher_IsolatesGuiProbeFromCallerDesktop()
     {
-        using var tracker = new OffScreenWindowTracker();
+        string toolsDir = ResolveToolsDirectory();
+        string poolBinDir = Path.Combine(toolsDir, "bin", "RevitWorkerPool");
+        string shimDllPath = Path.Combine(poolBinDir, "RevitCleanShim.dll");
+        string launcherDllPath = Path.Combine(poolBinDir, "RevitCleanLauncher.dll");
+
+        Assert.That(File.Exists(shimDllPath), Is.True, $"Run tools/build.ps1 first; missing {shimDllPath}");
+        Assert.That(File.Exists(launcherDllPath), Is.True, $"Run tools/build.ps1 first; missing {launcherDllPath}");
+
+        string statusFile = Path.Combine(_tempRoot, "probe_detours_status.txt");
+        string exitEventName = $@"Local\GuiFocusProbe_DetoursExit_{Guid.NewGuid():N}";
+        using var exitEvent = new EventWaitHandle(false, EventResetMode.ManualReset, exitEventName);
+
+        var detoursLauncher = new CleanDetoursProcessLauncher(shimDllPath, launcherDllPath);
+        var launcher = new IsolatedDesktopLauncher(detoursLauncher);
+        Assert.That(launcher.UsesCleanShim, Is.True);
+
+        IntPtr callerDesktop = NativeMethods.GetThreadDesktop(NativeMethods.GetCurrentThreadId());
+        IntPtr foregroundBefore = NativeMethods.GetForegroundWindow();
+
+        var request = new WorkerLaunchRequest
+        {
+            RevitVersion = 2026,
+            ExecutablePath = _guiFocusProbeExe,
+            Arguments = $"--mode maximized --clamp-pos --title \"DetoursProbe_{Guid.NewGuid():N}\" --status-file \"{statusFile}\" --exit-event \"{exitEventName}\"",
+            WorkerId = $"w_detours_{Guid.NewGuid():N}",
+            ProjectRoot = _tempRoot
+        };
+
+        string? createdDesktopName = null;
+        LaunchedWorkerProcess worker = await launcher.LaunchAsync(request);
+        try
+        {
+            createdDesktopName = worker.DesktopName;
+            Assert.That(worker.DesktopHandle, Is.Not.EqualTo(IntPtr.Zero));
+            Assert.That(IsolatedDesktopHost.DesktopExists(createdDesktopName!), Is.True);
+
+            IntPtr isolatedHwnd = IntPtr.Zero;
+            var sw = Stopwatch.StartNew();
+            while (sw.Elapsed < TimeSpan.FromSeconds(3))
+            {
+                AssertZeroWindowsForPidOnDesktop(callerDesktop, worker.ProcessId, "caller desktop");
+
+                IReadOnlyList<IntPtr> isolatedWindows =
+                    IsolatedDesktopHost.EnumerateTopLevelWindowsForProcess(worker.DesktopHandle, worker.ProcessId);
+                isolatedHwnd = isolatedWindows.FirstOrDefault(h => NativeMethods.IsWindowVisible(h));
+                if (isolatedHwnd != IntPtr.Zero)
+                {
+                    break;
+                }
+
+                await Task.Delay(10);
+            }
+
+            Assert.That(isolatedHwnd, Is.Not.EqualTo(IntPtr.Zero), "Shimmed GuiFocusProbe window did not appear on isolated desktop.");
+            Assert.That(NativeMethods.IsWindowVisible(isolatedHwnd), Is.True);
+            Assert.That(NativeMethods.GetForegroundWindow(), Is.EqualTo(foregroundBefore));
+
+            exitEvent.Set();
+            await worker.WaitForExitAsync();
+        }
+        finally
+        {
+            exitEvent.Set();
+            await worker.DisposeAsync();
+        }
+
+        Assert.That(IsolatedDesktopHost.DesktopExists(createdDesktopName!), Is.False, "Shimmed worker desktop must close cleanly after teardown.");
+    }
+
+    [Test]
+    public async Task IsolatedDesktopLauncher_ComposesOverStub_AndCleansUpDesktopOnFailureAndDispose()
+    {
         using var stub = new StubWorkerProcessLauncher();
-        using var launcher = new OffScreenWindowingLauncher(stub, tracker);
+        var launcher = new IsolatedDesktopLauncher(stub);
         Assert.That(launcher.UsesCleanShim, Is.False);
 
         using var shimmedStub = new StubWorkerProcessLauncher(usesCleanShim: true);
-        using var shimmedDecorator = new OffScreenWindowingLauncher(shimmedStub, tracker);
+        var shimmedDecorator = new IsolatedDesktopLauncher(shimmedStub);
         Assert.That(shimmedDecorator.UsesCleanShim, Is.True);
 
         bool innerHookCalled = false;
@@ -176,71 +296,34 @@ public class WindowingAndStartupGateTests
         };
 
         LaunchedWorkerProcess worker = await launcher.LaunchAsync(req);
+        string? desktopName = worker.DesktopName;
         Assert.That(innerHookCalled, Is.True);
-        Assert.That(tracker.IsTracked(worker.ProcessId), Is.True);
+        Assert.That(desktopName, Is.Not.Null.And.Not.Empty);
+        Assert.That(stub.LaunchedRequests.Single().DesktopName, Is.EqualTo(desktopName));
+        Assert.That(IsolatedDesktopHost.DesktopExists(desktopName!), Is.True);
 
         worker.Dispose();
-        Assert.That(tracker.IsTracked(worker.ProcessId), Is.False);
+        Assert.That(IsolatedDesktopHost.DesktopExists(desktopName!), Is.False);
 
-        // Failure cleanup check
-        var failingInner = new ThrowingBeforeResumeLauncher(pid: 88991);
-        using var failingDecorator = new OffScreenWindowingLauncher(failingInner, tracker);
+        // Failure cleanup check: desktop created for failed launch must not leak.
+        string? failingDesktopName = null;
+        var failingInner = new DelegateLauncher((r, _) =>
+        {
+            failingDesktopName = r.DesktopName;
+            r.OnProcessCreatedBeforeResume?.Invoke(88991);
+            throw new InvalidOperationException("Simulated launch failure.");
+        });
+        var failingDecorator = new IsolatedDesktopLauncher(failingInner);
         Assert.ThrowsAsync<InvalidOperationException>(async () =>
             await failingDecorator.LaunchAsync(new WorkerLaunchRequest
             {
                 RevitVersion = 2026,
-                ExecutablePath = _guiFocusProbeExe
+                ExecutablePath = _guiFocusProbeExe,
+                WorkerId = "w_fail_clean"
             }));
-        Assert.That(tracker.IsTracked(88991), Is.False);
-    }
 
-    [Test]
-    public async Task OffScreenWindowTracker_InitialSweepMovesExistingOnScreenProbeOffScreen()
-    {
-        string exitEventName = $@"Local\GuiFocusProbe_SweepExit_{Guid.NewGuid():N}";
-        using var exitEvent = new EventWaitHandle(false, EventResetMode.ManualReset, exitEventName);
-
-        var plainLauncher = new StandardProcessLauncher();
-        IntPtr foregroundBefore = NativeMethods.GetForegroundWindow();
-
-        await using LaunchedWorkerProcess worker = await plainLauncher.LaunchAsync(new WorkerLaunchRequest
-        {
-            RevitVersion = 2026,
-            ExecutablePath = _guiFocusProbeExe,
-            Arguments = $"--mode window --title \"ControlProbe_{Guid.NewGuid():N}\" --exit-event \"{exitEventName}\"",
-            WorkerId = "w_control_sweep",
-            ProjectRoot = _tempRoot
-        });
-
-        IntPtr probeHwnd = IntPtr.Zero;
-        NativeMethods.Rect initialRect = default;
-        var sw = Stopwatch.StartNew();
-        while (sw.Elapsed < TimeSpan.FromSeconds(3))
-        {
-            probeHwnd = FindFirstVisibleTopLevelWindowForPid(worker.ProcessId);
-            if (probeHwnd != IntPtr.Zero && NativeMethods.GetWindowRect(probeHwnd, out initialRect))
-            {
-                break;
-            }
-
-            await Task.Delay(15);
-        }
-
-        Assert.That(probeHwnd, Is.Not.EqualTo(IntPtr.Zero));
-        Assert.That(initialRect.Left, Is.EqualTo(100), "Control probe without tracker should start on-screen at x=100.");
-        Assert.That(initialRect.Top, Is.EqualTo(100), "Control probe without tracker should start on-screen at y=100.");
-
-        using var tracker = new OffScreenWindowTracker();
-        tracker.TrackProcess(worker.ProcessId);
-
-        Assert.That(NativeMethods.GetWindowRect(probeHwnd, out NativeMethods.Rect movedRect), Is.True);
-        Assert.That(movedRect.Left, Is.EqualTo(OffScreenWindowTracker.DefaultOffScreenX));
-        Assert.That(movedRect.Top, Is.EqualTo(OffScreenWindowTracker.DefaultOffScreenY));
-        Assert.That(NativeMethods.IsWindowVisible(probeHwnd), Is.True);
-        Assert.That(NativeMethods.GetForegroundWindow(), Is.EqualTo(foregroundBefore));
-
-        exitEvent.Set();
-        await worker.WaitForExitAsync();
+        Assert.That(failingDesktopName, Is.Not.Null.And.Not.Empty);
+        Assert.That(IsolatedDesktopHost.DesktopExists(failingDesktopName!), Is.False);
     }
 
     [Test]
@@ -623,7 +706,7 @@ public class WindowingAndStartupGateTests
         string journalsDir = Path.Combine(_tempRoot, "JournalsRealModal");
         Directory.CreateDirectory(journalsDir);
 
-        using var windowingLauncher = new OffScreenWindowingLauncher(new StandardProcessLauncher());
+        var windowingLauncher = new IsolatedDesktopLauncher(new StandardProcessLauncher());
         using var stubRetryLauncher = new StubWorkerProcessLauncher((server, _) =>
         {
             server.InitialIsBusy = true;
@@ -743,26 +826,28 @@ public class WindowingAndStartupGateTests
         };
     }
 
-    private static string ResolveGuiFocusProbeExecutable()
+    private static string ResolveToolsDirectory()
     {
-        string? dir = AppContext.BaseDirectory;
-        string? toolsDir = null;
-        var current = new DirectoryInfo(dir);
+        var current = new DirectoryInfo(AppContext.BaseDirectory);
         while (current is not null)
         {
             if (string.Equals(current.Name, "tools", StringComparison.OrdinalIgnoreCase) &&
                 Directory.Exists(Path.Combine(current.FullName, "RevitCleanShim.Probes")))
             {
-                toolsDir = current.FullName;
-                break;
+                return current.FullName;
             }
 
             current = current.Parent;
         }
 
-        Assert.That(toolsDir, Is.Not.Null, $"Could not locate tools directory above '{AppContext.BaseDirectory}'.");
+        Assert.Fail($"Could not locate tools directory above '{AppContext.BaseDirectory}'.");
+        return string.Empty;
+    }
 
-        string probeRoot = Path.Combine(toolsDir!, "RevitCleanShim.Probes", "GuiFocusProbe", "bin");
+    private static string ResolveGuiFocusProbeExecutable()
+    {
+        string toolsDir = ResolveToolsDirectory();
+        string probeRoot = Path.Combine(toolsDir, "RevitCleanShim.Probes", "GuiFocusProbe", "bin");
         string preferredConfig = AppContext.BaseDirectory.Contains($"{Path.DirectorySeparatorChar}Release{Path.DirectorySeparatorChar}", StringComparison.OrdinalIgnoreCase)
             ? "Release"
             : "Debug";
@@ -779,59 +864,27 @@ public class WindowingAndStartupGateTests
         return found!;
     }
 
-    private static IntPtr FindFirstVisibleTopLevelWindowForPid(int targetPid)
+    private static void AssertZeroWindowsForPidOnDesktop(IntPtr desktopHandle, int targetPid, string desktopLabel)
     {
-        IntPtr found = IntPtr.Zero;
+        var found = new List<(IntPtr Hwnd, bool Visible)>();
         NativeMethods.EnumWindowsProc proc = (hwnd, _) =>
         {
             NativeMethods.GetWindowThreadProcessId(hwnd, out uint rawPid);
-            if (unchecked((int)rawPid) == targetPid && NativeMethods.IsWindowVisible(hwnd))
+            if (unchecked((int)rawPid) == targetPid)
             {
-                found = hwnd;
-                return false;
+                found.Add((hwnd, NativeMethods.IsWindowVisible(hwnd)));
             }
 
             return true;
         };
 
-        NativeMethods.EnumWindows(proc, IntPtr.Zero);
+        NativeMethods.EnumDesktopWindows(desktopHandle, proc, IntPtr.Zero);
         GC.KeepAlive(proc);
-        return found;
-    }
 
-    private static IntPtr CreateAndShowUntrackedLocalWindow(int x, int y, int width, int height)
-    {
-        IntPtr hwnd = NativeMethods.CreateWindowExW(
-            0,
-            "STATIC",
-            "UntrackedLocalProbe",
-            WsOverlappedWindow,
-            x,
-            y,
-            width,
-            height,
-            IntPtr.Zero,
-            IntPtr.Zero,
-            IntPtr.Zero,
-            IntPtr.Zero);
-        Assert.That(hwnd, Is.Not.EqualTo(IntPtr.Zero));
-        NativeMethods.ShowWindow(hwnd, SwShowNa);
-        return hwnd;
-    }
-
-    private static void PumpCurrentThreadMessages(int durationMs)
-    {
-        var sw = Stopwatch.StartNew();
-        while (sw.ElapsedMilliseconds < durationMs)
-        {
-            while (NativeMethods.PeekMessageW(out NativeMethods.Msg msg, IntPtr.Zero, 0, 0, 0x0001))
-            {
-                NativeMethods.TranslateMessage(ref msg);
-                NativeMethods.DispatchMessageW(ref msg);
-            }
-
-            Thread.Sleep(5);
-        }
+        Assert.That(
+            found,
+            Is.Empty,
+            $"Expected zero windows for worker PID {targetPid} on {desktopLabel}, but found {found.Count} HWND(s) (first=0x{found.FirstOrDefault().Hwnd.ToInt64():X}, visible={found.FirstOrDefault().Visible}).");
     }
 
     private sealed class NoOpDisposable : IDisposable
@@ -952,24 +1005,6 @@ public class WindowingAndStartupGateTests
         Assert.That(launcher.Workers.Single().IsTerminated, Is.True);
     }
 
-    private sealed class ThrowingBeforeResumeLauncher : IWorkerProcessLauncher
-    {
-        private readonly int _pid;
-
-        public ThrowingBeforeResumeLauncher(int pid)
-        {
-            _pid = pid;
-        }
-
-        public bool UsesCleanShim => false;
-
-        public Task<LaunchedWorkerProcess> LaunchAsync(WorkerLaunchRequest request, CancellationToken cancellationToken = default)
-        {
-            request.OnProcessCreatedBeforeResume?.Invoke(_pid);
-            throw new InvalidOperationException("Simulated launch failure after pre-resume hook.");
-        }
-    }
-
     private sealed class DelegateLauncher : IWorkerProcessLauncher
     {
         private readonly Func<WorkerLaunchRequest, CancellationToken, Task<LaunchedWorkerProcess>> _fn;
@@ -992,39 +1027,18 @@ public class WindowingAndStartupGateTests
         [return: MarshalAs(UnmanagedType.Bool)]
         public delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lParam);
 
-        [StructLayout(LayoutKind.Sequential)]
-        public struct Point
-        {
-            public int X;
-            public int Y;
-        }
-
-        [StructLayout(LayoutKind.Sequential)]
-        public struct Msg
-        {
-            public IntPtr Hwnd;
-            public uint Message;
-            public UIntPtr WParam;
-            public IntPtr LParam;
-            public uint Time;
-            public Point Pt;
-        }
-
-        [StructLayout(LayoutKind.Sequential)]
-        public struct Rect
-        {
-            public int Left;
-            public int Top;
-            public int Right;
-            public int Bottom;
-        }
-
         [DllImport("user32.dll")]
         public static extern IntPtr GetForegroundWindow();
 
         [DllImport("user32.dll")]
+        public static extern IntPtr GetThreadDesktop(uint dwThreadId);
+
+        [DllImport("kernel32.dll")]
+        public static extern uint GetCurrentThreadId();
+
+        [DllImport("user32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+        public static extern bool EnumDesktopWindows(IntPtr hDesktop, EnumWindowsProc lpfn, IntPtr lParam);
 
         [DllImport("user32.dll")]
         public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
@@ -1036,43 +1050,5 @@ public class WindowingAndStartupGateTests
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool IsIconic(IntPtr hWnd);
-
-        [DllImport("user32.dll", SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool GetWindowRect(IntPtr hWnd, out Rect lpRect);
-
-        [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-        public static extern IntPtr CreateWindowExW(
-            uint dwExStyle,
-            string lpClassName,
-            string lpWindowName,
-            uint dwStyle,
-            int x,
-            int y,
-            int nWidth,
-            int nHeight,
-            IntPtr hWndParent,
-            IntPtr hMenu,
-            IntPtr hInstance,
-            IntPtr lpParam);
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool DestroyWindow(IntPtr hWnd);
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool PeekMessageW(out Msg lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax, uint wRemoveMsg);
-
-        [DllImport("user32.dll")]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool TranslateMessage(ref Msg lpMsg);
-
-        [DllImport("user32.dll")]
-        public static extern IntPtr DispatchMessageW(ref Msg lpMsg);
     }
 }

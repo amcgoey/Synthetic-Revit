@@ -28,7 +28,6 @@ public class ProgramTests
             "--timeout-seconds", "90",
             "--boot-timeout-seconds", "45",
             "--shards", "3",
-            "--next-version", "2025",
             "--worker-id", "w_cli_1",
             "--project-root", @"C:\repo",
             "--pipe-name", "CustomControlPipe",
@@ -52,7 +51,6 @@ public class ProgramTests
         Assert.That(options.ExecutionTimeout.TotalSeconds, Is.EqualTo(90));
         Assert.That(options.BootTimeout.TotalSeconds, Is.EqualTo(45));
         Assert.That(options.Shards, Is.EqualTo(3));
-        Assert.That(options.NextVersion, Is.EqualTo(2025));
         Assert.That(options.WorkerId, Is.EqualTo("w_cli_1"));
         Assert.That(options.ProjectRoot, Is.EqualTo(@"C:\repo"));
         Assert.That(options.PipeName, Is.EqualTo("CustomControlPipe"));
@@ -78,7 +76,6 @@ public class ProgramTests
         Assert.That(ok, Is.True, error);
         Assert.That(options!.OneShot, Is.False);
         Assert.That(options.Shards, Is.Null);
-        Assert.That(options.NextVersion, Is.Null);
         Assert.That(options.PipeName, Is.EqualTo(SupervisorIpcConstants.DefaultPipeName));
         Assert.That(options.IdleTtlMinutes, Is.EqualTo(SupervisorIpcConstants.DefaultIdleTtlMinutes));
         Assert.That(options.NoShim, Is.False);
@@ -138,14 +135,9 @@ public class ProgramTests
         Assert.That(err10, Does.Contain("--shards"));
 
         Assert.That(
-            Program.TryParseRunArguments(new[] { "--version", "2026", "--assembly", "a.dll", "--trx", "a.trx", "--next-version" }, out _, out string? err11),
+            Program.TryParseRunArguments(new[] { "--version", "2026", "--assembly", "a.dll", "--trx", "a.trx", "--next-version", "2025" }, out _, out string? err11),
             Is.False);
-        Assert.That(err11, Does.Contain("--next-version"));
-
-        Assert.That(
-            Program.TryParseRunArguments(new[] { "--version", "2026", "--assembly", "a.dll", "--trx", "a.trx", "--next-version", "bad" }, out _, out string? err12),
-            Is.False);
-        Assert.That(err12, Does.Contain("--next-version"));
+        Assert.That(err11, Does.Contain("Unknown option '--next-version'"));
     }
 
     [Test]
@@ -224,6 +216,379 @@ public class ProgramTests
             ctrlErr);
         Assert.That(ctrlOpts!.PipeName, Is.EqualTo("CtrlPipe"));
         Assert.That(ctrlOpts.JsonOutput, Is.True);
+        Assert.That(ctrlOpts.WhenIdle, Is.False);
+        Assert.That(ctrlOpts.Force, Is.False);
+
+        Assert.That(
+            Program.TryParsePipeControlArguments(
+                new[] { "--when-idle", "--pipe-name", "DrainPipe", "--json" },
+                "drain",
+                out Program.PipeControlCliOptions? whenIdleOpts,
+                out string? whenIdleErr),
+            Is.True,
+            whenIdleErr);
+        Assert.That(whenIdleOpts!.WhenIdle, Is.True);
+        Assert.That(whenIdleOpts.Force, Is.False);
+
+        Assert.That(
+            Program.TryParsePipeControlArguments(
+                new[] { "--force", "--pipe-name", "DrainPipe" },
+                "drain",
+                out Program.PipeControlCliOptions? forceOpts,
+                out string? forceErr),
+            Is.True,
+            forceErr);
+        Assert.That(forceOpts!.Force, Is.True);
+        Assert.That(forceOpts.WhenIdle, Is.False);
+
+        Assert.That(
+            Program.TryParsePipeControlArguments(
+                new[] { "--when-idle", "--force" },
+                "drain",
+                out _,
+                out string? conflictErr),
+            Is.False);
+        Assert.That(conflictErr, Does.Contain("--when-idle"));
+        Assert.That(conflictErr, Does.Contain("--force"));
+
+        Assert.That(
+            Program.TryParsePipeControlArguments(
+                new[] { "--when-idle" },
+                "status",
+                out _,
+                out string? statusWhenIdleErr),
+            Is.False);
+        Assert.That(statusWhenIdleErr, Does.Contain("Unknown option"));
+    }
+
+    [Test]
+    public void MaxWorkersOption_ValidatesRange1To10_ReadsEnvFallback_AndCliOverridesEnv()
+    {
+        Assert.That(SupervisorOptions.DefaultMaxActiveWorkers, Is.EqualTo(8));
+        Assert.That(SupervisorOptions.MinMaxActiveWorkers, Is.EqualTo(1));
+        Assert.That(SupervisorOptions.MaxMaxActiveWorkers, Is.EqualTo(10));
+
+        // 1. Accepted on --supervisor, warm, and run (values 1..10).
+        Assert.That(
+            Program.TryParseSupervisorArguments(
+                new[] { "--max-workers", "10" },
+                out Program.SupervisorCliOptions? sup10,
+                out string? supErr,
+                _ => null),
+            Is.True,
+            supErr);
+        Assert.That(sup10!.MaxWorkers, Is.EqualTo(10));
+
+        Assert.That(
+            Program.TryParseWarmArguments(
+                new[] { "--max-workers", "1" },
+                out Program.WarmCliOptions? warm1,
+                out string? warmErr,
+                _ => null),
+            Is.True,
+            warmErr);
+        Assert.That(warm1!.MaxWorkers, Is.EqualTo(1));
+
+        Assert.That(
+            Program.TryParseRunArguments(
+                new[] { "--version", "2026", "--assembly", "a.dll", "--trx", "a.trx", "--max-workers", "6" },
+                out OneShotRunOptions? run6,
+                out string? runErr,
+                _ => null),
+            Is.True,
+            runErr);
+        Assert.That(run6!.MaxWorkers, Is.EqualTo(6));
+
+        // 2. SYNTHETIC_WORKER_POOL_MAX_WORKERS fallback when --max-workers is omitted.
+        string? EnvNine(string name) => name == "SYNTHETIC_WORKER_POOL_MAX_WORKERS" ? "9" : null;
+        Assert.That(
+            Program.TryParseSupervisorArguments(Array.Empty<string>(), out Program.SupervisorCliOptions? supEnv, out _, EnvNine),
+            Is.True);
+        Assert.That(supEnv!.MaxWorkers, Is.EqualTo(9));
+        Assert.That(
+            Program.TryParseWarmArguments(Array.Empty<string>(), out Program.WarmCliOptions? warmEnv, out _, EnvNine),
+            Is.True);
+        Assert.That(warmEnv!.MaxWorkers, Is.EqualTo(9));
+        Assert.That(
+            Program.TryParseRunArguments(new[] { "--version", "2026", "--assembly", "a.dll", "--trx", "a.trx" }, out OneShotRunOptions? runEnv, out _, EnvNine),
+            Is.True);
+        Assert.That(runEnv!.MaxWorkers, Is.EqualTo(9));
+
+        // 3. CLI --max-workers overrides SYNTHETIC_WORKER_POOL_MAX_WORKERS.
+        Assert.That(
+            Program.TryParseRunArguments(
+                new[] { "--version", "2026", "--assembly", "a.dll", "--trx", "a.trx", "--max-workers", "5" },
+                out OneShotRunOptions? runOverride,
+                out _,
+                EnvNine),
+            Is.True);
+        Assert.That(runOverride!.MaxWorkers, Is.EqualTo(5));
+
+        // 4. Out-of-range and non-numeric values rejected on CLI and env var.
+        foreach (string bad in new[] { "0", "-1", "11", "abc" })
+        {
+            Assert.That(
+                Program.TryParseSupervisorArguments(new[] { "--max-workers", bad }, out _, out string? e1, _ => null),
+                Is.False);
+            Assert.That(e1, Does.Contain("--max-workers"));
+
+            Assert.That(
+                Program.TryParseWarmArguments(new[] { "--max-workers", bad }, out _, out string? e2, _ => null),
+                Is.False);
+            Assert.That(e2, Does.Contain("--max-workers"));
+
+            Assert.That(
+                Program.TryParseRunArguments(new[] { "--version", "2026", "--assembly", "a.dll", "--trx", "a.trx", "--max-workers", bad }, out _, out string? e3, _ => null),
+                Is.False);
+            Assert.That(e3, Does.Contain("--max-workers"));
+
+            string? EnvBad(string name) => name == "SYNTHETIC_WORKER_POOL_MAX_WORKERS" ? bad : null;
+            Assert.That(
+                Program.TryParseWarmArguments(Array.Empty<string>(), out _, out string? e4, EnvBad),
+                Is.False);
+            Assert.That(e4, Does.Contain("SYNTHETIC_WORKER_POOL_MAX_WORKERS"));
+        }
+
+        // 5. status and drain reject --max-workers.
+        Assert.That(
+            Program.TryParsePipeControlArguments(new[] { "--max-workers", "8" }, "status", out _, out _),
+            Is.False);
+        Assert.That(
+            Program.TryParsePipeControlArguments(new[] { "--max-workers", "8" }, "drain", out _, out _),
+            Is.False);
+    }
+
+    [Test]
+    public void PipeNameOption_ReadsEnvFallbackAcrossAllCommands_AndCliOverridesEnv()
+    {
+        string? EnvPipe(string name) => name == "SYNTHETIC_WORKER_POOL_PIPE_NAME" ? "  EnvTestPipe_263  " : null;
+        string? EnvBlank(string name) => name == "SYNTHETIC_WORKER_POOL_PIPE_NAME" ? "   " : null;
+
+        Assert.That(
+            Program.TryParseRunArguments(
+                new[] { "--version", "2026", "--assembly", "a.dll", "--trx", "a.trx" },
+                out OneShotRunOptions? runEnv,
+                out string? runErr,
+                EnvPipe),
+            Is.True,
+            runErr);
+        Assert.That(runEnv!.PipeName, Is.EqualTo("EnvTestPipe_263"));
+
+        Assert.That(
+            Program.TryParseRunArguments(
+                new[] { "--version", "2026", "--assembly", "a.dll", "--trx", "a.trx", "--pipe-name", "CliPipe" },
+                out OneShotRunOptions? runCli,
+                out string? runCliErr,
+                EnvPipe),
+            Is.True,
+            runCliErr);
+        Assert.That(runCli!.PipeName, Is.EqualTo("CliPipe"));
+
+        Assert.That(
+            Program.TryParseWarmArguments(Array.Empty<string>(), out Program.WarmCliOptions? warmEnv, out string? warmErr, EnvPipe),
+            Is.True,
+            warmErr);
+        Assert.That(warmEnv!.PipeName, Is.EqualTo("EnvTestPipe_263"));
+
+        Assert.That(
+            Program.TryParseSupervisorArguments(Array.Empty<string>(), out Program.SupervisorCliOptions? supEnv, out string? supErr, EnvPipe),
+            Is.True,
+            supErr);
+        Assert.That(supEnv!.PipeName, Is.EqualTo("EnvTestPipe_263"));
+
+        Assert.That(
+            Program.TryParsePipeControlArguments(Array.Empty<string>(), "status", out Program.PipeControlCliOptions? statusEnv, out string? statusErr, EnvPipe),
+            Is.True,
+            statusErr);
+        Assert.That(statusEnv!.PipeName, Is.EqualTo("EnvTestPipe_263"));
+
+        Assert.That(
+            Program.TryParsePipeControlArguments(new[] { "--force" }, "drain", out Program.PipeControlCliOptions? drainEnv, out string? drainErr, EnvPipe),
+            Is.True,
+            drainErr);
+        Assert.That(drainEnv!.PipeName, Is.EqualTo("EnvTestPipe_263"));
+
+        Assert.That(
+            Program.TryParsePipeControlArguments(new[] { "--pipe-name", "ExplicitDrainPipe" }, "drain", out Program.PipeControlCliOptions? drainCli, out string? drainCliErr, EnvPipe),
+            Is.True,
+            drainCliErr);
+        Assert.That(drainCli!.PipeName, Is.EqualTo("ExplicitDrainPipe"));
+
+        Assert.That(
+            Program.TryParseWarmArguments(Array.Empty<string>(), out Program.WarmCliOptions? warmBlank, out _, EnvBlank),
+            Is.True);
+        Assert.That(warmBlank!.PipeName, Is.EqualTo(SupervisorIpcConstants.DefaultPipeName));
+    }
+
+    [Test]
+    public async Task RunCliAsync_MaxWorkersOutOfRange_ReturnsExitCode2_InTextAndJsonModes()
+    {
+        foreach (string[] args in new[]
+        {
+            new[] { "--supervisor", "--max-workers", "0" },
+            new[] { "--supervisor", "--max-workers", "11" },
+            new[] { "warm", "--max-workers", "0" },
+            new[] { "warm", "--max-workers", "11", "--json" },
+            new[] { "run", "--version", "2026", "--assembly", "a.dll", "--trx", "a.trx", "--max-workers", "0" },
+            new[] { "run", "--version", "2026", "--assembly", "a.dll", "--trx", "a.trx", "--max-workers", "11", "--json" }
+        })
+        {
+            using var outWriter = new StringWriter();
+            using var errWriter = new StringWriter();
+            int exitCode = await Program.RunCliAsync(args, stdout: outWriter, stderr: errWriter);
+            Assert.That(exitCode, Is.EqualTo(2), $"Expected exit code 2 for args: {string.Join(" ", args)}");
+        }
+    }
+
+    [Test]
+    public async Task RunCliAsync_WhenRunningSupervisorHasDifferentCap_EmitsWarningAndProceedsWithoutDisrupting()
+    {
+        string tempRoot = Path.Combine(Path.GetTempPath(), "RevitWorkerPool_CapWarn_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            string revitDir = Path.Combine(tempRoot, "Autodesk", "Revit 2026");
+            Directory.CreateDirectory(revitDir);
+            File.WriteAllText(Path.Combine(revitDir, "Revit.exe"), string.Empty);
+
+            string assemblyPath = TestAssemblyCompiler.CompileToFile(
+                Path.Combine(tempRoot, "Synthetic.RevitTests.2026.dll"),
+                "Synthetic.RevitTests.2026",
+                """
+                using NUnit.Framework;
+
+                namespace CapWarnSuite
+                {
+                    [TestFixture]
+                    public class SampleFixture
+                    {
+                        [Test]
+                        public void SampleTest() { }
+                    }
+                }
+                """);
+
+            var discovery = new RevitInstallationDiscovery(
+                () => new[] { Path.Combine(tempRoot, "Autodesk") },
+                () => Array.Empty<UninstallRegistryEntry>());
+
+            string pipeName = $"Synthetic_CapWarn_{Guid.NewGuid():N}";
+            using var launcher = new StubWorkerProcessLauncher((server, _) =>
+            {
+                server.InitialIsBusy = false;
+                server.ExecutionHandler = (req, emitTest, _) =>
+                {
+                    var t = new ricaun.NUnit.Models.TestModel
+                    {
+                        Name = "SampleTest",
+                        FullName = "CapWarnSuite.SampleFixture.SampleTest",
+                        Success = true,
+                        Time = 5.0
+                    };
+                    emitTest(t);
+                    return Task.FromResult(new ricaun.NUnit.Models.TestAssemblyModel
+                    {
+                        FileName = req.TestPathFile ?? string.Empty,
+                        Name = "Synthetic.RevitTests.2026",
+                        Success = true,
+                        Tests = new System.Collections.Generic.List<ricaun.NUnit.Models.TestTypeModel>
+                        {
+                            new()
+                            {
+                                Name = "SampleFixture",
+                                FullName = "CapWarnSuite.SampleFixture",
+                                Success = true,
+                                Tests = new System.Collections.Generic.List<ricaun.NUnit.Models.TestModel> { t }
+                            }
+                        }
+                    });
+                };
+            });
+
+            await using var supervisor = new WorkerPoolSupervisor(
+                new SupervisorOptions
+                {
+                    PipeName = pipeName,
+                    MaxActiveWorkers = 4,
+                    CurrentLatestVersion = 2026,
+                    IdleTimeout = TimeSpan.FromMinutes(25),
+                    TimingCacheDirectory = Path.Combine(tempRoot, "timing_cache")
+                },
+                discovery,
+                launcher,
+                new RevitWorkerPool.Pipe.RevitPipeTestClientFactory(),
+                bundleLeaseFactory: _ => new NoOpDisposable());
+            await using var ipcServer = new SupervisorIpcServer(
+                pipeName,
+                (req, ct) => supervisor.HandleIpcRequestAsync(req, ct));
+            supervisor.AttachIpcServer(ipcServer);
+            supervisor.Start();
+            ipcServer.Start();
+
+            // warm --max-workers 10 against running cap=4 supervisor -> warns on stderr, proceeds with cap=4.
+            using var warmOut = new StringWriter();
+            using var warmErr = new StringWriter();
+            int warmExit = await Program.RunCliAsync(
+                new[] { "warm", "--version", "2026", "--count", "2", "--max-workers", "10", "--pipe-name", pipeName, "--no-shim", "--json" },
+                stdout: warmOut,
+                stderr: warmErr);
+            Assert.That(warmExit, Is.EqualTo(0), warmErr.ToString());
+            Assert.That(warmErr.ToString(), Does.Contain("activeCap=4"));
+            Assert.That(warmErr.ToString(), Does.Contain("10"));
+            WarmResult? warmRes = JsonConvert.DeserializeObject<WarmResult>(warmOut.ToString().Trim());
+            Assert.That(warmRes!.Success, Is.True);
+            Assert.That(warmRes.Status!.ActiveCap, Is.EqualTo(4));
+
+            // run --max-workers 8 against running cap=4 supervisor -> warns on stderr, succeeds without disrupting cap=4.
+            using var runOut = new StringWriter();
+            using var runErr = new StringWriter();
+            int runExit = await Program.RunCliAsync(
+                new[]
+                {
+                    "run", "--version", "2026", "--assembly", assemblyPath,
+                    "--trx", Path.Combine(tempRoot, "out", "capwarn.trx"),
+                    "--max-workers", "8", "--pipe-name", pipeName, "--no-shim", "--json"
+                },
+                stdout: runOut,
+                stderr: runErr);
+            Assert.That(runExit, Is.EqualTo(0), runErr.ToString());
+            Assert.That(runErr.ToString(), Does.Contain("activeCap=4"));
+            Assert.That(runErr.ToString(), Does.Contain("8"));
+            OneShotRunResult? runRes = JsonConvert.DeserializeObject<OneShotRunResult>(runOut.ToString().Trim());
+            Assert.That(runRes!.Success, Is.True);
+            Assert.That(supervisor.GetStatus().ActiveCap, Is.EqualTo(4));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+    }
+
+    [Test]
+    public void WorkerPoolSupervisor_RejectsMaxActiveWorkersOutside1To10()
+    {
+        var emptyDiscovery = new RevitInstallationDiscovery(
+            () => Array.Empty<string>(),
+            () => Array.Empty<UninstallRegistryEntry>());
+        using var launcher = new StubWorkerProcessLauncher();
+        var clientFactory = new RevitWorkerPool.Pipe.RevitPipeTestClientFactory();
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new WorkerPoolSupervisor(
+                new SupervisorOptions { MaxActiveWorkers = 0 },
+                emptyDiscovery,
+                launcher,
+                clientFactory));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new WorkerPoolSupervisor(
+                new SupervisorOptions { MaxActiveWorkers = 11 },
+                emptyDiscovery,
+                launcher,
+                clientFactory));
     }
 
     [Test]
@@ -532,7 +897,8 @@ public class ProgramTests
             int expectedSupervisorPid = Environment.ProcessId;
             string expectedActualToken = $"shimEnabled={supervisorUsesShim.ToString().ToLowerInvariant()}";
             string expectedRequestedToken = $"expectedShim={(!callerNoShim).ToString().ToLowerInvariant()}";
-            string expectedRemediation = $"RevitWorkerPool drain --pipe-name \"{pipeName}\"";
+            string expectedRemediation = $"RevitWorkerPool drain --when-idle --pipe-name \"{pipeName}\"";
+            string expectedFallbackHint = "--no-pool";
 
             string[] BuildArgs(bool json)
             {
@@ -572,6 +938,7 @@ public class ProgramTests
             Assert.That(textErrOutput, Does.Contain(expectedActualToken));
             Assert.That(textErrOutput, Does.Contain(expectedRequestedToken));
             Assert.That(textErrOutput, Does.Contain(expectedRemediation));
+            Assert.That(textErrOutput, Does.Contain(expectedFallbackHint));
             Assert.That(launcher.Workers.Count, Is.EqualTo(0));
 
             // JSON mode
@@ -591,6 +958,7 @@ public class ProgramTests
                 Assert.That(warmResult.Error, Does.Contain(expectedActualToken));
                 Assert.That(warmResult.Error, Does.Contain(expectedRequestedToken));
                 Assert.That(warmResult.Error, Does.Contain(expectedRemediation));
+                Assert.That(warmResult.Error, Does.Contain(expectedFallbackHint));
             }
             else
             {
@@ -602,6 +970,7 @@ public class ProgramTests
                 Assert.That(runResult.Error, Does.Contain(expectedActualToken));
                 Assert.That(runResult.Error, Does.Contain(expectedRequestedToken));
                 Assert.That(runResult.Error, Does.Contain(expectedRemediation));
+                Assert.That(runResult.Error, Does.Contain(expectedFallbackHint));
             }
 
             Assert.That(launcher.Workers.Count, Is.EqualTo(0));
@@ -838,6 +1207,295 @@ public class ProgramTests
         Assert.That(parsed!.Success, Is.False);
         Assert.That(parsed.ExitCode, Is.EqualTo(2));
         Assert.That(parsed.Error, Does.Contain("Simulated one-shot infrastructure failure."));
+    }
+
+    [Test]
+    public async Task RunCliAsync_DrainModes_PlainRefusesActive_WhenIdleWaits_AndForceCancelsImmediately()
+    {
+        string tempRoot = Path.Combine(Path.GetTempPath(), "RevitWorkerPool_CliDrainModes_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            string revitDir = Path.Combine(tempRoot, "Autodesk", "Revit 2026");
+            Directory.CreateDirectory(revitDir);
+            File.WriteAllText(Path.Combine(revitDir, "Revit.exe"), string.Empty);
+
+            string assemblyPath = TestAssemblyCompiler.CompileToFile(
+                Path.Combine(tempRoot, "Synthetic.RevitTests.2026.dll"),
+                "Synthetic.RevitTests.2026",
+                """
+                using NUnit.Framework;
+
+                namespace DrainCliSuite
+                {
+                    [TestFixture]
+                    public class SampleFixture
+                    {
+                        [Test]
+                        public void SampleTest() { }
+                    }
+                }
+                """);
+
+            var discovery = new RevitInstallationDiscovery(
+                () => new[] { Path.Combine(tempRoot, "Autodesk") },
+                () => Array.Empty<UninstallRegistryEntry>());
+
+            var execStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseExec = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            string pipeName = $"Synthetic_CliDrainModes_{Guid.NewGuid():N}";
+
+            using var launcher = new StubWorkerProcessLauncher((server, _) =>
+            {
+                server.InitialIsBusy = false;
+                server.ExecutionHandler = async (req, emitTest, ct) =>
+                {
+                    execStarted.TrySetResult(true);
+                    await releaseExec.Task.WaitAsync(ct).ConfigureAwait(false);
+                    var t = new ricaun.NUnit.Models.TestModel
+                    {
+                        Name = "SampleTest",
+                        FullName = "DrainCliSuite.SampleFixture.SampleTest",
+                        Success = true,
+                        Time = 5.0
+                    };
+                    emitTest(t);
+                    return new ricaun.NUnit.Models.TestAssemblyModel
+                    {
+                        FileName = req.TestPathFile ?? string.Empty,
+                        Name = "Synthetic.RevitTests.2026",
+                        Success = true,
+                        Tests = new System.Collections.Generic.List<ricaun.NUnit.Models.TestTypeModel>
+                        {
+                            new()
+                            {
+                                Name = "SampleFixture",
+                                FullName = "DrainCliSuite.SampleFixture",
+                                Success = true,
+                                Tests = new System.Collections.Generic.List<ricaun.NUnit.Models.TestModel> { t }
+                            }
+                        }
+                    };
+                };
+            });
+
+            await using var supervisor = new WorkerPoolSupervisor(
+                new SupervisorOptions
+                {
+                    PipeName = pipeName,
+                    CurrentLatestVersion = 2026,
+                    IdleTimeout = TimeSpan.FromMinutes(25),
+                    DrainGraceTimeout = TimeSpan.FromSeconds(30),
+                    TimingCacheDirectory = Path.Combine(tempRoot, "timing_cache")
+                },
+                discovery,
+                launcher,
+                new RevitWorkerPool.Pipe.RevitPipeTestClientFactory(),
+                bundleLeaseFactory: _ => new NoOpDisposable());
+            await using var ipcServer = new SupervisorIpcServer(
+                pipeName,
+                (req, ct) => supervisor.HandleIpcRequestAsync(req, ct));
+            supervisor.AttachIpcServer(ipcServer);
+            supervisor.Start();
+            ipcServer.Start();
+
+            // 1. Conflicting flags --when-idle + --force fail with exit code 2.
+            using var conflictOut = new StringWriter();
+            using var conflictErr = new StringWriter();
+            int conflictExit = await Program.RunCliAsync(
+                new[] { "drain", "--when-idle", "--force", "--pipe-name", pipeName, "--json" },
+                stdout: conflictOut,
+                stderr: conflictErr);
+            Assert.That(conflictExit, Is.EqualTo(2));
+
+            // Start an active run.
+            Task<int> activeRunCliTask = Program.RunCliAsync(
+                new[]
+                {
+                    "run", "--version", "2026", "--assembly", assemblyPath,
+                    "--trx", Path.Combine(tempRoot, "out", "active.trx"),
+                    "--pipe-name", pipeName, "--no-shim", "--json"
+                },
+                stdout: new StringWriter(),
+                stderr: new StringWriter());
+            await execStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+
+            // 2. Plain drain refuses with exit code 2 and structured counts in JSON and text.
+            using var plainJsonOut = new StringWriter();
+            using var plainJsonErr = new StringWriter();
+            int plainJsonExit = await Program.RunCliAsync(
+                new[] { "drain", "--pipe-name", pipeName, "--json" },
+                stdout: plainJsonOut,
+                stderr: plainJsonErr);
+            Assert.That(plainJsonExit, Is.EqualTo(2));
+            DrainResult? refused = JsonConvert.DeserializeObject<DrainResult>(plainJsonOut.ToString().Trim());
+            Assert.That(refused, Is.Not.Null);
+            Assert.That(refused!.Success, Is.False);
+            Assert.That(refused.ExitCode, Is.EqualTo(2));
+            Assert.That(refused.ActiveRuns, Is.EqualTo(1));
+            Assert.That(refused.QueuedRuns, Is.EqualTo(0));
+            Assert.That(refused.ActiveWarmCalls, Is.EqualTo(0));
+
+            using var plainTextOut = new StringWriter();
+            using var plainTextErr = new StringWriter();
+            int plainTextExit = await Program.RunCliAsync(
+                new[] { "drain", "--pipe-name", pipeName },
+                stdout: plainTextOut,
+                stderr: plainTextErr);
+            Assert.That(plainTextExit, Is.EqualTo(2));
+            Assert.That(plainTextErr.ToString(), Does.Contain("activeRuns=1"));
+
+            // 3. drain --when-idle waits for active run, rejects new run, and completes cleanly on release.
+            using var whenIdleOut = new StringWriter();
+            using var whenIdleErr = new StringWriter();
+            Task<int> whenIdleTask = Program.RunCliAsync(
+                new[] { "drain", "--when-idle", "--pipe-name", pipeName, "--json" },
+                stdout: whenIdleOut,
+                stderr: whenIdleErr);
+
+            DateTime deadline = DateTime.UtcNow + TimeSpan.FromSeconds(3);
+            while (!supervisor.IsDrainingWhenIdle && DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(15);
+            }
+            Assert.That(supervisor.IsDrainingWhenIdle, Is.True);
+
+            using var rejectedOut = new StringWriter();
+            using var rejectedErr = new StringWriter();
+            int rejectedExit = await Program.RunCliAsync(
+                new[]
+                {
+                    "run", "--version", "2026", "--assembly", assemblyPath,
+                    "--trx", Path.Combine(tempRoot, "out", "rejected.trx"),
+                    "--pipe-name", pipeName, "--no-shim", "--json"
+                },
+                stdout: rejectedOut,
+                stderr: rejectedErr);
+            Assert.That(rejectedExit, Is.EqualTo(2));
+            OneShotRunResult? rejectedRun = JsonConvert.DeserializeObject<OneShotRunResult>(rejectedOut.ToString().Trim());
+            Assert.That(rejectedRun!.Error, Does.Contain("Supervisor is draining when idle; retry after drain completes or run --no-pool"));
+
+            releaseExec.TrySetResult(true);
+            Assert.That(await activeRunCliTask.WaitAsync(TimeSpan.FromSeconds(5)), Is.EqualTo(0));
+            Assert.That(await whenIdleTask.WaitAsync(TimeSpan.FromSeconds(5)), Is.EqualTo(0));
+            DrainResult? whenIdleResult = JsonConvert.DeserializeObject<DrainResult>(whenIdleOut.ToString().Trim());
+            Assert.That(whenIdleResult!.Success, Is.True);
+            Assert.That(whenIdleResult.Status!.TotalResident, Is.EqualTo(0));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+    }
+
+    [Test]
+    public async Task RunCliAsync_DrainForce_CancelsActiveRunImmediatelyWithZeroGraceWait()
+    {
+        string tempRoot = Path.Combine(Path.GetTempPath(), "RevitWorkerPool_CliForceDrain_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            string revitDir = Path.Combine(tempRoot, "Autodesk", "Revit 2026");
+            Directory.CreateDirectory(revitDir);
+            File.WriteAllText(Path.Combine(revitDir, "Revit.exe"), string.Empty);
+
+            string assemblyPath = TestAssemblyCompiler.CompileToFile(
+                Path.Combine(tempRoot, "Synthetic.RevitTests.2026.dll"),
+                "Synthetic.RevitTests.2026",
+                """
+                using NUnit.Framework;
+
+                namespace ForceDrainCliSuite
+                {
+                    [TestFixture]
+                    public class SampleFixture
+                    {
+                        [Test]
+                        public void SampleTest() { }
+                    }
+                }
+                """);
+
+            var discovery = new RevitInstallationDiscovery(
+                () => new[] { Path.Combine(tempRoot, "Autodesk") },
+                () => Array.Empty<UninstallRegistryEntry>());
+
+            var execStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            string pipeName = $"Synthetic_CliForceDrain_{Guid.NewGuid():N}";
+
+            using var launcher = new StubWorkerProcessLauncher((server, _) =>
+            {
+                server.InitialIsBusy = false;
+                server.ExecutionHandler = async (req, _, ct) =>
+                {
+                    execStarted.TrySetResult(true);
+                    await Task.Delay(TimeSpan.FromSeconds(20), ct).ConfigureAwait(false);
+                    return new ricaun.NUnit.Models.TestAssemblyModel
+                    {
+                        FileName = req.TestPathFile ?? string.Empty,
+                        Name = "Synthetic.RevitTests.2026",
+                        Success = true
+                    };
+                };
+            });
+
+            await using var supervisor = new WorkerPoolSupervisor(
+                new SupervisorOptions
+                {
+                    PipeName = pipeName,
+                    CurrentLatestVersion = 2026,
+                    IdleTimeout = TimeSpan.FromMinutes(25),
+                    DrainGraceTimeout = TimeSpan.FromSeconds(30),
+                    TimingCacheDirectory = Path.Combine(tempRoot, "timing_cache")
+                },
+                discovery,
+                launcher,
+                new RevitWorkerPool.Pipe.RevitPipeTestClientFactory(),
+                bundleLeaseFactory: _ => new NoOpDisposable());
+            await using var ipcServer = new SupervisorIpcServer(
+                pipeName,
+                (req, ct) => supervisor.HandleIpcRequestAsync(req, ct));
+            supervisor.AttachIpcServer(ipcServer);
+            supervisor.Start();
+            ipcServer.Start();
+
+            Task<int> slowRunTask = Program.RunCliAsync(
+                new[]
+                {
+                    "run", "--version", "2026", "--assembly", assemblyPath,
+                    "--trx", Path.Combine(tempRoot, "out", "slow.trx"),
+                    "--pipe-name", pipeName, "--no-shim", "--json"
+                },
+                stdout: new StringWriter(),
+                stderr: new StringWriter());
+            await execStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            using var forceOut = new StringWriter();
+            using var forceErr = new StringWriter();
+            int forceExit = await Program.RunCliAsync(
+                new[] { "drain", "--force", "--pipe-name", pipeName, "--json" },
+                stdout: forceOut,
+                stderr: forceErr);
+            sw.Stop();
+
+            Assert.That(forceExit, Is.EqualTo(0));
+            Assert.That(sw.Elapsed, Is.LessThan(TimeSpan.FromSeconds(3)));
+            DrainResult? forceResult = JsonConvert.DeserializeObject<DrainResult>(forceOut.ToString().Trim());
+            Assert.That(forceResult!.Success, Is.True);
+            Assert.That(forceResult.Status!.TotalResident, Is.EqualTo(0));
+            Assert.That(await slowRunTask.WaitAsync(TimeSpan.FromSeconds(3)), Is.EqualTo(2));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+        }
     }
 
     private sealed class NoOpDisposable : IDisposable

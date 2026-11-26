@@ -555,9 +555,9 @@ internal static class TestExecutionHelper
     private static bool IsRealRevitLauncherAndExecutable(IWorkerProcessLauncher launcher, string executablePath)
     {
         IWorkerProcessLauncher current = launcher;
-        while (current is OffScreenWindowingLauncher windowing)
+        while (current is IsolatedDesktopLauncher isolated)
         {
-            current = windowing.InnerLauncher;
+            current = isolated.InnerLauncher;
         }
 
         if (current is not (CleanDetoursProcessLauncher or StandardProcessLauncher))
@@ -682,9 +682,9 @@ internal static class TestExecutionHelper
         }
 
         IWorkerProcessLauncher current = launcher;
-        while (current is OffScreenWindowingLauncher windowing)
+        while (current is IsolatedDesktopLauncher isolated)
         {
-            current = windowing.InnerLauncher;
+            current = isolated.InnerLauncher;
         }
 
         return current is StandardProcessLauncher

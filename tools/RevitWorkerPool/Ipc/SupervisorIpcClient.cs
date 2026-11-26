@@ -1,16 +1,11 @@
 using System;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
-using System.Reflection;
-using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
+using RevitWorkerPool.Launching;
 using ricaun.NamedPipeWrapper;
 
 namespace RevitWorkerPool.Ipc;
@@ -23,6 +18,8 @@ public sealed class SupervisorClientLaunchOptions
     public string PipeName { get; init; } = SupervisorIpcConstants.DefaultPipeName;
 
     public int IdleTtlMinutes { get; init; } = SupervisorIpcConstants.DefaultIdleTtlMinutes;
+
+    public int? MaxWorkers { get; init; }
 
     public bool NoShim { get; init; }
 
@@ -39,9 +36,6 @@ public sealed class SupervisorClientLaunchOptions
 /// </summary>
 public static class SupervisorIpcClient
 {
-    private const uint DetachedProcess = 0x00000008;
-    private const uint CreateUnicodeEnvironment = 0x00000400;
-
     public static async Task<SupervisorIpcResponse?> TryPingAsync(
         string pipeName,
         TimeSpan probeTimeout,
@@ -161,32 +155,29 @@ public static class SupervisorIpcClient
     {
         return EnsureSupervisorRunningAsync(
             options,
-            spawnSupervisorAction: (opts, logger) =>
-            {
-                SpawnDetachedSupervisorProcess(opts, logger);
-            },
+            DetachedSupervisorLauncher.CreateDefault(),
             diagnosticLogger,
             cancellationToken);
     }
 
     /// <summary>
-    /// Internal overload accepting an injectable spawn delegate for deterministic concurrency tests.
+    /// Internal overload accepting an injectable <see cref="ISupervisorLauncher"/> seam for deterministic tests.
     /// </summary>
     internal static async Task EnsureSupervisorRunningAsync(
         SupervisorClientLaunchOptions options,
-        Action<SupervisorClientLaunchOptions, Action<string>?> spawnSupervisorAction,
+        ISupervisorLauncher supervisorLauncher,
         Action<string>? diagnosticLogger = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(options);
-        ArgumentNullException.ThrowIfNull(spawnSupervisorAction);
+        ArgumentNullException.ThrowIfNull(supervisorLauncher);
 
         SupervisorIpcResponse? fastPing = await TryPingAsync(
             options.PipeName,
             TimeSpan.FromMilliseconds(200),
             cancellationToken).ConfigureAwait(false);
 
-        if (fastPing is { Success: true, IsDraining: false })
+        if (fastPing is { Success: true, IsDraining: false } || fastPing is { IsDrainingWhenIdle: true })
         {
             return;
         }
@@ -194,7 +185,7 @@ public static class SupervisorIpcClient
         // Mutex ownership has OS thread affinity; perform wait/spawn/release on a dedicated thread
         // so async continuations never release the mutex from a different thread.
         await Task.Factory.StartNew(
-            () => EnsureSupervisorRunningOnDedicatedThread(options, spawnSupervisorAction, diagnosticLogger, cancellationToken),
+            () => EnsureSupervisorRunningOnDedicatedThread(options, supervisorLauncher, diagnosticLogger, cancellationToken),
             cancellationToken,
             TaskCreationOptions.LongRunning,
             TaskScheduler.Default).ConfigureAwait(false);
@@ -202,7 +193,7 @@ public static class SupervisorIpcClient
 
     private static void EnsureSupervisorRunningOnDedicatedThread(
         SupervisorClientLaunchOptions options,
-        Action<SupervisorClientLaunchOptions, Action<string>?> spawnSupervisorAction,
+        ISupervisorLauncher supervisorLauncher,
         Action<string>? diagnosticLogger,
         CancellationToken cancellationToken)
     {
@@ -235,7 +226,7 @@ public static class SupervisorIpcClient
                 TimeSpan.FromMilliseconds(250),
                 cancellationToken).GetAwaiter().GetResult();
 
-            if (existingPing is { Success: true, IsDraining: false })
+            if (existingPing is { Success: true, IsDraining: false } || existingPing is { IsDrainingWhenIdle: true })
             {
                 return;
             }
@@ -260,7 +251,8 @@ public static class SupervisorIpcClient
             }
 
             diagnosticLogger?.Invoke($"[ipc] Spawning singleton supervisor for pipe '{options.PipeName}'...");
-            spawnSupervisorAction(options, diagnosticLogger);
+            SupervisorLaunchResult launchResult = supervisorLauncher.Launch(options, diagnosticLogger);
+            diagnosticLogger?.Invoke($"[ipc] Supervisor launch initiated via {launchResult.Method} ({launchResult.Detail}).");
 
             DateTime readyDeadline = DateTime.UtcNow + options.StartupTimeout;
             while (DateTime.UtcNow < readyDeadline)
@@ -292,195 +284,5 @@ public static class SupervisorIpcClient
                 mutex.ReleaseMutex();
             }
         }
-    }
-
-    [SupportedOSPlatform("windows")]
-    internal static int SpawnDetachedSupervisorProcess(
-        SupervisorClientLaunchOptions options,
-        Action<string>? diagnosticLogger = null)
-    {
-        string exePath = Environment.ProcessPath
-            ?? throw new InvalidOperationException("Could not determine current executable path to spawn supervisor.");
-
-        var args = new List<string>();
-        if (string.Equals(Path.GetFileNameWithoutExtension(exePath), "dotnet", StringComparison.OrdinalIgnoreCase))
-        {
-            string? entryAssembly = Assembly.GetEntryAssembly()?.Location;
-            if (string.IsNullOrWhiteSpace(entryAssembly))
-            {
-                throw new InvalidOperationException("Could not determine entry assembly path for dotnet host.");
-            }
-
-            args.Add(QuoteArg(entryAssembly));
-        }
-
-        args.Add("--supervisor");
-        args.Add("--pipe-name");
-        args.Add(QuoteArg(options.PipeName));
-        args.Add("--idle-ttl-minutes");
-        args.Add(options.IdleTtlMinutes.ToString(System.Globalization.CultureInfo.InvariantCulture));
-
-        if (options.NoShim)
-        {
-            args.Add("--no-shim");
-        }
-
-        if (!string.IsNullOrWhiteSpace(options.ProjectRoot))
-        {
-            args.Add("--project-root");
-            args.Add(QuoteArg(Path.GetFullPath(options.ProjectRoot)));
-        }
-
-        if (options.Diagnostics)
-        {
-            args.Add("--diagnostics");
-        }
-
-        string commandLine = $"{QuoteArg(exePath)} {string.Join(" ", args)}";
-        var commandLineBuffer = new StringBuilder(commandLine);
-        string workingDir = Path.GetDirectoryName(exePath) ?? Directory.GetCurrentDirectory();
-
-        var startupInfo = new StartupInfoW
-        {
-            cb = Marshal.SizeOf<StartupInfoW>()
-        };
-
-        // DETACHED_PROCESS + bInheritHandles=false ensures zero inherited stdout/stderr pipe handles
-        // so calling scripts using stdout/stderr capture never block waiting on the daemon.
-        if (!NativeMethods.CreateProcessW(
-                exePath,
-                commandLineBuffer,
-                IntPtr.Zero,
-                IntPtr.Zero,
-                bInheritHandles: false,
-                DetachedProcess | CreateUnicodeEnvironment,
-                IntPtr.Zero,
-                workingDir,
-                ref startupInfo,
-                out ProcessInformation pi))
-        {
-            int error = Marshal.GetLastWin32Error();
-            throw new Win32Exception(error, $"Failed to start Worker Pool supervisor '{exePath}' (Win32 error {error}).");
-        }
-
-        try
-        {
-            diagnosticLogger?.Invoke($"[ipc] Spawned supervisor PID={pi.dwProcessId}.");
-            return unchecked((int)pi.dwProcessId);
-        }
-        finally
-        {
-            if (pi.hThread != IntPtr.Zero)
-            {
-                NativeMethods.CloseHandle(pi.hThread);
-            }
-
-            if (pi.hProcess != IntPtr.Zero)
-            {
-                NativeMethods.CloseHandle(pi.hProcess);
-            }
-        }
-    }
-
-    internal static string QuoteArg(string value)
-    {
-        if (string.IsNullOrEmpty(value))
-        {
-            return "\"\"";
-        }
-
-        if (!value.Contains(' ') && !value.Contains('"') && !value.Contains('\t'))
-        {
-            return value;
-        }
-
-        var sb = new StringBuilder(value.Length + 4);
-        sb.Append('"');
-        int backslashCount = 0;
-
-        foreach (char c in value)
-        {
-            if (c == '\\')
-            {
-                backslashCount++;
-            }
-            else if (c == '"')
-            {
-                sb.Append('\\', backslashCount * 2 + 1);
-                sb.Append('"');
-                backslashCount = 0;
-            }
-            else
-            {
-                if (backslashCount > 0)
-                {
-                    sb.Append('\\', backslashCount);
-                    backslashCount = 0;
-                }
-
-                sb.Append(c);
-            }
-        }
-
-        if (backslashCount > 0)
-        {
-            sb.Append('\\', backslashCount * 2);
-        }
-
-        sb.Append('"');
-        return sb.ToString();
-    }
-
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    private struct StartupInfoW
-    {
-        public int cb;
-        public string? lpReserved;
-        public string? lpDesktop;
-        public string? lpTitle;
-        public int dwX;
-        public int dwY;
-        public int dwXSize;
-        public int dwYSize;
-        public int dwXCountChars;
-        public int dwYCountChars;
-        public int dwFillAttribute;
-        public uint dwFlags;
-        public short wShowWindow;
-        public short cbReserved2;
-        public IntPtr lpReserved2;
-        public IntPtr hStdInput;
-        public IntPtr hStdOutput;
-        public IntPtr hStdError;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct ProcessInformation
-    {
-        public IntPtr hProcess;
-        public IntPtr hThread;
-        public uint dwProcessId;
-        public uint dwThreadId;
-    }
-
-    private static class NativeMethods
-    {
-        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool CreateProcessW(
-            string? lpApplicationName,
-            StringBuilder? lpCommandLine,
-            IntPtr lpProcessAttributes,
-            IntPtr lpThreadAttributes,
-            [MarshalAs(UnmanagedType.Bool)] bool bInheritHandles,
-            uint dwCreationFlags,
-            IntPtr lpEnvironment,
-            string? lpCurrentDirectory,
-            ref StartupInfoW lpStartupInfo,
-            out ProcessInformation lpProcessInformation);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool CloseHandle(IntPtr hObject);
     }
 }

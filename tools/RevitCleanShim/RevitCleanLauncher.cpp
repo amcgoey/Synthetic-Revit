@@ -59,12 +59,13 @@ namespace
     }
 }
 
-extern "C" __declspec(dllexport) DWORD WINAPI SyntheticLaunchSuspendedWithShimW(
+extern "C" __declspec(dllexport) DWORD WINAPI SyntheticLaunchSuspendedWithShimOnDesktopW(
     LPCWSTR applicationPath,
     LPWSTR commandLine,
     LPCWSTR currentDirectory,
     LPVOID unicodeEnvironmentBlock,
     LPCWSTR shimDllPath,
+    LPCWSTR desktopName,
     HANDLE* outProcessHandle,
     HANDLE* outThreadHandle,
     DWORD* outProcessId)
@@ -115,10 +116,20 @@ extern "C" __declspec(dllexport) DWORD WINAPI SyntheticLaunchSuspendedWithShimW(
         cmdLinePtr = mutableCommandLine.data();
     }
 
+    std::wstring mutableDesktopName;
     STARTUPINFOW startupInfo{};
     startupInfo.cb = sizeof(startupInfo);
     startupInfo.dwFlags = STARTF_USESHOWWINDOW;
-    startupInfo.wShowWindow = SW_SHOWMINNOACTIVE;
+    if (desktopName != nullptr && desktopName[0] != L'\0')
+    {
+        mutableDesktopName.assign(desktopName);
+        startupInfo.lpDesktop = mutableDesktopName.data();
+        startupInfo.wShowWindow = SW_SHOWNORMAL;
+    }
+    else
+    {
+        startupInfo.wShowWindow = SW_SHOWMINNOACTIVE;
+    }
 
     PROCESS_INFORMATION processInfo{};
     const BOOL created = DetourCreateProcessWithDllExW(
@@ -145,6 +156,28 @@ extern "C" __declspec(dllexport) DWORD WINAPI SyntheticLaunchSuspendedWithShimW(
     *outThreadHandle = processInfo.hThread;
     *outProcessId = processInfo.dwProcessId;
     return ERROR_SUCCESS;
+}
+
+extern "C" __declspec(dllexport) DWORD WINAPI SyntheticLaunchSuspendedWithShimW(
+    LPCWSTR applicationPath,
+    LPWSTR commandLine,
+    LPCWSTR currentDirectory,
+    LPVOID unicodeEnvironmentBlock,
+    LPCWSTR shimDllPath,
+    HANDLE* outProcessHandle,
+    HANDLE* outThreadHandle,
+    DWORD* outProcessId)
+{
+    return SyntheticLaunchSuspendedWithShimOnDesktopW(
+        applicationPath,
+        commandLine,
+        currentDirectory,
+        unicodeEnvironmentBlock,
+        shimDllPath,
+        nullptr,
+        outProcessHandle,
+        outThreadHandle,
+        outProcessId);
 }
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ulReasonForCall, LPVOID)

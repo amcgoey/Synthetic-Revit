@@ -131,6 +131,30 @@ public class PipeProtocolTests
         Assert.That(result.AssemblyResult.Tests[0].Tests[0].Time, Is.EqualTo(123.4));
     }
 
+    [Test]
+    public async Task RevitPipeTestClientFactory_ForwardsDiagnosticLogger_ToCreatedClient()
+    {
+        using var launcher = new StubWorkerProcessLauncher((server, _) =>
+        {
+            server.InitialIsBusy = false;
+        });
+
+        await using LaunchedWorkerProcess worker = await launcher.LaunchAsync(new WorkerLaunchRequest
+        {
+            RevitVersion = 2026,
+            ExecutablePath = "Revit.exe",
+            WorkerId = "w_diag_factory"
+        });
+
+        var messages = new List<string>();
+        IPipeTestClientFactory factory = new RevitPipeTestClientFactory(msg => messages.Add(msg));
+
+        await using IPipeTestClient client = factory.CreateClient(worker);
+        await client.ConnectAndWaitForReadyAsync(worker, TimeSpan.FromSeconds(3));
+
+        Assert.That(messages, Has.Some.Contains("IsBusy=False"));
+    }
+
     [TestCase("", "\"\"")]
     [TestCase(@"C:\repo\", @"C:\repo\")]
     [TestCase(@"C:\my repo\", "\"C:\\my repo\\\\\"")]
@@ -141,7 +165,7 @@ public class PipeProtocolTests
         string rawArgument,
         string expectedQuoted)
     {
-        string quoted = SupervisorIpcClient.QuoteArg(rawArgument);
+        string quoted = Win32ProcessLaunchUtilities.QuoteArg(rawArgument);
         Assert.That(quoted, Is.EqualTo(expectedQuoted));
 
         if (OperatingSystem.IsWindows())

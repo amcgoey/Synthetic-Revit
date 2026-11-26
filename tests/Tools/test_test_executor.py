@@ -326,6 +326,47 @@ public class ExcludedSheetIndexTests {}
             mock_tfms, _ = te.get_project_target_frameworks(discovered["LegacyMock"][0])
             self.assertEqual([t for t in mock_tfms if t.casefold() == "net48"], [])
 
+    def test_select_run_projects_comma_separated_deduplication_ordering_and_validation(self):
+        discovered = {
+            "Logic": ["Logic.csproj"],
+            "LegacyMock": ["LegacyMock.csproj"],
+            "2025": ["2025.csproj"],
+            "2026": ["2026.csproj"],
+            "2027": ["2027.csproj"],
+        }
+
+        # Trims, deduplicates repeated tokens, preserves deterministic first-seen order
+        selected_revit = te.select_run_projects(discovered, target_version=" 2027 , 2025 , 2027 , 2026 ")
+        self.assertEqual(list(selected_revit.keys()), ["2027", "2025", "2026"])
+
+        # Overlapping Logic,LegacyMock deduplicates LegacyMock (case-insensitive)
+        selected_overlap1 = te.select_run_projects(discovered, target_version="logic, LEGACYMOCK, 2026")
+        self.assertEqual(list(selected_overlap1.keys()), ["Logic", "LegacyMock", "2026"])
+
+        selected_overlap2 = te.select_run_projects(discovered, target_version="LegacyMock, Logic")
+        self.assertEqual(list(selected_overlap2.keys()), ["LegacyMock", "Logic"])
+
+        # Fails fast on empty tokens or unknown tokens
+        for bad_spec in ("2026,,2027", ",2026", "2026,", " , ", "2026,2099", "unknown"):
+            with self.subTest(bad_spec=bad_spec):
+                with self.assertRaises(ValueError):
+                    te.select_run_projects(discovered, target_version=bad_spec)
+
+        # CLI fails fast on empty --version "" and empty comma token, and parses --fail-fast
+        parsed_ff = te.parse_cli_args(["--version", "2026,2027", "--fail-fast"])
+        self.assertEqual(parsed_ff.target_version, "2026,2027")
+        self.assertTrue(parsed_ff.fail_fast)
+        self.assertFalse(te.parse_cli_args([]).fail_fast)
+
+        for cli_bad in ("", " , ", "2026,,2027", "2026,2099"):
+            res = subprocess.run(
+                [sys.executable, SCRIPT_PATH, "--version", cli_bad],
+                cwd=REPO_ROOT,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(res.returncode, 0, msg=f"Expected fail-fast for --version {cli_bad!r}")
+
     def test_multi_tfm_target_framework_parsing_and_trx_isolation(self):
         with tempfile.TemporaryDirectory() as tmp:
             multi_csproj = os.path.join(tmp, "Multi.csproj")
@@ -1992,6 +2033,7 @@ namespace SyntheticTests.Platform.Host
         self.assertIn("net10.0-windows8.0", help_text)
 
     def test_build_worker_pool_run_command_for_exe_and_py(self):
+        self.assertFalse(hasattr(te, "get_next_revit_version_map"))
         exe_cmd = te.build_worker_pool_run_command(
             pool_cmd=r"C:\repo\tools\bin\RevitWorkerPool\RevitWorkerPool.exe",
             version="2024",
@@ -2002,7 +2044,6 @@ namespace SyntheticTests.Platform.Host
             category="RevitSmoke",
             shards=4,
             no_shim=True,
-            next_version="2026",
         )
         self.assertEqual(
             exe_cmd,
@@ -2019,9 +2060,9 @@ namespace SyntheticTests.Platform.Host
                 "--category", "RevitSmoke",
                 "--shards", "4",
                 "--no-shim",
-                "--next-version", "2026",
             ],
         )
+        self.assertNotIn("--next-version", exe_cmd)
 
         py_cmd = te.build_worker_pool_run_command(
             pool_cmd=r"C:\repo\tools\RevitWorkerPool.py",
@@ -2037,6 +2078,27 @@ namespace SyntheticTests.Platform.Host
         self.assertNotIn("--next-version", py_cmd)
         self.assertNotIn("--filter", py_cmd)
         self.assertNotIn("--category", py_cmd)
+        self.assertNotIn("--pipe-name", py_cmd)
+
+        with unittest.mock.patch.dict(os.environ, {"SYNTHETIC_WORKER_POOL_PIPE_NAME": "  SmokePipe_263  "}, clear=False):
+            env_pipe_cmd = te.build_worker_pool_run_command(
+                pool_cmd=r"C:\repo\tools\bin\RevitWorkerPool\RevitWorkerPool.exe",
+                version="2026",
+                assembly_path=r"C:\tmp\Synthetic.RevitTests.2026.dll",
+                trx_path=r"C:\tmp\results_2026.trx",
+                project_root=r"C:\repo",
+            )
+            self.assertEqual(env_pipe_cmd[-2:], ["--pipe-name", "SmokePipe_263"])
+
+            explicit_pipe_cmd = te.build_worker_pool_run_command(
+                pool_cmd=r"C:\repo\tools\bin\RevitWorkerPool\RevitWorkerPool.exe",
+                version="2026",
+                assembly_path=r"C:\tmp\Synthetic.RevitTests.2026.dll",
+                trx_path=r"C:\tmp\results_2026.trx",
+                project_root=r"C:\repo",
+                pipe_name="ExplicitPipe",
+            )
+            self.assertEqual(explicit_pipe_cmd[-2:], ["--pipe-name", "ExplicitPipe"])
 
     def test_worker_journal_cleanliness_gate_invocation_and_real_worker_id_gating(self):
         captured_cmds = []
@@ -2079,7 +2141,7 @@ namespace SyntheticTests.Platform.Host
         self.assertFalse(ok_dirty)
         self.assertIn("Cleanliness Gate Result: DIRTY", out_dirty)
 
-    def test_pool_mode_routes_sequential_sweep_with_next_version_shards_raw_filters_and_keeps_logic_unchanged(self):
+    def test_pool_mode_routes_parallel_sweep_without_next_version_shards_raw_filters_and_runs_logic_first(self):
         import contextlib
         from unittest import mock
 
@@ -2089,13 +2151,15 @@ namespace SyntheticTests.Platform.Host
         gated_workers = []
         whitelisted = []
         legacy_checks = []
+        call_lock = threading.Lock()
         temp_build_root = os.path.join(self.root, "temp_root")
         os.makedirs(temp_build_root, exist_ok=True)
 
         def fake_subproc_run(cmd, **kwargs):
             exe_name = os.path.basename(cmd[0]).lower()
             if cmd[0] == self.pool_exe:
-                pool_calls.append(list(cmd))
+                with call_lock:
+                    pool_calls.append(list(cmd))
                 ver = cmd[cmd.index("--version") + 1]
                 trx_path = cmd[cmd.index("--trx") + 1]
                 self._write_trx(trx_path, passed_names=[f"Smoke_{ver}"])
@@ -2121,10 +2185,12 @@ namespace SyntheticTests.Platform.Host
                     stderr=f"[diag] ran Revit {ver}\n",
                 )
             if "dotnet" in exe_name and len(cmd) > 1 and cmd[1] == "build":
-                build_calls.append(list(cmd))
-                return subprocess.CompletedProcess(cmd, 0)
+                with call_lock:
+                    build_calls.append(list(cmd))
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
             if "dotnet" in exe_name and len(cmd) > 1 and cmd[1] == "test":
-                dotnet_calls.append(list(cmd))
+                with call_lock:
+                    dotnet_calls.append(list(cmd))
                 res_dir = cmd[cmd.index("--results-directory") + 1]
                 logger_arg = cmd[cmd.index("--logger") + 1]
                 trx_name = logger_arg.split("LogFileName=", 1)[1]
@@ -2133,7 +2199,8 @@ namespace SyntheticTests.Platform.Host
             raise AssertionError(f"Unexpected subprocess call: {cmd}")
 
         def fake_gate(version, worker_id, **kwargs):
-            gated_workers.append((str(version), worker_id))
+            with call_lock:
+                gated_workers.append((str(version), worker_id))
             return True, f"[GATE] {version} {worker_id}: CLEAN"
 
         stdout_buf = io.StringIO()
@@ -2160,23 +2227,27 @@ namespace SyntheticTests.Platform.Host
         out_text = stdout_buf.getvalue()
         self.assertIn("Total: 3", out_text)
         self.assertIn("[PASS]", out_text)
+        self.assertRegex(out_text, r"\[TESTS\] Revit 2024: PASS \(1 passed, 0 failed, clean journal, [0-9.]+s\)")
+        self.assertRegex(out_text, r"\[TESTS\] Revit 2026: PASS \(1 passed, 0 failed, clean journal, [0-9.]+s\)")
 
-        # Logic ran via dotnet test unchanged; Revit targets did NOT run dotnet test
+        # Logic ran via dotnet test first; every target used isolated <RunBuildRoot>\<TargetKey>
         self.assertEqual(len(build_calls), 3)
         self.assertTrue(all(len(c) > 1 and c[1] == "build" for c in build_calls))
+        for bcall in build_calls:
+            iso_arg = next(a for a in bcall if a.startswith("-p:SyntheticIsolatedBuildRoot="))
+            proj_base = os.path.basename(bcall[2])
+            expected_key = "Logic" if "Logic" in proj_base else ("2024" if "2024" in proj_base else "2026")
+            self.assertEqual(os.path.basename(iso_arg.split("=", 1)[1]), expected_key)
         self.assertEqual(len(dotnet_calls), 1)
         self.assertIn("Synthetic.LogicTests.csproj", dotnet_calls[0][2])
 
-        # Pool ran for 2024 and 2026 in order
+        # Pool ran for 2024 and 2026 without --next-version
         self.assertEqual(len(pool_calls), 2)
-        call_2024, call_2026 = pool_calls[0], pool_calls[1]
+        calls_by_ver = {c[c.index("--version") + 1]: c for c in pool_calls}
+        self.assertEqual(set(calls_by_ver.keys()), {"2024", "2026"})
 
-        self.assertIn("--next-version", call_2024)
-        self.assertEqual(call_2024[call_2024.index("--next-version") + 1], "2026")
-        self.assertNotIn("--next-version", call_2026)
-
-        for call, ver in ((call_2024, "2024"), (call_2026, "2026")):
-            self.assertEqual(call[call.index("--version") + 1], ver)
+        for ver, call in calls_by_ver.items():
+            self.assertNotIn("--next-version", call)
             self.assertEqual(call[call.index("--filter") + 1], "SmokeRevitTests")
             self.assertEqual(call[call.index("--category") + 1], "RevitSmoke")
             self.assertEqual(call[call.index("--shards") + 1], "3")
@@ -2184,15 +2255,16 @@ namespace SyntheticTests.Platform.Host
             self.assertNotIn("FullyQualifiedName~", " ".join(call))
             asm = call[call.index("--assembly") + 1]
             self.assertTrue(asm.endswith(f"Synthetic.RevitTests.{ver}.dll"), msg=asm)
+            self.assertIn(os.path.sep + ver + os.path.sep, asm)
 
         # Whitelist called for both; legacy ProgramData check NOT called when shimmed
-        self.assertEqual(whitelisted, ["2024", "2026"])
+        self.assertEqual(set(whitelisted), {"2024", "2026"})
         self.assertEqual(legacy_checks, [])
 
         # Per-shard --worker-id gates ran for every consumed worker ID
         self.assertEqual(
-            gated_workers,
-            [("2024", "w_2024_1"), ("2024", "w_2024_2"), ("2026", "w_2026_1"), ("2026", "w_2026_2")],
+            set(gated_workers),
+            {("2024", "w_2024_1"), ("2024", "w_2024_2"), ("2026", "w_2026_1"), ("2026", "w_2026_2")},
         )
 
         # Isolated build root cleaned on pass; diagnostics written to output_<ver>.log
@@ -2693,6 +2765,606 @@ namespace SyntheticTests.Platform.Host
         self.assertEqual(ctx_ok.exception.code, 0)
         self.assertEqual(checked_ok, ["w_zero_clean"])
         self.assertIn("0 matching tests", out_ok.getvalue())
+
+
+class TestMultiVersionParallelExecution(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.root = self.tmp.name
+        self.tests_dir = os.path.join(self.root, "tests")
+        for rel_dir, proj_name, tfm in (
+            ("Synthetic.LogicTests", "Synthetic.LogicTests", "net10.0-windows8.0"),
+            ("Synthetic.LegacyMockTests", "Synthetic.LegacyMockTests", "net10.0-windows8.0"),
+            ("Synthetic.RevitTests.2023", "Synthetic.RevitTests.2023", "net48"),
+            ("Synthetic.RevitTests.2024", "Synthetic.RevitTests.2024", "net48"),
+            ("Synthetic.RevitTests.2025", "Synthetic.RevitTests.2025", "net8.0-windows8.0"),
+            ("Synthetic.RevitTests.2026", "Synthetic.RevitTests.2026", "net8.0-windows8.0"),
+            ("Synthetic.RevitTests.2027", "Synthetic.RevitTests.2027", "net10.0-windows8.0"),
+        ):
+            pdir = os.path.join(self.tests_dir, "Projects", rel_dir)
+            os.makedirs(pdir, exist_ok=True)
+            with open(os.path.join(pdir, f"{proj_name}.csproj"), "w", encoding="utf-8") as f:
+                f.write(
+                    f'<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup>'
+                    f"<TargetFramework>{tfm}</TargetFramework></PropertyGroup></Project>"
+                )
+
+        smoke_dir = os.path.join(self.tests_dir, "Platform", "Host", "Revit")
+        os.makedirs(smoke_dir, exist_ok=True)
+        with open(os.path.join(smoke_dir, "SmokeRevitTests.cs"), "w", encoding="utf-8") as f:
+            f.write(
+                """
+using NUnit.Framework;
+namespace SyntheticTests.Platform.Host
+{
+    [TestFixture]
+    [RevitSmokeTest]
+    public class SmokeRevitTests
+    {
+        [Test]
+        public void Smoke() {}
+    }
+}
+"""
+            )
+
+        pool_bin_dir = os.path.join(self.root, "tools", "bin", "RevitWorkerPool")
+        os.makedirs(pool_bin_dir, exist_ok=True)
+        self.pool_exe = os.path.join(pool_bin_dir, "RevitWorkerPool.exe")
+        with open(self.pool_exe, "w", encoding="utf-8") as f:
+            f.write("")
+
+        self.temp_build_root = os.path.join(self.root, "temp_root")
+        os.makedirs(self.temp_build_root, exist_ok=True)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    @staticmethod
+    def _write_trx(trx_path, passed_names=(), failed_tests=()):
+        TestWorkerPoolRoutingAndShardedJournalGating._write_trx(
+            trx_path, passed_names=passed_names, failed_tests=failed_tests
+        )
+
+    @staticmethod
+    def _build_pool_payload(version, trx_path, worker_ids, passed=1, failed=0, exit_code=0, error=None):
+        return {
+            "success": exit_code == 0 and failed == 0,
+            "exitCode": exit_code,
+            "version": int(version),
+            "trxPath": trx_path,
+            "workerIds": worker_ids,
+            "shardCount": len(worker_ids),
+            "totalTests": passed + failed,
+            "passedTests": passed,
+            "failedTests": failed,
+            "skippedTests": 0,
+            "zeroMatches": (passed + failed) == 0 and exit_code == 0,
+            "shimEnabled": True,
+            "error": error,
+        }
+
+    def test_logic_and_legacymock_run_first_in_isolated_subfolders_and_fail_fast_before_revit(self):
+        import contextlib
+        from unittest import mock
+
+        events = []
+
+        def fake_subproc_run(cmd, **kwargs):
+            if len(cmd) > 1 and cmd[1] == "build":
+                proj = os.path.basename(cmd[2])
+                iso_root = next(a.split("=", 1)[1] for a in cmd if a.startswith("-p:SyntheticIsolatedBuildRoot="))
+                events.append(("build", proj, os.path.basename(iso_root)))
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            if len(cmd) > 1 and cmd[1] == "test":
+                proj = os.path.basename(cmd[2])
+                iso_root = next(a.split("=", 1)[1] for a in cmd if a.startswith("-p:SyntheticIsolatedBuildRoot="))
+                events.append(("test", proj, os.path.basename(iso_root)))
+                res_dir = cmd[cmd.index("--results-directory") + 1]
+                trx_name = cmd[cmd.index("--logger") + 1].split("LogFileName=", 1)[1]
+                if "LogicTests" in proj:
+                    self._write_trx(
+                        os.path.join(res_dir, trx_name),
+                        failed_tests=[("FailingLogicTest", "Assert failed", "at LogicTest.cs:10")],
+                    )
+                    return subprocess.CompletedProcess(cmd, 1)
+                self._write_trx(os.path.join(res_dir, trx_name), passed_names=["MockPass"])
+                return subprocess.CompletedProcess(cmd, 0)
+            if cmd[0] == self.pool_exe:
+                raise AssertionError("RevitWorkerPool must NOT be called when headless LogicTests fail!")
+            raise AssertionError(f"Unexpected command: {cmd}")
+
+        out_buf = io.StringIO()
+        with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root}, clear=False), \
+             mock.patch("os.getcwd", return_value=self.root), \
+             mock.patch.object(te.tempfile, "gettempdir", return_value=self.temp_build_root), \
+             mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
+             mock.patch.object(te, "ensure_test_template_ready", side_effect=AssertionError("Must not run Revit template preflight after Logic failure!")), \
+             mock.patch.object(te.subprocess, "run", side_effect=fake_subproc_run), \
+             contextlib.redirect_stdout(out_buf):
+            with self.assertRaises(SystemExit) as exit_ctx:
+                te.run_test_suite(target_version="2027,Logic,LegacyMock,2026")
+
+        self.assertEqual(exit_ctx.exception.code, 1)
+        out_text = out_buf.getvalue()
+        self.assertIn("FailingLogicTest", out_text)
+        self.assertIn("Preserving failed isolated build root", out_text)
+        # Headless targets built/tested in <RunBuildRoot>\Logic and <RunBuildRoot>\LegacyMock; no Revit builds occurred
+        self.assertTrue(all("RevitTests" not in ev[1] for ev in events), msg=events)
+        self.assertIn(("build", "Synthetic.LogicTests.csproj", "Logic"), events)
+        self.assertIn(("test", "Synthetic.LogicTests.csproj", "Logic"), events)
+
+    def test_template_preflight_runs_sequentially_in_ascending_version_order_before_parallel_builds(self):
+        import contextlib
+        from unittest import mock
+
+        timeline = []
+        active_preflight = 0
+        max_preflight = 0
+        tl_lock = threading.Lock()
+
+        def fake_preflight(ver, **kwargs):
+            nonlocal active_preflight, max_preflight
+            with tl_lock:
+                active_preflight += 1
+                max_preflight = max(max_preflight, active_preflight)
+                timeline.append(("preflight_start", str(ver)))
+            time.sleep(0.01)
+            with tl_lock:
+                active_preflight -= 1
+                timeline.append(("preflight_end", str(ver)))
+            return False
+
+        def fake_subproc_run(cmd, **kwargs):
+            if len(cmd) > 1 and cmd[1] == "build":
+                proj = os.path.basename(cmd[2])
+                with tl_lock:
+                    timeline.append(("build", proj))
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            if cmd[0] == self.pool_exe:
+                ver = cmd[cmd.index("--version") + 1]
+                trx_path = cmd[cmd.index("--trx") + 1]
+                self._write_trx(trx_path, passed_names=[f"Pass_{ver}"])
+                payload = self._build_pool_payload(ver, trx_path, [f"w_{ver}"])
+                return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(payload), stderr="")
+            raise AssertionError(f"Unexpected command: {cmd}")
+
+        out_buf = io.StringIO()
+        with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root}, clear=False), \
+             mock.patch("os.getcwd", return_value=self.root), \
+             mock.patch.object(te.tempfile, "gettempdir", return_value=self.temp_build_root), \
+             mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
+             mock.patch.object(te, "ensure_test_template_ready", side_effect=fake_preflight), \
+             mock.patch.object(te.guid_whitelister, "whitelist_existing_addins"), \
+             mock.patch.object(te, "run_worker_journal_cleanliness_gate", return_value=(True, "CLEAN")), \
+             mock.patch.object(te.subprocess, "run", side_effect=fake_subproc_run), \
+             contextlib.redirect_stdout(out_buf):
+            with self.assertRaises(SystemExit) as exit_ctx:
+                te.run_test_suite(target_version="2027,2024,2026,2025")
+
+        self.assertEqual(exit_ctx.exception.code, 0, msg=out_buf.getvalue())
+        self.assertEqual(max_preflight, 1)
+        preflight_starts = [ver for kind, ver in timeline if kind == "preflight_start"]
+        self.assertEqual(preflight_starts, ["2024", "2025", "2026", "2027"])
+        last_preflight_idx = max(i for i, (kind, _) in enumerate(timeline) if kind == "preflight_end")
+        first_build_idx = min(i for i, (kind, _) in enumerate(timeline) if kind == "build")
+        self.assertLess(last_preflight_idx, first_build_idx)
+
+    def test_pool_parallel_builds_capped_at_2_and_dispatch_immediately_upon_build_completion(self):
+        import contextlib
+        from unittest import mock
+
+        state_lock = threading.Lock()
+        active_builds = 0
+        max_active_builds = 0
+        build_2025_started = threading.Event()
+        release_2025_build = threading.Event()
+        dispatched_before_2025_released = []
+        build_roots = {}
+
+        def fake_subproc_run(cmd, **kwargs):
+            nonlocal active_builds, max_active_builds
+            if len(cmd) > 1 and cmd[1] == "build":
+                proj = os.path.basename(cmd[2])
+                ver = proj.rsplit(".", 2)[1]
+                iso_root = next(a.split("=", 1)[1] for a in cmd if a.startswith("-p:SyntheticIsolatedBuildRoot="))
+                with state_lock:
+                    build_roots[ver] = iso_root
+                    active_builds += 1
+                    max_active_builds = max(max_active_builds, active_builds)
+                try:
+                    if ver == "2025":
+                        build_2025_started.set()
+                        self.assertTrue(release_2025_build.wait(timeout=5.0), "2025 build timed out waiting for gate")
+                    else:
+                        time.sleep(0.02)
+                    return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+                finally:
+                    with state_lock:
+                        active_builds -= 1
+
+            if cmd[0] == self.pool_exe:
+                ver = cmd[cmd.index("--version") + 1]
+                trx_path = cmd[cmd.index("--trx") + 1]
+                with state_lock:
+                    if not release_2025_build.is_set():
+                        dispatched_before_2025_released.append(ver)
+                if ver == "2024":
+                    # Once 2024 dispatches while 2025 build is still blocked, release 2025 build
+                    release_2025_build.set()
+                self._write_trx(trx_path, passed_names=[f"Pass_{ver}"])
+                payload = self._build_pool_payload(ver, trx_path, [f"w_{ver}"])
+                return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(payload), stderr="")
+            raise AssertionError(f"Unexpected command: {cmd}")
+
+        # Safety timer so test never hangs if immediate pipelined dispatch fails
+        safety = threading.Timer(4.0, release_2025_build.set)
+        safety.start()
+        out_buf = io.StringIO()
+        try:
+            with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root}, clear=False), \
+                 mock.patch("os.getcwd", return_value=self.root), \
+                 mock.patch.object(te.tempfile, "gettempdir", return_value=self.temp_build_root), \
+                 mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
+                 mock.patch.object(te, "ensure_test_template_ready", return_value=False), \
+                 mock.patch.object(te.guid_whitelister, "whitelist_existing_addins"), \
+                 mock.patch.object(te, "run_worker_journal_cleanliness_gate", return_value=(True, "CLEAN")), \
+                 mock.patch.object(te.subprocess, "run", side_effect=fake_subproc_run), \
+                 contextlib.redirect_stdout(out_buf):
+                with self.assertRaises(SystemExit) as exit_ctx:
+                    te.run_test_suite(target_version="2024,2025,2026,2027")
+        finally:
+            safety.cancel()
+
+        self.assertEqual(exit_ctx.exception.code, 0, msg=out_buf.getvalue())
+        self.assertLessEqual(max_active_builds, 2)
+        self.assertEqual(max_active_builds, 2)
+        self.assertTrue(dispatched_before_2025_released, "Other versions must dispatch immediately without waiting for slow 2025 build")
+        self.assertEqual(len(set(build_roots.values())), 4)
+        for ver, root_path in build_roots.items():
+            self.assertEqual(os.path.basename(root_path), ver)
+
+    def test_run_to_completion_combined_summary_reports_test_build_pool_and_journal_failures_and_preserves_build_root(self):
+        import contextlib
+        from unittest import mock
+
+        ran_versions = []
+        lock = threading.Lock()
+
+        def fake_subproc_run(cmd, **kwargs):
+            if len(cmd) > 1 and cmd[1] == "build":
+                proj = os.path.basename(cmd[2])
+                ver = proj.rsplit(".", 2)[1]
+                iso_root = next(a.split("=", 1)[1] for a in cmd if a.startswith("-p:SyntheticIsolatedBuildRoot="))
+                os.makedirs(iso_root, exist_ok=True)
+                if ver == "2024":
+                    return subprocess.CompletedProcess(cmd, 1, stdout="error CS0103: MissingSymbol\n", stderr="")
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+            if cmd[0] == self.pool_exe:
+                ver = cmd[cmd.index("--version") + 1]
+                trx_path = cmd[cmd.index("--trx") + 1]
+                with lock:
+                    ran_versions.append(ver)
+                if ver == "2025":
+                    payload = self._build_pool_payload(
+                        ver, trx_path, [], passed=0, failed=0, exit_code=2, error="CleanShimLaunchException: signature invalid"
+                    )
+                    return subprocess.CompletedProcess(cmd, 2, stdout=json.dumps(payload), stderr="[shim] fatal\n")
+                if ver == "2026":
+                    self._write_trx(
+                        trx_path,
+                        passed_names=["Ok2026"],
+                        failed_tests=[("Broken2026", "Expected true", "at Foo.cs:42")],
+                    )
+                    payload = self._build_pool_payload(ver, trx_path, ["w_2026"], passed=1, failed=1, exit_code=1)
+                    return subprocess.CompletedProcess(cmd, 1, stdout=json.dumps(payload), stderr="")
+                if ver == "2027":
+                    self._write_trx(trx_path, passed_names=["Ok2027"])
+                    payload = self._build_pool_payload(ver, trx_path, ["w_2027_dirty"], passed=1, failed=0, exit_code=0)
+                    return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(payload), stderr="")
+            raise AssertionError(f"Unexpected command: {cmd}")
+
+        def fake_gate(ver, wid, **kwargs):
+            if str(ver) == "2027":
+                return False, f"Worker {wid}: Cleanliness Gate Result: DIRTY (orphaned transaction)"
+            return True, f"Worker {wid}: CLEAN"
+
+        out_buf = io.StringIO()
+        with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root}, clear=False), \
+             mock.patch("os.getcwd", return_value=self.root), \
+             mock.patch.object(te.tempfile, "gettempdir", return_value=self.temp_build_root), \
+             mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
+             mock.patch.object(te, "ensure_test_template_ready", return_value=False), \
+             mock.patch.object(te.guid_whitelister, "whitelist_existing_addins"), \
+             mock.patch.object(te, "run_worker_journal_cleanliness_gate", side_effect=fake_gate), \
+             mock.patch.object(te.subprocess, "run", side_effect=fake_subproc_run), \
+             contextlib.redirect_stdout(out_buf):
+            with self.assertRaises(SystemExit) as exit_ctx:
+                te.run_test_suite(target_version="2024,2025,2026,2027", fail_fast=False)
+
+        self.assertEqual(exit_ctx.exception.code, 1)
+        out_text = out_buf.getvalue()
+        # All remaining versions ran to completion despite 2024 build failure and 2025 pool exitCode==2
+        self.assertEqual(set(ran_versions), {"2025", "2026", "2027"})
+        # Thread-safe completion lines for every version
+        self.assertRegex(out_text, r"\[TESTS\] Revit 2024: FAIL \(0 passed, 0 failed, clean journal, [0-9.]+s\)")
+        self.assertRegex(out_text, r"\[TESTS\] Revit 2025: FAIL \(0 passed, 0 failed, clean journal, [0-9.]+s\)")
+        self.assertRegex(out_text, r"\[TESTS\] Revit 2026: FAIL \(1 passed, 1 failed, clean journal, [0-9.]+s\)")
+        self.assertRegex(out_text, r"\[TESTS\] Revit 2027: FAIL \(1 passed, 0 failed, dirty journal, [0-9.]+s\)")
+        # Combined Markdown summary covers test, build, pool (exitCode == 2), and journal failures
+        self.assertIn("# Test Execution Summary", out_text)
+        self.assertIn("Broken2026", out_text)
+        self.assertIn("MissingSymbol", out_text)
+        self.assertIn("CleanShimLaunchException", out_text)
+        self.assertIn("DIRTY", out_text)
+        # Failed build root preserved on disk
+        builds_parent = os.path.join(self.temp_build_root, "SyntheticBuilds")
+        preserved = os.listdir(builds_parent)
+        self.assertEqual(len(preserved), 1)
+        self.assertIn(os.path.join(builds_parent, preserved[0]), out_text)
+
+    def test_fail_fast_cancels_only_unstarted_targets_while_inflight_workers_finish_and_gate_clean(self):
+        import contextlib
+        from unittest import mock
+
+        pool_2025_entered = threading.Event()
+        release_2025_pool = threading.Event()
+        build_2026_entered = threading.Event()
+        build_2023_entered = threading.Event()
+        release_inflight_builds = threading.Event()
+        gated = []
+        started_builds = []
+        started_pools = []
+        lock = threading.Lock()
+
+        class _FailWatchStdout(io.StringIO):
+            def write(self, s):
+                n = super().write(s)
+                if "[TESTS] Revit 2024: FAIL" in s:
+                    release_inflight_builds.set()
+                    release_2025_pool.set()
+                return n
+
+        def fake_subproc_run(cmd, **kwargs):
+            if len(cmd) > 1 and cmd[1] == "build":
+                proj = os.path.basename(cmd[2])
+                ver = proj.rsplit(".", 2)[1]
+                with lock:
+                    started_builds.append(ver)
+                if ver == "2027":
+                    raise AssertionError("2027 unstarted build should have been cancelled under --fail-fast!")
+                if ver == "2026":
+                    build_2026_entered.set()
+                    self.assertTrue(release_inflight_builds.wait(timeout=5.0))
+                elif ver == "2023":
+                    build_2023_entered.set()
+                    self.assertTrue(release_inflight_builds.wait(timeout=5.0))
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+            if cmd[0] == self.pool_exe:
+                ver = cmd[cmd.index("--version") + 1]
+                trx_path = cmd[cmd.index("--trx") + 1]
+                with lock:
+                    started_pools.append(ver)
+                if ver == "2025":
+                    pool_2025_entered.set()
+                    self.assertTrue(release_2025_pool.wait(timeout=5.0))
+                    self._write_trx(trx_path, passed_names=["Pass2025"])
+                    payload = self._build_pool_payload(ver, trx_path, ["w_2025_inflight"], passed=1, failed=0, exit_code=0)
+                    return subprocess.CompletedProcess(cmd, 0, stdout=json.dumps(payload), stderr="")
+                if ver == "2024":
+                    self.assertTrue(pool_2025_entered.wait(timeout=5.0))
+                    self.assertTrue(build_2026_entered.wait(timeout=5.0))
+                    self.assertTrue(build_2023_entered.wait(timeout=5.0))
+                    payload = self._build_pool_payload(ver, trx_path, ["w_2024"], passed=0, failed=1, exit_code=1)
+                    self._write_trx(trx_path, failed_tests=[("Fail2024", "boom", "trace")])
+                    return subprocess.CompletedProcess(cmd, 1, stdout=json.dumps(payload), stderr="")
+                raise AssertionError(f"Unstarted pool dispatch for {ver} must be cancelled!")
+            raise AssertionError(f"Unexpected command: {cmd}")
+
+        def fake_gate(ver, wid, **kwargs):
+            with lock:
+                gated.append((str(ver), wid))
+            return True, f"Worker {wid}: CLEAN"
+
+        # 5 targets (2024, 2025, 2026, 2023, 2027): 2024 & 2025 build fast and enter pool; 2026 & 2023 occupy
+        # both build slots so 2027 cannot start building. 2024 fails while 2025 is in-flight in pool and
+        # 2026/2023 are building -> 2027 build is cancelled, 2026/2023 pool dispatches are cancelled, and
+        # in-flight 2025 finishes and passes --assert-clean!
+        safety = threading.Timer(5.0, lambda: (release_inflight_builds.set(), release_2025_pool.set()))
+        safety.start()
+        out_buf = _FailWatchStdout()
+        try:
+            with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root}, clear=False), \
+                 mock.patch("os.getcwd", return_value=self.root), \
+                 mock.patch.object(te.tempfile, "gettempdir", return_value=self.temp_build_root), \
+                 mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
+                 mock.patch.object(te, "ensure_test_template_ready", return_value=False), \
+                 mock.patch.object(te.guid_whitelister, "whitelist_existing_addins"), \
+                 mock.patch.object(te, "run_worker_journal_cleanliness_gate", side_effect=fake_gate), \
+                 mock.patch.object(te.subprocess, "run", side_effect=fake_subproc_run), \
+                 contextlib.redirect_stdout(out_buf):
+                with self.assertRaises(SystemExit) as exit_ctx:
+                    te.run_test_suite(target_version="2024,2025,2026,2023,2027", fail_fast=True)
+        finally:
+            safety.cancel()
+
+        self.assertEqual(exit_ctx.exception.code, 1, msg=out_buf.getvalue())
+        self.assertIn(("2025", "w_2025_inflight"), gated)
+        self.assertIn(("2024", "w_2024"), gated)
+        self.assertNotIn("2026", started_pools)
+        self.assertNotIn("2023", started_pools)
+        self.assertNotIn("2027", started_pools)
+        self.assertNotIn("2027", started_builds)
+
+    def test_cold_no_pool_remains_sequential_across_revit_versions(self):
+        import contextlib
+        from unittest import mock
+
+        events = []
+        active_cold = 0
+        max_cold = 0
+
+        def fake_subproc_run(cmd, **kwargs):
+            if len(cmd) > 1 and cmd[1] == "build":
+                proj = os.path.basename(cmd[2])
+                ver = proj.rsplit(".", 2)[1]
+                iso_root = next(a.split("=", 1)[1] for a in cmd if a.startswith("-p:SyntheticIsolatedBuildRoot="))
+                self.assertEqual(os.path.basename(iso_root), ver)
+                events.append(("build", ver))
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            if cmd[0] == self.pool_exe:
+                raise AssertionError("--no-pool must not invoke RevitWorkerPool!")
+            raise AssertionError(f"Unexpected command: {cmd}")
+
+        def fake_cold_gate_exec(cmd, out_f, worker_env, version, run_id, snapshot_path, timeout):
+            nonlocal active_cold, max_cold
+            active_cold += 1
+            max_cold = max(max_cold, active_cold)
+            events.append(("cold_start", version))
+            time.sleep(0.01)
+            trx_name = cmd[cmd.index("--logger") + 1].split("LogFileName=", 1)[1]
+            results_dir = cmd[cmd.index("--results-directory") + 1]
+            self._write_trx(os.path.join(results_dir, trx_name), passed_names=[f"Cold_{version}"])
+            active_cold -= 1
+            events.append(("cold_end", version))
+            return 0, False, run_id, False
+
+        class FakeLease:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                pass
+
+        out_buf = io.StringIO()
+        with mock.patch.dict(os.environ, {"SYNTHETIC_PROJECT_ROOT": self.root}, clear=False), \
+             mock.patch("os.getcwd", return_value=self.root), \
+             mock.patch.object(te.tempfile, "gettempdir", return_value=self.temp_build_root), \
+             mock.patch.object(te, "configure_dotnet_environment", return_value=None), \
+             mock.patch.object(te, "ensure_test_template_ready", return_value=False), \
+             mock.patch.object(te.guid_whitelister, "whitelist_existing_addins"), \
+             mock.patch.object(te, "check_legacy_programdata_manifest"), \
+             mock.patch.object(te, "snapshot_known_journals"), \
+             mock.patch.object(te, "RicaunBundleLease", FakeLease), \
+             mock.patch.object(te, "execute_revit_test_with_startup_gate", side_effect=fake_cold_gate_exec), \
+             mock.patch.object(te, "run_journal_cleanliness_gate", return_value=(True, "CLEAN")), \
+             mock.patch.object(te.subprocess, "run", side_effect=fake_subproc_run), \
+             contextlib.redirect_stdout(out_buf):
+            with self.assertRaises(SystemExit) as exit_ctx:
+                te.run_test_suite(target_version="2024,2026,2027", no_pool=True)
+
+        self.assertEqual(exit_ctx.exception.code, 0, msg=out_buf.getvalue())
+        self.assertEqual(max_cold, 1)
+        self.assertEqual(
+            events,
+            [
+                ("build", "2024"),
+                ("cold_start", "2024"),
+                ("cold_end", "2024"),
+                ("build", "2026"),
+                ("cold_start", "2026"),
+                ("cold_end", "2026"),
+                ("build", "2027"),
+                ("cold_start", "2027"),
+                ("cold_end", "2027"),
+            ],
+        )
+
+    def test_build_isolated_project_logs_warn_when_build_log_write_fails(self):
+        from unittest import mock
+
+        messages = []
+        build_log_path = os.path.join(self.root, "build_2027.log")
+        target_build_root = os.path.join(self.temp_build_root, "2027")
+        csproj_path = os.path.join(
+            self.tests_dir, "Projects", "Synthetic.RevitTests.2027", "Synthetic.RevitTests.2027.csproj"
+        )
+
+        with mock.patch.object(
+            te.subprocess,
+            "run",
+            return_value=subprocess.CompletedProcess(["dotnet", "build"], 0, stdout="Build succeeded.", stderr=""),
+        ), mock.patch("builtins.open", side_effect=OSError("disk full")):
+            ok, err = te._build_isolated_project(
+                "dotnet",
+                csproj_path,
+                "Synthetic.RevitTests.2027",
+                "2027",
+                target_build_root,
+                "run-warn-test",
+                build_log_path,
+                False,
+                messages.append,
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(err, "")
+        warn_msgs = [m for m in messages if m.startswith("[WARN]")]
+        self.assertEqual(len(warn_msgs), 1, msg=messages)
+        self.assertIn(build_log_path, warn_msgs[0])
+        self.assertIn("disk full", warn_msgs[0])
+        self.assertIn("[TESTS] Build succeeded for Synthetic.RevitTests.2027.", messages)
+
+    def test_real_concurrent_two_process_dotnet_build_2026_2027_and_legacymock_2027(self):
+        import concurrent.futures
+
+        # Verify real concurrent 2-process dotnet build isolation against the actual repo projects:
+        # 1) 2026 + 2027 (shares Synthetic.Core)
+        # 2) LegacyMock + 2027 (shares Synthetic.Core and Synthetic2027)
+        sdk_info = te.configure_dotnet_environment(env=os.environ.copy())
+        dotnet_exe = te.resolve_dotnet_exe(sdk_info)
+        build_env = os.environ.copy()
+        te.configure_dotnet_environment(env=build_env)
+
+        real_projects = te.discover_test_projects(os.path.join(REPO_ROOT, "tests"))
+        for pair in (("2026", "2027"), ("LegacyMock", "2027")):
+            with self.subTest(pair=pair):
+                run_id = te.generate_run_id()
+                run_root = os.path.join(self.temp_build_root, f"real_concurrent_{'_'.join(pair)}_{run_id}")
+                os.makedirs(run_root, exist_ok=True)
+                barrier = threading.Barrier(2)
+
+                def _real_build(target_key):
+                    csproj = real_projects[target_key][0]
+                    target_root = os.path.join(run_root, target_key)
+                    os.makedirs(target_root, exist_ok=True)
+                    barrier.wait(timeout=15.0)
+                    cmd = [
+                        dotnet_exe,
+                        "build",
+                        csproj,
+                        "-c",
+                        "Debug",
+                        "-p:Platform=x64",
+                        f"-p:SyntheticIsolatedBuildRoot={target_root}",
+                        f"-p:SyntheticRunId={run_id}",
+                        "-v:minimal",
+                        "-clp:ErrorsOnly;Summary",
+                    ]
+                    res = subprocess.run(cmd, cwd=REPO_ROOT, env=build_env, capture_output=True, text=True)
+                    return target_key, csproj, target_root, res
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+                    results = list(ex.map(_real_build, pair))
+
+                for target_key, csproj, target_root, res in results:
+                    self.assertEqual(
+                        res.returncode,
+                        0,
+                        msg=f"Concurrent build failed for {target_key}:\nSTDOUT:\n{res.stdout}\nSTDERR:\n{res.stderr}",
+                    )
+                    proj_name = os.path.splitext(os.path.basename(csproj))[0]
+                    tfms, is_multi = te.get_project_target_frameworks(csproj)
+                    dll_path = te.resolve_isolated_test_assembly_path(
+                        target_root, proj_name, run_id, tfm=tfms[0], is_multi_tfm=is_multi
+                    )
+                    self.assertTrue(os.path.isfile(dll_path), msg=f"Missing isolated output DLL: {dll_path}")
+
 
 
 class TestPreRunTestTemplateTrigger(unittest.TestCase):

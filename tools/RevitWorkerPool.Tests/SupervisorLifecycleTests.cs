@@ -134,7 +134,7 @@ public class SupervisorLifecycleTests
         Assert.That(status.ReadyStandby, Is.EqualTo(2));
         Assert.That(status.Active, Is.EqualTo(0));
         Assert.That(status.TotalResident, Is.EqualTo(2));
-        Assert.That(status.ActiveCap, Is.EqualTo(4));
+        Assert.That(status.ActiveCap, Is.EqualTo(SupervisorOptions.DefaultMaxActiveWorkers));
         Assert.That(status.LastActivityUtc, Is.GreaterThan(DateTimeOffset.MinValue));
         Assert.That(status.Versions[2026].ReadyStandby, Is.EqualTo(2));
         Assert.That(status.Versions[2026].StandbyTarget, Is.EqualTo(2));
@@ -186,12 +186,12 @@ public class SupervisorLifecycleTests
 
         SupervisorIpcResponse overCap = await SupervisorIpcClient.SendAsync(
             pipeName,
-            new SupervisorIpcRequest { Command = SupervisorIpcCommands.Warm, Version = 2026, Count = 6 },
+            new SupervisorIpcRequest { Command = SupervisorIpcCommands.Warm, Version = 2026, Count = 12 },
             TimeSpan.FromSeconds(5));
 
         Assert.That(overCap.Success, Is.True, overCap.Error);
-        Assert.That(overCap.WarmResult!.TargetCount, Is.EqualTo(4));
-        Assert.That(overCap.Status!.TotalResident, Is.LessThanOrEqualTo(4));
+        Assert.That(overCap.WarmResult!.TargetCount, Is.EqualTo(SupervisorOptions.DefaultMaxActiveWorkers));
+        Assert.That(overCap.Status!.TotalResident, Is.LessThanOrEqualTo(SupervisorOptions.DefaultMaxActiveWorkers));
     }
 
     [Test]
@@ -419,7 +419,7 @@ public class SupervisorLifecycleTests
             };
         });
 
-        await using var supervisor = CreateSupervisor(pipeName, launcher, currentLatestVersion: 2026);
+        await using var supervisor = CreateSupervisor(pipeName, launcher, currentLatestVersion: 2026, maxActiveWorkers: 4);
         await using var ipcServer = StartServer(pipeName, supervisor);
 
         Task<OneShotRunResult>[] saturatingRuns = Enumerable.Range(1, 4)
@@ -615,7 +615,7 @@ public class SupervisorLifecycleTests
         });
 
         using (launcher)
-        await using (var supervisor = CreateSupervisor(pipeName, launcher, currentLatestVersion: 2026))
+        await using (var supervisor = CreateSupervisor(pipeName, launcher, currentLatestVersion: 2026, maxActiveWorkers: 4))
         await using (var ipcServer = StartServer(pipeName, supervisor))
         {
             SupervisorIpcResponse warm = await SupervisorIpcClient.SendAsync(
@@ -886,28 +886,31 @@ public class SupervisorLifecycleTests
                 StartupTimeout = TimeSpan.FromSeconds(5)
             };
 
+            var supervisorLauncher = new DelegateSupervisorLauncher((_, _) =>
+            {
+                Interlocked.Increment(ref spawnCount);
+                server = new SupervisorIpcServer(
+                    pipeName,
+                    (req, _) => Task.FromResult(new SupervisorIpcResponse
+                    {
+                        RequestId = req.RequestId,
+                        Success = true,
+                        ExitCode = 0,
+                        Status = new PoolStatusSnapshot
+                        {
+                            Running = true,
+                            PipeName = pipeName,
+                            ActiveCap = 4
+                        }
+                    }));
+                server.Start();
+                return new SupervisorLaunchResult(SupervisorLaunchMethod.BreakawayProcess, Environment.ProcessId, "test");
+            });
+
             Task[] callers = Enumerable.Range(0, 8)
                 .Select(_ => SupervisorIpcClient.EnsureSupervisorRunningAsync(
                     launchOptions,
-                    spawnSupervisorAction: (_, _) =>
-                    {
-                        Interlocked.Increment(ref spawnCount);
-                        server = new SupervisorIpcServer(
-                            pipeName,
-                            (req, _) => Task.FromResult(new SupervisorIpcResponse
-                            {
-                                RequestId = req.RequestId,
-                                Success = true,
-                                ExitCode = 0,
-                                Status = new PoolStatusSnapshot
-                                {
-                                    Running = true,
-                                    PipeName = pipeName,
-                                    ActiveCap = 4
-                                }
-                            }));
-                        server.Start();
-                    }))
+                    supervisorLauncher))
                 .ToArray();
 
             await Task.WhenAll(callers).WaitAsync(TimeSpan.FromSeconds(5));
@@ -1173,17 +1176,697 @@ public class SupervisorLifecycleTests
         await WaitForStatusAsync(pipeName, s => s.ReadyStandby == 2 && s.Booting == 0 && s.Active == 0);
     }
 
+    [Test]
+    public async Task DrainAsync_PlainSafe_RefusesWithStructuredCounts_WhenWorkInFlight_AndDrainsWhenIdleStandbyRemains()
+    {
+        string pipeName = CreateUniquePipeName();
+        var execStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var execRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        using var launcher = new StubWorkerProcessLauncher((server, _) =>
+        {
+            server.InitialIsBusy = false;
+            server.ExecutionHandler = async (req, emitTest, ct) =>
+            {
+                execStarted.TrySetResult(true);
+                await execRelease.Task.WaitAsync(ct).ConfigureAwait(false);
+                var test = new TestModel
+                {
+                    Name = "SmokeTest",
+                    FullName = "Ns.Fixture.SmokeTest",
+                    Success = true,
+                    Time = 5.0
+                };
+                emitTest(test);
+                return BuildAssemblyModel(req, test);
+            };
+        });
+
+        await using var supervisor = new WorkerPoolSupervisor(
+            new SupervisorOptions
+            {
+                PipeName = pipeName,
+                CurrentLatestVersion = 2026,
+                MaxActiveWorkers = 1,
+                IdleTimeout = TimeSpan.FromMinutes(25),
+                TimingCacheDirectory = Path.Combine(_tempRoot, "timing_cache")
+            },
+            _discovery,
+            launcher,
+            new RevitPipeTestClientFactory(),
+            bundleLeaseFactory: _ => new CountingDisposable(static () => { }));
+        await using var ipcServer = StartServer(pipeName, supervisor);
+
+        Task<SupervisorIpcResponse> run1 = SendRunAsync(pipeName, 2026, Path.Combine(_tempRoot, "out", "safe_drain_1.trx"), shards: 1);
+        await execStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+
+        // Queue a 2nd run behind cap=1 so both activeRuns (2) and queuedRuns (1) are non-zero.
+        Task<SupervisorIpcResponse> run2 = SendRunAsync(pipeName, 2026, Path.Combine(_tempRoot, "out", "safe_drain_2.trx"), shards: 1);
+        await WaitForStatusAsync(pipeName, s => s.QueuedRuns == 1 && s.Active == 1);
+
+        SupervisorIpcResponse refusedResp = await SupervisorIpcClient.SendAsync(
+            pipeName,
+            new SupervisorIpcRequest { Command = SupervisorIpcCommands.Drain },
+            TimeSpan.FromSeconds(5));
+
+        Assert.That(refusedResp.Success, Is.False);
+        Assert.That(refusedResp.ExitCode, Is.EqualTo(2));
+        Assert.That(refusedResp.IsDraining, Is.False);
+        Assert.That(refusedResp.DrainResult, Is.Not.Null);
+        Assert.That(refusedResp.DrainResult!.ActiveRuns, Is.EqualTo(2));
+        Assert.That(refusedResp.DrainResult.QueuedRuns, Is.EqualTo(1));
+        Assert.That(refusedResp.DrainResult.ActiveWarmCalls, Is.EqualTo(0));
+        Assert.That(supervisor.IsDraining, Is.False);
+        Assert.That(supervisor.HasShutdownCompleted, Is.False);
+
+        execRelease.TrySetResult(true);
+        SupervisorIpcResponse[] completedRuns = await Task.WhenAll(run1, run2).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.That(completedRuns.All(r => r.Success), Is.True);
+
+        // Wait until only the idle ReadyStandby worker for CURRENT_LATEST_VERSION remains.
+        PoolStatusSnapshot idleStatus = await WaitForStatusAsync(
+            pipeName,
+            s => s.Active == 0 && s.Booting == 0 && s.ReadyStandby == 1 && s.QueuedRuns == 0);
+        Assert.That(idleStatus.ReadyStandby, Is.EqualTo(1));
+
+        // Plain drain succeeds immediately when only idle ReadyStandby workers exist.
+        SupervisorIpcResponse idleDrainResp = await SupervisorIpcClient.SendAsync(
+            pipeName,
+            new SupervisorIpcRequest { Command = SupervisorIpcCommands.Drain },
+            TimeSpan.FromSeconds(5));
+
+        Assert.That(idleDrainResp.Success, Is.True, idleDrainResp.Error);
+        Assert.That(idleDrainResp.ExitCode, Is.EqualTo(0));
+        Assert.That(idleDrainResp.DrainResult!.TerminatedWorkers, Is.GreaterThanOrEqualTo(1));
+        Assert.That(idleDrainResp.Status!.TotalResident, Is.EqualTo(0));
+        Assert.That(supervisor.HasShutdownCompleted, Is.True);
+    }
+
+    [Test]
+    public async Task DrainAsync_PlainSafe_RefusesDuringPlanPreparationAndActiveWarm_WithExactCounts()
+    {
+        // 1. Refuse while a run is inside PrepareRunPlan (blocked on FixtureTimingCache mutex).
+        string pipeName = CreateUniquePipeName();
+        string timingDir = Path.Combine(_tempRoot, "timing_cache_prep");
+        var timingCache = new RevitWorkerPool.Sharding.FixtureTimingCache(timingDir);
+        string cacheFilePath = timingCache.GetCacheFilePath(2026);
+        string normalized = Path.GetFullPath(cacheFilePath).ToUpperInvariant();
+        byte[] hash = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(normalized));
+        string cacheMutexName = $@"Local\Synthetic_FixtureTimingCache_{Convert.ToHexString(hash.AsSpan(0, 8))}";
+
+        using var launcher = CreatePassingLauncher();
+        await using var supervisor = new WorkerPoolSupervisor(
+            new SupervisorOptions
+            {
+                PipeName = pipeName,
+                CurrentLatestVersion = 2026,
+                IdleTimeout = TimeSpan.FromMinutes(25),
+                TimingCacheDirectory = timingDir
+            },
+            _discovery,
+            launcher,
+            new RevitPipeTestClientFactory(),
+            bundleLeaseFactory: _ => new CountingDisposable(static () => { }),
+            timingCache: timingCache);
+        await using var ipcServer = StartServer(pipeName, supervisor);
+
+        using var mutexHeld = new ManualResetEventSlim(false);
+        using var releaseMutex = new ManualResetEventSlim(false);
+        Task holderTask = Task.Run(() =>
+        {
+            using var mutex = new Mutex(initiallyOwned: false, cacheMutexName);
+            bool acquired = mutex.WaitOne(TimeSpan.FromSeconds(5));
+            Assert.That(acquired, Is.True);
+            try
+            {
+                mutexHeld.Set();
+                releaseMutex.Wait(TimeSpan.FromSeconds(5));
+            }
+            finally
+            {
+                mutex.ReleaseMutex();
+            }
+        });
+
+        Assert.That(mutexHeld.Wait(TimeSpan.FromSeconds(3)), Is.True);
+
+        Task<SupervisorIpcResponse> preparingRun = SendRunAsync(
+            pipeName,
+            2026,
+            Path.Combine(_tempRoot, "out", "prep_block.trx"));
+
+        PoolStatusSnapshot prepStatus = await WaitForStatusAsync(pipeName, s => s.ActiveRuns == 1);
+        Assert.That(prepStatus.ActiveRuns, Is.EqualTo(1));
+
+        SupervisorIpcResponse prepRefused = await SupervisorIpcClient.SendAsync(
+            pipeName,
+            new SupervisorIpcRequest { Command = SupervisorIpcCommands.Drain },
+            TimeSpan.FromSeconds(5));
+
+        Assert.That(prepRefused.Success, Is.False);
+        Assert.That(prepRefused.ExitCode, Is.EqualTo(2));
+        Assert.That(prepRefused.DrainResult!.ActiveRuns, Is.EqualTo(1));
+        Assert.That(prepRefused.DrainResult.QueuedRuns, Is.EqualTo(0));
+        Assert.That(prepRefused.DrainResult.ActiveWarmCalls, Is.EqualTo(0));
+
+        releaseMutex.Set();
+        await holderTask;
+        SupervisorIpcResponse prepCompleted = await preparingRun.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.That(prepCompleted.Success, Is.True, prepCompleted.Error);
+
+        await WaitForStatusAsync(pipeName, s => s.ActiveRuns == 0 && s.Active == 0 && s.Booting == 0);
+        DrainResult cleanAfterPrep = await supervisor.DrainAsync();
+        Assert.That(cleanAfterPrep.Success, Is.True);
+
+        // 2. Refuse while a warm call is in flight (activeWarmCalls == 1).
+        string warmPipe = CreateUniquePipeName();
+        var bootStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var hungWarmLauncher = new StubWorkerProcessLauncher((server, _) =>
+        {
+            server.InitialIsBusy = true;
+            bootStarted.TrySetResult(true);
+        });
+        await using var warmSupervisor = CreateSupervisor(warmPipe, hungWarmLauncher, currentLatestVersion: 2026);
+        await using var warmServer = StartServer(warmPipe, warmSupervisor);
+
+        Task<WarmResult> warmTask = warmSupervisor.WarmAsync(2026, 1, bootTimeout: TimeSpan.FromSeconds(10));
+        await bootStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        await WaitForStatusAsync(warmPipe, s => s.ActiveWarmCalls == 1);
+
+        SupervisorIpcResponse warmRefused = await SupervisorIpcClient.SendAsync(
+            warmPipe,
+            new SupervisorIpcRequest { Command = SupervisorIpcCommands.Drain },
+            TimeSpan.FromSeconds(5));
+
+        Assert.That(warmRefused.Success, Is.False);
+        Assert.That(warmRefused.ExitCode, Is.EqualTo(2));
+        Assert.That(warmRefused.DrainResult!.ActiveWarmCalls, Is.EqualTo(1));
+        Assert.That(warmRefused.DrainResult.ActiveRuns, Is.EqualTo(0));
+
+        DrainResult forced = await warmSupervisor.DrainAsync(DrainMode.Force).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.That(forced.Success, Is.True);
+        WarmResult warmFinished = await warmTask.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.That(warmFinished.Success, Is.False);
+    }
+
+    [Test]
+    public async Task DrainWhenIdle_LetsInFlightAndQueuedShardsFinish_HaltsStandbyAndLookahead_RejectsNewRunAndWarm_AndPreventsDuplicateSpawn()
+    {
+        string pipeName = CreateUniquePipeName();
+        int execCount = 0;
+        var run1Started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseRun1 = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseRest = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var memoryProbe = new MutableMemoryProbe(4UL * 1024 * 1024 * 1024);
+        int leaseDisposed = 0;
+
+        using var launcher = new StubWorkerProcessLauncher((server, _) =>
+        {
+            server.InitialIsBusy = false;
+            server.ExecutionHandler = async (req, emitTest, ct) =>
+            {
+                int idx = Interlocked.Increment(ref execCount);
+                if (idx == 1)
+                {
+                    run1Started.TrySetResult(true);
+                    await releaseRun1.Task.WaitAsync(ct).ConfigureAwait(false);
+                }
+                else
+                {
+                    await releaseRest.Task.WaitAsync(ct).ConfigureAwait(false);
+                }
+
+                var test = new TestModel
+                {
+                    Name = "SmokeTest",
+                    FullName = "Ns.Fixture.SmokeTest",
+                    Success = true,
+                    Time = 5.0
+                };
+                emitTest(test);
+                return BuildAssemblyModel(req, test);
+            };
+        }, usesCleanShim: true);
+
+        await using var supervisor = new WorkerPoolSupervisor(
+            new SupervisorOptions
+            {
+                PipeName = pipeName,
+                CurrentLatestVersion = 2026,
+                MaxActiveWorkers = 1,
+                IdleTimeout = TimeSpan.FromMinutes(25),
+                TimingCacheDirectory = Path.Combine(_tempRoot, "timing_cache"),
+                MemoryProbe = memoryProbe
+            },
+            _discovery,
+            launcher,
+            new RevitPipeTestClientFactory(),
+            bundleLeaseFactory: _ => new CountingDisposable(() => Interlocked.Increment(ref leaseDisposed)));
+        await using var ipcServer = StartServer(pipeName, supervisor);
+
+        // Start 3 runs behind MaxActiveWorkers=1 (1 active, 2 queued). Low RAM probe initially prevents lookahead.
+        Task<SupervisorIpcResponse> run1 = SendRunAsync(pipeName, 2026, Path.Combine(_tempRoot, "out", "when_idle_1.trx"), shards: 1);
+        await run1Started.Task.WaitAsync(TimeSpan.FromSeconds(3));
+
+        Task<SupervisorIpcResponse> run2 = SendRunAsync(pipeName, 2026, Path.Combine(_tempRoot, "out", "when_idle_2.trx"), shards: 1);
+        Task<SupervisorIpcResponse> run3 = SendRunAsync(pipeName, 2026, Path.Combine(_tempRoot, "out", "when_idle_3.trx"), shards: 1);
+        await WaitForStatusAsync(pipeName, s => s.Active == 1 && s.QueuedRuns == 2);
+
+        int workersBeforeWhenIdle = launcher.Workers.Count;
+        Assert.That(workersBeforeWhenIdle, Is.EqualTo(1));
+
+        // Latch DrainingWhenIdle over IPC, then raise available RAM above 12 GiB so lookahead would fire if not halted.
+        Task<SupervisorIpcResponse> whenIdleTask = SupervisorIpcClient.SendAsync(
+            pipeName,
+            new SupervisorIpcRequest { Command = SupervisorIpcCommands.Drain, WhenIdle = true },
+            TimeSpan.FromSeconds(5));
+
+        PoolStatusSnapshot whenIdleStatus = await WaitForStatusAsync(pipeName, s => s.DrainingWhenIdle);
+        Assert.That(whenIdleStatus.Running, Is.True);
+        Assert.That(whenIdleStatus.Draining, Is.False);
+        Assert.That(whenIdleStatus.DrainingWhenIdle, Is.True);
+        Assert.That(whenIdleTask.IsCompleted, Is.False);
+
+        memoryProbe.SetAvailableBytes(32UL * 1024 * 1024 * 1024);
+
+        // New run and warm requests fail closed while in DrainingWhenIdle.
+        SupervisorIpcResponse rejectedRun = await SendRunAsync(
+            pipeName,
+            2026,
+            Path.Combine(_tempRoot, "out", "rejected_while_draining.trx"));
+        Assert.That(rejectedRun.Success, Is.False);
+        Assert.That(rejectedRun.ExitCode, Is.EqualTo(2));
+        Assert.That(rejectedRun.Error, Does.Contain("Supervisor is draining when idle; retry after drain completes or run --no-pool"));
+
+        SupervisorIpcResponse rejectedWarm = await SupervisorIpcClient.SendAsync(
+            pipeName,
+            new SupervisorIpcRequest { Command = SupervisorIpcCommands.Warm, Version = 2026, Count = 1 },
+            TimeSpan.FromSeconds(5));
+        Assert.That(rejectedWarm.Success, Is.False);
+        Assert.That(rejectedWarm.ExitCode, Is.EqualTo(2));
+        Assert.That(rejectedWarm.Error, Does.Contain("Supervisor is draining when idle; retry after drain completes or run --no-pool"));
+
+        // EnsureSupervisorRunningAsync must NOT spawn a competing second supervisor while DrainingWhenIdle is active.
+        int spawnCalls = 0;
+        var countingSupervisorLauncher = new DelegateSupervisorLauncher((_, _) =>
+        {
+            Interlocked.Increment(ref spawnCalls);
+            return new SupervisorLaunchResult(SupervisorLaunchMethod.BreakawayProcess, Environment.ProcessId, "unexpected");
+        });
+        await SupervisorIpcClient.EnsureSupervisorRunningAsync(
+            new SupervisorClientLaunchOptions { PipeName = pipeName, StartupTimeout = TimeSpan.FromSeconds(2) },
+            countingSupervisorLauncher);
+        Assert.That(Volatile.Read(ref spawnCalls), Is.EqualTo(0));
+
+        // Release run1 -> run2 executes while run3 is still queued; verify no lookahead worker boots alongside run2.
+        releaseRun1.TrySetResult(true);
+        SupervisorIpcResponse run1Resp = await run1.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.That(run1Resp.Success, Is.True, run1Resp.Error);
+
+        await WaitForStatusAsync(pipeName, s => s.Active == 1 && s.QueuedRuns == 1);
+        Assert.That(launcher.Workers.Count(w => !w.IsTerminated), Is.EqualTo(1), "Lookahead must be halted in DrainingWhenIdle.");
+
+        // Release remaining queued runs; all complete and supervisor drains to zero without standby replenishment.
+        releaseRest.TrySetResult(true);
+        SupervisorIpcResponse[] restResp = await Task.WhenAll(run2, run3).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.That(restResp.All(r => r.Success), Is.True);
+
+        SupervisorIpcResponse whenIdleCompleted = await whenIdleTask.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.That(whenIdleCompleted.Success, Is.True, whenIdleCompleted.Error);
+        Assert.That(whenIdleCompleted.ExitCode, Is.EqualTo(0));
+        Assert.That(whenIdleCompleted.Status!.TotalResident, Is.EqualTo(0));
+        Assert.That(launcher.Workers.Count, Is.EqualTo(3), "Only the 3 demand runs should ever have launched (zero standby replenishment or lookahead).");
+        Assert.That(launcher.Workers.All(w => w.IsTerminated), Is.True);
+        Assert.That(Volatile.Read(ref leaseDisposed), Is.EqualTo(1));
+        Assert.That(supervisor.HasShutdownCompleted, Is.True);
+    }
+
+    [Test]
+    public async Task DrainWhenIdle_StaysLatchedOnClientDisconnect_AndPreemptingForceDrainCancelsWithZeroGraceWait()
+    {
+        string pipeName = CreateUniquePipeName();
+        var execStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var serverSawCancel = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        int leaseDisposed = 0;
+
+        using var launcher = new StubWorkerProcessLauncher((server, _) =>
+        {
+            server.InitialIsBusy = false;
+            server.ExecutionHandler = async (req, _, ct) =>
+            {
+                execStarted.TrySetResult(true);
+                try
+                {
+                    await Task.Delay(TimeSpan.FromSeconds(20), ct).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    serverSawCancel.TrySetResult(true);
+                    throw;
+                }
+
+                return BuildAssemblyModel(req);
+            };
+        });
+
+        await using var supervisor = new WorkerPoolSupervisor(
+            new SupervisorOptions
+            {
+                PipeName = pipeName,
+                CurrentLatestVersion = 2026,
+                DrainGraceTimeout = TimeSpan.FromSeconds(30),
+                IdleTimeout = TimeSpan.FromMinutes(25),
+                TimingCacheDirectory = Path.Combine(_tempRoot, "timing_cache")
+            },
+            _discovery,
+            launcher,
+            new RevitPipeTestClientFactory(),
+            bundleLeaseFactory: _ => new CountingDisposable(() => Interlocked.Increment(ref leaseDisposed)));
+        await using var ipcServer = StartServer(pipeName, supervisor);
+
+        Task<SupervisorIpcResponse> slowRun = SendRunAsync(
+            pipeName,
+            2024,
+            Path.Combine(_tempRoot, "out", "preempt_force.trx"),
+            shards: 1);
+        await execStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+
+        // Client sends drain --when-idle, then disconnects (cancels).
+        using (var disconnectCts = new CancellationTokenSource())
+        {
+            Task<SupervisorIpcResponse> whenIdleClient = SupervisorIpcClient.SendAsync(
+                pipeName,
+                new SupervisorIpcRequest { Command = SupervisorIpcCommands.Drain, WhenIdle = true },
+                TimeSpan.FromSeconds(5),
+                disconnectCts.Token);
+
+            await WaitForStatusAsync(pipeName, s => s.DrainingWhenIdle);
+            disconnectCts.Cancel();
+            try
+            {
+                await whenIdleClient;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
+
+        // State must stay latched after calling client disconnects.
+        await Task.Delay(60);
+        SupervisorIpcResponse statusAfterDisconnect = await SupervisorIpcClient.SendAsync(
+            pipeName,
+            new SupervisorIpcRequest { Command = SupervisorIpcCommands.Status },
+            TimeSpan.FromSeconds(5));
+        Assert.That(statusAfterDisconnect.Status!.DrainingWhenIdle, Is.True);
+        Assert.That(statusAfterDisconnect.Status.Draining, Is.False);
+        Assert.That(supervisor.IsDrainingWhenIdle, Is.True);
+
+        // Preempting drain --force cancels immediately with zero grace wait (far faster than 30s DrainGraceTimeout).
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        SupervisorIpcResponse forceResp = await SupervisorIpcClient.SendAsync(
+            pipeName,
+            new SupervisorIpcRequest { Command = SupervisorIpcCommands.Drain, Force = true },
+            TimeSpan.FromSeconds(5));
+        sw.Stop();
+
+        Assert.That(forceResp.Success, Is.True, forceResp.Error);
+        Assert.That(forceResp.ExitCode, Is.EqualTo(0));
+        Assert.That(sw.Elapsed, Is.LessThan(TimeSpan.FromSeconds(3)), "drain --force must cancel immediately with zero grace wait.");
+        await serverSawCancel.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.That(launcher.Workers.All(w => w.IsTerminated), Is.True);
+        Assert.That(Volatile.Read(ref leaseDisposed), Is.EqualTo(1));
+        Assert.That(supervisor.HasShutdownCompleted, Is.True);
+
+        SupervisorIpcResponse cancelledRun = await slowRun.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.That(cancelledRun.Success, Is.False);
+        Assert.That(cancelledRun.ExitCode, Is.EqualTo(2));
+    }
+
+    [Test]
+    public async Task DisposeAsync_ForceDrainsInFlightRunImmediatelyWithZeroGraceWait()
+    {
+        string pipeName = CreateUniquePipeName();
+        var execStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        int leaseDisposed = 0;
+
+        using var launcher = new StubWorkerProcessLauncher((server, _) =>
+        {
+            server.InitialIsBusy = false;
+            server.ExecutionHandler = async (req, _, ct) =>
+            {
+                execStarted.TrySetResult(true);
+                await Task.Delay(TimeSpan.FromSeconds(20), ct).ConfigureAwait(false);
+                return BuildAssemblyModel(req);
+            };
+        });
+
+        var supervisor = new WorkerPoolSupervisor(
+            new SupervisorOptions
+            {
+                PipeName = pipeName,
+                CurrentLatestVersion = 2026,
+                DrainGraceTimeout = TimeSpan.FromSeconds(30),
+                IdleTimeout = TimeSpan.FromMinutes(25),
+                TimingCacheDirectory = Path.Combine(_tempRoot, "timing_cache")
+            },
+            _discovery,
+            launcher,
+            new RevitPipeTestClientFactory(),
+            bundleLeaseFactory: _ => new CountingDisposable(() => Interlocked.Increment(ref leaseDisposed)));
+
+        Task<OneShotRunResult> runTask = supervisor.RunAsync(new OneShotRunOptions
+        {
+            RevitVersion = 2024,
+            AssemblyPath = _fakeAssemblyPath,
+            TrxPath = Path.Combine(_tempRoot, "out", "dispose_force.trx"),
+            Shards = 1
+        });
+        await execStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        await supervisor.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        sw.Stop();
+
+        Assert.That(sw.Elapsed, Is.LessThan(TimeSpan.FromSeconds(3)), "DisposeAsync must force-drain immediately with zero grace wait.");
+        Assert.That(launcher.Workers.All(w => w.IsTerminated), Is.True);
+        Assert.That(Volatile.Read(ref leaseDisposed), Is.EqualTo(1));
+        Assert.That(supervisor.HasShutdownCompleted, Is.True);
+
+        OneShotRunResult runResult = await runTask.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.That(runResult.Success, Is.False);
+    }
+
+    private sealed class MutableMemoryProbe : IMemoryProbe
+    {
+        private long _availableBytes;
+
+        public MutableMemoryProbe(ulong availableBytes)
+        {
+            _availableBytes = (long)availableBytes;
+        }
+
+        public void SetAvailableBytes(ulong availableBytes) => Interlocked.Exchange(ref _availableBytes, (long)availableBytes);
+
+        public ulong GetAvailablePhysicalBytes() => (ulong)Volatile.Read(ref _availableBytes);
+    }
+
+    [Test]
+    public async Task Run_OverIpc_ForwardsPerRunProjectRoot_RatherThanReusingSupervisorProjectRoot()
+    {
+        string supervisorRoot = Path.Combine(_tempRoot, "wt_supervisor");
+        string worktreeA = Path.Combine(_tempRoot, "wt_a");
+        string worktreeB = Path.Combine(_tempRoot, "wt_b");
+        Directory.CreateDirectory(supervisorRoot);
+        Directory.CreateDirectory(worktreeA);
+        Directory.CreateDirectory(worktreeB);
+
+        string pipeName = CreateUniquePipeName();
+        using var launcher = CreatePassingLauncher();
+        await using var supervisor = CreateSupervisor(
+            pipeName,
+            launcher,
+            currentLatestVersion: 2026,
+            projectRoot: supervisorRoot);
+        await using var ipcServer = StartServer(pipeName, supervisor);
+
+        SupervisorIpcResponse warmResp = await SupervisorIpcClient.SendAsync(
+            pipeName,
+            new SupervisorIpcRequest { Command = SupervisorIpcCommands.Warm, Version = 2026, Count = 1 },
+            TimeSpan.FromSeconds(5));
+        Assert.That(warmResp.Success, Is.True, warmResp.Error);
+
+        SupervisorIpcResponse runAResp = await SendRunAsync(
+            pipeName,
+            2026,
+            Path.Combine(_tempRoot, "out", "wt_a.trx"),
+            shards: 1,
+            projectRoot: worktreeA);
+        Assert.That(runAResp.Success, Is.True, runAResp.Error);
+
+        string workerAId = runAResp.RunResult!.WorkerIds.Single();
+        WorkerLaunchRequest launchA = launcher.LaunchedRequests.Single(r => r.WorkerId == workerAId);
+        Assert.That(launchA.ProjectRoot, Is.EqualTo(Path.GetFullPath(worktreeA)));
+
+        SupervisorIpcResponse runBResp = await SendRunAsync(
+            pipeName,
+            2026,
+            Path.Combine(_tempRoot, "out", "wt_b.trx"),
+            shards: 1,
+            projectRoot: worktreeB);
+        Assert.That(runBResp.Success, Is.True, runBResp.Error);
+
+        string workerBId = runBResp.RunResult!.WorkerIds.Single();
+        WorkerLaunchRequest launchB = launcher.LaunchedRequests.Single(r => r.WorkerId == workerBId);
+        Assert.That(launchB.ProjectRoot, Is.EqualTo(Path.GetFullPath(worktreeB)));
+
+        SupervisorIpcResponse runDefaultResp = await SendRunAsync(
+            pipeName,
+            2026,
+            Path.Combine(_tempRoot, "out", "wt_default.trx"),
+            shards: 1,
+            projectRoot: null);
+        Assert.That(runDefaultResp.Success, Is.True, runDefaultResp.Error);
+
+        string workerDefaultId = runDefaultResp.RunResult!.WorkerIds.Single();
+        WorkerLaunchRequest launchDefault = launcher.LaunchedRequests.Single(r => r.WorkerId == workerDefaultId);
+        Assert.That(launchDefault.ProjectRoot, Is.EqualTo(Path.GetFullPath(supervisorRoot)));
+    }
+
+    [Test]
+    public async Task Run_WithDistinctProjectRoot_AtCap_EvictsMismatchedIdleStandby_AndBootsMatchingWorker()
+    {
+        string supervisorRoot = Path.Combine(_tempRoot, "wt_supervisor");
+        string worktreeB = Path.Combine(_tempRoot, "wt_b");
+        Directory.CreateDirectory(supervisorRoot);
+        Directory.CreateDirectory(worktreeB);
+
+        string pipeName = CreateUniquePipeName();
+        using var launcher = CreatePassingLauncher();
+        await using var supervisor = CreateSupervisor(
+            pipeName,
+            launcher,
+            currentLatestVersion: 2026,
+            projectRoot: supervisorRoot,
+            maxActiveWorkers: 2);
+        await using var ipcServer = StartServer(pipeName, supervisor);
+
+        SupervisorIpcResponse warmResp = await SupervisorIpcClient.SendAsync(
+            pipeName,
+            new SupervisorIpcRequest { Command = SupervisorIpcCommands.Warm, Version = 2026, Count = 2 },
+            TimeSpan.FromSeconds(5));
+        Assert.That(warmResp.Success, Is.True, warmResp.Error);
+        Assert.That(warmResp.Status!.ReadyStandby, Is.EqualTo(2));
+
+        SupervisorIpcResponse runBResp = await SendRunAsync(
+            pipeName,
+            2026,
+            Path.Combine(_tempRoot, "out", "evict_wt_b.trx"),
+            shards: 1,
+            projectRoot: worktreeB);
+        Assert.That(runBResp.Success, Is.True, runBResp.Error);
+
+        string workerBId = runBResp.RunResult!.WorkerIds.Single();
+        WorkerLaunchRequest launchB = launcher.LaunchedRequests.Single(r => r.WorkerId == workerBId);
+        Assert.That(launchB.ProjectRoot, Is.EqualTo(Path.GetFullPath(worktreeB)));
+        Assert.That(launcher.Workers.Count(w => w.IsTerminated), Is.GreaterThanOrEqualTo(2));
+    }
+
+    [Test]
+    public async Task Run_ConcurrentDistinctProjectRoots_SameVersion_DoNotCrossMatchBootingWorkers()
+    {
+        string supervisorRoot = Path.Combine(_tempRoot, "wt_supervisor");
+        string worktreeA = Path.Combine(_tempRoot, "wt_a");
+        string worktreeB = Path.Combine(_tempRoot, "wt_b");
+        Directory.CreateDirectory(supervisorRoot);
+        Directory.CreateDirectory(worktreeA);
+        Directory.CreateDirectory(worktreeB);
+
+        var rootABooting = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var allowRootAReady = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        using var launcher = new StubWorkerProcessLauncher((server, req) =>
+        {
+            if (string.Equals(req.ProjectRoot, Path.GetFullPath(worktreeA), StringComparison.OrdinalIgnoreCase))
+            {
+                server.InitialIsBusy = true;
+                rootABooting.TrySetResult(true);
+                _ = Task.Run(async () =>
+                {
+                    await allowRootAReady.Task.ConfigureAwait(false);
+                    while (!server.ClientEverConnected)
+                    {
+                        await Task.Delay(5).ConfigureAwait(false);
+                    }
+
+                    server.PushStatus(isBusy: false);
+                });
+            }
+            else
+            {
+                server.InitialIsBusy = true;
+                server.AutoReadyDelay = TimeSpan.FromMilliseconds(5);
+            }
+
+            server.ExecutionHandler = CreateDefaultPassingHandler();
+        });
+
+        string pipeName = CreateUniquePipeName();
+        await using var supervisor = CreateSupervisor(
+            pipeName,
+            launcher,
+            currentLatestVersion: 2026,
+            projectRoot: supervisorRoot,
+            maxActiveWorkers: 4);
+        await using var ipcServer = StartServer(pipeName, supervisor);
+
+        Task<SupervisorIpcResponse> runATask = SendRunAsync(
+            pipeName,
+            2026,
+            Path.Combine(_tempRoot, "out", "concurrent_a.trx"),
+            shards: 1,
+            projectRoot: worktreeA);
+
+        await rootABooting.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Task<SupervisorIpcResponse> runBTask = SendRunAsync(
+            pipeName,
+            2026,
+            Path.Combine(_tempRoot, "out", "concurrent_b.trx"),
+            shards: 1,
+            projectRoot: worktreeB);
+
+        SupervisorIpcResponse runBResp = await runBTask;
+        Assert.That(runBResp.Success, Is.True, runBResp.Error);
+
+        allowRootAReady.TrySetResult(true);
+        SupervisorIpcResponse runAResp = await runATask;
+        Assert.That(runAResp.Success, Is.True, runAResp.Error);
+
+        string workerAId = runAResp.RunResult!.WorkerIds.Single();
+        string workerBId = runBResp.RunResult!.WorkerIds.Single();
+        Assert.That(workerAId, Is.Not.EqualTo(workerBId));
+
+        WorkerLaunchRequest launchA = launcher.LaunchedRequests.Single(r => r.WorkerId == workerAId);
+        WorkerLaunchRequest launchB = launcher.LaunchedRequests.Single(r => r.WorkerId == workerBId);
+        Assert.That(launchA.ProjectRoot, Is.EqualTo(Path.GetFullPath(worktreeA)));
+        Assert.That(launchB.ProjectRoot, Is.EqualTo(Path.GetFullPath(worktreeB)));
+    }
+
     private WorkerPoolSupervisor CreateSupervisor(
         string pipeName,
         IWorkerProcessLauncher launcher,
         int currentLatestVersion,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        string? projectRoot = null,
+        int maxActiveWorkers = SupervisorOptions.DefaultMaxActiveWorkers)
     {
         return new WorkerPoolSupervisor(
             new SupervisorOptions
             {
                 PipeName = pipeName,
+                MaxActiveWorkers = maxActiveWorkers,
                 CurrentLatestVersion = currentLatestVersion,
+                ProjectRoot = projectRoot,
                 IdleTimeout = TimeSpan.FromMinutes(25),
                 TimingCacheDirectory = Path.Combine(_tempRoot, "timing_cache")
             },
@@ -1215,6 +1898,7 @@ public class SupervisorLifecycleTests
         IReadOnlyList<string>? categories = null,
         double bootTimeoutSeconds = 5,
         int? shards = null,
+        string? projectRoot = null,
         CancellationToken cancellationToken = default)
     {
         return SupervisorIpcClient.SendAsync(
@@ -1232,6 +1916,7 @@ public class SupervisorLifecycleTests
                     Categories = categories ?? Array.Empty<string>(),
                     BootTimeoutSeconds = bootTimeoutSeconds,
                     ExecutionTimeoutSeconds = 10,
+                    ProjectRoot = projectRoot,
                     Shards = shards
                 }
             },
@@ -1518,5 +2203,20 @@ public class SupervisorLifecycleTests
                 return ValueTask.CompletedTask;
             }
         }
+    }
+
+    private sealed class DelegateSupervisorLauncher : ISupervisorLauncher
+    {
+        private readonly Func<SupervisorClientLaunchOptions, Action<string>?, SupervisorLaunchResult> _launch;
+
+        public DelegateSupervisorLauncher(
+            Func<SupervisorClientLaunchOptions, Action<string>?, SupervisorLaunchResult> launch)
+        {
+            _launch = launch;
+        }
+
+        public SupervisorLaunchResult Launch(
+            SupervisorClientLaunchOptions options,
+            Action<string>? diagnosticLogger = null) => _launch(options, diagnosticLogger);
     }
 }
