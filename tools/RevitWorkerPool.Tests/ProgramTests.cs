@@ -270,6 +270,274 @@ public class ProgramTests
     }
 
     [Test]
+    public void MaxWorkersOption_ValidatesRange1To10_ReadsEnvFallback_AndCliOverridesEnv()
+    {
+        Assert.That(SupervisorOptions.DefaultMaxActiveWorkers, Is.EqualTo(8));
+        Assert.That(SupervisorOptions.MinMaxActiveWorkers, Is.EqualTo(1));
+        Assert.That(SupervisorOptions.MaxMaxActiveWorkers, Is.EqualTo(10));
+
+        // 1. Accepted on --supervisor, warm, and run (values 1..10).
+        Assert.That(
+            Program.TryParseSupervisorArguments(
+                new[] { "--max-workers", "10" },
+                out Program.SupervisorCliOptions? sup10,
+                out string? supErr,
+                _ => null),
+            Is.True,
+            supErr);
+        Assert.That(sup10!.MaxWorkers, Is.EqualTo(10));
+
+        Assert.That(
+            Program.TryParseWarmArguments(
+                new[] { "--max-workers", "1" },
+                out Program.WarmCliOptions? warm1,
+                out string? warmErr,
+                _ => null),
+            Is.True,
+            warmErr);
+        Assert.That(warm1!.MaxWorkers, Is.EqualTo(1));
+
+        Assert.That(
+            Program.TryParseRunArguments(
+                new[] { "--version", "2026", "--assembly", "a.dll", "--trx", "a.trx", "--max-workers", "6" },
+                out OneShotRunOptions? run6,
+                out string? runErr,
+                _ => null),
+            Is.True,
+            runErr);
+        Assert.That(run6!.MaxWorkers, Is.EqualTo(6));
+
+        // 2. SYNTHETIC_WORKER_POOL_MAX_WORKERS fallback when --max-workers is omitted.
+        string? EnvNine(string name) => name == "SYNTHETIC_WORKER_POOL_MAX_WORKERS" ? "9" : null;
+        Assert.That(
+            Program.TryParseSupervisorArguments(Array.Empty<string>(), out Program.SupervisorCliOptions? supEnv, out _, EnvNine),
+            Is.True);
+        Assert.That(supEnv!.MaxWorkers, Is.EqualTo(9));
+        Assert.That(
+            Program.TryParseWarmArguments(Array.Empty<string>(), out Program.WarmCliOptions? warmEnv, out _, EnvNine),
+            Is.True);
+        Assert.That(warmEnv!.MaxWorkers, Is.EqualTo(9));
+        Assert.That(
+            Program.TryParseRunArguments(new[] { "--version", "2026", "--assembly", "a.dll", "--trx", "a.trx" }, out OneShotRunOptions? runEnv, out _, EnvNine),
+            Is.True);
+        Assert.That(runEnv!.MaxWorkers, Is.EqualTo(9));
+
+        // 3. CLI --max-workers overrides SYNTHETIC_WORKER_POOL_MAX_WORKERS.
+        Assert.That(
+            Program.TryParseRunArguments(
+                new[] { "--version", "2026", "--assembly", "a.dll", "--trx", "a.trx", "--max-workers", "5" },
+                out OneShotRunOptions? runOverride,
+                out _,
+                EnvNine),
+            Is.True);
+        Assert.That(runOverride!.MaxWorkers, Is.EqualTo(5));
+
+        // 4. Out-of-range and non-numeric values rejected on CLI and env var.
+        foreach (string bad in new[] { "0", "-1", "11", "abc" })
+        {
+            Assert.That(
+                Program.TryParseSupervisorArguments(new[] { "--max-workers", bad }, out _, out string? e1, _ => null),
+                Is.False);
+            Assert.That(e1, Does.Contain("--max-workers"));
+
+            Assert.That(
+                Program.TryParseWarmArguments(new[] { "--max-workers", bad }, out _, out string? e2, _ => null),
+                Is.False);
+            Assert.That(e2, Does.Contain("--max-workers"));
+
+            Assert.That(
+                Program.TryParseRunArguments(new[] { "--version", "2026", "--assembly", "a.dll", "--trx", "a.trx", "--max-workers", bad }, out _, out string? e3, _ => null),
+                Is.False);
+            Assert.That(e3, Does.Contain("--max-workers"));
+
+            string? EnvBad(string name) => name == "SYNTHETIC_WORKER_POOL_MAX_WORKERS" ? bad : null;
+            Assert.That(
+                Program.TryParseWarmArguments(Array.Empty<string>(), out _, out string? e4, EnvBad),
+                Is.False);
+            Assert.That(e4, Does.Contain("SYNTHETIC_WORKER_POOL_MAX_WORKERS"));
+        }
+
+        // 5. status and drain reject --max-workers.
+        Assert.That(
+            Program.TryParsePipeControlArguments(new[] { "--max-workers", "8" }, "status", out _, out _),
+            Is.False);
+        Assert.That(
+            Program.TryParsePipeControlArguments(new[] { "--max-workers", "8" }, "drain", out _, out _),
+            Is.False);
+    }
+
+    [Test]
+    public async Task RunCliAsync_MaxWorkersOutOfRange_ReturnsExitCode2_InTextAndJsonModes()
+    {
+        foreach (string[] args in new[]
+        {
+            new[] { "--supervisor", "--max-workers", "0" },
+            new[] { "--supervisor", "--max-workers", "11" },
+            new[] { "warm", "--max-workers", "0" },
+            new[] { "warm", "--max-workers", "11", "--json" },
+            new[] { "run", "--version", "2026", "--assembly", "a.dll", "--trx", "a.trx", "--max-workers", "0" },
+            new[] { "run", "--version", "2026", "--assembly", "a.dll", "--trx", "a.trx", "--max-workers", "11", "--json" }
+        })
+        {
+            using var outWriter = new StringWriter();
+            using var errWriter = new StringWriter();
+            int exitCode = await Program.RunCliAsync(args, stdout: outWriter, stderr: errWriter);
+            Assert.That(exitCode, Is.EqualTo(2), $"Expected exit code 2 for args: {string.Join(" ", args)}");
+        }
+    }
+
+    [Test]
+    public async Task RunCliAsync_WhenRunningSupervisorHasDifferentCap_EmitsWarningAndProceedsWithoutDisrupting()
+    {
+        string tempRoot = Path.Combine(Path.GetTempPath(), "RevitWorkerPool_CapWarn_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            string revitDir = Path.Combine(tempRoot, "Autodesk", "Revit 2026");
+            Directory.CreateDirectory(revitDir);
+            File.WriteAllText(Path.Combine(revitDir, "Revit.exe"), string.Empty);
+
+            string assemblyPath = TestAssemblyCompiler.CompileToFile(
+                Path.Combine(tempRoot, "Synthetic.RevitTests.2026.dll"),
+                "Synthetic.RevitTests.2026",
+                """
+                using NUnit.Framework;
+
+                namespace CapWarnSuite
+                {
+                    [TestFixture]
+                    public class SampleFixture
+                    {
+                        [Test]
+                        public void SampleTest() { }
+                    }
+                }
+                """);
+
+            var discovery = new RevitInstallationDiscovery(
+                () => new[] { Path.Combine(tempRoot, "Autodesk") },
+                () => Array.Empty<UninstallRegistryEntry>());
+
+            string pipeName = $"Synthetic_CapWarn_{Guid.NewGuid():N}";
+            using var launcher = new StubWorkerProcessLauncher((server, _) =>
+            {
+                server.InitialIsBusy = false;
+                server.ExecutionHandler = (req, emitTest, _) =>
+                {
+                    var t = new ricaun.NUnit.Models.TestModel
+                    {
+                        Name = "SampleTest",
+                        FullName = "CapWarnSuite.SampleFixture.SampleTest",
+                        Success = true,
+                        Time = 5.0
+                    };
+                    emitTest(t);
+                    return Task.FromResult(new ricaun.NUnit.Models.TestAssemblyModel
+                    {
+                        FileName = req.TestPathFile ?? string.Empty,
+                        Name = "Synthetic.RevitTests.2026",
+                        Success = true,
+                        Tests = new System.Collections.Generic.List<ricaun.NUnit.Models.TestTypeModel>
+                        {
+                            new()
+                            {
+                                Name = "SampleFixture",
+                                FullName = "CapWarnSuite.SampleFixture",
+                                Success = true,
+                                Tests = new System.Collections.Generic.List<ricaun.NUnit.Models.TestModel> { t }
+                            }
+                        }
+                    });
+                };
+            });
+
+            await using var supervisor = new WorkerPoolSupervisor(
+                new SupervisorOptions
+                {
+                    PipeName = pipeName,
+                    MaxActiveWorkers = 4,
+                    CurrentLatestVersion = 2026,
+                    IdleTimeout = TimeSpan.FromMinutes(25),
+                    TimingCacheDirectory = Path.Combine(tempRoot, "timing_cache")
+                },
+                discovery,
+                launcher,
+                new RevitWorkerPool.Pipe.RevitPipeTestClientFactory(),
+                bundleLeaseFactory: _ => new NoOpDisposable());
+            await using var ipcServer = new SupervisorIpcServer(
+                pipeName,
+                (req, ct) => supervisor.HandleIpcRequestAsync(req, ct));
+            supervisor.AttachIpcServer(ipcServer);
+            supervisor.Start();
+            ipcServer.Start();
+
+            // warm --max-workers 10 against running cap=4 supervisor -> warns on stderr, proceeds with cap=4.
+            using var warmOut = new StringWriter();
+            using var warmErr = new StringWriter();
+            int warmExit = await Program.RunCliAsync(
+                new[] { "warm", "--version", "2026", "--count", "2", "--max-workers", "10", "--pipe-name", pipeName, "--no-shim", "--json" },
+                stdout: warmOut,
+                stderr: warmErr);
+            Assert.That(warmExit, Is.EqualTo(0), warmErr.ToString());
+            Assert.That(warmErr.ToString(), Does.Contain("activeCap=4"));
+            Assert.That(warmErr.ToString(), Does.Contain("10"));
+            WarmResult? warmRes = JsonConvert.DeserializeObject<WarmResult>(warmOut.ToString().Trim());
+            Assert.That(warmRes!.Success, Is.True);
+            Assert.That(warmRes.Status!.ActiveCap, Is.EqualTo(4));
+
+            // run --max-workers 8 against running cap=4 supervisor -> warns on stderr, succeeds without disrupting cap=4.
+            using var runOut = new StringWriter();
+            using var runErr = new StringWriter();
+            int runExit = await Program.RunCliAsync(
+                new[]
+                {
+                    "run", "--version", "2026", "--assembly", assemblyPath,
+                    "--trx", Path.Combine(tempRoot, "out", "capwarn.trx"),
+                    "--max-workers", "8", "--pipe-name", pipeName, "--no-shim", "--json"
+                },
+                stdout: runOut,
+                stderr: runErr);
+            Assert.That(runExit, Is.EqualTo(0), runErr.ToString());
+            Assert.That(runErr.ToString(), Does.Contain("activeCap=4"));
+            Assert.That(runErr.ToString(), Does.Contain("8"));
+            OneShotRunResult? runRes = JsonConvert.DeserializeObject<OneShotRunResult>(runOut.ToString().Trim());
+            Assert.That(runRes!.Success, Is.True);
+            Assert.That(supervisor.GetStatus().ActiveCap, Is.EqualTo(4));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+    }
+
+    [Test]
+    public void WorkerPoolSupervisor_RejectsMaxActiveWorkersOutside1To10()
+    {
+        var emptyDiscovery = new RevitInstallationDiscovery(
+            () => Array.Empty<string>(),
+            () => Array.Empty<UninstallRegistryEntry>());
+        using var launcher = new StubWorkerProcessLauncher();
+        var clientFactory = new RevitWorkerPool.Pipe.RevitPipeTestClientFactory();
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new WorkerPoolSupervisor(
+                new SupervisorOptions { MaxActiveWorkers = 0 },
+                emptyDiscovery,
+                launcher,
+                clientFactory));
+
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            new WorkerPoolSupervisor(
+                new SupervisorOptions { MaxActiveWorkers = 11 },
+                emptyDiscovery,
+                launcher,
+                clientFactory));
+    }
+
+    [Test]
     public void CreateWorkerLauncher_DefaultsToCleanDetours_AndDowngradesOnlyOnNoShimOrEnvZero()
     {
         IWorkerProcessLauncher defaultLauncher = Program.CreateWorkerLauncher(

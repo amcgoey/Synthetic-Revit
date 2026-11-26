@@ -37,6 +37,8 @@ public sealed class OneShotRunOptions
 
     public int IdleTtlMinutes { get; init; } = SupervisorIpcConstants.DefaultIdleTtlMinutes;
 
+    public int? MaxWorkers { get; init; }
+
     public bool NoShim { get; init; }
 
     public bool Diagnostics { get; init; }
