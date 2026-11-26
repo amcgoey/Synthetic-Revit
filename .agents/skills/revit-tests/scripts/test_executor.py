@@ -2337,6 +2337,7 @@ def build_worker_pool_run_command(
     category="",
     shards=None,
     no_shim=False,
+    pipe_name=None,
     python_exe=sys.executable,
 ):
     """Build the RevitWorkerPool run CLI command passing raw filter/category for ECMA-335 discovery."""
@@ -2374,6 +2375,15 @@ def build_worker_pool_run_command(
 
     if no_shim:
         cmd.append("--no-shim")
+
+    raw_pipe_name = (
+        os.environ.get("SYNTHETIC_WORKER_POOL_PIPE_NAME", "")
+        if pipe_name is None
+        else pipe_name
+    )
+    clean_pipe_name = (raw_pipe_name or "").strip()
+    if clean_pipe_name:
+        cmd.extend(["--pipe-name", clean_pipe_name])
 
     return cmd
 

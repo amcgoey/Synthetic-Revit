@@ -2078,6 +2078,27 @@ namespace SyntheticTests.Platform.Host
         self.assertNotIn("--next-version", py_cmd)
         self.assertNotIn("--filter", py_cmd)
         self.assertNotIn("--category", py_cmd)
+        self.assertNotIn("--pipe-name", py_cmd)
+
+        with unittest.mock.patch.dict(os.environ, {"SYNTHETIC_WORKER_POOL_PIPE_NAME": "  SmokePipe_263  "}, clear=False):
+            env_pipe_cmd = te.build_worker_pool_run_command(
+                pool_cmd=r"C:\repo\tools\bin\RevitWorkerPool\RevitWorkerPool.exe",
+                version="2026",
+                assembly_path=r"C:\tmp\Synthetic.RevitTests.2026.dll",
+                trx_path=r"C:\tmp\results_2026.trx",
+                project_root=r"C:\repo",
+            )
+            self.assertEqual(env_pipe_cmd[-2:], ["--pipe-name", "SmokePipe_263"])
+
+            explicit_pipe_cmd = te.build_worker_pool_run_command(
+                pool_cmd=r"C:\repo\tools\bin\RevitWorkerPool\RevitWorkerPool.exe",
+                version="2026",
+                assembly_path=r"C:\tmp\Synthetic.RevitTests.2026.dll",
+                trx_path=r"C:\tmp\results_2026.trx",
+                project_root=r"C:\repo",
+                pipe_name="ExplicitPipe",
+            )
+            self.assertEqual(explicit_pipe_cmd[-2:], ["--pipe-name", "ExplicitPipe"])
 
     def test_worker_journal_cleanliness_gate_invocation_and_real_worker_id_gating(self):
         captured_cmds = []
