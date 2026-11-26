@@ -441,6 +441,69 @@ namespace SyntheticTests.Features.DetailItemFactory
                 "Promoted new central model must resolve default output directory to its new central folder.");
         }
 
+        [Test]
+        public void ExecuteBatch_FamilyDocument_FailsFastWithErrorMessage_AndLeavesDocumentUnmodified()
+        {
+            int docsBeforeRun = App.Documents.Size;
+            string? templatePath = RevitDetailItemFactoryAdapter.ResolveTemplatePath(
+                typeof(RevitDetailItemFactoryAdapter).Assembly.Location,
+                App.FamilyTemplatePath);
+            Assert.IsFalse(string.IsNullOrWhiteSpace(templatePath), "Expected Detail Item.rft template path to resolve.");
+
+            Document? familyDoc = null;
+            try
+            {
+                familyDoc = App.NewFamilyDocument(templatePath!);
+                Assert.IsNotNull(familyDoc, "Expected NewFamilyDocument to open a family document.");
+                Assert.IsTrue(familyDoc!.IsFamilyDocument);
+
+                var adapter = new RevitDetailItemFactoryAdapter(familyDoc, null, UiApp);
+                string targetFileName = "FamilyGuardTest.rfa";
+                string targetPath = Path.Combine(CurrentTestTempDirectory, targetFileName);
+                var plannedItem = new DetailItemPlannedElement(
+                    sequenceIndex: 0,
+                    elementUniqueId: "dummy-unique-id",
+                    elementId: "1",
+                    displayName: "DummyElement",
+                    cleanFamilyName: "DummyFamily",
+                    cleanTypeName: "DummyType",
+                    orientation: DetailItemOrientations.Plan,
+                    targetFileName: targetFileName,
+                    targetPath: targetPath,
+                    disposition: DetailItemPlanDisposition.Execute);
+                var plan = new DetailItemBatchPlan(
+                    activeViewUniqueId: string.Empty,
+                    outputFolder: CurrentTestTempDirectory,
+                    targetSubcategory: DetailItemFactorySettings.DefaultTargetSubcategory,
+                    overwriteExisting: true,
+                    items: new[] { plannedItem });
+
+                DetailItemBatchOutcome outcome = adapter.ExecuteBatch(plan, null, CancellationToken.None);
+
+                Assert.IsFalse(outcome.Succeeded);
+                Assert.IsFalse(string.IsNullOrWhiteSpace(outcome.ErrorMessage));
+                Assert.IsTrue(
+                    outcome.ErrorMessage!.IndexOf("family document", StringComparison.OrdinalIgnoreCase) >= 0,
+                    $"Expected error message to mention 'family document', got: '{outcome.ErrorMessage}'");
+                Assert.AreEqual(0, outcome.CommittedCount);
+                Assert.IsFalse(familyDoc.IsModified, "Family-document guard must leave !familyDoc.IsModified.");
+                Assert.IsFalse(familyDoc.IsModifiable, "No transaction may remain open after family-document failure.");
+            }
+            finally
+            {
+                if (familyDoc != null)
+                {
+                    if (familyDoc.IsValidObject)
+                    {
+                        familyDoc.Close(false);
+                    }
+                    familyDoc.Dispose();
+                }
+            }
+
+            Assert.AreEqual(docsBeforeRun, App.Documents.Size, "Opened family document must be closed and disposed.");
+        }
+
         private (Document Doc, ViewPlan PlanView, List<ElementId> WallIds) CreateSavedHostWithWalls(int wallCount)
         {
             Document doc = OpenIsolatedTestTemplateCopy();

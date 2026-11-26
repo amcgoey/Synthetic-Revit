@@ -275,6 +275,13 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
                     "Cannot execute Detail Item Factory while the document is read-only or has an active transaction.");
             }
 
+            if (_doc.IsFamilyDocument)
+            {
+                return DetailItemBatchOutcome.Failure(
+                    outputFolder,
+                    "Cannot execute Detail Item Factory inside a family document. Please run from a project document.");
+            }
+
             if (plan.ExecutableCount > 0 && !DetailItemFactorySettings.IsValidOutputPathSyntax(outputFolder))
             {
                 return DetailItemBatchOutcome.Failure(

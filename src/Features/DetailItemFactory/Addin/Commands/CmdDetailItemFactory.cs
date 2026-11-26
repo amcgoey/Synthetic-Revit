@@ -40,6 +40,14 @@ namespace Synthetic.Features.DetailItemFactory.Commands
                     return Result.Failed;
                 }
 
+                if (doc.IsFamilyDocument)
+                {
+                    TaskDialog.Show(
+                        "Detail Item Factory",
+                        "Detail Item Factory cannot be run inside a family document. Please run this command from a project document.");
+                    return Result.Failed;
+                }
+
                 View? activeView = doc.ActiveView;
                 if (!RevitDetailItemFactoryAdapter.IsSupported2DView(activeView))
                 {
