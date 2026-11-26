@@ -185,6 +185,8 @@ namespace SyntheticTests.Architecture
             RequireDirectory(Path.Combine(srcRoot, "Platform", "Revit", "Addin"), "src/Platform/Revit/Addin");
             RequireDirectory(Path.Combine(srcRoot, "Platform", "Settings", "Core"), "src/Platform/Settings/Core");
             RequireDirectory(Path.Combine(srcRoot, "Platform", "Settings", "Addin"), "src/Platform/Settings/Addin");
+            RequireDirectory(Path.Combine(srcRoot, "Features", "DetailItemFactory", "Core"), "src/Features/DetailItemFactory/Core");
+            RequireDirectory(Path.Combine(srcRoot, "Features", "DetailItemFactory", "Addin"), "src/Features/DetailItemFactory/Addin");
             RequireDirectory(Path.Combine(srcRoot, "Features", "SettingsDashboard", "Addin"), "src/Features/SettingsDashboard/Addin");
             RequireDirectory(Path.Combine(srcRoot, "Features", "SheetIndex", "Core"), "src/Features/SheetIndex/Core");
             RequireDirectory(Path.Combine(srcRoot, "Features", "SharedCoordinates", "Core"), "src/Features/SharedCoordinates/Core");
@@ -213,6 +215,7 @@ namespace SyntheticTests.Architecture
             RequireDirectory(Path.Combine(testsRoot, "Platform", "Revit", "Logic"), "tests/Platform/Revit/Logic");
             RequireDirectory(Path.Combine(testsRoot, "Platform", "Revit", "Revit"), "tests/Platform/Revit/Revit");
             RequireDirectory(Path.Combine(testsRoot, "Platform", "Settings", "Logic"), "tests/Platform/Settings/Logic");
+            RequireDirectory(Path.Combine(testsRoot, "Features", "DetailItemFactory", "Logic"), "tests/Features/DetailItemFactory/Logic");
             RequireDirectory(Path.Combine(testsRoot, "Features", "ShadowStudy", "Logic"), "tests/Features/ShadowStudy/Logic");
             RequireDirectory(Path.Combine(testsRoot, "Features", "MultiModelPdfExport", "Logic"), "tests/Features/MultiModelPdfExport/Logic");
             RequireDirectory(Path.Combine(testsRoot, "Features", "SettingsDashboard", "Revit"), "tests/Features/SettingsDashboard/Revit");
