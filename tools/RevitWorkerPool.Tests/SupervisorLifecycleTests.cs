@@ -886,28 +886,31 @@ public class SupervisorLifecycleTests
                 StartupTimeout = TimeSpan.FromSeconds(5)
             };
 
+            var supervisorLauncher = new DelegateSupervisorLauncher((_, _) =>
+            {
+                Interlocked.Increment(ref spawnCount);
+                server = new SupervisorIpcServer(
+                    pipeName,
+                    (req, _) => Task.FromResult(new SupervisorIpcResponse
+                    {
+                        RequestId = req.RequestId,
+                        Success = true,
+                        ExitCode = 0,
+                        Status = new PoolStatusSnapshot
+                        {
+                            Running = true,
+                            PipeName = pipeName,
+                            ActiveCap = 4
+                        }
+                    }));
+                server.Start();
+                return new SupervisorLaunchResult(SupervisorLaunchMethod.BreakawayProcess, Environment.ProcessId, "test");
+            });
+
             Task[] callers = Enumerable.Range(0, 8)
                 .Select(_ => SupervisorIpcClient.EnsureSupervisorRunningAsync(
                     launchOptions,
-                    spawnSupervisorAction: (_, _) =>
-                    {
-                        Interlocked.Increment(ref spawnCount);
-                        server = new SupervisorIpcServer(
-                            pipeName,
-                            (req, _) => Task.FromResult(new SupervisorIpcResponse
-                            {
-                                RequestId = req.RequestId,
-                                Success = true,
-                                ExitCode = 0,
-                                Status = new PoolStatusSnapshot
-                                {
-                                    Running = true,
-                                    PipeName = pipeName,
-                                    ActiveCap = 4
-                                }
-                            }));
-                        server.Start();
-                    }))
+                    supervisorLauncher))
                 .ToArray();
 
             await Task.WhenAll(callers).WaitAsync(TimeSpan.FromSeconds(5));
@@ -2195,5 +2198,20 @@ public class SupervisorLifecycleTests
                 return ValueTask.CompletedTask;
             }
         }
+    }
+
+    private sealed class DelegateSupervisorLauncher : ISupervisorLauncher
+    {
+        private readonly Func<SupervisorClientLaunchOptions, Action<string>?, SupervisorLaunchResult> _launch;
+
+        public DelegateSupervisorLauncher(
+            Func<SupervisorClientLaunchOptions, Action<string>?, SupervisorLaunchResult> launch)
+        {
+            _launch = launch;
+        }
+
+        public SupervisorLaunchResult Launch(
+            SupervisorClientLaunchOptions options,
+            Action<string>? diagnosticLogger = null) => _launch(options, diagnosticLogger);
     }
 }

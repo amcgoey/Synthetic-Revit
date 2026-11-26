@@ -153,14 +153,14 @@ public sealed class CleanDetoursProcessLauncher : IWorkerProcessLauncher
                 {
                     if (rawThreadHandle != IntPtr.Zero)
                     {
-                        NativeMethods.CloseHandle(rawThreadHandle);
+                        Win32ProcessLaunchUtilities.CloseHandle(rawThreadHandle);
                         rawThreadHandle = IntPtr.Zero;
                     }
 
                     if (rawProcessHandle != IntPtr.Zero)
                     {
-                        NativeMethods.TerminateProcess(rawProcessHandle, 1);
-                        NativeMethods.CloseHandle(rawProcessHandle);
+                        Win32ProcessLaunchUtilities.TerminateProcess(rawProcessHandle, 1);
+                        Win32ProcessLaunchUtilities.CloseHandle(rawProcessHandle);
                         rawProcessHandle = IntPtr.Zero;
                     }
 
@@ -397,16 +397,5 @@ public sealed class CleanDetoursProcessLauncher : IWorkerProcessLauncher
             IntPtr hwnd,
             ref Guid pgActionID,
             ref WinTrustData pWVTData);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        public static extern uint ResumeThread(IntPtr hThread);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool TerminateProcess(IntPtr hProcess, uint uExitCode);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool CloseHandle(IntPtr hObject);
     }
 }

@@ -15,9 +15,16 @@ public interface IPipeTestClientFactory
 /// </summary>
 public sealed class RevitPipeTestClientFactory : IPipeTestClientFactory
 {
+    private readonly Action<string>? _diagnosticLogger;
+
+    public RevitPipeTestClientFactory(Action<string>? diagnosticLogger = null)
+    {
+        _diagnosticLogger = diagnosticLogger;
+    }
+
     public IPipeTestClient CreateClient(LaunchedWorkerProcess worker)
     {
         ArgumentNullException.ThrowIfNull(worker);
-        return new RevitPipeTestClient(worker.PipeName);
+        return new RevitPipeTestClient(worker.PipeName, _diagnosticLogger);
     }
 }
