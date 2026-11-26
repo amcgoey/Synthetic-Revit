@@ -134,7 +134,7 @@ public class SupervisorLifecycleTests
         Assert.That(status.ReadyStandby, Is.EqualTo(2));
         Assert.That(status.Active, Is.EqualTo(0));
         Assert.That(status.TotalResident, Is.EqualTo(2));
-        Assert.That(status.ActiveCap, Is.EqualTo(4));
+        Assert.That(status.ActiveCap, Is.EqualTo(SupervisorOptions.DefaultMaxActiveWorkers));
         Assert.That(status.LastActivityUtc, Is.GreaterThan(DateTimeOffset.MinValue));
         Assert.That(status.Versions[2026].ReadyStandby, Is.EqualTo(2));
         Assert.That(status.Versions[2026].StandbyTarget, Is.EqualTo(2));
@@ -186,12 +186,12 @@ public class SupervisorLifecycleTests
 
         SupervisorIpcResponse overCap = await SupervisorIpcClient.SendAsync(
             pipeName,
-            new SupervisorIpcRequest { Command = SupervisorIpcCommands.Warm, Version = 2026, Count = 6 },
+            new SupervisorIpcRequest { Command = SupervisorIpcCommands.Warm, Version = 2026, Count = 12 },
             TimeSpan.FromSeconds(5));
 
         Assert.That(overCap.Success, Is.True, overCap.Error);
-        Assert.That(overCap.WarmResult!.TargetCount, Is.EqualTo(4));
-        Assert.That(overCap.Status!.TotalResident, Is.LessThanOrEqualTo(4));
+        Assert.That(overCap.WarmResult!.TargetCount, Is.EqualTo(SupervisorOptions.DefaultMaxActiveWorkers));
+        Assert.That(overCap.Status!.TotalResident, Is.LessThanOrEqualTo(SupervisorOptions.DefaultMaxActiveWorkers));
     }
 
     [Test]
@@ -419,7 +419,7 @@ public class SupervisorLifecycleTests
             };
         });
 
-        await using var supervisor = CreateSupervisor(pipeName, launcher, currentLatestVersion: 2026);
+        await using var supervisor = CreateSupervisor(pipeName, launcher, currentLatestVersion: 2026, maxActiveWorkers: 4);
         await using var ipcServer = StartServer(pipeName, supervisor);
 
         Task<OneShotRunResult>[] saturatingRuns = Enumerable.Range(1, 4)
@@ -615,7 +615,7 @@ public class SupervisorLifecycleTests
         });
 
         using (launcher)
-        await using (var supervisor = CreateSupervisor(pipeName, launcher, currentLatestVersion: 2026))
+        await using (var supervisor = CreateSupervisor(pipeName, launcher, currentLatestVersion: 2026, maxActiveWorkers: 4))
         await using (var ipcServer = StartServer(pipeName, supervisor))
         {
             SupervisorIpcResponse warm = await SupervisorIpcClient.SendAsync(

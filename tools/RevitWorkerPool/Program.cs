@@ -171,6 +171,7 @@ public static class Program
         var supervisorOptions = new SupervisorOptions
         {
             PipeName = cliOptions.PipeName,
+            MaxActiveWorkers = cliOptions.MaxWorkers ?? SupervisorOptions.DefaultMaxActiveWorkers,
             IdleTimeout = TimeSpan.FromMinutes(cliOptions.IdleTtlMinutes),
             ShimEnabled = effectiveLauncher.UsesCleanShim,
             ProjectRoot = cliOptions.ProjectRoot,
@@ -248,6 +249,7 @@ public static class Program
             {
                 PipeName = options.PipeName,
                 IdleTtlMinutes = options.IdleTtlMinutes,
+                MaxWorkers = options.MaxWorkers,
                 NoShim = !expectedShim,
                 ProjectRoot = options.ProjectRoot ?? RevitInstallationDiscovery.FindRepositoryRoot(),
                 Diagnostics = options.Diagnostics
@@ -258,6 +260,7 @@ public static class Program
                 expectedShim,
                 supervisorLauncher,
                 logger,
+                errWriter,
                 cancellationToken).ConfigureAwait(false);
 
             var request = new SupervisorIpcRequest
@@ -417,6 +420,7 @@ public static class Program
             {
                 PipeName = options.PipeName,
                 IdleTtlMinutes = options.IdleTtlMinutes,
+                MaxWorkers = options.MaxWorkers,
                 NoShim = !expectedShim,
                 ProjectRoot = resolvedProjectRoot,
                 Diagnostics = options.Diagnostics
@@ -427,6 +431,7 @@ public static class Program
                 expectedShim,
                 supervisorLauncher,
                 logger,
+                errWriter,
                 cancellationToken).ConfigureAwait(false);
 
             var ipcRequest = new SupervisorIpcRequest
@@ -488,6 +493,7 @@ public static class Program
         bool expectedShim,
         ISupervisorLauncher? supervisorLauncher,
         Action<string>? logger,
+        TextWriter errWriter,
         CancellationToken cancellationToken)
     {
         SupervisorIpcResponse? prePing = await SupervisorIpcClient.TryPingAsync(
@@ -498,6 +504,7 @@ public static class Program
         if (prePing is { Success: true, IsDraining: false, Status: { Running: true } preStatus })
         {
             ThrowIfShimModeMismatch(preStatus, launchOptions.PipeName, expectedShim);
+            WarnIfMaxWorkersMismatch(preStatus, launchOptions.PipeName, launchOptions.MaxWorkers, errWriter);
             return;
         }
 
@@ -525,7 +532,24 @@ public static class Program
         if (postPing is { Success: true, IsDraining: false, Status: { Running: true } postStatus })
         {
             ThrowIfShimModeMismatch(postStatus, launchOptions.PipeName, expectedShim);
+            WarnIfMaxWorkersMismatch(postStatus, launchOptions.PipeName, launchOptions.MaxWorkers, errWriter);
         }
+    }
+
+    private static void WarnIfMaxWorkersMismatch(
+        PoolStatusSnapshot status,
+        string pipeName,
+        int? requestedMaxWorkers,
+        TextWriter errWriter)
+    {
+        if (requestedMaxWorkers is not int requested || status.ActiveCap == requested)
+        {
+            return;
+        }
+
+        errWriter.WriteLine(
+            $"[RevitWorkerPool] Warning: supervisor PID={status.SupervisorPid} on pipe '{pipeName}' is already running with " +
+            $"activeCap={status.ActiveCap} (requested maxWorkers={requested}); proceeding with active supervisor cap {status.ActiveCap}.");
     }
 
     private static void ThrowIfShimModeMismatch(
@@ -739,7 +763,8 @@ public static class Program
     internal static bool TryParseRunArguments(
         IReadOnlyList<string> args,
         out OneShotRunOptions? options,
-        out string? error)
+        out string? error,
+        Func<string, string?>? getEnvironmentVariable = null)
     {
         options = null;
         error = null;
@@ -757,6 +782,7 @@ public static class Program
         string? projectRoot = null;
         string pipeName = SupervisorIpcConstants.DefaultPipeName;
         int idleTtlMinutes = SupervisorIpcConstants.DefaultIdleTtlMinutes;
+        int? cliMaxWorkers = null;
         bool noShim = false;
         bool jsonOutput = false;
         bool oneShot = false;
@@ -770,6 +796,7 @@ public static class Program
                     ref i,
                     ref pipeName,
                     ref idleTtlMinutes,
+                    ref cliMaxWorkers,
                     ref noShim,
                     ref projectRoot,
                     ref jsonOutput,
@@ -863,6 +890,11 @@ public static class Program
             }
         }
 
+        if (!TryResolveMaxWorkers(cliMaxWorkers, getEnvironmentVariable, out int? resolvedMaxWorkers, out error))
+        {
+            return false;
+        }
+
         if (version is null)
         {
             error = "--version <Year> is required.";
@@ -906,6 +938,7 @@ public static class Program
             NextVersion = nextVersion,
             PipeName = pipeName,
             IdleTtlMinutes = idleTtlMinutes,
+            MaxWorkers = resolvedMaxWorkers,
             NoShim = noShim,
             JsonOutput = jsonOutput,
             OneShot = oneShot,
@@ -918,7 +951,8 @@ public static class Program
     internal static bool TryParseWarmArguments(
         IReadOnlyList<string> args,
         out WarmCliOptions? options,
-        out string? error)
+        out string? error,
+        Func<string, string?>? getEnvironmentVariable = null)
     {
         options = null;
         error = null;
@@ -928,6 +962,7 @@ public static class Program
         double bootTimeoutSeconds = 120;
         string pipeName = SupervisorIpcConstants.DefaultPipeName;
         int idleTtlMinutes = SupervisorIpcConstants.DefaultIdleTtlMinutes;
+        int? cliMaxWorkers = null;
         string? projectRoot = null;
         bool noShim = false;
         bool jsonOutput = false;
@@ -941,6 +976,7 @@ public static class Program
                     ref i,
                     ref pipeName,
                     ref idleTtlMinutes,
+                    ref cliMaxWorkers,
                     ref noShim,
                     ref projectRoot,
                     ref jsonOutput,
@@ -985,6 +1021,11 @@ public static class Program
             }
         }
 
+        if (!TryResolveMaxWorkers(cliMaxWorkers, getEnvironmentVariable, out int? resolvedMaxWorkers, out error))
+        {
+            return false;
+        }
+
         options = new WarmCliOptions(
             version,
             count,
@@ -994,20 +1035,23 @@ public static class Program
             noShim,
             projectRoot,
             jsonOutput,
-            diagnostics);
+            diagnostics,
+            resolvedMaxWorkers);
         return true;
     }
 
     internal static bool TryParseSupervisorArguments(
         IReadOnlyList<string> args,
         out SupervisorCliOptions? options,
-        out string? error)
+        out string? error,
+        Func<string, string?>? getEnvironmentVariable = null)
     {
         options = null;
         error = null;
 
         string pipeName = SupervisorIpcConstants.DefaultPipeName;
         int idleTtlMinutes = SupervisorIpcConstants.DefaultIdleTtlMinutes;
+        int? cliMaxWorkers = null;
         string? projectRoot = null;
         bool noShim = false;
         bool jsonOutput = false;
@@ -1021,6 +1065,7 @@ public static class Program
                     ref i,
                     ref pipeName,
                     ref idleTtlMinutes,
+                    ref cliMaxWorkers,
                     ref noShim,
                     ref projectRoot,
                     ref jsonOutput,
@@ -1043,7 +1088,12 @@ public static class Program
             return false;
         }
 
-        options = new SupervisorCliOptions(pipeName, idleTtlMinutes, noShim, projectRoot, diagnostics);
+        if (!TryResolveMaxWorkers(cliMaxWorkers, getEnvironmentVariable, out int? resolvedMaxWorkers, out error))
+        {
+            return false;
+        }
+
+        options = new SupervisorCliOptions(pipeName, idleTtlMinutes, noShim, projectRoot, diagnostics, resolvedMaxWorkers);
         return true;
     }
 
@@ -1116,6 +1166,7 @@ public static class Program
         ref int index,
         ref string pipeName,
         ref int idleTtlMinutes,
+        ref int? maxWorkers,
         ref bool noShim,
         ref string? projectRoot,
         ref bool jsonOutput,
@@ -1153,6 +1204,19 @@ public static class Program
                 idleTtlMinutes = ttlMinutes;
                 return true;
 
+            case "--max-workers":
+                matched = true;
+                if (!TryParseIntOption(args, ref index, arg, out int parsedMaxWorkers, out error))
+                    return false;
+                if (parsedMaxWorkers < SupervisorOptions.MinMaxActiveWorkers ||
+                    parsedMaxWorkers > SupervisorOptions.MaxMaxActiveWorkers)
+                {
+                    error = $"--max-workers must be between {SupervisorOptions.MinMaxActiveWorkers} and {SupervisorOptions.MaxMaxActiveWorkers} (got {parsedMaxWorkers}).";
+                    return false;
+                }
+                maxWorkers = parsedMaxWorkers;
+                return true;
+
             case "--no-shim":
                 matched = true;
                 noShim = true;
@@ -1176,6 +1240,54 @@ public static class Program
                 matched = false;
                 return false;
         }
+    }
+
+    private static bool TryResolveMaxWorkers(
+        int? cliMaxWorkers,
+        Func<string, string?>? getEnvironmentVariable,
+        out int? resolvedMaxWorkers,
+        out string? error)
+    {
+        error = null;
+        if (cliMaxWorkers.HasValue)
+        {
+            if (cliMaxWorkers.Value < SupervisorOptions.MinMaxActiveWorkers ||
+                cliMaxWorkers.Value > SupervisorOptions.MaxMaxActiveWorkers)
+            {
+                resolvedMaxWorkers = null;
+                error = $"--max-workers must be between {SupervisorOptions.MinMaxActiveWorkers} and {SupervisorOptions.MaxMaxActiveWorkers} (got {cliMaxWorkers.Value}).";
+                return false;
+            }
+
+            resolvedMaxWorkers = cliMaxWorkers.Value;
+            return true;
+        }
+
+        Func<string, string?> envLookup = getEnvironmentVariable ?? Environment.GetEnvironmentVariable;
+        string? rawEnv = envLookup("SYNTHETIC_WORKER_POOL_MAX_WORKERS");
+        if (string.IsNullOrWhiteSpace(rawEnv))
+        {
+            resolvedMaxWorkers = null;
+            return true;
+        }
+
+        if (!int.TryParse(rawEnv.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int envValue))
+        {
+            resolvedMaxWorkers = null;
+            error = $"Invalid SYNTHETIC_WORKER_POOL_MAX_WORKERS value '{rawEnv}' (must be between {SupervisorOptions.MinMaxActiveWorkers} and {SupervisorOptions.MaxMaxActiveWorkers}).";
+            return false;
+        }
+
+        if (envValue < SupervisorOptions.MinMaxActiveWorkers ||
+            envValue > SupervisorOptions.MaxMaxActiveWorkers)
+        {
+            resolvedMaxWorkers = null;
+            error = $"SYNTHETIC_WORKER_POOL_MAX_WORKERS must be between {SupervisorOptions.MinMaxActiveWorkers} and {SupervisorOptions.MaxMaxActiveWorkers} (got {envValue}).";
+            return false;
+        }
+
+        resolvedMaxWorkers = envValue;
+        return true;
     }
 
     private static bool TryParseIntOption(
@@ -1287,15 +1399,17 @@ public static class Program
         writer.WriteLine("Usage:");
         writer.WriteLine(
             "  RevitWorkerPool warm [--version <Year>] [--count <N>] [--boot-timeout-seconds <Sec>] " +
-            "[--pipe-name <Name>] [--idle-ttl-minutes <20-30>] [--no-shim] [--project-root <Path>] [--json] [--diagnostics]");
+            "[--max-workers <1-10>] [--pipe-name <Name>] [--idle-ttl-minutes <20-30>] [--no-shim] [--project-root <Path>] [--json] [--diagnostics]");
         writer.WriteLine(
             "  RevitWorkerPool run --version <Year> --assembly <DllPath> --trx <TrxPath> " +
             "[--filter <Fragment>] [--category <Name>] [--shards <N>] [--next-version <Year>] [--timeout-seconds <Sec>] [--boot-timeout-seconds <Sec>] " +
-            "[--worker-id <Id>] [--project-root <Path>] [--pipe-name <Name>] [--idle-ttl-minutes <20-30>] [--no-shim] [--one-shot] [--json] [--diagnostics]");
+            "[--worker-id <Id>] [--max-workers <1-10>] [--project-root <Path>] [--pipe-name <Name>] [--idle-ttl-minutes <20-30>] [--no-shim] [--one-shot] [--json] [--diagnostics]");
         writer.WriteLine(
             "  RevitWorkerPool status [--pipe-name <Name>] [--json] [--diagnostics]");
         writer.WriteLine(
             "  RevitWorkerPool drain [--when-idle | --force] [--pipe-name <Name>] [--json] [--diagnostics]");
+        writer.WriteLine(
+            "  RevitWorkerPool --supervisor [--max-workers <1-10>] [--pipe-name <Name>] [--idle-ttl-minutes <20-30>] [--no-shim] [--project-root <Path>] [--diagnostics]");
     }
 
     internal sealed record WarmCliOptions(
@@ -1307,14 +1421,16 @@ public static class Program
         bool NoShim,
         string? ProjectRoot,
         bool JsonOutput,
-        bool Diagnostics);
+        bool Diagnostics,
+        int? MaxWorkers = null);
 
     internal sealed record SupervisorCliOptions(
         string PipeName,
         int IdleTtlMinutes,
         bool NoShim,
         string? ProjectRoot,
-        bool Diagnostics);
+        bool Diagnostics,
+        int? MaxWorkers = null);
 
     internal sealed record PipeControlCliOptions(
         string PipeName,

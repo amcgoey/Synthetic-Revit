@@ -90,9 +90,12 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
         IMemoryProbe? memoryProbe = null)
     {
         _options = options ?? throw new ArgumentNullException(nameof(options));
-        if (_options.MaxActiveWorkers <= 0)
+        if (_options.MaxActiveWorkers < SupervisorOptions.MinMaxActiveWorkers ||
+            _options.MaxActiveWorkers > SupervisorOptions.MaxMaxActiveWorkers)
         {
-            throw new ArgumentOutOfRangeException(nameof(options), "MaxActiveWorkers must be >= 1.");
+            throw new ArgumentOutOfRangeException(
+                nameof(options),
+                $"MaxActiveWorkers must be between {SupervisorOptions.MinMaxActiveWorkers} and {SupervisorOptions.MaxMaxActiveWorkers} (got {_options.MaxActiveWorkers}).");
         }
 
         _discovery = discovery ?? throw new ArgumentNullException(nameof(discovery));
@@ -240,7 +243,6 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
 
         TimeSpan effectiveBootTimeout = bootTimeout ?? _options.DefaultBootTimeout;
         int cappedTarget = Math.Min(requestedCount, _options.MaxActiveWorkers);
-        List<Task<bool>> bootWaitTasks;
 
         lock (_sync)
         {
@@ -294,19 +296,89 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
             TouchActivityLocked();
 
             _standbyTargets[resolvedVersion] = cappedTarget;
-            ScheduleLocked(effectiveBootTimeout);
-
-            bootWaitTasks = _workers
-                .Where(w => w.Version == resolvedVersion && w.State == WorkerState.Booting)
-                .Select(w => w.WarmWaitTcs.Task)
-                .ToList();
         }
 
         try
         {
-            if (bootWaitTasks.Count > 0)
+            while (true)
             {
-                await Task.WhenAll(bootWaitTasks).WaitAsync(cancellationToken).ConfigureAwait(false);
+                List<Task> waitTasks;
+                bool waitingOnSameVersion;
+
+                lock (_sync)
+                {
+                    if (_disposed || _draining)
+                    {
+                        return new WarmResult
+                        {
+                            Success = false,
+                            ExitCode = 2,
+                            Version = resolvedVersion,
+                            TargetCount = cappedTarget,
+                            ReadyCount = 0,
+                            Error = "Worker pool supervisor is draining.",
+                            Status = GetStatusLocked()
+                        };
+                    }
+
+                    if (_drainingWhenIdle)
+                    {
+                        break;
+                    }
+
+                    ScheduleLocked(effectiveBootTimeout);
+
+                    string defaultProjectRoot = ResolveSupervisorProjectRoot(resolvedVersion);
+                    int readyForVersion = _workers.Count(w =>
+                        w.Version == resolvedVersion &&
+                        ProjectRootsEqual(w.ProjectRoot, defaultProjectRoot) &&
+                        w.State == WorkerState.ReadyStandby);
+
+                    int activeTarget = _standbyTargets.GetValueOrDefault(resolvedVersion);
+                    if (readyForVersion >= Math.Min(cappedTarget, activeTarget))
+                    {
+                        break;
+                    }
+
+                    List<Task> sameVersionBoots = _workers
+                        .Where(w => w.Version == resolvedVersion && w.State == WorkerState.Booting)
+                        .Select(w => (Task)w.WarmWaitTcs.Task)
+                        .ToList();
+
+                    if (sameVersionBoots.Count > 0)
+                    {
+                        waitTasks = sameVersionBoots;
+                        waitingOnSameVersion = true;
+                    }
+                    else
+                    {
+                        bool canWaitForGlobalBootSlot =
+                            CountBootingLocked() > 0 &&
+                            CountTotalSlotsLocked() < _options.MaxActiveWorkers &&
+                            IsRamAdmissionAllowedLocked();
+
+                        if (!canWaitForGlobalBootSlot)
+                        {
+                            break;
+                        }
+
+                        waitTasks = _workers
+                            .Where(w => w.State == WorkerState.Booting)
+                            .Select(w => (Task)w.WarmWaitTcs.Task)
+                            .ToList();
+                        waitingOnSameVersion = false;
+                    }
+                }
+
+                if (waitingOnSameVersion)
+                {
+                    await Task.WhenAll(waitTasks).WaitAsync(cancellationToken).ConfigureAwait(false);
+                }
+                else
+                {
+                    Task completed = await Task.WhenAny(waitTasks).WaitAsync(cancellationToken).ConfigureAwait(false);
+                    _ = completed.Exception;
+                }
             }
 
             PoolStatusSnapshot status = GetStatus();
@@ -1271,14 +1343,34 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                 continue;
             }
 
+            if (CountBootingLocked() >= SupervisorOptions.MaxConcurrentBoots)
+            {
+                break;
+            }
+
             if (CountTotalSlotsLocked() < _options.MaxActiveWorkers)
             {
-                LaunchWorkerLocked(
-                    version,
-                    pending.PreferredWorkerId,
-                    pending.ProjectRoot,
-                    pending.BootTimeout,
-                    WorkerBootPurpose.Demand);
+                if (IsRamAdmissionAllowedLocked())
+                {
+                    LaunchWorkerLocked(
+                        version,
+                        pending.PreferredWorkerId,
+                        pending.ProjectRoot,
+                        pending.BootTimeout,
+                        WorkerBootPurpose.Demand);
+                }
+                else
+                {
+                    // RAM admission blocked scaling above the floor; evict an idle mismatched standby
+                    // so active demand can reach the guaranteed floor (or free RAM/slots).
+                    if (CountActiveLocked() < _options.MaxActiveWorkers &&
+                        TryEvictIdleStandbyForOtherWorkLocked(orderedPending))
+                    {
+                        break;
+                    }
+
+                    break;
+                }
             }
             else if (CountActiveLocked() < _options.MaxActiveWorkers)
             {
@@ -1292,10 +1384,12 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
         }
 
         // 3. Strictly demand-gated, shimmed-only, RAM-guarded +1 lookahead standby slot.
-        //    Permitted only when all four guards hold simultaneously and TotalResident <= MaxActiveWorkers + 1.
+        //    Permitted only when all four guards hold simultaneously, TotalResident <= MaxActiveWorkers + 1,
+        //    and the global MaxConcurrentBoots throttle allows another boot.
         if (!_drainingWhenIdle &&
             CountActiveLocked() == _options.MaxActiveWorkers &&
             CountTotalSlotsLocked() < _options.MaxActiveWorkers + 1 &&
+            CountBootingLocked() < SupervisorOptions.MaxConcurrentBoots &&
             _launcher.UsesCleanShim &&
             _scheduler.TryPeekNextBootCandidate(out int lookaheadVersion, out PendingWorkItem? lookaheadItem) &&
             lookaheadItem is not null &&
@@ -1323,6 +1417,11 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                     continue;
                 }
 
+                if (CountBootingLocked() >= SupervisorOptions.MaxConcurrentBoots)
+                {
+                    break;
+                }
+
                 string defaultProjectRoot = ResolveSupervisorProjectRoot(version);
                 int currentStandbyAndBooting = _workers.Count(w =>
                     w.Version == version &&
@@ -1330,7 +1429,9 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                     w.State is WorkerState.Booting or WorkerState.ReadyStandby);
 
                 while (currentStandbyAndBooting < targetCount &&
-                       CountTotalSlotsLocked() < _options.MaxActiveWorkers)
+                       CountTotalSlotsLocked() < _options.MaxActiveWorkers &&
+                       CountBootingLocked() < SupervisorOptions.MaxConcurrentBoots &&
+                       IsRamAdmissionAllowedLocked())
                 {
                     LaunchWorkerLocked(
                         version,
@@ -1368,7 +1469,9 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                 continue;
             }
 
-            if (CountTotalSlotsLocked() >= _options.MaxActiveWorkers)
+            if (CountTotalSlotsLocked() >= _options.MaxActiveWorkers ||
+                CountBootingLocked() >= SupervisorOptions.MaxConcurrentBoots ||
+                !IsRamAdmissionAllowedLocked())
             {
                 break;
             }
@@ -1713,10 +1816,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                         AttachDisconnectHandlerLocked(worker, pipeClient);
                         worker.WarmWaitTcs.TrySetResult(true);
                         Log($"[supervisor] Worker PID={process.ProcessId} (Revit {worker.Version}) ready ({worker.State}, purpose={worker.Purpose}).");
-                        if (_scheduler.PendingCount > 0 && CountActiveLocked() < _options.MaxActiveWorkers)
-                        {
-                            ScheduleLocked();
-                        }
+                        ScheduleLocked();
 
                         return;
                     }
@@ -2124,6 +2224,29 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
     private int CountActiveLocked()
     {
         return _workers.Count(w => w.State == WorkerState.Active);
+    }
+
+    private int CountBootingLocked()
+    {
+        return _workers.Count(w => w.State == WorkerState.Booting);
+    }
+
+    private bool IsRamAdmissionAllowedLocked()
+    {
+        int nonTerminating = CountNonTerminatingWorkersLocked();
+        int floor = Math.Min(_options.AdmissionFloor, _options.MaxActiveWorkers);
+        if (nonTerminating < floor)
+        {
+            return true;
+        }
+
+        int bootingAboveFloor = Math.Min(CountBootingLocked(), nonTerminating - floor);
+        ulong availableBytes = _memoryProbe.GetAvailablePhysicalBytes();
+        ulong reservedBytes = (ulong)bootingAboveFloor * _options.BootMemoryReservationBytes;
+        ulong effectiveAvailableBytes = availableBytes > reservedBytes
+            ? availableBytes - reservedBytes
+            : 0UL;
+        return effectiveAvailableBytes >= _options.AdmissionMinAvailableMemoryBytes;
     }
 
     private void EnsureStartedLocked(string? initialAssemblyDir)
