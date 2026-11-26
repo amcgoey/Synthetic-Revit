@@ -12,16 +12,22 @@ namespace GuiFocusProbe;
 internal static class Program
 {
     private const uint WsOverlappedWindow = 0x00CF0000;
+    private const uint WsMaximize = 0x01000000;
     private const uint WsPopup = 0x80000000;
     private const uint WsCaption = 0x00C00000;
     private const uint WsSysMenu = 0x00080000;
     private const uint WsChild = 0x40000000;
     private const uint WsVisible = 0x10000000;
+    private const uint SwpNoSize = 0x0001;
+    private const uint SwpNoZOrder = 0x0004;
+    private const uint SwpNoActivate = 0x0010;
     private const int SwShowNa = 8;
     private const uint WmDestroy = 0x0002;
     private const uint WmClose = 0x0010;
+    private const uint WmWindowPosChanging = 0x0046;
     private const uint WmWindowPosChanged = 0x0047;
     private const uint WmTimer = 0x0113;
+    private const ulong RepositionTimerId = 2;
     private const uint StdInputHandle = unchecked((uint)-10);
     private const uint FileTypeUnknown = 0x0000;
     private static readonly IntPtr InvalidHandleValue = new(-1);
@@ -30,6 +36,7 @@ internal static class Program
     private static string? _statusFilePath;
     private static string? _lastPrintedState;
     private static IntPtr _mainHwnd;
+    private static bool _clampOnScreen;
 
     [STAThread]
     private static int Main(string[] args)
@@ -40,6 +47,8 @@ internal static class Program
         string? exitEventName = Environment.GetEnvironmentVariable("GUI_FOCUS_PROBE_EXIT_EVENT");
         _statusFilePath = Environment.GetEnvironmentVariable("GUI_FOCUS_PROBE_STATUS_FILE");
         int timeoutMs = 15_000;
+        int repositionAfterMs = 0;
+        _clampOnScreen = false;
 
         for (int i = 0; i < args.Length; i++)
         {
@@ -63,6 +72,13 @@ internal static class Program
                 case "--timeout-ms" when i + 1 < args.Length &&
                                           int.TryParse(args[++i], NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsedMs):
                     timeoutMs = Math.Max(100, parsedMs);
+                    break;
+                case "--reposition-after-ms" when i + 1 < args.Length &&
+                                                 int.TryParse(args[++i], NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsedRepositionMs):
+                    repositionAfterMs = Math.Max(0, parsedRepositionMs);
+                    break;
+                case "--clamp-pos":
+                    _clampOnScreen = true;
                     break;
             }
         }
@@ -121,11 +137,15 @@ internal static class Program
                 return 2;
             }
 
+            uint style = string.Equals(mode, "maximized", StringComparison.OrdinalIgnoreCase)
+                ? WsOverlappedWindow | WsMaximize
+                : WsOverlappedWindow;
+
             _mainHwnd = NativeMethods.CreateWindowExW(
                 0,
                 className,
                 title,
-                WsOverlappedWindow,
+                style,
                 100,
                 100,
                 320,
@@ -146,6 +166,10 @@ internal static class Program
         PublishSnapshot(_mainHwnd, forceOutput: true);
 
         NativeMethods.SetTimer(_mainHwnd, new UIntPtr(1), 25, IntPtr.Zero);
+        if (repositionAfterMs > 0)
+        {
+            NativeMethods.SetTimer(_mainHwnd, new UIntPtr(RepositionTimerId), unchecked((uint)repositionAfterMs), IntPtr.Zero);
+        }
 
         using var stopCts = new CancellationTokenSource(timeoutMs);
         var exitThread = StartExitWatcher(_mainHwnd, exitEventName, stopCts);
@@ -171,15 +195,40 @@ internal static class Program
     {
         switch (msg)
         {
+            case WmWindowPosChanging:
+                if (_clampOnScreen && lParam != IntPtr.Zero)
+                {
+                    NativeMethods.WindowPos wp = Marshal.PtrToStructure<NativeMethods.WindowPos>(lParam);
+                    if (wp.x < 0)
+                    {
+                        wp.x = 0;
+                    }
+
+                    if (wp.y < 0)
+                    {
+                        wp.y = 0;
+                    }
+
+                    Marshal.StructureToPtr(wp, lParam, fDeleteOld: false);
+                }
+                break;
+
             case WmWindowPosChanged:
                 PublishSnapshot(hwnd, forceOutput: false);
                 break;
 
             case WmTimer:
+                if (wParam.ToUInt64() == RepositionTimerId)
+                {
+                    NativeMethods.KillTimer(hwnd, new UIntPtr(RepositionTimerId));
+                    NativeMethods.SetWindowPos(hwnd, IntPtr.Zero, 100, 100, 0, 0, SwpNoSize | SwpNoZOrder | SwpNoActivate);
+                }
+
                 PublishSnapshot(hwnd, forceOutput: false);
                 break;
 
             case WmDestroy:
+                NativeMethods.KillTimer(hwnd, new UIntPtr(RepositionTimerId));
                 NativeMethods.KillTimer(hwnd, new UIntPtr(1));
                 NativeMethods.PostQuitMessage(0);
                 return IntPtr.Zero;
@@ -197,11 +246,12 @@ internal static class Program
 
         bool visible = NativeMethods.IsWindowVisible(hwnd);
         bool iconic = NativeMethods.IsIconic(hwnd);
+        bool zoomed = NativeMethods.IsZoomed(hwnd);
         int width = rect.Right - rect.Left;
         int height = rect.Bottom - rect.Top;
         string state = string.Create(
             CultureInfo.InvariantCulture,
-            $"HWND=0x{hwnd.ToInt64():X} IsWindowVisible={visible} IsIconic={iconic} X={rect.Left} Y={rect.Top} Width={width} Height={height}");
+            $"HWND=0x{hwnd.ToInt64():X} IsWindowVisible={visible} IsIconic={iconic} IsZoomed={zoomed} X={rect.Left} Y={rect.Top} Width={width} Height={height}");
 
         if (!forceOutput && string.Equals(state, _lastPrintedState, StringComparison.Ordinal))
         {
@@ -356,6 +406,18 @@ internal static class Program
             public int Bottom;
         }
 
+        [StructLayout(LayoutKind.Sequential)]
+        public struct WindowPos
+        {
+            public IntPtr hwnd;
+            public IntPtr hwndInsertAfter;
+            public int x;
+            public int y;
+            public int cx;
+            public int cy;
+            public uint flags;
+        }
+
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
         public static extern IntPtr GetModuleHandleW(string? lpModuleName);
 
@@ -433,5 +495,20 @@ internal static class Program
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool IsIconic(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool IsZoomed(IntPtr hWnd);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool SetWindowPos(
+            IntPtr hWnd,
+            IntPtr hWndInsertAfter,
+            int x,
+            int y,
+            int cx,
+            int cy,
+            uint uFlags);
     }
 }

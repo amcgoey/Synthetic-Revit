@@ -20,6 +20,12 @@ public sealed class WorkerLaunchRequest
 
     public string? WorkingDirectory { get; init; }
 
+    /// <summary>
+    /// Optional Win32 desktop name (<c>WinSta0\&lt;Desktop&gt;</c>) passed to
+    /// <c>STARTUPINFOW.lpDesktop</c> so all worker UI is isolated from the caller's desktop.
+    /// </summary>
+    public string? DesktopName { get; init; }
+
     public IReadOnlyDictionary<string, string?>? AdditionalEnvironmentVariables { get; init; }
 
     /// <summary>

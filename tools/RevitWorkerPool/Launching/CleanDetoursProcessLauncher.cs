@@ -125,26 +125,60 @@ public sealed class CleanDetoursProcessLauncher : IWorkerProcessLauncher
                     ex);
             }
 
-            if (!NativeLibrary.TryGetExport(launcherModule, "SyntheticLaunchSuspendedWithShimW", out IntPtr exportPtr))
+            string? desktopName = string.IsNullOrWhiteSpace(request.DesktopName)
+                ? null
+                : request.DesktopName.Trim();
+
+            bool hasDesktopExport = NativeLibrary.TryGetExport(
+                launcherModule,
+                "SyntheticLaunchSuspendedWithShimOnDesktopW",
+                out IntPtr desktopExportPtr);
+
+            if (desktopName is not null && !hasDesktopExport)
+            {
+                throw new CleanShimLaunchException(
+                    $"Clean-Launch Launcher DLL '{_launcherDllPath}' does not export 'SyntheticLaunchSuspendedWithShimOnDesktopW' required for isolated desktop launch '{desktopName}'.");
+            }
+
+            IntPtr legacyExportPtr = IntPtr.Zero;
+            if (!hasDesktopExport &&
+                !NativeLibrary.TryGetExport(launcherModule, "SyntheticLaunchSuspendedWithShimW", out legacyExportPtr))
             {
                 throw new CleanShimLaunchException(
                     $"Clean-Launch Launcher DLL '{_launcherDllPath}' does not export 'SyntheticLaunchSuspendedWithShimW'.");
             }
 
-            var launchProc = Marshal.GetDelegateForFunctionPointer<SyntheticLaunchSuspendedWithShimDelegate>(exportPtr);
-
             GCHandle envPin = GCHandle.Alloc(environmentBlock, GCHandleType.Pinned);
             try
             {
-                uint win32Error = launchProc(
-                    fullExePath,
-                    commandLineText,
-                    workingDir,
-                    envPin.AddrOfPinnedObject(),
-                    _shimDllPath,
-                    out rawProcessHandle,
-                    out rawThreadHandle,
-                    out rawProcessId);
+                uint win32Error;
+                if (hasDesktopExport)
+                {
+                    var launchProc = Marshal.GetDelegateForFunctionPointer<SyntheticLaunchSuspendedWithShimOnDesktopDelegate>(desktopExportPtr);
+                    win32Error = launchProc(
+                        fullExePath,
+                        commandLineText,
+                        workingDir,
+                        envPin.AddrOfPinnedObject(),
+                        _shimDllPath,
+                        desktopName,
+                        out rawProcessHandle,
+                        out rawThreadHandle,
+                        out rawProcessId);
+                }
+                else
+                {
+                    var launchProc = Marshal.GetDelegateForFunctionPointer<SyntheticLaunchSuspendedWithShimDelegate>(legacyExportPtr);
+                    win32Error = launchProc(
+                        fullExePath,
+                        commandLineText,
+                        workingDir,
+                        envPin.AddrOfPinnedObject(),
+                        _shimDllPath,
+                        out rawProcessHandle,
+                        out rawThreadHandle,
+                        out rawProcessId);
+                }
 
                 if (win32Error != 0 ||
                     rawProcessHandle == IntPtr.Zero ||
@@ -359,6 +393,18 @@ public sealed class CleanDetoursProcessLauncher : IWorkerProcessLauncher
         [MarshalAs(UnmanagedType.LPWStr)] string? currentDirectory,
         IntPtr unicodeEnvironmentBlock,
         [MarshalAs(UnmanagedType.LPWStr)] string shimDllPath,
+        out IntPtr outProcessHandle,
+        out IntPtr outThreadHandle,
+        out uint outProcessId);
+
+    [UnmanagedFunctionPointer(CallingConvention.StdCall, CharSet = CharSet.Unicode)]
+    private delegate uint SyntheticLaunchSuspendedWithShimOnDesktopDelegate(
+        [MarshalAs(UnmanagedType.LPWStr)] string applicationPath,
+        [MarshalAs(UnmanagedType.LPWStr)] string? commandLine,
+        [MarshalAs(UnmanagedType.LPWStr)] string? currentDirectory,
+        IntPtr unicodeEnvironmentBlock,
+        [MarshalAs(UnmanagedType.LPWStr)] string shimDllPath,
+        [MarshalAs(UnmanagedType.LPWStr)] string? desktopName,
         out IntPtr outProcessHandle,
         out IntPtr outThreadHandle,
         out uint outProcessId);

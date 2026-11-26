@@ -53,7 +53,7 @@ We adopt a standalone tooling subsystem (`tools/RevitWorkerPool` and `tools/Revi
 
 ## Addendum: Multi-Version Scaling, Detached Lifecycle, and Safe Drain (Spec #256)
 
-Status: Accepted — supersedes the `4`-worker host cap, `TotalResident <= 5` lookahead, `N -> N+1` sequential version pipelining, Job-Object-bound supervisor spawn, unguarded `drain`, and fixed `min(N, 4)` LPT clamping above, and resolves the post-Spec #216 `RicaunBundleLease` `net10.0` priority note.
+Status: Accepted — supersedes the `4`-worker host cap, `TotalResident <= 5` lookahead, `N -> N+1` sequential version pipelining, Job-Object-bound supervisor spawn, unguarded `drain`, fixed `min(N, 4)` LPT clamping, and same-desktop `SW_SHOWMINNOACTIVE` + `SetWinEventHook` off-screen repositioning above, and resolves the post-Spec #216 `RicaunBundleLease` `net10.0` priority note.
 
 1. **Detached Supervisor Launch (`ISupervisorLauncher`) & Retained Child-Worker Containment (Supersedes Decision §1 Job-Object-bound supervisor spawn):**
    - Supervisor startup routes through `ISupervisorLauncher` (`DetachedSupervisorLauncher`) evaluating two detached adapters in priority order:
@@ -85,3 +85,8 @@ Status: Accepted — supersedes the `4`-worker host cap, `TotalResident <= 5` lo
 
 6. **`RicaunBundleLease` `net10.0` Priority (Resolves Decision §4 Spec #216 note):**
    - `RicaunBundleLease.FindRicaunTestAdapterDll` prioritizes `net10.0` (`4`) ahead of `net8.0` (`3`), `net6.0` (`2`), and `net45` (`1`) when seeding `ricaun.RevitTest.Application.bundle` for live Revit `2027` runs alongside `2023`–`2026` (while `RevitWorkerPool` remains `net8.0-windows`).
+
+7. **Per-Worker Secondary `WinSta0` Desktop Isolation (Supersedes Decision §1 off-screen `-32000, -32000` window suppression):**
+   - Scheduled-task supervisor execution (`InteractiveToken` on `WinSta0\Default`) exposed two defects in same-desktop `WINEVENT_OUTOFCONTEXT` repositioning: asynchronous hook delivery causes an initial UI flash on `WinSta0\Default` (plus taskbar/Alt-Tab exposure), and Revit's maximized WPF `HwndWrapper` (`WS_MAXIMIZE` / `WM_WINDOWPOSCHANGING`) resists off-screen moves.
+   - [IsolatedDesktopLauncher](../../tools/RevitWorkerPool/Windowing/IsolatedDesktopLauncher.cs) and [IsolatedDesktopHost](../../tools/RevitWorkerPool/Windowing/IsolatedDesktopHost.cs) provision a dedicated secondary desktop inside the caller's interactive `WinSta0` via `CreateDesktopW` (never calling `SetThreadDesktop` on supervisor threads) and pass `WinSta0\<WorkerDesktop>` via `STARTUPINFOW.lpDesktop` through [StandardProcessLauncher](../../tools/RevitWorkerPool/Launching/StandardProcessLauncher.cs) and [RevitCleanLauncher.cpp](../../tools/RevitCleanShim/RevitCleanLauncher.cpp) (`SyntheticLaunchSuspendedWithShimOnDesktopW`), preserving WPF `IsVisible == true`, DX11/WDDM, WebView2, and zero flash/taskbar/focus leakage on `WinSta0\Default`.
+   - [LaunchedWorkerProcess](../../tools/RevitWorkerPool/Launching/LaunchedWorkerProcess.cs) waits for all Job Object processes ([JobObjectContainer](../../tools/RevitWorkerPool/Containment/JobObjectContainer.cs)) to exit before closing the `HDESK`, and [StartupModalWatchdog](../../tools/RevitWorkerPool/Startup/StartupModalWatchdog.cs) inspects the worker's isolated desktop via `EnumDesktopWindows`.

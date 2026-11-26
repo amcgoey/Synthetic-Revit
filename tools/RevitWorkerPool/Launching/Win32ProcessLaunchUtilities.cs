@@ -20,6 +20,7 @@ internal static class Win32ProcessLaunchUtilities
     public const uint CreateBreakawayFromJob = 0x01000000;
     public const uint CreateNoWindow = 0x08000000;
     public const uint StartfUseShowWindow = 0x00000001;
+    public const short SwShowNormal = 1;
     public const short SwShowMinNoActive = 7;
 
     public const uint JobObjectLimitBreakawayOk = 0x00000800;

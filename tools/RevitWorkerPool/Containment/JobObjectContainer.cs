@@ -3,6 +3,8 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
 
 namespace RevitWorkerPool.Containment;
@@ -15,6 +17,7 @@ namespace RevitWorkerPool.Containment;
 public sealed class JobObjectContainer : IDisposable
 {
     private const uint JobObjectLimitKillOnJobClose = 0x00002000;
+    private const int JobObjectBasicAccountingInformation = 1;
     private const int JobObjectExtendedLimitInformation = 9;
     private const uint ProcessSetQuota = 0x0100;
     private const uint ProcessTerminate = 0x0001;
@@ -142,6 +145,88 @@ public sealed class JobObjectContainer : IDisposable
     }
 
     /// <summary>
+    /// Queries the number of currently active processes assigned to this Job Object.
+    /// </summary>
+    public uint GetActiveProcessCount()
+    {
+        if (_disposed || _jobHandle.IsInvalid || _jobHandle.IsClosed)
+        {
+            return 0;
+        }
+
+        int length = Marshal.SizeOf<JobObjectBasicAccountingInformationNative>();
+        IntPtr infoPtr = Marshal.AllocHGlobal(length);
+        try
+        {
+            if (!NativeMethods.QueryInformationJobObject(
+                    _jobHandle,
+                    JobObjectBasicAccountingInformation,
+                    infoPtr,
+                    (uint)length,
+                    out _))
+            {
+                return 0;
+            }
+
+            var info = Marshal.PtrToStructure<JobObjectBasicAccountingInformationNative>(infoPtr);
+            return info.ActiveProcesses;
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(infoPtr);
+        }
+    }
+
+    /// <summary>
+    /// Waits up to <paramref name="timeout"/> for all processes in this Job Object to exit.
+    /// </summary>
+    public bool WaitForAllProcessesExited(TimeSpan timeout)
+    {
+        if (_disposed || _jobHandle.IsInvalid || _jobHandle.IsClosed)
+        {
+            return true;
+        }
+
+        var sw = Stopwatch.StartNew();
+        while (GetActiveProcessCount() > 0)
+        {
+            if (sw.Elapsed >= timeout)
+            {
+                return false;
+            }
+
+            Thread.Sleep(10);
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Asynchronously waits up to <paramref name="timeout"/> for all processes in this Job Object to exit.
+    /// </summary>
+    public async Task<bool> WaitForAllProcessesExitedAsync(TimeSpan timeout, CancellationToken cancellationToken = default)
+    {
+        if (_disposed || _jobHandle.IsInvalid || _jobHandle.IsClosed)
+        {
+            return true;
+        }
+
+        var sw = Stopwatch.StartNew();
+        while (GetActiveProcessCount() > 0)
+        {
+            if (sw.Elapsed >= timeout)
+            {
+                return false;
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            await Task.Delay(10, cancellationToken).ConfigureAwait(false);
+        }
+
+        return true;
+    }
+
+    /// <summary>
     /// Closes the Job Object handle, triggering <c>JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE</c>
     /// on any remaining assigned processes.
     /// </summary>
@@ -169,6 +254,19 @@ public sealed class JobObjectContainer : IDisposable
         {
             return NativeMethods.CloseHandle(handle);
         }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct JobObjectBasicAccountingInformationNative
+    {
+        public long TotalUserTime;
+        public long TotalKernelTime;
+        public long ThisPeriodTotalUserTime;
+        public long ThisPeriodTotalKernelTime;
+        public uint TotalPageFaultCount;
+        public uint TotalProcesses;
+        public uint ActiveProcesses;
+        public uint TotalTerminatedProcesses;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -219,6 +317,15 @@ public sealed class JobObjectContainer : IDisposable
             int jobObjectInfoClass,
             IntPtr lpJobObjectInfo,
             uint cbJobObjectInfoLength);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool QueryInformationJobObject(
+            SafeJobHandle hJob,
+            int jobObjectInfoClass,
+            IntPtr lpJobObjectInfo,
+            uint cbJobObjectInfoLength,
+            out uint lpReturnLength);
 
         [DllImport("kernel32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]

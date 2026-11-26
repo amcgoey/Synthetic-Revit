@@ -158,12 +158,10 @@ public static class Program
             return 2;
         }
 
-        OffScreenWindowingLauncher? windowingLauncher = null;
         IWorkerProcessLauncher effectiveLauncher = baseLauncher;
-        if (OperatingSystem.IsWindows() && baseLauncher is not OffScreenWindowingLauncher)
+        if (OperatingSystem.IsWindows() && baseLauncher is not IsolatedDesktopLauncher)
         {
-            windowingLauncher = new OffScreenWindowingLauncher(baseLauncher, logger);
-            effectiveLauncher = windowingLauncher;
+            effectiveLauncher = new IsolatedDesktopLauncher(baseLauncher, logger);
         }
 
         var discovery = new RevitInstallationDiscovery(logger);
@@ -216,7 +214,6 @@ public static class Program
         finally
         {
             Console.CancelKeyPress -= cancelHandler;
-            windowingLauncher?.Dispose();
         }
     }
 
@@ -346,7 +343,6 @@ public static class Program
         {
             RevitInstallationDiscovery discovery = discoveryOverride ?? new RevitInstallationDiscovery(logger);
             IWorkerProcessLauncher? baseLauncher = null;
-            OffScreenWindowingLauncher? windowingLauncher = null;
             try
             {
                 baseLauncher = launcherFactory is not null
@@ -354,10 +350,9 @@ public static class Program
                     : CreateWorkerLauncher(options.NoShim, diagnosticLogger: logger);
 
                 IWorkerProcessLauncher effectiveLauncher = baseLauncher;
-                if (OperatingSystem.IsWindows() && baseLauncher is not OffScreenWindowingLauncher)
+                if (OperatingSystem.IsWindows() && baseLauncher is not IsolatedDesktopLauncher)
                 {
-                    windowingLauncher = new OffScreenWindowingLauncher(baseLauncher, logger);
-                    effectiveLauncher = windowingLauncher;
+                    effectiveLauncher = new IsolatedDesktopLauncher(baseLauncher, logger);
                 }
 
                 var clientFactory = new RevitPipeTestClientFactory(logger);
@@ -402,10 +397,6 @@ public static class Program
                     ex.Message);
                 WriteRunOutput(errorResult, options.JsonOutput, outWriter, errWriter);
                 return 2;
-            }
-            finally
-            {
-                windowingLauncher?.Dispose();
             }
         }
 

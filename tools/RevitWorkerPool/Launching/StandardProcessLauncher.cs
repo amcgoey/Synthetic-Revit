@@ -53,11 +53,18 @@ public sealed class StandardProcessLauncher : IWorkerProcessLauncher
 
         byte[] environmentBlock = BuildUnicodeEnvironmentBlock(request, workerId);
 
+        string? desktopName = string.IsNullOrWhiteSpace(request.DesktopName)
+            ? null
+            : request.DesktopName.Trim();
+
         var startupInfo = new Win32ProcessLaunchUtilities.StartupInfoW
         {
             cb = Marshal.SizeOf<Win32ProcessLaunchUtilities.StartupInfoW>(),
+            lpDesktop = desktopName,
             dwFlags = Win32ProcessLaunchUtilities.StartfUseShowWindow,
-            wShowWindow = Win32ProcessLaunchUtilities.SwShowMinNoActive
+            wShowWindow = desktopName is not null
+                ? Win32ProcessLaunchUtilities.SwShowNormal
+                : Win32ProcessLaunchUtilities.SwShowMinNoActive
         };
 
         Win32ProcessLaunchUtilities.ProcessInformation pi = default;
