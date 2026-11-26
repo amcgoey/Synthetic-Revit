@@ -1,17 +1,16 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Windows;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using Newtonsoft.Json;
 using NUnit.Framework;
+using Synthetic.Features.DetailItemFactory.Adapters;
 using Synthetic.Features.DetailItemFactory.Commands;
-using Synthetic.Features.DetailItemFactory.Handlers;
 using Synthetic.Features.DetailItemFactory.Models;
 using Synthetic.Features.DetailItemFactory.Services;
-using Synthetic.Features.DetailItemFactory.Settings;
 using Synthetic.Features.DetailItemFactory.ViewModels;
 using Synthetic.Features.DetailItemFactory.Views;
 using Synthetic.Platform.Host;
@@ -19,13 +18,14 @@ using Synthetic.Platform.Settings;
 using Synthetic.Platform.UI;
 using SyntheticTests.Fixtures;
 using SyntheticTests.Helpers;
+using SyntheticTests.Modules.StandardsManagement;
 using View = Autodesk.Revit.DB.View;
 
 namespace SyntheticTests.Features.DetailItemFactory
 {
     /// <summary>
-    /// Live Revit STA smoke tests verifying ribbon command resolution and WPF binding/resource
-    /// cleanliness for all <c>DetailItemFactory</c> views.
+    /// Live Revit STA smoke tests verifying ribbon command resolution, view/path guards,
+    /// template resolution, and WPF binding/resource cleanliness for all <c>DetailItemFactory</c> views.
     /// </summary>
     [TestFixture]
     [RevitSmokeTest]
@@ -76,11 +76,18 @@ namespace SyntheticTests.Features.DetailItemFactory
         }
 
         [Test]
-        public void RibbonCommand_CmdDetailItemFactory_ResolvesInAddinAssemblyAndRibbonConfig()
+        public void RibbonCommand_CmdDetailItemFactory_ResolvesInAddinAssemblyAndRibbonConfig_WithNoStaticExternalEvent()
         {
             Type cmdType = typeof(CmdDetailItemFactory);
             Assert.IsTrue(typeof(IExternalCommand).IsAssignableFrom(cmdType));
             Assert.AreEqual("Synthetic.Features.DetailItemFactory.Commands.CmdDetailItemFactory", cmdType.FullName);
+
+            FieldInfo[] staticEventFields = cmdType
+                .GetFields(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic)
+                .Where(f => typeof(ExternalEvent).IsAssignableFrom(f.FieldType) ||
+                            typeof(IExternalEventHandler).IsAssignableFrom(f.FieldType))
+                .ToArray();
+            Assert.IsEmpty(staticEventFields, "CmdDetailItemFactory must execute synchronously without static ExternalEvent fields.");
 
             string configPath = Path.Combine(TestPathHelper.GetProjectRoot(), "src", "Assets", "ribbon_config.json");
             Assert.IsTrue(File.Exists(configPath), $"Expected ribbon_config.json at '{configPath}'.");
@@ -106,14 +113,13 @@ namespace SyntheticTests.Features.DetailItemFactory
         {
             Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
 
-            string assemblyLocation = typeof(DetailItemFactoryEventHandler).Assembly.Location;
+            string assemblyLocation = typeof(RevitDetailItemFactoryAdapter).Assembly.Location;
             string assemblyDir = Path.GetDirectoryName(assemblyLocation) ?? string.Empty;
             string expectedBundledPath = Path.Combine(assemblyDir, "Assets", "Templates", "Detail Item.rft");
             Assert.IsTrue(
                 File.Exists(expectedBundledPath),
                 $"Expected per-version packaged template at '{expectedBundledPath}'.");
 
-            // 1. Assembly-directory template takes precedence over fallback FamilyTemplatePath
             string tempRoot = Path.Combine(Path.GetTempPath(), "SyntheticDetailItemTemplateTest_" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(tempRoot);
             Document? familyDoc = null;
@@ -124,23 +130,20 @@ namespace SyntheticTests.Features.DetailItemFactory
                 string fakeFallbackTemplate = Path.Combine(fakeFallbackDir, "Detail Item.rft");
                 File.WriteAllText(fakeFallbackTemplate, "fallback");
 
-                string? resolvedBundled = DetailItemFactoryEventHandler.ResolveTemplatePath(assemblyLocation, fakeFallbackDir);
+                string? resolvedBundled = RevitDetailItemFactoryAdapter.ResolveTemplatePath(assemblyLocation, fakeFallbackDir);
                 Assert.AreEqual(expectedBundledPath, resolvedBundled, "Bundled assembly template should take precedence over FamilyTemplatePath.");
 
-                // 2. Fallback to FamilyTemplatePath when assembly directory has no template
                 string emptyAssemblyDir = Path.Combine(tempRoot, "EmptyAddin");
                 Directory.CreateDirectory(emptyAssemblyDir);
                 string fakeAssemblyPath = Path.Combine(emptyAssemblyDir, "Synthetic.dll");
 
-                string? resolvedFallback = DetailItemFactoryEventHandler.ResolveTemplatePath(fakeAssemblyPath, fakeFallbackDir);
+                string? resolvedFallback = RevitDetailItemFactoryAdapter.ResolveTemplatePath(fakeAssemblyPath, fakeFallbackDir);
                 Assert.AreEqual(fakeFallbackTemplate, resolvedFallback, "Template resolution should fall back to Application.FamilyTemplatePath.");
 
-                // 3. Returns null when neither directory contains Detail Item.rft
                 string emptyFallbackDir = Path.Combine(tempRoot, "EmptyFallback");
                 Directory.CreateDirectory(emptyFallbackDir);
-                Assert.IsNull(DetailItemFactoryEventHandler.ResolveTemplatePath(fakeAssemblyPath, emptyFallbackDir));
+                Assert.IsNull(RevitDetailItemFactoryAdapter.ResolveTemplatePath(fakeAssemblyPath, emptyFallbackDir));
 
-                // 4. Bundled template opens cleanly in the running Revit version without leaking documents
                 familyDoc = _uiapp!.Application.NewFamilyDocument(resolvedBundled!);
                 Assert.IsNotNull(familyDoc, "Expected NewFamilyDocument to succeed with packaged Detail Item.rft.");
                 Assert.IsTrue(familyDoc.IsFamilyDocument, "Opened document should be a family document.");
@@ -182,9 +185,17 @@ namespace SyntheticTests.Features.DetailItemFactory
                         .Cast<ViewPlan>()
                         .FirstOrDefault(v => !v.IsTemplate);
                     Assert.IsNotNull(activeView, "Metric project template must contain at least one ViewPlan.");
+                    Assert.IsTrue(RevitDetailItemFactoryAdapter.IsSupported2DView(activeView));
+
+                    var adapter = new RevitDetailItemFactoryAdapter(doc, null, _uiapp, activeView, Array.Empty<ElementId>());
+                    DetailItemSessionSnapshot snapshot = adapter.CaptureSessionSnapshot();
+                    Assert.AreEqual(
+                        Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                        snapshot.DefaultOutputFolder,
+                        "Unsaved document must fall back to My Documents for default output folder.");
 
                     // 1. DetailItemFactoryView
-                    var mainVm = new DetailItemFactoryViewModel(doc, activeView!, Array.Empty<ElementId>(), ownerHandle);
+                    var mainVm = new DetailItemFactoryViewModel(snapshot, new FakeFolderDialogService());
                     WpfBindingSmokeHarness.ExerciseWindow(
                         new DetailItemFactoryView(ownerHandle) { DataContext = mainVm },
                         clearDataContextOnClose: true);
@@ -198,16 +209,17 @@ namespace SyntheticTests.Features.DetailItemFactory
                             {
                                 ElementName = "Sample Wall",
                                 ElementId = "1001",
-                                Status = "Success",
+                                Status = DetailItemResultStatus.Success,
                                 Message = "Smoke test item"
                             }
-                        });
+                        },
+                        new FakeUserPromptService());
                     WpfBindingSmokeHarness.ExerciseWindow(
                         new DetailItemFactoryResultsView(ownerHandle) { DataContext = resultsVm },
                         clearDataContextOnClose: true);
 
                     // 3. DetailItemFactorySettingsView
-                    var settingsVm = DetailItemFactorySettingsService.CreateSettingsViewModel(doc, ownerHandle);
+                    var settingsVm = RevitDetailItemFactoryAdapter.CreateSettingsViewModel(doc, ownerHandle);
                     var settingsView = new DetailItemFactorySettingsView { DataContext = settingsVm };
                     var hostWindow = new Window
                     {
@@ -232,7 +244,6 @@ namespace SyntheticTests.Features.DetailItemFactory
                         }
                         doc.Dispose();
                     }
-                    doc?.Dispose();
                 }
             }
         }

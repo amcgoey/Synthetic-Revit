@@ -105,7 +105,10 @@ namespace Synthetic.Features.DetailItemFactory.Settings
             return IsValidOutputPathSyntax(OutputPath);
         }
 
-        internal static bool IsValidOutputPathSyntax(string? path)
+        /// <summary>
+        /// Validates that <paramref name="path"/> is syntactically well-formed as a rooted drive or UNC folder path.
+        /// </summary>
+        public static bool IsValidOutputPathSyntax(string? path)
         {
             if (string.IsNullOrWhiteSpace(path))
             {

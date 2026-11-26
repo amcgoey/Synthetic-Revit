@@ -386,15 +386,6 @@ namespace SyntheticTests.Architecture
             Dormant("AutoTagger", FitnessRule.TransactionFailureGuard, "TemplateStorageRepository", "BoyScout"),
             Dormant("AutoTagger", FitnessRule.SingleSchemaExtensibleStorage, "TemplateStorageRepository", "BoyScout"),
 
-            // DetailItemFactory
-            Dormant("DetailItemFactory", FitnessRule.InteractiveSliceSeamPurity, "DetailItemFactoryResultsViewModel", "BoyScout"),
-            Dormant("DetailItemFactory", FitnessRule.InteractiveSliceSeamPurity, "DetailItemFactoryViewModel", "BoyScout"),
-            Dormant("DetailItemFactory", FitnessRule.InteractiveSliceSeamPurity, "SelectedElementItemViewModel", "BoyScout"),
-            Dormant("DetailItemFactory", FitnessRule.TransactionFailureGuard, "DetailItemFactoryEventHandler", "BoyScout"),
-            Dormant("DetailItemFactory", FitnessRule.ExternalEventAndDialogPurity, "CmdDetailItemFactory", "BoyScout"),
-            Dormant("DetailItemFactory", FitnessRule.ExternalEventAndDialogPurity, "DetailItemFactoryEventHandler", "BoyScout"),
-            Dormant("DetailItemFactory", FitnessRule.ExternalEventAndDialogPurity, "DetailItemFactoryResultsViewModel", "BoyScout"),
-
             // FamilyManagement
             Dormant("FamilyManagement", FitnessRule.ExternalEventAndDialogPurity, "AuditPurgeAllFamilies", "BoyScout"),
 
