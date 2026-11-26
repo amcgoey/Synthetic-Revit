@@ -375,6 +375,72 @@ namespace SyntheticTests.Features.DetailItemFactory
             Assert.AreEqual(docsBeforeRun, App.Documents.Size);
         }
 
+        [Test]
+        public void ResolveDefaultOutputDirectory_WorksharedCentralReturnsCentralFolder_AndDetachedCopyFallsBackUntilSavedAsNewCentral()
+        {
+            string centralDir = Path.Combine(CurrentTestTempDirectory, "CentralModelDir");
+            string localDir = Path.Combine(CurrentTestTempDirectory, "LocalReplicaDir");
+            string detachedSaveDir = Path.Combine(CurrentTestTempDirectory, "DetachedSavedDir");
+            string fakeMyDocuments = Path.Combine(CurrentTestTempDirectory, "FakeMyDocuments");
+            Directory.CreateDirectory(centralDir);
+            Directory.CreateDirectory(localDir);
+            Directory.CreateDirectory(detachedSaveDir);
+            Directory.CreateDirectory(fakeMyDocuments);
+
+            string centralPath = Path.Combine(centralDir, "CentralWorkshared.rvt");
+            Document seedDoc = OpenIsolatedTestTemplateCopy();
+            Assert.IsTrue(seedDoc.CanEnableWorksharing(), "Test template must support enabling worksharing.");
+            seedDoc.EnableWorksharing("Shared Levels and Grids", "Workset1");
+
+            var saveCentralOptions = new SaveAsOptions { OverwriteExistingFile = true };
+            saveCentralOptions.SetWorksharingOptions(new WorksharingSaveAsOptions { SaveAsCentral = true });
+            seedDoc.SaveAs(centralPath, saveCentralOptions);
+            seedDoc.Close(false);
+
+            ModelPath centralModelPath = ModelPathUtils.ConvertUserVisiblePathToModelPath(centralPath);
+
+            // 1. Local replica of workshared central model resolves to the central model folder
+            string localReplicaPath = Path.Combine(localDir, "LocalReplica.rvt");
+            WorksharingUtils.CreateNewLocal(
+                centralModelPath,
+                ModelPathUtils.ConvertUserVisiblePathToModelPath(localReplicaPath));
+
+            Document localDoc = TrackDocument(App.OpenDocumentFile(localReplicaPath));
+            Assert.IsTrue(localDoc.IsWorkshared);
+            Assert.IsFalse(localDoc.IsDetached);
+            Assert.AreEqual(
+                Path.GetFullPath(centralDir).TrimEnd(Path.DirectorySeparatorChar),
+                Path.GetFullPath(RevitDetailItemFactoryAdapter.ResolveDefaultOutputDirectory(localDoc, fakeMyDocuments))
+                    .TrimEnd(Path.DirectorySeparatorChar),
+                "Workshared local replica should resolve default output directory to the central model folder.");
+            localDoc.Close(false);
+
+            // 2. Unsaved detached workshared copy falls back to My Documents; saving as new central clears IsDetached and resolves to new central folder
+            var detachPreserveOpts = new OpenOptions
+            {
+                DetachFromCentralOption = DetachFromCentralOption.DetachAndPreserveWorksets
+            };
+            Document detachedDoc = TrackDocument(App.OpenDocumentFile(centralModelPath, detachPreserveOpts));
+            Assert.IsTrue(detachedDoc.IsWorkshared);
+            Assert.IsTrue(detachedDoc.IsDetached);
+            Assert.AreEqual(
+                fakeMyDocuments,
+                RevitDetailItemFactoryAdapter.ResolveDefaultOutputDirectory(detachedDoc, fakeMyDocuments),
+                "Unsaved detached workshared copy must fall back to My Documents.");
+
+            string detachedSavedPath = Path.Combine(detachedSaveDir, "DetachedLocalCopy.rvt");
+            var detachedSaveOptions = new SaveAsOptions { OverwriteExistingFile = true };
+            detachedSaveOptions.SetWorksharingOptions(new WorksharingSaveAsOptions { SaveAsCentral = true });
+            detachedDoc.SaveAs(detachedSavedPath, detachedSaveOptions);
+            Assert.IsFalse(detachedDoc.IsDetached, "Saving detached workshared copy with SaveAsCentral = true clears IsDetached.");
+            Assert.IsFalse(string.IsNullOrWhiteSpace(detachedDoc.PathName));
+            Assert.AreEqual(
+                Path.GetFullPath(detachedSaveDir).TrimEnd(Path.DirectorySeparatorChar),
+                Path.GetFullPath(RevitDetailItemFactoryAdapter.ResolveDefaultOutputDirectory(detachedDoc, fakeMyDocuments))
+                    .TrimEnd(Path.DirectorySeparatorChar),
+                "Promoted new central model must resolve default output directory to its new central folder.");
+        }
+
         private (Document Doc, ViewPlan PlanView, List<ElementId> WallIds) CreateSavedHostWithWalls(int wallCount)
         {
             Document doc = OpenIsolatedTestTemplateCopy();

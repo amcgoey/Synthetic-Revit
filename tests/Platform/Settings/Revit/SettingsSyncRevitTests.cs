@@ -13,7 +13,7 @@ using Synthetic.Features.SettingsDashboard.Handlers;
 using Synthetic.Features.StandardsManagement.Settings;
 using Synthetic.Features.ViewManagement.Settings;
 using Synthetic.Features.Worksets.Settings;
-using Synthetic.Features.DetailItemFactory.Services;
+using Synthetic.Features.DetailItemFactory.Adapters;
 using Synthetic.Features.DetailItemFactory.Settings;
 using Synthetic.Features.DetailItemFactory.ViewModels;
 using Synthetic.Features.SettingsDashboard.ViewModels;
@@ -310,7 +310,7 @@ namespace SyntheticTests.Platform.Settings
         {
             WithRolledBackDocument(doc =>
             {
-                var vm = DetailItemFactorySettingsService.CreateSettingsViewModel(doc, IntPtr.Zero);
+                var vm = RevitDetailItemFactoryAdapter.CreateSettingsViewModel(doc, IntPtr.Zero);
                 Assert.IsFalse(vm.IsOverridden);
                 StringAssert.Contains("(Default Dynamic Document Path)", vm.SummaryText);
 
@@ -331,6 +331,62 @@ namespace SyntheticTests.Platform.Settings
                 Assert.IsFalse(vm.IsOverridden, "Reload() must clear IsOverridden when DataStorage is deleted.");
                 Assert.IsFalse(vm.IsDirty);
             });
+        }
+
+        [Test]
+        public void DetailItemFactorySettingsViewModel_CreatedViaAdapter_RespectsSuppressFirmwideDiskFallback()
+        {
+            string? originalEnvRoot = Environment.GetEnvironmentVariable("SYNTHETIC_ADDIN_ROOT");
+            string tempRoot = Path.Combine(
+                Path.GetTempPath(),
+                "SyntheticSettingsSyncNoDisk_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempRoot);
+
+            try
+            {
+                var diskConfig = new Config(
+                    DetailItemFactorySettings.Name,
+                    new DetailItemFactorySettings
+                    {
+                        OutputPath = @"C:\Firmwide\DiskFallbackShouldBeSuppressed",
+                        TargetSubcategory = "CustomDiskSubcategory"
+                    });
+                File.WriteAllText(
+                    Path.Combine(tempRoot, Config.defaultSettingsFile),
+                    JsonConvert.SerializeObject(diskConfig));
+
+                Environment.SetEnvironmentVariable("SYNTHETIC_ADDIN_ROOT", tempRoot);
+
+                WithRolledBackDocument(doc =>
+                {
+                    SettingsRuntimeOptions.SuppressFirmwideDiskFallback = true;
+                    DetailItemFactorySettingsViewModel suppressedVm =
+                        RevitDetailItemFactoryAdapter.CreateSettingsViewModel(doc, IntPtr.Zero);
+
+                    Assert.IsFalse(suppressedVm.IsOverridden);
+                    StringAssert.Contains("(Default Dynamic Document Path)", suppressedVm.SummaryText);
+                    StringAssert.Contains("Detail Items", suppressedVm.SummaryText);
+                    StringAssert.DoesNotContain(@"C:\Firmwide\DiskFallbackShouldBeSuppressed", suppressedVm.SummaryText);
+                    StringAssert.DoesNotContain("CustomDiskSubcategory", suppressedVm.SummaryText);
+
+                    SettingsRuntimeOptions.SuppressFirmwideDiskFallback = false;
+                    DetailItemFactorySettingsViewModel unsuppressedVm =
+                        RevitDetailItemFactoryAdapter.CreateSettingsViewModel(doc, IntPtr.Zero);
+
+                    Assert.IsFalse(unsuppressedVm.IsOverridden);
+                    StringAssert.Contains(@"C:\Firmwide\DiskFallbackShouldBeSuppressed", unsuppressedVm.SummaryText);
+                    StringAssert.Contains("CustomDiskSubcategory", unsuppressedVm.SummaryText);
+                });
+            }
+            finally
+            {
+                SettingsRuntimeOptions.SuppressFirmwideDiskFallback = true;
+                Environment.SetEnvironmentVariable("SYNTHETIC_ADDIN_ROOT", originalEnvRoot);
+                if (Directory.Exists(tempRoot))
+                {
+                    Directory.Delete(tempRoot, recursive: true);
+                }
+            }
         }
 
         [Test]

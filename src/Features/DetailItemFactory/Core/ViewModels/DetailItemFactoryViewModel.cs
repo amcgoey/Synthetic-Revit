@@ -108,11 +108,6 @@ namespace Synthetic.Features.DetailItemFactory.ViewModels
         public event Action<bool>? RequestClose;
 
         /// <summary>
-        /// Legacy close delegate cleared automatically when the hosting Window closes.
-        /// </summary>
-        public Action<bool>? CloseAction { get; set; }
-
-        /// <summary>
         /// Initializes a new instance of the <see cref="DetailItemFactoryViewModel"/> class.
         /// </summary>
         /// <param name="snapshot">The immutable session snapshot harvested from Revit.</param>
@@ -215,13 +210,11 @@ namespace Synthetic.Features.DetailItemFactory.ViewModels
             }
 
             RequestClose?.Invoke(true);
-            CloseAction?.Invoke(true);
         }
 
         private void ExecuteCancel()
         {
             RequestClose?.Invoke(false);
-            CloseAction?.Invoke(false);
         }
 
         private static string EnsureTrailingSeparator(string path)

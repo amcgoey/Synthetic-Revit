@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Diagnostics;
-using System.IO;
 using System.Linq;
 using System.Windows.Input;
 using Synthetic.Features.DetailItemFactory.Settings;
@@ -51,7 +49,7 @@ namespace Synthetic.Features.DetailItemFactory.ViewModels
             _isOverriddenProvider = isOverriddenProvider ?? throw new ArgumentNullException(nameof(isOverriddenProvider));
             _getAvailableSubcategories = getAvailableSubcategories ?? throw new ArgumentNullException(nameof(getAvailableSubcategories));
             _folderDialogService = folderDialogService;
-            _loadFirmwideDefaults = loadFirmwideDefaults ?? LoadFirmwideDisplaySettings;
+            _loadFirmwideDefaults = loadFirmwideDefaults ?? (() => new DetailItemFactorySettings().Defaults());
 
             BrowseCommand = new RelayCommand(_ => BrowseOutputFolder(), _ => IsOverridden);
 
@@ -271,29 +269,6 @@ namespace Synthetic.Features.DetailItemFactory.ViewModels
             {
                 OutputPath = selectedPath!;
             }
-        }
-
-        private static DetailItemFactorySettings LoadFirmwideDisplaySettings()
-        {
-            var displaySettings = new DetailItemFactorySettings().Defaults();
-            try
-            {
-                string defaultPath = Path.Combine(Config.addinPath, Config.defaultSettingsFile);
-                if (File.Exists(defaultPath))
-                {
-                    Config? defaultConfig = Config.ReadFromFile(defaultPath);
-                    if (defaultConfig != null && defaultConfig.Contains(DetailItemFactorySettings.Name))
-                    {
-                        displaySettings = defaultConfig.GetSettings<DetailItemFactorySettings>(DetailItemFactorySettings.Name);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"DetailItemFactorySettingsViewModel: failed to read firmwide defaults: {ex.Message}");
-            }
-
-            return displaySettings ?? new DetailItemFactorySettings().Defaults();
         }
     }
 }

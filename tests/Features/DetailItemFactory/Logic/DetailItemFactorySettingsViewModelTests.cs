@@ -4,9 +4,11 @@ using System.IO;
 using System.Threading;
 using System.Windows.Input;
 using System.Windows.Threading;
+using Newtonsoft.Json;
 using NUnit.Framework;
 using Synthetic.Features.DetailItemFactory.Settings;
 using Synthetic.Features.DetailItemFactory.ViewModels;
+using Synthetic.Platform.Settings;
 using SyntheticTests.Fixtures;
 
 namespace SyntheticTests.Features.DetailItemFactory
@@ -277,6 +279,54 @@ namespace SyntheticTests.Features.DetailItemFactory
             finally
             {
                 CommandManager.RequerySuggested -= requeryHandler;
+            }
+        }
+
+        [Test]
+        [NonParallelizable]
+        public void Constructor_WhenLoadFirmwideDefaultsOmitted_UsesInMemoryDefaultsWithoutReadingDiskConfig()
+        {
+            string? originalEnvRoot = Environment.GetEnvironmentVariable("SYNTHETIC_ADDIN_ROOT");
+            string tempRoot = Path.Combine(
+                Path.GetTempPath(),
+                "SyntheticDetailItemVmNoDisk_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempRoot);
+
+            try
+            {
+                var diskConfig = new Config(
+                    DetailItemFactorySettings.Name,
+                    new DetailItemFactorySettings
+                    {
+                        OutputPath = @"C:\Firmwide\FromDisk",
+                        TargetSubcategory = "Heavy Line"
+                    });
+                File.WriteAllText(
+                    Path.Combine(tempRoot, Config.defaultSettingsFile),
+                    JsonConvert.SerializeObject(diskConfig));
+
+                Environment.SetEnvironmentVariable("SYNTHETIC_ADDIN_ROOT", tempRoot);
+
+                var vm = new DetailItemFactorySettingsViewModel(
+                    () => new DetailItemFactorySettings().Defaults(),
+                    _ => { },
+                    () => { },
+                    () => false,
+                    () => new[] { "Detail Items", "Heavy Line" });
+
+                Assert.IsFalse(vm.IsOverridden);
+                StringAssert.Contains("(Default Dynamic Document Path)", vm.SummaryText);
+                StringAssert.Contains("Detail Items", vm.SummaryText);
+                StringAssert.DoesNotContain(@"C:\Firmwide\FromDisk", vm.SummaryText);
+                StringAssert.DoesNotContain("Heavy Line", vm.SummaryText);
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("SYNTHETIC_ADDIN_ROOT", originalEnvRoot);
+                if (Directory.Exists(tempRoot))
+                {
+                    Directory.Delete(tempRoot, recursive: true);
+                }
             }
         }
     }
