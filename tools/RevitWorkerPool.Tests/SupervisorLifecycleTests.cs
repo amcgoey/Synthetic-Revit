@@ -1173,17 +1173,203 @@ public class SupervisorLifecycleTests
         await WaitForStatusAsync(pipeName, s => s.ReadyStandby == 2 && s.Booting == 0 && s.Active == 0);
     }
 
+    [Test]
+    public async Task Run_OverIpc_ForwardsPerRunProjectRoot_RatherThanReusingSupervisorProjectRoot()
+    {
+        string supervisorRoot = Path.Combine(_tempRoot, "wt_supervisor");
+        string worktreeA = Path.Combine(_tempRoot, "wt_a");
+        string worktreeB = Path.Combine(_tempRoot, "wt_b");
+        Directory.CreateDirectory(supervisorRoot);
+        Directory.CreateDirectory(worktreeA);
+        Directory.CreateDirectory(worktreeB);
+
+        string pipeName = CreateUniquePipeName();
+        using var launcher = CreatePassingLauncher();
+        await using var supervisor = CreateSupervisor(
+            pipeName,
+            launcher,
+            currentLatestVersion: 2026,
+            projectRoot: supervisorRoot);
+        await using var ipcServer = StartServer(pipeName, supervisor);
+
+        SupervisorIpcResponse warmResp = await SupervisorIpcClient.SendAsync(
+            pipeName,
+            new SupervisorIpcRequest { Command = SupervisorIpcCommands.Warm, Version = 2026, Count = 1 },
+            TimeSpan.FromSeconds(5));
+        Assert.That(warmResp.Success, Is.True, warmResp.Error);
+
+        SupervisorIpcResponse runAResp = await SendRunAsync(
+            pipeName,
+            2026,
+            Path.Combine(_tempRoot, "out", "wt_a.trx"),
+            shards: 1,
+            projectRoot: worktreeA);
+        Assert.That(runAResp.Success, Is.True, runAResp.Error);
+
+        string workerAId = runAResp.RunResult!.WorkerIds.Single();
+        WorkerLaunchRequest launchA = launcher.LaunchedRequests.Single(r => r.WorkerId == workerAId);
+        Assert.That(launchA.ProjectRoot, Is.EqualTo(Path.GetFullPath(worktreeA)));
+
+        SupervisorIpcResponse runBResp = await SendRunAsync(
+            pipeName,
+            2026,
+            Path.Combine(_tempRoot, "out", "wt_b.trx"),
+            shards: 1,
+            projectRoot: worktreeB);
+        Assert.That(runBResp.Success, Is.True, runBResp.Error);
+
+        string workerBId = runBResp.RunResult!.WorkerIds.Single();
+        WorkerLaunchRequest launchB = launcher.LaunchedRequests.Single(r => r.WorkerId == workerBId);
+        Assert.That(launchB.ProjectRoot, Is.EqualTo(Path.GetFullPath(worktreeB)));
+
+        SupervisorIpcResponse runDefaultResp = await SendRunAsync(
+            pipeName,
+            2026,
+            Path.Combine(_tempRoot, "out", "wt_default.trx"),
+            shards: 1,
+            projectRoot: null);
+        Assert.That(runDefaultResp.Success, Is.True, runDefaultResp.Error);
+
+        string workerDefaultId = runDefaultResp.RunResult!.WorkerIds.Single();
+        WorkerLaunchRequest launchDefault = launcher.LaunchedRequests.Single(r => r.WorkerId == workerDefaultId);
+        Assert.That(launchDefault.ProjectRoot, Is.EqualTo(Path.GetFullPath(supervisorRoot)));
+    }
+
+    [Test]
+    public async Task Run_WithDistinctProjectRoot_AtCap_EvictsMismatchedIdleStandby_AndBootsMatchingWorker()
+    {
+        string supervisorRoot = Path.Combine(_tempRoot, "wt_supervisor");
+        string worktreeB = Path.Combine(_tempRoot, "wt_b");
+        Directory.CreateDirectory(supervisorRoot);
+        Directory.CreateDirectory(worktreeB);
+
+        string pipeName = CreateUniquePipeName();
+        using var launcher = CreatePassingLauncher();
+        await using var supervisor = CreateSupervisor(
+            pipeName,
+            launcher,
+            currentLatestVersion: 2026,
+            projectRoot: supervisorRoot,
+            maxActiveWorkers: 2);
+        await using var ipcServer = StartServer(pipeName, supervisor);
+
+        SupervisorIpcResponse warmResp = await SupervisorIpcClient.SendAsync(
+            pipeName,
+            new SupervisorIpcRequest { Command = SupervisorIpcCommands.Warm, Version = 2026, Count = 2 },
+            TimeSpan.FromSeconds(5));
+        Assert.That(warmResp.Success, Is.True, warmResp.Error);
+        Assert.That(warmResp.Status!.ReadyStandby, Is.EqualTo(2));
+
+        SupervisorIpcResponse runBResp = await SendRunAsync(
+            pipeName,
+            2026,
+            Path.Combine(_tempRoot, "out", "evict_wt_b.trx"),
+            shards: 1,
+            projectRoot: worktreeB);
+        Assert.That(runBResp.Success, Is.True, runBResp.Error);
+
+        string workerBId = runBResp.RunResult!.WorkerIds.Single();
+        WorkerLaunchRequest launchB = launcher.LaunchedRequests.Single(r => r.WorkerId == workerBId);
+        Assert.That(launchB.ProjectRoot, Is.EqualTo(Path.GetFullPath(worktreeB)));
+        Assert.That(launcher.Workers.Count(w => w.IsTerminated), Is.GreaterThanOrEqualTo(2));
+    }
+
+    [Test]
+    public async Task Run_ConcurrentDistinctProjectRoots_SameVersion_DoNotCrossMatchBootingWorkers()
+    {
+        string supervisorRoot = Path.Combine(_tempRoot, "wt_supervisor");
+        string worktreeA = Path.Combine(_tempRoot, "wt_a");
+        string worktreeB = Path.Combine(_tempRoot, "wt_b");
+        Directory.CreateDirectory(supervisorRoot);
+        Directory.CreateDirectory(worktreeA);
+        Directory.CreateDirectory(worktreeB);
+
+        var rootABooting = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var allowRootAReady = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        using var launcher = new StubWorkerProcessLauncher((server, req) =>
+        {
+            if (string.Equals(req.ProjectRoot, Path.GetFullPath(worktreeA), StringComparison.OrdinalIgnoreCase))
+            {
+                server.InitialIsBusy = true;
+                rootABooting.TrySetResult(true);
+                _ = Task.Run(async () =>
+                {
+                    await allowRootAReady.Task.ConfigureAwait(false);
+                    while (!server.ClientEverConnected)
+                    {
+                        await Task.Delay(5).ConfigureAwait(false);
+                    }
+
+                    server.PushStatus(isBusy: false);
+                });
+            }
+            else
+            {
+                server.InitialIsBusy = true;
+                server.AutoReadyDelay = TimeSpan.FromMilliseconds(5);
+            }
+
+            server.ExecutionHandler = CreateDefaultPassingHandler();
+        });
+
+        string pipeName = CreateUniquePipeName();
+        await using var supervisor = CreateSupervisor(
+            pipeName,
+            launcher,
+            currentLatestVersion: 2026,
+            projectRoot: supervisorRoot,
+            maxActiveWorkers: 4);
+        await using var ipcServer = StartServer(pipeName, supervisor);
+
+        Task<SupervisorIpcResponse> runATask = SendRunAsync(
+            pipeName,
+            2026,
+            Path.Combine(_tempRoot, "out", "concurrent_a.trx"),
+            shards: 1,
+            projectRoot: worktreeA);
+
+        await rootABooting.Task.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Task<SupervisorIpcResponse> runBTask = SendRunAsync(
+            pipeName,
+            2026,
+            Path.Combine(_tempRoot, "out", "concurrent_b.trx"),
+            shards: 1,
+            projectRoot: worktreeB);
+
+        SupervisorIpcResponse runBResp = await runBTask;
+        Assert.That(runBResp.Success, Is.True, runBResp.Error);
+
+        allowRootAReady.TrySetResult(true);
+        SupervisorIpcResponse runAResp = await runATask;
+        Assert.That(runAResp.Success, Is.True, runAResp.Error);
+
+        string workerAId = runAResp.RunResult!.WorkerIds.Single();
+        string workerBId = runBResp.RunResult!.WorkerIds.Single();
+        Assert.That(workerAId, Is.Not.EqualTo(workerBId));
+
+        WorkerLaunchRequest launchA = launcher.LaunchedRequests.Single(r => r.WorkerId == workerAId);
+        WorkerLaunchRequest launchB = launcher.LaunchedRequests.Single(r => r.WorkerId == workerBId);
+        Assert.That(launchA.ProjectRoot, Is.EqualTo(Path.GetFullPath(worktreeA)));
+        Assert.That(launchB.ProjectRoot, Is.EqualTo(Path.GetFullPath(worktreeB)));
+    }
+
     private WorkerPoolSupervisor CreateSupervisor(
         string pipeName,
         IWorkerProcessLauncher launcher,
         int currentLatestVersion,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        string? projectRoot = null,
+        int maxActiveWorkers = SupervisorOptions.DefaultMaxActiveWorkers)
     {
         return new WorkerPoolSupervisor(
             new SupervisorOptions
             {
                 PipeName = pipeName,
+                MaxActiveWorkers = maxActiveWorkers,
                 CurrentLatestVersion = currentLatestVersion,
+                ProjectRoot = projectRoot,
                 IdleTimeout = TimeSpan.FromMinutes(25),
                 TimingCacheDirectory = Path.Combine(_tempRoot, "timing_cache")
             },
@@ -1215,6 +1401,7 @@ public class SupervisorLifecycleTests
         IReadOnlyList<string>? categories = null,
         double bootTimeoutSeconds = 5,
         int? shards = null,
+        string? projectRoot = null,
         CancellationToken cancellationToken = default)
     {
         return SupervisorIpcClient.SendAsync(
@@ -1232,6 +1419,7 @@ public class SupervisorLifecycleTests
                     Categories = categories ?? Array.Empty<string>(),
                     BootTimeoutSeconds = bootTimeoutSeconds,
                     ExecutionTimeoutSeconds = 10,
+                    ProjectRoot = projectRoot,
                     Shards = shards
                 }
             },

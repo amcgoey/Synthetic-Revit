@@ -115,4 +115,41 @@ public class RicaunBundleLeaseTests
         Assert.DoesNotThrow(() => File.Delete(lease.PackageContentsPath));
         Assert.That(File.Exists(lease.PackageContentsPath), Is.False);
     }
+
+    [Test]
+    public void FindRicaunTestAdapterDll_PrioritizesNet10AboveNet8Net6AndNet45()
+    {
+        string nugetRoot = Path.Combine(_tempAppData, "nuget");
+        string libRoot = Path.Combine(nugetRoot, "ricaun.revittest.testadapter", "1.12.0", "lib");
+        string[] tfms = { "net45", "net6.0", "net8.0", "net10.0" };
+        var dllByTfm = new System.Collections.Generic.Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (string tfm in tfms)
+        {
+            string tfmDir = Path.Combine(libRoot, tfm);
+            Directory.CreateDirectory(tfmDir);
+            string dllPath = Path.Combine(tfmDir, "ricaun.RevitTest.TestAdapter.dll");
+            File.WriteAllBytes(dllPath, Array.Empty<byte>());
+            dllByTfm[tfm] = dllPath;
+        }
+
+        Assert.That(
+            RicaunBundleLease.FindRicaunTestAdapterDll(nugetPackagesDirectory: nugetRoot),
+            Is.EqualTo(dllByTfm["net10.0"]));
+
+        File.Delete(dllByTfm["net10.0"]);
+        Assert.That(
+            RicaunBundleLease.FindRicaunTestAdapterDll(nugetPackagesDirectory: nugetRoot),
+            Is.EqualTo(dllByTfm["net8.0"]));
+
+        File.Delete(dllByTfm["net8.0"]);
+        Assert.That(
+            RicaunBundleLease.FindRicaunTestAdapterDll(nugetPackagesDirectory: nugetRoot),
+            Is.EqualTo(dllByTfm["net6.0"]));
+
+        File.Delete(dllByTfm["net6.0"]);
+        Assert.That(
+            RicaunBundleLease.FindRicaunTestAdapterDll(nugetPackagesDirectory: nugetRoot),
+            Is.EqualTo(dllByTfm["net45"]));
+    }
 }
