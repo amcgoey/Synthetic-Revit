@@ -537,6 +537,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
 
             DateTimeOffset runStart = DateTimeOffset.UtcNow;
             using var shardRunCts = CancellationTokenSource.CreateLinkedTokenSource(runExecutionCts.Token);
+            string runProjectRoot = ResolveRunProjectRoot(options.ProjectRoot, fullAssemblyPath);
             var shardTasks = new Task[shards.Count];
 
             for (int i = 0; i < shards.Count; i++)
@@ -550,6 +551,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                 shardTasks[i] = ExecuteShardAsync(
                     runId,
                     options,
+                    runProjectRoot,
                     state,
                     shardAssemblyPath,
                     preferredWorkerId,
@@ -785,7 +787,10 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
             {
                 if (worker.State == WorkerState.Booting &&
                     worker.Purpose != WorkerBootPurpose.Demand &&
-                    !_scheduler.HasPendingForVersion(worker.Version))
+                    !_scheduler.HasPendingMatching((v, item) =>
+                        !item.Cancelled &&
+                        v == worker.Version &&
+                        ProjectRootsEqual(item.ProjectRoot, worker.ProjectRoot)))
                 {
                     worker.State = WorkerState.Terminating;
                     DetachDisconnectHandlerLocked(worker);
@@ -948,7 +953,9 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                     BootTimeout = TimeSpan.FromSeconds(Math.Max(0.05, request.Run.BootTimeoutSeconds)),
                     ExecutionTimeout = TimeSpan.FromSeconds(Math.Max(0.05, request.Run.ExecutionTimeoutSeconds)),
                     WorkerId = request.Run.WorkerId,
-                    ProjectRoot = request.Run.ProjectRoot ?? _options.ProjectRoot,
+                    ProjectRoot = !string.IsNullOrWhiteSpace(request.Run.ProjectRoot)
+                        ? request.Run.ProjectRoot
+                        : _options.ProjectRoot,
                     Shards = request.Run.Shards,
                     NextVersion = request.Run.NextVersion,
                     Diagnostics = request.Run.Diagnostics
@@ -1076,9 +1083,11 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
         Guid runId,
         int version,
         string? preferredWorkerId,
+        string projectRoot,
         TimeSpan bootTimeout,
         CancellationToken cancellationToken)
     {
+        string resolvedProjectRoot = TestExecutionHelper.ResolveProjectRoot(projectRoot, assemblyPath: null);
         PendingWorkItem pending;
 
         lock (_sync)
@@ -1092,9 +1101,12 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
             PruneDeadStandbyLocked();
 
             if (CountActiveLocked() < _options.MaxActiveWorkers &&
-                !_scheduler.HasPendingForVersion(version))
+                !_scheduler.HasPendingMatching((v, item) =>
+                    !item.Cancelled &&
+                    v == version &&
+                    ProjectRootsEqual(item.ProjectRoot, resolvedProjectRoot)))
             {
-                ManagedWorker? readyWorker = FindHealthyStandbyLocked(version);
+                ManagedWorker? readyWorker = FindHealthyStandbyLocked(version, resolvedProjectRoot);
                 if (readyWorker is not null)
                 {
                     AssignWorkerToActiveLocked(readyWorker);
@@ -1105,7 +1117,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                 }
             }
 
-            pending = new PendingWorkItem(runId, version, preferredWorkerId, bootTimeout);
+            pending = new PendingWorkItem(runId, version, preferredWorkerId, resolvedProjectRoot, bootTimeout);
             _scheduler.Enqueue(runId, version, pending);
             ScheduleLocked(bootTimeout);
         }
@@ -1203,7 +1215,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
         //    strictly keeping Active <= MaxActiveWorkers.
         while (CountActiveLocked() < _options.MaxActiveWorkers &&
                _scheduler.TryDequeueMatching(
-                   version => FindHealthyStandbyLocked(version) is not null,
+                   (version, item) => item.Cancelled || FindHealthyStandbyLocked(version, item.ProjectRoot) is not null,
                    out Guid matchedRunId,
                    out PendingWorkItem? pending))
         {
@@ -1212,7 +1224,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                 continue;
             }
 
-            ManagedWorker? ready = FindHealthyStandbyLocked(pending.Version);
+            ManagedWorker? ready = FindHealthyStandbyLocked(pending.Version, pending.ProjectRoot);
             if (ready is null)
             {
                 _scheduler.Enqueue(matchedRunId, pending.Version, pending);
@@ -1230,13 +1242,15 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
         }
 
         // 2. Ensure queued items have booting workers within baseline cap MaxActiveWorkers
-        //    in fair round-robin order (or evict idle wrong-version standby if at cap).
-        var accountedBooting = new Dictionary<int, int>();
+        //    in fair round-robin order (or evict idle mismatched standby if at cap).
+        var accountedBooting = new Dictionary<(int Version, string NormalizedProjectRoot), int>(
+            VersionProjectRootComparer.Instance);
         foreach (ManagedWorker worker in _workers)
         {
             if (worker.State == WorkerState.Booting)
             {
-                accountedBooting[worker.Version] = accountedBooting.GetValueOrDefault(worker.Version) + 1;
+                var workerKey = (worker.Version, NormalizeProjectRoot(worker.ProjectRoot));
+                accountedBooting[workerKey] = accountedBooting.GetValueOrDefault(workerKey) + 1;
             }
         }
 
@@ -1249,10 +1263,11 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                 continue;
             }
 
-            int existingBooting = accountedBooting.GetValueOrDefault(version);
+            var pendingKey = (version, NormalizeProjectRoot(pending.ProjectRoot));
+            int existingBooting = accountedBooting.GetValueOrDefault(pendingKey);
             if (existingBooting > 0)
             {
-                accountedBooting[version] = existingBooting - 1;
+                accountedBooting[pendingKey] = existingBooting - 1;
                 continue;
             }
 
@@ -1261,13 +1276,14 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                 LaunchWorkerLocked(
                     version,
                     pending.PreferredWorkerId,
+                    pending.ProjectRoot,
                     pending.BootTimeout,
                     WorkerBootPurpose.Demand);
             }
             else if (CountActiveLocked() < _options.MaxActiveWorkers)
             {
-                // Reclaim one idle standby worker from another version so active execution can use all cap slots.
-                if (TryEvictIdleStandbyForOtherVersionLocked())
+                // Reclaim one idle standby worker from another version or project root so active execution can use all cap slots.
+                if (TryEvictIdleStandbyForOtherWorkLocked(orderedPending))
                 {
                     // Eviction transitions the victim to Terminating and re-triggers ScheduleLocked upon exit.
                     break;
@@ -1289,6 +1305,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
             LaunchWorkerLocked(
                 lookaheadVersion,
                 lookaheadItem.PreferredWorkerId,
+                lookaheadItem.ProjectRoot,
                 lookaheadItem.BootTimeout,
                 WorkerBootPurpose.Lookahead);
         }
@@ -1306,8 +1323,10 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                     continue;
                 }
 
+                string defaultProjectRoot = ResolveSupervisorProjectRoot(version);
                 int currentStandbyAndBooting = _workers.Count(w =>
                     w.Version == version &&
+                    ProjectRootsEqual(w.ProjectRoot, defaultProjectRoot) &&
                     w.State is WorkerState.Booting or WorkerState.ReadyStandby);
 
                 while (currentStandbyAndBooting < targetCount &&
@@ -1316,6 +1335,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                     LaunchWorkerLocked(
                         version,
                         preferredWorkerId: null,
+                        defaultProjectRoot,
                         overrideBootTimeout ?? _options.DefaultBootTimeout,
                         WorkerBootPurpose.StandbyTarget);
                     currentStandbyAndBooting++;
@@ -1362,6 +1382,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                 LaunchWorkerLocked(
                     targetVersion,
                     preferredWorkerId: null,
+                    ResolveSupervisorProjectRoot(targetVersion),
                     overrideBootTimeout ?? _options.DefaultBootTimeout,
                     WorkerBootPurpose.PipelinePrewarm);
             }
@@ -1408,11 +1429,22 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
         }
     }
 
-    private bool TryEvictIdleStandbyForOtherVersionLocked()
+    private bool TryEvictIdleStandbyForOtherWorkLocked(
+        IReadOnlyList<(Guid RunId, int Version, PendingWorkItem Item)> orderedPending)
     {
-        HashSet<int> queuedVersions = _scheduler.GetPendingVersions();
+        var queuedTargets = new HashSet<(int Version, string NormalizedProjectRoot)>(
+            VersionProjectRootComparer.Instance);
+        foreach ((Guid _, int version, PendingWorkItem item) in orderedPending)
+        {
+            if (!item.Cancelled)
+            {
+                queuedTargets.Add((version, NormalizeProjectRoot(item.ProjectRoot)));
+            }
+        }
+
         ManagedWorker? victim = _workers.FirstOrDefault(w =>
-            w.State == WorkerState.ReadyStandby && !queuedVersions.Contains(w.Version));
+            w.State == WorkerState.ReadyStandby &&
+            !queuedTargets.Contains((w.Version, NormalizeProjectRoot(w.ProjectRoot))));
 
         if (victim is null)
         {
@@ -1421,7 +1453,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
 
         victim.State = WorkerState.Terminating;
         DetachDisconnectHandlerLocked(victim);
-        Log($"[supervisor] Evicting idle standby worker PID={victim.Process?.ProcessId} (Revit {victim.Version}) to free cap slot.");
+        Log($"[supervisor] Evicting idle standby worker PID={victim.Process?.ProcessId} (Revit {victim.Version}, root='{victim.ProjectRoot}') to free cap slot.");
 
         TrackBackgroundTask(Task.Run(() => TerminateAndRemoveWorkerAsync(victim)));
         return true;
@@ -1448,10 +1480,11 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
         }
     }
 
-    private ManagedWorker? FindHealthyStandbyLocked(int version)
+    private ManagedWorker? FindHealthyStandbyLocked(int version, string projectRoot)
     {
         return _workers.FirstOrDefault(w =>
             w.Version == version &&
+            ProjectRootsEqual(w.ProjectRoot, projectRoot) &&
             w.State == WorkerState.ReadyStandby &&
             w.Process is { HasExited: false } &&
             w.PipeClient is { IsConnected: true });
@@ -1466,6 +1499,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
     private void LaunchWorkerLocked(
         int version,
         string? preferredWorkerId,
+        string? projectRootOverride,
         TimeSpan bootTimeout,
         WorkerBootPurpose purpose)
     {
@@ -1474,7 +1508,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
         {
             var missingEx = new DirectoryNotFoundException(
                 $"Autodesk Revit {version} installation was not found.");
-            FailOnePendingLocked(version, missingEx);
+            FailOnePendingLocked(version, projectRootOverride, missingEx);
             _standbyTargets.Remove(version);
             return;
         }
@@ -1483,7 +1517,9 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
             ? WorkerLaunchRequest.CreateWorkerId()
             : preferredWorkerId.Trim();
 
-        string projectRoot = TestExecutionHelper.ResolveProjectRoot(_options.ProjectRoot, installation.ExecutablePath);
+        string projectRoot = TestExecutionHelper.ResolveProjectRoot(
+            !string.IsNullOrWhiteSpace(projectRootOverride) ? projectRootOverride : _options.ProjectRoot,
+            installation.ExecutablePath);
         var linkedBootCts = CancellationTokenSource.CreateLinkedTokenSource(_supervisorCts.Token);
 
         var worker = new ManagedWorker(
@@ -1496,7 +1532,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
             linkedBootCts);
 
         _workers.Add(worker);
-        Log($"[supervisor] Launching worker (Revit {version}, workerId={workerId}, purpose={purpose}).");
+        Log($"[supervisor] Launching worker (Revit {version}, workerId={workerId}, purpose={purpose}, root='{projectRoot}').");
 
         TrackBackgroundTask(Task.Run(() => BootWorkerAsync(worker)));
     }
@@ -1627,7 +1663,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                 {
                     if (CountActiveLocked() < _options.MaxActiveWorkers)
                     {
-                        PendingWorkItem? matched = DequeuePendingForVersionLocked(worker.Version);
+                        PendingWorkItem? matched = DequeuePendingForWorkerLocked(worker.Version, worker.ProjectRoot);
                         if (matched is not null)
                         {
                             worker.State = WorkerState.Active;
@@ -1640,26 +1676,33 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                         }
                     }
 
+                    string defaultProjectRoot = ResolveSupervisorProjectRoot(worker.Version);
                     int standbyTarget = _standbyTargets.GetValueOrDefault(worker.Version);
                     int existingReady = _workers.Count(w =>
                         w != worker &&
                         w.Version == worker.Version &&
+                        ProjectRootsEqual(w.ProjectRoot, defaultProjectRoot) &&
                         w.State == WorkerState.ReadyStandby);
 
                     bool keepAsStandbyTarget =
                         !_drainingWhenIdle &&
+                        ProjectRootsEqual(worker.ProjectRoot, defaultProjectRoot) &&
                         existingReady < standbyTarget &&
                         CountNonTerminatingWorkersLocked() <= _options.MaxActiveWorkers;
 
                     bool keepAsPipelinePrewarm =
                         !_drainingWhenIdle &&
                         worker.Purpose == WorkerBootPurpose.PipelinePrewarm &&
+                        ProjectRootsEqual(worker.ProjectRoot, defaultProjectRoot) &&
                         existingReady == 0 &&
                         CountNonTerminatingWorkersLocked() <= _options.MaxActiveWorkers;
 
                     bool keepAsLookaheadStandby =
                         !_drainingWhenIdle &&
-                        _scheduler.HasPendingForVersion(worker.Version) &&
+                        _scheduler.HasPendingMatching((v, item) =>
+                            !item.Cancelled &&
+                            v == worker.Version &&
+                            ProjectRootsEqual(item.ProjectRoot, worker.ProjectRoot)) &&
                         CountActiveLocked() == _options.MaxActiveWorkers &&
                         CountNonTerminatingWorkersLocked() <= _options.MaxActiveWorkers + (_launcher.UsesCleanShim ? 1 : 0) &&
                         _workers.Count(w => w != worker && w.State is WorkerState.Booting or WorkerState.ReadyStandby) == 0;
@@ -1795,7 +1838,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
             else if (bootFailureError is not null)
             {
                 worker.WarmWaitTcs.TrySetException(bootFailureError);
-                FailOnePendingLocked(worker.Version, bootFailureError);
+                FailOnePendingLocked(worker.Version, worker.ProjectRoot, bootFailureError);
                 if (_standbyTargets.Remove(worker.Version))
                 {
                     Log($"[supervisor] Cleared standby target for Revit {worker.Version} after boot failure: {bootFailureError.Message}");
@@ -1978,6 +2021,22 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
         return null;
     }
 
+    private PendingWorkItem? DequeuePendingForWorkerLocked(int version, string projectRoot)
+    {
+        while (_scheduler.TryDequeueMatching(
+                   (v, item) => v == version && (item.Cancelled || ProjectRootsEqual(item.ProjectRoot, projectRoot)),
+                   out _,
+                   out PendingWorkItem? candidate))
+        {
+            if (candidate is not null && !candidate.Cancelled)
+            {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
     private void MarkShardDispatchedLocked(Guid runId)
     {
         if (!_activeRunTasks.TryGetValue(runId, out ActiveRunTracking? tracking))
@@ -2010,9 +2069,11 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
         }
     }
 
-    private void FailOnePendingLocked(int version, Exception error)
+    private void FailOnePendingLocked(int version, string? projectRoot, Exception error)
     {
-        PendingWorkItem? pending = DequeuePendingForVersionLocked(version);
+        PendingWorkItem? pending = !string.IsNullOrWhiteSpace(projectRoot)
+            ? DequeuePendingForWorkerLocked(version, projectRoot) ?? DequeuePendingForVersionLocked(version)
+            : DequeuePendingForVersionLocked(version);
         if (pending is not null)
         {
             pending.AssignmentTcs.TrySetException(error);
@@ -2280,9 +2341,43 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
         return RicaunBundleLease.Acquire(testAdapterSearchDirectories: searchDirs);
     }
 
+    private string ResolveRunProjectRoot(string? runProjectRoot, string? assemblyPath)
+    {
+        string? explicitRoot = !string.IsNullOrWhiteSpace(runProjectRoot)
+            ? runProjectRoot
+            : _options.ProjectRoot;
+        return TestExecutionHelper.ResolveProjectRoot(explicitRoot, assemblyPath);
+    }
+
+    private string ResolveSupervisorProjectRoot(int version)
+    {
+        RevitInstallation? installation = _discovery.TryFindInstallation(version);
+        return TestExecutionHelper.ResolveProjectRoot(_options.ProjectRoot, installation?.ExecutablePath);
+    }
+
+    private static string NormalizeProjectRoot(string projectRoot)
+    {
+        return Path.GetFullPath(projectRoot)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    }
+
+    private static bool ProjectRootsEqual(string? left, string? right)
+    {
+        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+        {
+            return false;
+        }
+
+        return string.Equals(
+            NormalizeProjectRoot(left),
+            NormalizeProjectRoot(right),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
     private async Task ExecuteShardAsync(
         Guid runId,
         OneShotRunOptions options,
+        string runProjectRoot,
         ShardExecutionState state,
         string shardAssemblyPath,
         string? preferredWorkerId,
@@ -2300,6 +2395,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                 runId,
                 options.RevitVersion,
                 preferredWorkerId,
+                runProjectRoot,
                 options.BootTimeout,
                 shardRunCts.Token).ConfigureAwait(false);
 
@@ -2474,11 +2570,17 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
 
     private sealed class PendingWorkItem
     {
-        public PendingWorkItem(Guid runId, int version, string? preferredWorkerId, TimeSpan bootTimeout)
+        public PendingWorkItem(
+            Guid runId,
+            int version,
+            string? preferredWorkerId,
+            string projectRoot,
+            TimeSpan bootTimeout)
         {
             RunId = runId;
             Version = version;
             PreferredWorkerId = preferredWorkerId;
+            ProjectRoot = projectRoot;
             BootTimeout = bootTimeout;
         }
 
@@ -2488,12 +2590,32 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
 
         public string? PreferredWorkerId { get; }
 
+        public string ProjectRoot { get; }
+
         public TimeSpan BootTimeout { get; }
 
         public bool Cancelled { get; set; }
 
         public TaskCompletionSource<WorkerAssignment> AssignmentTcs { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
+
+    private sealed class VersionProjectRootComparer : IEqualityComparer<(int Version, string NormalizedProjectRoot)>
+    {
+        public static VersionProjectRootComparer Instance { get; } = new();
+
+        public bool Equals((int Version, string NormalizedProjectRoot) x, (int Version, string NormalizedProjectRoot) y)
+        {
+            return x.Version == y.Version &&
+                   string.Equals(x.NormalizedProjectRoot, y.NormalizedProjectRoot, StringComparison.OrdinalIgnoreCase);
+        }
+
+        public int GetHashCode((int Version, string NormalizedProjectRoot) obj)
+        {
+            return HashCode.Combine(
+                obj.Version,
+                StringComparer.OrdinalIgnoreCase.GetHashCode(obj.NormalizedProjectRoot));
+        }
     }
 
     private sealed class ActiveRunTracking

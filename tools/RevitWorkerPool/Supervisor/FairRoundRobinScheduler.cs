@@ -146,11 +146,21 @@ public sealed class FairRoundRobinScheduler<TItem> where TItem : class
     /// </summary>
     public bool HasPendingForVersion(int version)
     {
+        return HasPendingMatching((entryVersion, _) => entryVersion == version);
+    }
+
+    /// <summary>
+    /// Returns <see langword="true"/> if any run currently has a queued item matching <paramref name="predicate"/>.
+    /// </summary>
+    public bool HasPendingMatching(Func<int, TItem, bool> predicate)
+    {
+        ArgumentNullException.ThrowIfNull(predicate);
+
         foreach (RunBucket bucket in _runsById.Values)
         {
             foreach (QueuedEntry entry in bucket.Items)
             {
-                if (entry.Version == version)
+                if (predicate(entry.Version, entry.Item))
                 {
                     return true;
                 }
@@ -280,6 +290,16 @@ public sealed class FairRoundRobinScheduler<TItem> where TItem : class
     public bool TryDequeueMatching(Func<int, bool> versionPredicate, out Guid runId, out TItem? item)
     {
         ArgumentNullException.ThrowIfNull(versionPredicate);
+        return TryDequeueMatching((version, _) => versionPredicate(version), out runId, out item);
+    }
+
+    /// <summary>
+    /// Dequeues the next queued item satisfying <paramref name="predicate"/>
+    /// in fair round-robin order and advances the served run's turn sequence.
+    /// </summary>
+    public bool TryDequeueMatching(Func<int, TItem, bool> predicate, out Guid runId, out TItem? item)
+    {
+        ArgumentNullException.ThrowIfNull(predicate);
 
         if (_pendingCount == 0)
         {
@@ -304,7 +324,7 @@ public sealed class FairRoundRobinScheduler<TItem> where TItem : class
             for (int i = 0; i < bucket.Items.Count; i++)
             {
                 QueuedEntry entry = bucket.Items[i];
-                if (versionPredicate(entry.Version))
+                if (predicate(entry.Version, entry.Item))
                 {
                     bucket.Items.RemoveAt(i);
                     _pendingCount--;
