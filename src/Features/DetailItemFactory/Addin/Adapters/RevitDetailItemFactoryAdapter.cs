@@ -128,40 +128,34 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
                 ? myDocumentsOverride!
                 : Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
 
-            if (string.IsNullOrWhiteSpace(doc.PathName) || doc.IsModelInCloud)
+            if (string.IsNullOrWhiteSpace(doc.PathName) || doc.IsModelInCloud || doc.IsDetached)
             {
                 return fallbackDir;
             }
 
-            if (doc.IsWorkshared)
+            try
             {
-                if (doc.IsDetached)
-                {
-                    return TryValidateDirectoryFromFilePath(doc.PathName) ?? fallbackDir;
-                }
-
-                try
+                if (doc.IsWorkshared)
                 {
                     ModelPath? centralPath = doc.GetWorksharingCentralModelPath();
-                    if (centralPath != null && !centralPath.ServerPath)
+                    if (centralPath == null || centralPath.ServerPath)
                     {
-                        string userVisiblePath = ModelPathUtils.ConvertModelPathToUserVisiblePath(centralPath);
-                        string? centralDir = TryValidateDirectoryFromFilePath(userVisiblePath);
-                        if (!string.IsNullOrEmpty(centralDir))
-                        {
-                            return centralDir!;
-                        }
+                        return fallbackDir;
                     }
                 }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"RevitDetailItemFactoryAdapter: central path lookup fell back to My Documents: {ex.Message}");
-                }
 
-                return fallbackDir;
+                string? folderPath = DocumentUtil.GetFolderPath(doc);
+                if (!string.IsNullOrWhiteSpace(folderPath) && DetailItemFactorySettings.IsValidOutputPathSyntax(folderPath))
+                {
+                    return folderPath!;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"RevitDetailItemFactoryAdapter: default output directory lookup fell back to My Documents: {ex.Message}");
             }
 
-            return TryValidateDirectoryFromFilePath(doc.PathName) ?? fallbackDir;
+            return fallbackDir;
         }
 
         /// <summary>
@@ -1017,29 +1011,6 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
                 element.Name ?? "UnknownType");
         }
 
-        private static string? TryValidateDirectoryFromFilePath(string? filePath)
-        {
-            if (string.IsNullOrWhiteSpace(filePath))
-            {
-                return null;
-            }
-
-            try
-            {
-                string? directory = Path.GetDirectoryName(filePath);
-                if (!string.IsNullOrWhiteSpace(directory) && DetailItemFactorySettings.IsValidOutputPathSyntax(directory))
-                {
-                    return directory;
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"RevitDetailItemFactoryAdapter: path directory extraction failed: {ex.Message}");
-            }
-
-            return null;
-        }
-
         private static void CloseAndDisposeDocument(Document? document)
         {
             if (document == null)
@@ -1137,8 +1108,9 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
                                         TryCreateDetailCurve(familyDoc, planView, flat2, subcategoryStyle, ref createdCurvesCount);
                                     }
                                 }
-                                catch (Exception)
+                                catch (Exception ex)
                                 {
+                                    Debug.WriteLine($"RevitDetailItemFactoryAdapter: ProcessGeometry unbounded arc failed: {ex.Message}");
                                     skippedCurvesCount++;
                                 }
                                 continue;
@@ -1168,8 +1140,9 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
                                         TryCreateDetailCurve(familyDoc, planView, flat2, subcategoryStyle, ref createdCurvesCount);
                                     }
                                 }
-                                catch (Exception)
+                                catch (Exception ex)
                                 {
+                                    Debug.WriteLine($"RevitDetailItemFactoryAdapter: ProcessGeometry unbounded ellipse failed: {ex.Message}");
                                     skippedCurvesCount++;
                                 }
                                 continue;
@@ -1206,8 +1179,9 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
 
                         TryCreateDetailCurve(familyDoc, planView, flatCurve, subcategoryStyle, ref createdCurvesCount);
                     }
-                    catch (Exception)
+                    catch (Exception ex)
                     {
+                        Debug.WriteLine($"RevitDetailItemFactoryAdapter: ProcessGeometry curve failed: {ex.Message}");
                         skippedCurvesCount++;
                     }
                 }
@@ -1231,8 +1205,9 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
                             Line segmentLine = Line.CreateBound(p1Flat, p2Flat);
                             TryCreateDetailCurve(familyDoc, planView, segmentLine, subcategoryStyle, ref createdCurvesCount);
                         }
-                        catch (Exception)
+                        catch (Exception ex)
                         {
+                            Debug.WriteLine($"RevitDetailItemFactoryAdapter: ProcessGeometry PolyLine segment failed: {ex.Message}");
                             skippedCurvesCount++;
                         }
                     }
@@ -1303,14 +1278,16 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
                         Line segmentLine = Line.CreateBound(p0Flat, p1Flat);
                         TryCreateDetailCurve(familyDoc, planView, segmentLine, subcategoryStyle, ref createdCurvesCount);
                     }
-                    catch (Exception)
+                    catch (Exception ex)
                     {
+                        Debug.WriteLine($"RevitDetailItemFactoryAdapter: DrawHealedCurve segment failed: {ex.Message}");
                         skippedCurvesCount++;
                     }
                 }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                Debug.WriteLine($"RevitDetailItemFactoryAdapter: DrawHealedCurve failed: {ex.Message}");
                 skippedCurvesCount++;
             }
         }
@@ -1387,8 +1364,9 @@ namespace Synthetic.Features.DetailItemFactory.Adapters
 
                     return Ellipse.CreateCurve(centerFlat, rx, ry, xDirFlat, yDirFlat, p0, p1);
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
+                    Debug.WriteLine($"RevitDetailItemFactoryAdapter: FlattenCurve failed: {ex.Message}");
                     return null;
                 }
             }

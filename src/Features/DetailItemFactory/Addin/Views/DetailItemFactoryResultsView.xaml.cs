@@ -53,7 +53,6 @@ namespace Synthetic.Features.DetailItemFactory.Views
             if (vm != null)
             {
                 vm.RequestClose -= OnRequestClose;
-                vm.CloseAction = null;
             }
         }
     }

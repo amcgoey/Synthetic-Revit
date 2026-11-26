@@ -179,6 +179,20 @@ namespace Synthetic.Features.DetailItemFactory.Settings
             return true;
         }
 
+        internal static bool IsInvalidFileNameChar(char ch) => ch < 32 || InvalidSegmentChars.Contains(ch);
+
+        internal static bool IsReservedDosDeviceName(string segment)
+        {
+            if (string.IsNullOrEmpty(segment))
+            {
+                return false;
+            }
+
+            int dotIndex = segment.IndexOf('.');
+            string stem = dotIndex >= 0 ? segment.Substring(0, dotIndex) : segment;
+            return DosReservedNames.Contains(stem);
+        }
+
         private static bool IsValidPathSegment(string segment, bool checkReservedName)
         {
             if (string.IsNullOrWhiteSpace(segment) || segment == "." || segment == "..")
@@ -188,7 +202,7 @@ namespace Synthetic.Features.DetailItemFactory.Settings
 
             foreach (char ch in segment)
             {
-                if (ch < 32 || InvalidSegmentChars.Contains(ch))
+                if (IsInvalidFileNameChar(ch))
                 {
                     return false;
                 }
@@ -199,14 +213,9 @@ namespace Synthetic.Features.DetailItemFactory.Settings
                 return false;
             }
 
-            if (checkReservedName)
+            if (checkReservedName && IsReservedDosDeviceName(segment))
             {
-                int dotIndex = segment.IndexOf('.');
-                string stem = dotIndex >= 0 ? segment.Substring(0, dotIndex) : segment;
-                if (DosReservedNames.Contains(stem))
-                {
-                    return false;
-                }
+                return false;
             }
 
             return true;

@@ -13,7 +13,6 @@ using NUnit.Framework;
 using Synthetic.Features.DetailItemFactory.Adapters;
 using Synthetic.Features.DetailItemFactory.Commands;
 using Synthetic.Features.DetailItemFactory.Models;
-using Synthetic.Features.DetailItemFactory.Services;
 using Synthetic.Features.DetailItemFactory.ViewModels;
 using Synthetic.Features.DetailItemFactory.Views;
 using Synthetic.Platform.Host;

@@ -38,11 +38,6 @@ namespace Synthetic.Features.DetailItemFactory.ViewModels
         public event Action? RequestClose;
 
         /// <summary>
-        /// Legacy close delegate cleared automatically when the hosting Window closes.
-        /// </summary>
-        public Action? CloseAction { get; set; }
-
-        /// <summary>
         /// Initializes a new instance of the <see cref="DetailItemFactoryResultsViewModel"/> class.
         /// </summary>
         /// <param name="outputFolder">The output folder path where files were saved.</param>
@@ -91,7 +86,6 @@ namespace Synthetic.Features.DetailItemFactory.ViewModels
         private void ExecuteClose()
         {
             RequestClose?.Invoke();
-            CloseAction?.Invoke();
         }
     }
 }

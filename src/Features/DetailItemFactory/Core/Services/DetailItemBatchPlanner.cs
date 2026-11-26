@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using Synthetic.Features.DetailItemFactory.Models;
+using Synthetic.Features.DetailItemFactory.Settings;
 
 namespace Synthetic.Features.DetailItemFactory.Services
 {
@@ -16,15 +17,6 @@ namespace Synthetic.Features.DetailItemFactory.Services
     {
         public const string TempExportFilePrefix = "temp_export_";
         public const int TempRunTokenLength = 8;
-
-        private static readonly HashSet<char> InvalidFileNameChars = BuildInvalidFileNameCharSet();
-
-        private static readonly HashSet<string> WindowsReservedDeviceNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        {
-            "CON", "PRN", "AUX", "NUL",
-            "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
-            "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
-        };
 
         /// <summary>
         /// Sanitizes a family, type, or orientation segment into a safe Windows filename component.
@@ -41,8 +33,7 @@ namespace Synthetic.Features.DetailItemFactory.Services
             char[] buffer = rawName!.Trim().ToCharArray();
             for (int i = 0; i < buffer.Length; i++)
             {
-                char ch = buffer[i];
-                if (ch < 32 || InvalidFileNameChars.Contains(ch))
+                if (DetailItemFactorySettings.IsInvalidFileNameChar(buffer[i]))
                 {
                     buffer[i] = '_';
                 }
@@ -54,9 +45,7 @@ namespace Synthetic.Features.DetailItemFactory.Services
                 return safeFallback;
             }
 
-            int dotIndex = sanitized.IndexOf('.');
-            string stem = dotIndex >= 0 ? sanitized.Substring(0, dotIndex) : sanitized;
-            if (WindowsReservedDeviceNames.Contains(stem))
+            if (DetailItemFactorySettings.IsReservedDosDeviceName(sanitized))
             {
                 sanitized = "_" + sanitized;
             }
@@ -352,21 +341,6 @@ namespace Synthetic.Features.DetailItemFactory.Services
             }
 
             return targetPath;
-        }
-
-        private static HashSet<char> BuildInvalidFileNameCharSet()
-        {
-            var set = new HashSet<char>(Path.GetInvalidFileNameChars());
-            set.Add('/');
-            set.Add('\\');
-            set.Add(':');
-            set.Add('*');
-            set.Add('?');
-            set.Add('"');
-            set.Add('<');
-            set.Add('>');
-            set.Add('|');
-            return set;
         }
     }
 }
