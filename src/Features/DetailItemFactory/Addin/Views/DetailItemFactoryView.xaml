@@ -85,8 +85,15 @@
         </GroupBox>
 
         <!-- Additional Options -->
-        <StackPanel Grid.Row="3" Margin="5,5,0,10">
-            <CheckBox Content="Overwrite Existing Family Files" IsChecked="{Binding OverwriteExisting}"/>
+        <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="5,5,0,10">
+            <CheckBox Content="Overwrite Existing Family Files"
+                      IsChecked="{Binding OverwriteExisting}"
+                      VerticalAlignment="Center"
+                      Margin="0,0,16,0"/>
+            <CheckBox x:Name="CleanupTempFilesCheckBox"
+                      Content="Clean up temporary DWG/PCP files"
+                      IsChecked="{Binding CleanupTempFiles}"
+                      VerticalAlignment="Center"/>
         </StackPanel>
 
         <!-- Action Buttons -->

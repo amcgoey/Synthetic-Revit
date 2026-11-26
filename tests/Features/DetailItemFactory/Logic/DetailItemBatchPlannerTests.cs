@@ -148,5 +148,164 @@ namespace SyntheticTests.Features.DetailItemFactory
             StringAssert.Contains("Duplicate", plan.Items[1].SkipReason);
             Assert.AreEqual(DetailItemPlanDisposition.Execute, plan.Items[2].Disposition);
         }
+
+        [Test]
+        public void CreateTempRunToken_GeneratesShortFixedWidthAlphanumericTokens()
+        {
+            string token1 = DetailItemBatchPlanner.CreateTempRunToken();
+            string token2 = DetailItemBatchPlanner.CreateTempRunToken();
+
+            Assert.AreEqual(DetailItemBatchPlanner.TempRunTokenLength, token1.Length);
+            Assert.AreEqual(DetailItemBatchPlanner.TempRunTokenLength, token2.Length);
+            Assert.AreNotEqual(token1, token2);
+            foreach (char ch in token1)
+            {
+                Assert.IsTrue(char.IsLetterOrDigit(ch), $"Expected alphanumeric token char, got '{ch}'.");
+            }
+        }
+
+        [Test]
+        public void BuildTempExportPrefix_GeneratesFixedWidthUniquePrefixesAndValidatesArguments()
+        {
+            string prefix0 = DetailItemBatchPlanner.BuildTempExportPrefix("ab12cd34", 0);
+            string prefix42 = DetailItemBatchPlanner.BuildTempExportPrefix("ab12cd34", 42);
+            string sanitizedPrefix = DetailItemBatchPlanner.BuildTempExportPrefix("run:1/2*", 7);
+
+            Assert.AreEqual("temp_export_ab12cd34_0000_", prefix0);
+            Assert.AreEqual("temp_export_ab12cd34_0042_", prefix42);
+            Assert.AreEqual(prefix0.Length, prefix42.Length);
+            Assert.AreNotEqual(prefix0, prefix42);
+            Assert.AreEqual("temp_export_run_1_2__0007_", sanitizedPrefix);
+
+            Assert.Throws<ArgumentException>(() => DetailItemBatchPlanner.BuildTempExportPrefix("   ", 0));
+            Assert.Throws<ArgumentOutOfRangeException>(() => DetailItemBatchPlanner.BuildTempExportPrefix("ab12cd34", -1));
+        }
+
+        [Test]
+        public void BuildPlan_DefaultsCleanupTempFilesToTrueAndPropagatesOptOut()
+        {
+            var selections = new[]
+            {
+                new DetailItemElementSelection("u-1", "101", "Doors - Door - 36", "Door", "36", DetailItemOrientations.Plan)
+            };
+
+            DetailItemBatchPlan defaultPlan = DetailItemBatchPlanner.BuildPlan(
+                "view-1",
+                @"C:\Output\DetailItems",
+                "Detail Items",
+                overwriteExisting: true,
+                selections,
+                _ => false);
+            Assert.IsTrue(defaultPlan.CleanupTempFiles);
+
+            DetailItemBatchPlan retainedPlan = DetailItemBatchPlanner.BuildPlan(
+                "view-1",
+                @"C:\Output\DetailItems",
+                "Detail Items",
+                overwriteExisting: true,
+                selections,
+                _ => false,
+                cleanupTempFiles: false);
+            Assert.IsFalse(retainedPlan.CleanupTempFiles);
+        }
+
+        [Test]
+        public void CleanupTempExportFiles_PerPrefixAndDirectoryWideCleanup_DeletesOnlyTargetedTempFiles()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), "SynDifPlannerCleanup_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+
+            try
+            {
+                string prefix0 = DetailItemBatchPlanner.BuildTempExportPrefix("run00001", 0);
+                string prefix1 = DetailItemBatchPlanner.BuildTempExportPrefix("run00001", 1);
+                string otherRunPrefix = DetailItemBatchPlanner.BuildTempExportPrefix("run00002", 0);
+
+                string p0Dwg = Path.Combine(tempDir, prefix0 + "FloorPlan.dwg");
+                string p0Pcp = Path.Combine(tempDir, prefix0 + "FloorPlan.pcp");
+                string p1Dwg = Path.Combine(tempDir, prefix1 + "FloorPlan.dwg");
+                string otherRunPcp = Path.Combine(tempDir, otherRunPrefix + "FloorPlan.pcp");
+                string userDwg = Path.Combine(tempDir, "reference_plan.dwg");
+                string userRfa = Path.Combine(tempDir, "2D - Door - 36 - Plan.rfa");
+
+                File.WriteAllText(p0Dwg, "dwg0");
+                File.WriteAllText(p0Pcp, "pcp0");
+                File.WriteAllText(p1Dwg, "dwg1");
+                File.WriteAllText(otherRunPcp, "pcp-other");
+                File.WriteAllText(userDwg, "user-dwg");
+                File.WriteAllText(userRfa, "user-rfa");
+
+                DetailItemTempCleanupSummary perPrefixSummary = DetailItemBatchPlanner.CleanupTempExportFiles(tempDir, prefix0);
+                Assert.IsTrue(perPrefixSummary.DirectoryExists);
+                Assert.IsNull(perPrefixSummary.EnumerationError);
+                Assert.AreEqual(2, perPrefixSummary.DeletedCount);
+                Assert.AreEqual(0, perPrefixSummary.FailedCount);
+                Assert.IsFalse(File.Exists(p0Dwg));
+                Assert.IsFalse(File.Exists(p0Pcp));
+                Assert.IsTrue(File.Exists(p1Dwg));
+                Assert.IsTrue(File.Exists(otherRunPcp));
+                Assert.IsTrue(File.Exists(userDwg));
+                Assert.IsTrue(File.Exists(userRfa));
+
+                DetailItemTempCleanupSummary directorySummary = DetailItemBatchPlanner.CleanupTempExportFiles(tempDir);
+                Assert.IsTrue(directorySummary.DirectoryExists);
+                Assert.AreEqual(2, directorySummary.DeletedCount);
+                Assert.AreEqual(0, directorySummary.FailedCount);
+                Assert.IsFalse(File.Exists(p1Dwg));
+                Assert.IsFalse(File.Exists(otherRunPcp));
+                Assert.IsTrue(File.Exists(userDwg));
+                Assert.IsTrue(File.Exists(userRfa));
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    Directory.Delete(tempDir, recursive: true);
+                }
+            }
+        }
+
+        [Test]
+        public void CleanupTempExportFiles_LockedFileAndMissingDirectory_ToleratesIoErrorsWithoutThrowing()
+        {
+            string missingDir = Path.Combine(Path.GetTempPath(), "SynDifMissing_" + Guid.NewGuid().ToString("N"));
+            DetailItemTempCleanupSummary missingSummary = DetailItemBatchPlanner.CleanupTempExportFiles(missingDir);
+            Assert.IsFalse(missingSummary.DirectoryExists);
+            Assert.AreEqual(0, missingSummary.DeletedCount);
+            Assert.AreEqual(0, missingSummary.FailedCount);
+
+            Assert.Throws<ArgumentException>(() => DetailItemBatchPlanner.CleanupTempExportFiles(missingDir, "reference_"));
+
+            string tempDir = Path.Combine(Path.GetTempPath(), "SynDifLockedCleanup_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempDir);
+            try
+            {
+                string prefix = DetailItemBatchPlanner.BuildTempExportPrefix("lockrun1", 0);
+                string lockedDwg = Path.Combine(tempDir, prefix + "locked.dwg");
+                string unlockedPcp = Path.Combine(tempDir, prefix + "unlocked.pcp");
+                File.WriteAllText(lockedDwg, "locked");
+                File.WriteAllText(unlockedPcp, "unlocked");
+
+                DetailItemTempCleanupSummary summary;
+                using (new FileStream(lockedDwg, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                {
+                    summary = DetailItemBatchPlanner.CleanupTempExportFiles(tempDir, prefix);
+                }
+
+                Assert.IsTrue(summary.DirectoryExists);
+                Assert.AreEqual(1, summary.DeletedCount);
+                Assert.AreEqual(1, summary.FailedCount);
+                Assert.AreEqual(1, summary.Errors.Count);
+                Assert.IsFalse(File.Exists(unlockedPcp));
+                Assert.IsTrue(File.Exists(lockedDwg));
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    Directory.Delete(tempDir, recursive: true);
+                }
+            }
+        }
     }
 }

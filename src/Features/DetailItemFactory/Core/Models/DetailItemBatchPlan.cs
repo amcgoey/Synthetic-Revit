@@ -122,6 +122,7 @@ namespace Synthetic.Features.DetailItemFactory.Models
         public string OutputFolder { get; }
         public string TargetSubcategory { get; }
         public bool OverwriteExisting { get; }
+        public bool CleanupTempFiles { get; }
         public IReadOnlyList<DetailItemPlannedElement> Items { get; }
         public int ExecutableCount { get; }
         public int SkippedCount { get; }
@@ -134,7 +135,8 @@ namespace Synthetic.Features.DetailItemFactory.Models
             string outputFolder,
             string targetSubcategory,
             bool overwriteExisting,
-            IEnumerable<DetailItemPlannedElement>? items)
+            IEnumerable<DetailItemPlannedElement>? items,
+            bool cleanupTempFiles = true)
         {
             ActiveViewUniqueId = activeViewUniqueId ?? string.Empty;
             OutputFolder = outputFolder ?? string.Empty;
@@ -142,6 +144,7 @@ namespace Synthetic.Features.DetailItemFactory.Models
                 ? DetailItemFactorySettings.DefaultTargetSubcategory
                 : targetSubcategory.Trim();
             OverwriteExisting = overwriteExisting;
+            CleanupTempFiles = cleanupTempFiles;
 
             var itemList = items != null
                 ? items.Where(item => item != null).ToList()
