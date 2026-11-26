@@ -191,6 +191,32 @@ def _select_preset_source(candidates, target_version, force, inspect_fn):
     )
 
 
+def _skip_if_up_to_date(
+    plan,
+    source_path,
+    target_path,
+    target_ver,
+    force,
+    inspect_fn,
+    preset_group="",
+) -> bool:
+    """Record a SkippedTarget and return True when target already matches target_ver."""
+    if not force and os.path.isfile(target_path):
+        existing_format = inspect_fn(target_path)
+        if existing_format == target_ver:
+            plan.skipped.append(
+                SkippedTarget(
+                    source_path=source_path,
+                    target_path=target_path,
+                    target_version=target_ver,
+                    reason=f"already up-to-date (Format {existing_format})",
+                    preset_group=preset_group,
+                )
+            )
+            return True
+    return False
+
+
 def _plan_preset_family(
     family_label,
     candidates,
@@ -220,19 +246,16 @@ def _plan_preset_family(
 
     for target_ver in target_versions:
         target_path = os.path.join(dest_dir, f"{family_label}{target_ver}.rvt")
-        if not force and os.path.isfile(target_path):
-            existing_format = inspect_fn(target_path)
-            if existing_format == target_ver:
-                plan.skipped.append(
-                    SkippedTarget(
-                        source_path=target_path,
-                        target_path=target_path,
-                        target_version=target_ver,
-                        reason=f"already up-to-date (Format {existing_format})",
-                        preset_group=family_label,
-                    )
-                )
-                continue
+        if _skip_if_up_to_date(
+            plan,
+            source_path=target_path,
+            target_path=target_path,
+            target_ver=target_ver,
+            force=force,
+            inspect_fn=inspect_fn,
+            preset_group=family_label,
+        ):
+            continue
 
         source_path, _ = _select_preset_source(candidates, target_ver, force, inspect_fn)
         if source_path is None:
@@ -329,18 +352,15 @@ def plan_upgrade_jobs(
                     )
 
                 target_path = compute_output_path(source_path, target_ver, output_dir=output_dir)
-                if not force and os.path.isfile(target_path):
-                    existing_format = inspect_fn(target_path)
-                    if existing_format == target_ver:
-                        plan.skipped.append(
-                            SkippedTarget(
-                                source_path=source_path,
-                                target_path=target_path,
-                                target_version=target_ver,
-                                reason=f"already up-to-date (Format {existing_format})",
-                            )
-                        )
-                        continue
+                if _skip_if_up_to_date(
+                    plan,
+                    source_path=source_path,
+                    target_path=target_path,
+                    target_ver=target_ver,
+                    force=force,
+                    inspect_fn=inspect_fn,
+                ):
+                    continue
 
                 plan.jobs.append(
                     UpgradeJob(
