@@ -137,6 +137,7 @@ public sealed class RicaunBundleLease : IDisposable
 
         var tfmPriority = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
         {
+            ["net10.0"] = 4,
             ["net8.0"] = 3,
             ["net6.0"] = 2,
             ["net45"] = 1
