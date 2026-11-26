@@ -49,9 +49,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
     private readonly object _sync = new();
     private readonly List<ManagedWorker> _workers = new();
     private readonly FairRoundRobinScheduler<PendingWorkItem> _scheduler = new();
-    private readonly List<PipelinePrewarmRequest> _pendingPipelinePrewarms = new();
     private readonly Dictionary<int, int> _standbyTargets = new();
-    private readonly Dictionary<int, long> _latestRunSequenceByVersion = new();
     private readonly ConcurrentDictionary<Task, byte> _backgroundTasks = new();
     private readonly ConcurrentDictionary<Guid, ActiveRunTracking> _activeRunTasks = new();
     private readonly CancellationTokenSource _supervisorCts = new();
@@ -64,7 +62,6 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
     private ITimer? _idleTimer;
     private SupervisorIpcServer? _ipcServer;
     private DateTimeOffset _lastActivityUtc;
-    private long _nextRunSequence;
     private int _preparingRuns;
     private int _inFlightRuns;
     private int _activeWarmCalls;
@@ -488,7 +485,6 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
         Guid runId = Guid.NewGuid();
         var stagingDirs = new List<string>();
         ShardExecutionState[]? shardStates = null;
-        bool completedWithoutInfraError = false;
 
         try
         {
@@ -543,14 +539,6 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
             IReadOnlyList<TestShardPlan> shards = runPlan.Shards;
             shardStates = new ShardExecutionState[shards.Count];
 
-            int? pipelineNextVersion = null;
-            if (options.NextVersion is int requestedNextVersion &&
-                requestedNextVersion != options.RevitVersion &&
-                _discovery.TryFindInstallation(requestedNextVersion) is not null)
-            {
-                pipelineNextVersion = requestedNextVersion;
-            }
-
             using var runExecutionCts = CancellationTokenSource.CreateLinkedTokenSource(
                 cancellationToken,
                 _supervisorCts.Token);
@@ -570,22 +558,13 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
 
                 EnsureStartedLocked(Path.GetDirectoryName(fullAssemblyPath));
 
-                long runSequence = ++_nextRunSequence;
-                _latestRunSequenceByVersion[options.RevitVersion] = runSequence;
-                _pendingPipelinePrewarms.RemoveAll(p => p.TargetVersion == options.RevitVersion);
-
                 _preparingRuns--;
                 countingAsPreparing = false;
                 _inFlightRuns++;
                 countingAsInFlight = true;
                 TouchActivityLocked();
                 _scheduler.RegisterRun(runId);
-                _activeRunTasks[runId] = new ActiveRunTracking(
-                    runExecutionCts,
-                    shards.Count,
-                    pipelineNextVersion,
-                    options.RevitVersion,
-                    runSequence);
+                _activeRunTasks[runId] = new ActiveRunTracking(runExecutionCts);
             }
 
             var shardAssemblyPaths = new string[shards.Count];
@@ -657,7 +636,6 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                     shards.Count);
             }
 
-            completedWithoutInfraError = true;
             var trxInputs = new TrxShardResult[shards.Count];
             for (int i = 0; i < shards.Count; i++)
             {
@@ -729,10 +707,6 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                 {
                     _activeRunTasks.TryRemove(runId, out _);
                     _scheduler.UnregisterRun(runId);
-                    if (!completedWithoutInfraError)
-                    {
-                        _pendingPipelinePrewarms.RemoveAll(p => p.RunId == runId);
-                    }
 
                     _inFlightRuns--;
                 }
@@ -749,7 +723,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                         MaybeTriggerDrainWhenIdleLocked();
                     }
 
-                    if (!_draining && (anyDispatched || _pendingPipelinePrewarms.Count > 0))
+                    if (!_draining && anyDispatched)
                     {
                         ScheduleLocked();
                     }
@@ -850,7 +824,6 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
 
         _drainingWhenIdle = true;
         _standbyTargets.Clear();
-        _pendingPipelinePrewarms.Clear();
         Log("[supervisor] Entered DrainingWhenIdle state; halting standby/warm/lookahead boots.");
 
         if (_activeWarmCalls == 0)
@@ -1029,7 +1002,6 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                         ? request.Run.ProjectRoot
                         : _options.ProjectRoot,
                     Shards = request.Run.Shards,
-                    NextVersion = request.Run.NextVersion,
                     Diagnostics = request.Run.Diagnostics
                 };
 
@@ -1183,7 +1155,6 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                 {
                     AssignWorkerToActiveLocked(readyWorker);
                     _scheduler.RecordDispatch(runId);
-                    MarkShardDispatchedLocked(runId);
                     ScheduleLocked(bootTimeout);
                     return new WorkerAssignment(readyWorker, readyWorker.Process!, readyWorker.PipeClient!);
                 }
@@ -1304,7 +1275,6 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
             }
 
             AssignWorkerToActiveLocked(ready);
-            MarkShardDispatchedLocked(matchedRunId);
             pending.AssignmentTcs.TrySetResult(new WorkerAssignment(ready, ready.Process!, ready.PipeClient!));
         }
 
@@ -1404,12 +1374,10 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                 WorkerBootPurpose.Lookahead);
         }
 
-        // 4. Inside baseline cap MaxActiveWorkers: trigger one-time N -> N+1 pipeline pre-warming
-        //    and replenish background standby targets only when no pending item is starving for slots.
+        // 4. Inside baseline cap MaxActiveWorkers: replenish background standby targets
+        //    only when no pending item is starving for slots.
         if (!_drainingWhenIdle && _scheduler.PendingCount == 0)
         {
-            LaunchPendingPipelinePrewarmsLocked(overrideBootTimeout);
-
             foreach ((int version, int targetCount) in _standbyTargets.OrderBy(kvp => kvp.Key))
             {
                 if (targetCount <= 0)
@@ -1442,55 +1410,6 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                     currentStandbyAndBooting++;
                 }
             }
-        }
-    }
-
-    private void LaunchPendingPipelinePrewarmsLocked(TimeSpan? overrideBootTimeout)
-    {
-        if (_pendingPipelinePrewarms.Count == 0)
-        {
-            return;
-        }
-
-        for (int i = 0; i < _pendingPipelinePrewarms.Count;)
-        {
-            PipelinePrewarmRequest prewarm = _pendingPipelinePrewarms[i];
-            int targetVersion = prewarm.TargetVersion;
-
-            bool isStale =
-                _latestRunSequenceByVersion.GetValueOrDefault(targetVersion) > prewarm.SourceRunSequence ||
-                _activeRunTasks.Values.Any(t => t.Version == targetVersion);
-            if (isStale)
-            {
-                Log($"[supervisor] Pruned stale pipeline pre-warm for Revit {targetVersion} (sourceSeq={prewarm.SourceRunSequence}).");
-                _pendingPipelinePrewarms.RemoveAll(p =>
-                    p.TargetVersion == targetVersion &&
-                    p.SourceRunSequence <= prewarm.SourceRunSequence);
-                continue;
-            }
-
-            if (CountTotalSlotsLocked() >= _options.MaxActiveWorkers ||
-                CountBootingLocked() >= SupervisorOptions.MaxConcurrentBoots ||
-                !IsRamAdmissionAllowedLocked())
-            {
-                break;
-            }
-
-            bool alreadyHasStandbyOrBooting = _workers.Any(w =>
-                w.Version == targetVersion &&
-                w.State is WorkerState.Booting or WorkerState.ReadyStandby);
-
-            if (!alreadyHasStandbyOrBooting)
-            {
-                LaunchWorkerLocked(
-                    targetVersion,
-                    preferredWorkerId: null,
-                    ResolveSupervisorProjectRoot(targetVersion),
-                    overrideBootTimeout ?? _options.DefaultBootTimeout,
-                    WorkerBootPurpose.PipelinePrewarm);
-            }
-
-            _pendingPipelinePrewarms.RemoveAll(p => p.TargetVersion == targetVersion);
         }
     }
 
@@ -1770,7 +1689,6 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                         if (matched is not null)
                         {
                             worker.State = WorkerState.Active;
-                            MarkShardDispatchedLocked(matched.RunId);
                             matched.AssignmentTcs.TrySetResult(new WorkerAssignment(worker, process, pipeClient));
                             worker.WarmWaitTcs.TrySetResult(true);
                             Log($"[supervisor] Worker PID={process.ProcessId} (Revit {worker.Version}) ready ({worker.State}).");
@@ -1793,13 +1711,6 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                         existingReady < standbyTarget &&
                         CountNonTerminatingWorkersLocked() <= _options.MaxActiveWorkers;
 
-                    bool keepAsPipelinePrewarm =
-                        !_drainingWhenIdle &&
-                        worker.Purpose == WorkerBootPurpose.PipelinePrewarm &&
-                        ProjectRootsEqual(worker.ProjectRoot, defaultProjectRoot) &&
-                        existingReady == 0 &&
-                        CountNonTerminatingWorkersLocked() <= _options.MaxActiveWorkers;
-
                     bool keepAsLookaheadStandby =
                         !_drainingWhenIdle &&
                         _scheduler.HasPendingMatching((v, item) =>
@@ -1810,7 +1721,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
                         CountNonTerminatingWorkersLocked() <= _options.MaxActiveWorkers + (_launcher.UsesCleanShim ? 1 : 0) &&
                         _workers.Count(w => w != worker && w.State is WorkerState.Booting or WorkerState.ReadyStandby) == 0;
 
-                    if (keepAsStandbyTarget || keepAsPipelinePrewarm || keepAsLookaheadStandby)
+                    if (keepAsStandbyTarget || keepAsLookaheadStandby)
                     {
                         worker.State = WorkerState.ReadyStandby;
                         AttachDisconnectHandlerLocked(worker, pipeClient);
@@ -1973,7 +1884,6 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
         {
             ipcServer = _ipcServer;
             _standbyTargets.Clear();
-            _pendingPipelinePrewarms.Clear();
 
             foreach (PendingWorkItem pending in _scheduler.ClearAll())
             {
@@ -2135,38 +2045,6 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
         }
 
         return null;
-    }
-
-    private void MarkShardDispatchedLocked(Guid runId)
-    {
-        if (!_activeRunTasks.TryGetValue(runId, out ActiveRunTracking? tracking))
-        {
-            return;
-        }
-
-        if (tracking.RemainingUndispatchedShards > 0)
-        {
-            tracking.RemainingUndispatchedShards--;
-        }
-
-        if (tracking.RemainingUndispatchedShards == 0 &&
-            tracking.PipelineNextVersion is int nextVersion &&
-            !tracking.PipelineTriggered)
-        {
-            tracking.PipelineTriggered = true;
-            bool targetNewerOrActive =
-                _latestRunSequenceByVersion.GetValueOrDefault(nextVersion) > tracking.RunSequence ||
-                _activeRunTasks.Values.Any(t => t.Version == nextVersion);
-            if (!targetNewerOrActive)
-            {
-                _pendingPipelinePrewarms.Add(new PipelinePrewarmRequest(runId, nextVersion, tracking.RunSequence));
-                Log($"[supervisor] Run {runId:N} entered final shard; queued N -> N+1 pipeline pre-warm for Revit {nextVersion}.");
-            }
-            else
-            {
-                Log($"[supervisor] Run {runId:N} skipped stale N -> N+1 pipeline pre-warm for Revit {nextVersion}.");
-            }
-        }
     }
 
     private void FailOnePendingLocked(int version, string? projectRoot, Exception error)
@@ -2636,8 +2514,7 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
     {
         Demand,
         StandbyTarget,
-        Lookahead,
-        PipelinePrewarm
+        Lookahead
     }
 
     internal sealed class ManagedWorker
@@ -2743,32 +2620,11 @@ public sealed class WorkerPoolSupervisor : IAsyncDisposable, IDisposable
 
     private sealed class ActiveRunTracking
     {
-        public ActiveRunTracking(
-            CancellationTokenSource executionCts,
-            int remainingUndispatchedShards,
-            int? pipelineNextVersion,
-            int version,
-            long runSequence)
+        public ActiveRunTracking(CancellationTokenSource executionCts)
         {
             ExecutionCts = executionCts;
-            RemainingUndispatchedShards = remainingUndispatchedShards;
-            PipelineNextVersion = pipelineNextVersion;
-            Version = version;
-            RunSequence = runSequence;
         }
 
         public CancellationTokenSource ExecutionCts { get; }
-
-        public int RemainingUndispatchedShards { get; set; }
-
-        public int? PipelineNextVersion { get; }
-
-        public int Version { get; }
-
-        public long RunSequence { get; }
-
-        public bool PipelineTriggered { get; set; }
     }
-
-    private sealed record PipelinePrewarmRequest(Guid RunId, int TargetVersion, long SourceRunSequence);
 }
