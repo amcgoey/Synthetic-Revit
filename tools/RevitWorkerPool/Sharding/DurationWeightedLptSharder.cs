@@ -23,13 +23,16 @@ public sealed record TestShardPlan(
 /// </summary>
 public static class DurationWeightedLptSharder
 {
+    public const int DefaultAutoShardCap = 4;
     private const double MinMixedFallbackMsPerMethod = 1.0;
     private const double MaxMixedFallbackMsPerMethod = 100.0;
 
     /// <summary>
-    /// Computes the effective shard count for <paramref name="fixtureCount"/> matching fixtures.
-    /// Single-fixture runs always produce <c>1</c> shard; multi-fixture runs are bounded by
-    /// <paramref name="requestedShards"/> and <paramref name="maxActiveCap"/> (capped at 4).
+    /// Computes the effective shard count ceiling for <paramref name="fixtureCount"/> matching fixtures.
+    /// Single-fixture runs always produce <c>1</c> shard; explicit <paramref name="requestedShards"/>
+    /// requests scale up to <c>min(fixtureCount, maxActiveCap)</c>, while automatic sharding
+    /// (<paramref name="requestedShards"/> is <see langword="null"/>) caps at
+    /// <c>min(fixtureCount, min(4, maxActiveCap))</c>.
     /// </summary>
     public static int ResolveShardCount(
         int fixtureCount,
@@ -62,12 +65,13 @@ public static class DurationWeightedLptSharder
             return 1;
         }
 
-        int clampedHostCap = Math.Min(maxActiveCap, SupervisorOptions.DefaultMaxActiveWorkers);
-        int effectiveCap = requestedShards.HasValue
-            ? Math.Min(requestedShards.Value, clampedHostCap)
-            : clampedHostCap;
+        if (requestedShards.HasValue)
+        {
+            return Math.Clamp(Math.Min(fixtureCount, requestedShards.Value), 1, maxActiveCap);
+        }
 
-        return Math.Clamp(Math.Min(fixtureCount, effectiveCap), 1, clampedHostCap);
+        int autoCap = Math.Min(DefaultAutoShardCap, maxActiveCap);
+        return Math.Clamp(Math.Min(fixtureCount, autoCap), 1, autoCap);
     }
 
     /// <summary>
@@ -87,11 +91,14 @@ public static class DurationWeightedLptSharder
             return Array.Empty<TestShardPlan>();
         }
 
-        int shardCount = ResolveShardCount(fixtures.Count, requestedShards, maxActiveCap);
+        // Validate shard/cap parameters before computing weights, while deferring shard-count selection
+        // until fixture weights and the 100%-positive-timing guard are evaluated.
+        int ceilingShardCount = ResolveShardCount(fixtures.Count, requestedShards, maxActiveCap);
 
         double unseenPerMethodWeight = ComputeUnseenMethodWeight(fixtures, historicalDurationsMs);
 
         var weightedFixtures = new List<WeightedFixture>(fixtures.Count);
+        bool allFixturesHavePositiveCachedTimings = historicalDurationsMs is not null;
         foreach (DiscoveredFixtureTests fixture in fixtures)
         {
             int methodCount = ResolveMethodCount(fixture);
@@ -102,10 +109,15 @@ public static class DurationWeightedLptSharder
                 cachedMs >= 0.0)
             {
                 weight = cachedMs;
+                if (cachedMs <= 0.0)
+                {
+                    allFixturesHavePositiveCachedTimings = false;
+                }
             }
             else
             {
                 weight = methodCount * unseenPerMethodWeight;
+                allFixturesHavePositiveCachedTimings = false;
             }
 
             weightedFixtures.Add(new WeightedFixture(fixture, weight, methodCount));
@@ -130,25 +142,72 @@ public static class DurationWeightedLptSharder
                 b.Fixture.FixtureFullName);
         });
 
+        ShardBucket[] selectedBuckets = !requestedShards.HasValue &&
+                                        allFixturesHavePositiveCachedTimings &&
+                                        ceilingShardCount > 1
+            ? SelectMakespanOptimalBuckets(weightedFixtures, ceilingShardCount)
+            : AssignLptBuckets(weightedFixtures, ceilingShardCount);
+
+        var result = new List<TestShardPlan>(selectedBuckets.Length);
+        foreach (ShardBucket bucket in selectedBuckets)
+        {
+            result.Add(bucket.ToPlan());
+        }
+
+        return result;
+    }
+
+    private static ShardBucket[] SelectMakespanOptimalBuckets(
+        IReadOnlyList<WeightedFixture> sortedWeightedFixtures,
+        int maxAutoShards)
+    {
+        ShardBucket[] maxBuckets = AssignLptBuckets(sortedWeightedFixtures, maxAutoShards);
+        double targetMakespan = GetMakespan(maxBuckets);
+        double tolerance = Math.Max(1e-9, targetMakespan * 1e-12);
+
+        for (int k = 1; k < maxAutoShards; k++)
+        {
+            ShardBucket[] candidateBuckets = AssignLptBuckets(sortedWeightedFixtures, k);
+            if (Math.Abs(GetMakespan(candidateBuckets) - targetMakespan) <= tolerance)
+            {
+                return candidateBuckets;
+            }
+        }
+
+        return maxBuckets;
+    }
+
+    private static ShardBucket[] AssignLptBuckets(
+        IReadOnlyList<WeightedFixture> sortedWeightedFixtures,
+        int shardCount)
+    {
         var buckets = new ShardBucket[shardCount];
         for (int i = 0; i < shardCount; i++)
         {
             buckets[i] = new ShardBucket(i);
         }
 
-        foreach (WeightedFixture item in weightedFixtures)
+        foreach (WeightedFixture item in sortedWeightedFixtures)
         {
             ShardBucket target = SelectLeastLoadedBucket(buckets);
             target.Add(item);
         }
 
-        var result = new List<TestShardPlan>(shardCount);
+        return buckets;
+    }
+
+    private static double GetMakespan(ShardBucket[] buckets)
+    {
+        double maxWeight = 0.0;
         foreach (ShardBucket bucket in buckets)
         {
-            result.Add(bucket.ToPlan());
+            if (bucket.CumulativeWeight > maxWeight)
+            {
+                maxWeight = bucket.CumulativeWeight;
+            }
         }
 
-        return result;
+        return maxWeight;
     }
 
     private static double ComputeUnseenMethodWeight(
