@@ -1,12 +1,6 @@
-using Synthetic.Features.DetailItemFactory.Commands;
-using Synthetic.Features.DetailItemFactory.Handlers;
-using Synthetic.Features.DetailItemFactory.ViewModels;
-using Synthetic.Features.DetailItemFactory.Views;
-using Synthetic.Features.DetailItemFactory.Settings;
-
 using System;
 using System.Windows;
-
+using Synthetic.Features.DetailItemFactory.ViewModels;
 using Synthetic.Platform.UI;
 
 namespace Synthetic.Features.DetailItemFactory.Views
@@ -16,6 +10,8 @@ namespace Synthetic.Features.DetailItemFactory.Views
     /// </summary>
     public partial class DetailItemFactoryView : Window
     {
+        private DetailItemFactoryViewModel? _boundViewModel;
+
         /// <summary>
         /// Initializes a new instance of the <see cref="DetailItemFactoryView"/> class.
         /// </summary>
@@ -25,24 +21,49 @@ namespace Synthetic.Features.DetailItemFactory.Views
             InitializeComponent();
             RevitWindowHelper.SetOwner(this, mainWindowHandle);
 
-            DataContextChanged += (sender, args) =>
+            DataContextChanged += OnDataContextChanged;
+            Closed += OnWindowClosed;
+        }
+
+        private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
+        {
+            DetachViewModel(_boundViewModel);
+            _boundViewModel = e.NewValue as DetailItemFactoryViewModel;
+            if (_boundViewModel != null)
             {
-                if (DataContext is DetailItemFactoryViewModel vm)
-                {
-                    vm.CloseAction = (dialogResult) =>
-                    {
-                        try
-                        {
-                            this.DialogResult = dialogResult;
-                        }
-                        catch (InvalidOperationException)
-                        {
-                            // Window is closing or closed
-                        }
-                        this.Close();
-                    };
-                }
-            };
+                _boundViewModel.RequestClose += OnRequestClose;
+            }
+        }
+
+        private void OnRequestClose(bool dialogResult)
+        {
+            try
+            {
+                DialogResult = dialogResult;
+            }
+            catch (InvalidOperationException)
+            {
+                // Window is closing or was shown modelessly.
+            }
+
+            Close();
+        }
+
+        private void OnWindowClosed(object? sender, EventArgs e)
+        {
+            DetachViewModel(_boundViewModel);
+            _boundViewModel = null;
+            DataContextChanged -= OnDataContextChanged;
+            Closed -= OnWindowClosed;
+        }
+
+        private void DetachViewModel(DetailItemFactoryViewModel? vm)
+        {
+            if (vm != null)
+            {
+                vm.RequestClose -= OnRequestClose;
+                vm.CloseAction = null;
+            }
         }
     }
 }

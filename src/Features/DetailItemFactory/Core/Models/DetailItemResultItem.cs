@@ -16,7 +16,7 @@ namespace Synthetic.Features.DetailItemFactory.Models
         public string ElementId { get; set; } = string.Empty;
 
         /// <summary>
-        /// Gets or sets the execution status (e.g., Success, Skipped, Failed).
+        /// Gets or sets the execution status (<c>"Success"</c>, <c>"Partial Success"</c>, <c>"Skipped"</c>, or <c>"Failed"</c>).
         /// </summary>
         public string Status { get; set; } = string.Empty;
 
