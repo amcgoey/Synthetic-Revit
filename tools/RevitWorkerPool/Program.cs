@@ -194,7 +194,7 @@ public static class Program
         ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
         {
             eventArgs.Cancel = true;
-            _ = Task.Run(() => supervisor.DrainAsync(CancellationToken.None));
+            _ = Task.Run(() => supervisor.DrainAsync(DrainMode.Force, CancellationToken.None));
         };
         Console.CancelKeyPress += cancelHandler;
 
@@ -524,7 +524,7 @@ public static class Program
             $"Worker Pool supervisor PID={status.SupervisorPid} on pipe '{pipeName}' has " +
             $"shimEnabled={status.ShimEnabled.ToString().ToLowerInvariant()} ({activeMode}), " +
             $"which does not match requested expectedShim={expectedShim.ToString().ToLowerInvariant()} ({requestedMode}). " +
-            $"Drain it first via: RevitWorkerPool drain --pipe-name \"{pipeName}\"");
+            $"Wait for it to drain via: RevitWorkerPool drain --when-idle --pipe-name \"{pipeName}\", or run with --no-pool.");
     }
 
     private static async Task<int> ExecuteStatusCommandAsync(
@@ -596,10 +596,14 @@ public static class Program
             }
             else
             {
+                string drainState = snapshot.Draining
+                    ? ", state=Draining"
+                    : (snapshot.DrainingWhenIdle ? ", state=DrainingWhenIdle" : string.Empty);
                 outWriter.WriteLine(
                     $"[RevitWorkerPool] Supervisor PID={snapshot.SupervisorPid} pipe='{snapshot.PipeName}': " +
                     $"booting={snapshot.Booting}, readyStandby={snapshot.ReadyStandby}, active={snapshot.Active}, " +
                     $"totalResident={snapshot.TotalResident}/{snapshot.ActiveCap}, queued={snapshot.QueuedRuns}, " +
+                    $"activeRuns={snapshot.ActiveRuns}, activeWarmCalls={snapshot.ActiveWarmCalls}{drainState}, " +
                     $"lastActivityUtc={snapshot.LastActivityUtc:O}");
                 foreach ((int ver, VersionWorkerStatus vs) in snapshot.Versions)
                 {
@@ -665,7 +669,12 @@ public static class Program
             {
                 SupervisorIpcResponse response = await SupervisorIpcClient.SendAsync(
                     options.PipeName,
-                    new SupervisorIpcRequest { Command = SupervisorIpcCommands.Drain },
+                    new SupervisorIpcRequest
+                    {
+                        Command = SupervisorIpcCommands.Drain,
+                        WhenIdle = options.WhenIdle,
+                        Force = options.Force
+                    },
                     TimeSpan.FromSeconds(5),
                     cancellationToken).ConfigureAwait(false);
 
@@ -1030,6 +1039,9 @@ public static class Program
         string pipeName = SupervisorIpcConstants.DefaultPipeName;
         bool jsonOutput = false;
         bool diagnostics = false;
+        bool whenIdle = false;
+        bool force = false;
+        bool isDrain = string.Equals(commandName, "drain", StringComparison.OrdinalIgnoreCase);
 
         for (int i = 0; i < args.Count; i++)
         {
@@ -1055,13 +1067,27 @@ public static class Program
                     diagnostics = true;
                     break;
 
+                case "--when-idle" when isDrain:
+                    whenIdle = true;
+                    break;
+
+                case "--force" when isDrain:
+                    force = true;
+                    break;
+
                 default:
                     error = $"Unknown option '{arg}' for {commandName} command.";
                     return false;
             }
         }
 
-        options = new PipeControlCliOptions(pipeName, jsonOutput, diagnostics);
+        if (whenIdle && force)
+        {
+            error = "--when-idle and --force cannot be combined.";
+            return false;
+        }
+
+        options = new PipeControlCliOptions(pipeName, jsonOutput, diagnostics, whenIdle, force);
         return true;
     }
 
@@ -1249,7 +1275,7 @@ public static class Program
         writer.WriteLine(
             "  RevitWorkerPool status [--pipe-name <Name>] [--json] [--diagnostics]");
         writer.WriteLine(
-            "  RevitWorkerPool drain [--pipe-name <Name>] [--json] [--diagnostics]");
+            "  RevitWorkerPool drain [--when-idle | --force] [--pipe-name <Name>] [--json] [--diagnostics]");
     }
 
     internal sealed record WarmCliOptions(
@@ -1273,7 +1299,9 @@ public static class Program
     internal sealed record PipeControlCliOptions(
         string PipeName,
         bool JsonOutput,
-        bool Diagnostics);
+        bool Diagnostics,
+        bool WhenIdle = false,
+        bool Force = false);
 
     private sealed class CancelKeyPressScope : IDisposable
     {

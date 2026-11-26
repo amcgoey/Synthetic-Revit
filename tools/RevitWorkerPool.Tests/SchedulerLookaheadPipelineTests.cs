@@ -528,7 +528,7 @@ public class SchedulerLookaheadPipelineTests
             return s.Active == 4 && s.Booting == 1 && s.TotalResident == 5;
         });
 
-        DrainResult drain = await supervisor.DrainAsync().WaitAsync(TimeSpan.FromSeconds(10));
+        DrainResult drain = await supervisor.DrainAsync(DrainMode.Force).WaitAsync(TimeSpan.FromSeconds(10));
         Assert.That(drain.Success, Is.True);
         Assert.That(drain.Status!.TotalResident, Is.EqualTo(0));
         Assert.That(drain.Status.Booting, Is.EqualTo(0));

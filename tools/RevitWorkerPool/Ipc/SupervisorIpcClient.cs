@@ -186,7 +186,7 @@ public static class SupervisorIpcClient
             TimeSpan.FromMilliseconds(200),
             cancellationToken).ConfigureAwait(false);
 
-        if (fastPing is { Success: true, IsDraining: false })
+        if (fastPing is { Success: true, IsDraining: false } || fastPing is { IsDrainingWhenIdle: true })
         {
             return;
         }
@@ -235,7 +235,7 @@ public static class SupervisorIpcClient
                 TimeSpan.FromMilliseconds(250),
                 cancellationToken).GetAwaiter().GetResult();
 
-            if (existingPing is { Success: true, IsDraining: false })
+            if (existingPing is { Success: true, IsDraining: false } || existingPing is { IsDrainingWhenIdle: true })
             {
                 return;
             }

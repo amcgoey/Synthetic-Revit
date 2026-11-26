@@ -224,6 +224,49 @@ public class ProgramTests
             ctrlErr);
         Assert.That(ctrlOpts!.PipeName, Is.EqualTo("CtrlPipe"));
         Assert.That(ctrlOpts.JsonOutput, Is.True);
+        Assert.That(ctrlOpts.WhenIdle, Is.False);
+        Assert.That(ctrlOpts.Force, Is.False);
+
+        Assert.That(
+            Program.TryParsePipeControlArguments(
+                new[] { "--when-idle", "--pipe-name", "DrainPipe", "--json" },
+                "drain",
+                out Program.PipeControlCliOptions? whenIdleOpts,
+                out string? whenIdleErr),
+            Is.True,
+            whenIdleErr);
+        Assert.That(whenIdleOpts!.WhenIdle, Is.True);
+        Assert.That(whenIdleOpts.Force, Is.False);
+
+        Assert.That(
+            Program.TryParsePipeControlArguments(
+                new[] { "--force", "--pipe-name", "DrainPipe" },
+                "drain",
+                out Program.PipeControlCliOptions? forceOpts,
+                out string? forceErr),
+            Is.True,
+            forceErr);
+        Assert.That(forceOpts!.Force, Is.True);
+        Assert.That(forceOpts.WhenIdle, Is.False);
+
+        Assert.That(
+            Program.TryParsePipeControlArguments(
+                new[] { "--when-idle", "--force" },
+                "drain",
+                out _,
+                out string? conflictErr),
+            Is.False);
+        Assert.That(conflictErr, Does.Contain("--when-idle"));
+        Assert.That(conflictErr, Does.Contain("--force"));
+
+        Assert.That(
+            Program.TryParsePipeControlArguments(
+                new[] { "--when-idle" },
+                "status",
+                out _,
+                out string? statusWhenIdleErr),
+            Is.False);
+        Assert.That(statusWhenIdleErr, Does.Contain("Unknown option"));
     }
 
     [Test]
@@ -532,7 +575,8 @@ public class ProgramTests
             int expectedSupervisorPid = Environment.ProcessId;
             string expectedActualToken = $"shimEnabled={supervisorUsesShim.ToString().ToLowerInvariant()}";
             string expectedRequestedToken = $"expectedShim={(!callerNoShim).ToString().ToLowerInvariant()}";
-            string expectedRemediation = $"RevitWorkerPool drain --pipe-name \"{pipeName}\"";
+            string expectedRemediation = $"RevitWorkerPool drain --when-idle --pipe-name \"{pipeName}\"";
+            string expectedFallbackHint = "--no-pool";
 
             string[] BuildArgs(bool json)
             {
@@ -572,6 +616,7 @@ public class ProgramTests
             Assert.That(textErrOutput, Does.Contain(expectedActualToken));
             Assert.That(textErrOutput, Does.Contain(expectedRequestedToken));
             Assert.That(textErrOutput, Does.Contain(expectedRemediation));
+            Assert.That(textErrOutput, Does.Contain(expectedFallbackHint));
             Assert.That(launcher.Workers.Count, Is.EqualTo(0));
 
             // JSON mode
@@ -591,6 +636,7 @@ public class ProgramTests
                 Assert.That(warmResult.Error, Does.Contain(expectedActualToken));
                 Assert.That(warmResult.Error, Does.Contain(expectedRequestedToken));
                 Assert.That(warmResult.Error, Does.Contain(expectedRemediation));
+                Assert.That(warmResult.Error, Does.Contain(expectedFallbackHint));
             }
             else
             {
@@ -602,6 +648,7 @@ public class ProgramTests
                 Assert.That(runResult.Error, Does.Contain(expectedActualToken));
                 Assert.That(runResult.Error, Does.Contain(expectedRequestedToken));
                 Assert.That(runResult.Error, Does.Contain(expectedRemediation));
+                Assert.That(runResult.Error, Does.Contain(expectedFallbackHint));
             }
 
             Assert.That(launcher.Workers.Count, Is.EqualTo(0));
@@ -838,6 +885,295 @@ public class ProgramTests
         Assert.That(parsed!.Success, Is.False);
         Assert.That(parsed.ExitCode, Is.EqualTo(2));
         Assert.That(parsed.Error, Does.Contain("Simulated one-shot infrastructure failure."));
+    }
+
+    [Test]
+    public async Task RunCliAsync_DrainModes_PlainRefusesActive_WhenIdleWaits_AndForceCancelsImmediately()
+    {
+        string tempRoot = Path.Combine(Path.GetTempPath(), "RevitWorkerPool_CliDrainModes_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            string revitDir = Path.Combine(tempRoot, "Autodesk", "Revit 2026");
+            Directory.CreateDirectory(revitDir);
+            File.WriteAllText(Path.Combine(revitDir, "Revit.exe"), string.Empty);
+
+            string assemblyPath = TestAssemblyCompiler.CompileToFile(
+                Path.Combine(tempRoot, "Synthetic.RevitTests.2026.dll"),
+                "Synthetic.RevitTests.2026",
+                """
+                using NUnit.Framework;
+
+                namespace DrainCliSuite
+                {
+                    [TestFixture]
+                    public class SampleFixture
+                    {
+                        [Test]
+                        public void SampleTest() { }
+                    }
+                }
+                """);
+
+            var discovery = new RevitInstallationDiscovery(
+                () => new[] { Path.Combine(tempRoot, "Autodesk") },
+                () => Array.Empty<UninstallRegistryEntry>());
+
+            var execStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var releaseExec = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            string pipeName = $"Synthetic_CliDrainModes_{Guid.NewGuid():N}";
+
+            using var launcher = new StubWorkerProcessLauncher((server, _) =>
+            {
+                server.InitialIsBusy = false;
+                server.ExecutionHandler = async (req, emitTest, ct) =>
+                {
+                    execStarted.TrySetResult(true);
+                    await releaseExec.Task.WaitAsync(ct).ConfigureAwait(false);
+                    var t = new ricaun.NUnit.Models.TestModel
+                    {
+                        Name = "SampleTest",
+                        FullName = "DrainCliSuite.SampleFixture.SampleTest",
+                        Success = true,
+                        Time = 5.0
+                    };
+                    emitTest(t);
+                    return new ricaun.NUnit.Models.TestAssemblyModel
+                    {
+                        FileName = req.TestPathFile ?? string.Empty,
+                        Name = "Synthetic.RevitTests.2026",
+                        Success = true,
+                        Tests = new System.Collections.Generic.List<ricaun.NUnit.Models.TestTypeModel>
+                        {
+                            new()
+                            {
+                                Name = "SampleFixture",
+                                FullName = "DrainCliSuite.SampleFixture",
+                                Success = true,
+                                Tests = new System.Collections.Generic.List<ricaun.NUnit.Models.TestModel> { t }
+                            }
+                        }
+                    };
+                };
+            });
+
+            await using var supervisor = new WorkerPoolSupervisor(
+                new SupervisorOptions
+                {
+                    PipeName = pipeName,
+                    CurrentLatestVersion = 2026,
+                    IdleTimeout = TimeSpan.FromMinutes(25),
+                    DrainGraceTimeout = TimeSpan.FromSeconds(30),
+                    TimingCacheDirectory = Path.Combine(tempRoot, "timing_cache")
+                },
+                discovery,
+                launcher,
+                new RevitWorkerPool.Pipe.RevitPipeTestClientFactory(),
+                bundleLeaseFactory: _ => new NoOpDisposable());
+            await using var ipcServer = new SupervisorIpcServer(
+                pipeName,
+                (req, ct) => supervisor.HandleIpcRequestAsync(req, ct));
+            supervisor.AttachIpcServer(ipcServer);
+            supervisor.Start();
+            ipcServer.Start();
+
+            // 1. Conflicting flags --when-idle + --force fail with exit code 2.
+            using var conflictOut = new StringWriter();
+            using var conflictErr = new StringWriter();
+            int conflictExit = await Program.RunCliAsync(
+                new[] { "drain", "--when-idle", "--force", "--pipe-name", pipeName, "--json" },
+                stdout: conflictOut,
+                stderr: conflictErr);
+            Assert.That(conflictExit, Is.EqualTo(2));
+
+            // Start an active run.
+            Task<int> activeRunCliTask = Program.RunCliAsync(
+                new[]
+                {
+                    "run", "--version", "2026", "--assembly", assemblyPath,
+                    "--trx", Path.Combine(tempRoot, "out", "active.trx"),
+                    "--pipe-name", pipeName, "--no-shim", "--json"
+                },
+                stdout: new StringWriter(),
+                stderr: new StringWriter());
+            await execStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+
+            // 2. Plain drain refuses with exit code 2 and structured counts in JSON and text.
+            using var plainJsonOut = new StringWriter();
+            using var plainJsonErr = new StringWriter();
+            int plainJsonExit = await Program.RunCliAsync(
+                new[] { "drain", "--pipe-name", pipeName, "--json" },
+                stdout: plainJsonOut,
+                stderr: plainJsonErr);
+            Assert.That(plainJsonExit, Is.EqualTo(2));
+            DrainResult? refused = JsonConvert.DeserializeObject<DrainResult>(plainJsonOut.ToString().Trim());
+            Assert.That(refused, Is.Not.Null);
+            Assert.That(refused!.Success, Is.False);
+            Assert.That(refused.ExitCode, Is.EqualTo(2));
+            Assert.That(refused.ActiveRuns, Is.EqualTo(1));
+            Assert.That(refused.QueuedRuns, Is.EqualTo(0));
+            Assert.That(refused.ActiveWarmCalls, Is.EqualTo(0));
+
+            using var plainTextOut = new StringWriter();
+            using var plainTextErr = new StringWriter();
+            int plainTextExit = await Program.RunCliAsync(
+                new[] { "drain", "--pipe-name", pipeName },
+                stdout: plainTextOut,
+                stderr: plainTextErr);
+            Assert.That(plainTextExit, Is.EqualTo(2));
+            Assert.That(plainTextErr.ToString(), Does.Contain("activeRuns=1"));
+
+            // 3. drain --when-idle waits for active run, rejects new run, and completes cleanly on release.
+            using var whenIdleOut = new StringWriter();
+            using var whenIdleErr = new StringWriter();
+            Task<int> whenIdleTask = Program.RunCliAsync(
+                new[] { "drain", "--when-idle", "--pipe-name", pipeName, "--json" },
+                stdout: whenIdleOut,
+                stderr: whenIdleErr);
+
+            DateTime deadline = DateTime.UtcNow + TimeSpan.FromSeconds(3);
+            while (!supervisor.IsDrainingWhenIdle && DateTime.UtcNow < deadline)
+            {
+                await Task.Delay(15);
+            }
+            Assert.That(supervisor.IsDrainingWhenIdle, Is.True);
+
+            using var rejectedOut = new StringWriter();
+            using var rejectedErr = new StringWriter();
+            int rejectedExit = await Program.RunCliAsync(
+                new[]
+                {
+                    "run", "--version", "2026", "--assembly", assemblyPath,
+                    "--trx", Path.Combine(tempRoot, "out", "rejected.trx"),
+                    "--pipe-name", pipeName, "--no-shim", "--json"
+                },
+                stdout: rejectedOut,
+                stderr: rejectedErr);
+            Assert.That(rejectedExit, Is.EqualTo(2));
+            OneShotRunResult? rejectedRun = JsonConvert.DeserializeObject<OneShotRunResult>(rejectedOut.ToString().Trim());
+            Assert.That(rejectedRun!.Error, Does.Contain("Supervisor is draining when idle; retry after drain completes or run --no-pool"));
+
+            releaseExec.TrySetResult(true);
+            Assert.That(await activeRunCliTask.WaitAsync(TimeSpan.FromSeconds(5)), Is.EqualTo(0));
+            Assert.That(await whenIdleTask.WaitAsync(TimeSpan.FromSeconds(5)), Is.EqualTo(0));
+            DrainResult? whenIdleResult = JsonConvert.DeserializeObject<DrainResult>(whenIdleOut.ToString().Trim());
+            Assert.That(whenIdleResult!.Success, Is.True);
+            Assert.That(whenIdleResult.Status!.TotalResident, Is.EqualTo(0));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+        }
+    }
+
+    [Test]
+    public async Task RunCliAsync_DrainForce_CancelsActiveRunImmediatelyWithZeroGraceWait()
+    {
+        string tempRoot = Path.Combine(Path.GetTempPath(), "RevitWorkerPool_CliForceDrain_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+        try
+        {
+            string revitDir = Path.Combine(tempRoot, "Autodesk", "Revit 2026");
+            Directory.CreateDirectory(revitDir);
+            File.WriteAllText(Path.Combine(revitDir, "Revit.exe"), string.Empty);
+
+            string assemblyPath = TestAssemblyCompiler.CompileToFile(
+                Path.Combine(tempRoot, "Synthetic.RevitTests.2026.dll"),
+                "Synthetic.RevitTests.2026",
+                """
+                using NUnit.Framework;
+
+                namespace ForceDrainCliSuite
+                {
+                    [TestFixture]
+                    public class SampleFixture
+                    {
+                        [Test]
+                        public void SampleTest() { }
+                    }
+                }
+                """);
+
+            var discovery = new RevitInstallationDiscovery(
+                () => new[] { Path.Combine(tempRoot, "Autodesk") },
+                () => Array.Empty<UninstallRegistryEntry>());
+
+            var execStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            string pipeName = $"Synthetic_CliForceDrain_{Guid.NewGuid():N}";
+
+            using var launcher = new StubWorkerProcessLauncher((server, _) =>
+            {
+                server.InitialIsBusy = false;
+                server.ExecutionHandler = async (req, _, ct) =>
+                {
+                    execStarted.TrySetResult(true);
+                    await Task.Delay(TimeSpan.FromSeconds(20), ct).ConfigureAwait(false);
+                    return new ricaun.NUnit.Models.TestAssemblyModel
+                    {
+                        FileName = req.TestPathFile ?? string.Empty,
+                        Name = "Synthetic.RevitTests.2026",
+                        Success = true
+                    };
+                };
+            });
+
+            await using var supervisor = new WorkerPoolSupervisor(
+                new SupervisorOptions
+                {
+                    PipeName = pipeName,
+                    CurrentLatestVersion = 2026,
+                    IdleTimeout = TimeSpan.FromMinutes(25),
+                    DrainGraceTimeout = TimeSpan.FromSeconds(30),
+                    TimingCacheDirectory = Path.Combine(tempRoot, "timing_cache")
+                },
+                discovery,
+                launcher,
+                new RevitWorkerPool.Pipe.RevitPipeTestClientFactory(),
+                bundleLeaseFactory: _ => new NoOpDisposable());
+            await using var ipcServer = new SupervisorIpcServer(
+                pipeName,
+                (req, ct) => supervisor.HandleIpcRequestAsync(req, ct));
+            supervisor.AttachIpcServer(ipcServer);
+            supervisor.Start();
+            ipcServer.Start();
+
+            Task<int> slowRunTask = Program.RunCliAsync(
+                new[]
+                {
+                    "run", "--version", "2026", "--assembly", assemblyPath,
+                    "--trx", Path.Combine(tempRoot, "out", "slow.trx"),
+                    "--pipe-name", pipeName, "--no-shim", "--json"
+                },
+                stdout: new StringWriter(),
+                stderr: new StringWriter());
+            await execStarted.Task.WaitAsync(TimeSpan.FromSeconds(3));
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            using var forceOut = new StringWriter();
+            using var forceErr = new StringWriter();
+            int forceExit = await Program.RunCliAsync(
+                new[] { "drain", "--force", "--pipe-name", pipeName, "--json" },
+                stdout: forceOut,
+                stderr: forceErr);
+            sw.Stop();
+
+            Assert.That(forceExit, Is.EqualTo(0));
+            Assert.That(sw.Elapsed, Is.LessThan(TimeSpan.FromSeconds(3)));
+            DrainResult? forceResult = JsonConvert.DeserializeObject<DrainResult>(forceOut.ToString().Trim());
+            Assert.That(forceResult!.Success, Is.True);
+            Assert.That(forceResult.Status!.TotalResident, Is.EqualTo(0));
+            Assert.That(await slowRunTask.WaitAsync(TimeSpan.FromSeconds(3)), Is.EqualTo(2));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRoot))
+            {
+                Directory.Delete(tempRoot, recursive: true);
+            }
+        }
     }
 
     private sealed class NoOpDisposable : IDisposable
