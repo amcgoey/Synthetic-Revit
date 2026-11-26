@@ -1,4 +1,6 @@
+using System;
 using System.IO;
+using System.Linq;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using NUnit.Framework;
@@ -32,6 +34,35 @@ namespace SyntheticTests.Platform.Host
             Assert.IsFalse(string.IsNullOrWhiteSpace(config!.TabName));
             Assert.IsNotNull(config.Panels);
             Assert.IsNotEmpty(config.Panels!);
+        }
+
+        [Test]
+        public void RibbonConfig_CmdDetailItemFactory_IsEnabledAcrossSupportedRevitVersions()
+        {
+            string configPath = Path.Combine(TestPathHelper.GetProjectRoot(), "src", "Assets", "ribbon_config.json");
+            RibbonConfig? config = JsonConvert.DeserializeObject<RibbonConfig>(File.ReadAllText(configPath));
+            Assert.IsNotNull(config?.Panels);
+
+            RibbonItemConfig? detailItemButton = config!.Panels!
+                .SelectMany(p => p.Items ?? Enumerable.Empty<RibbonItemConfig>())
+                .FirstOrDefault(i => string.Equals(
+                    i.Class,
+                    "Synthetic.Features.DetailItemFactory.Commands.CmdDetailItemFactory",
+                    StringComparison.Ordinal));
+
+            Assert.IsNotNull(detailItemButton, "Expected CmdDetailItemFactory in ribbon_config.json.");
+            Assert.IsNull(detailItemButton!.MinVersion, "CmdDetailItemFactory should not have a minVersion restriction.");
+            Assert.IsNull(detailItemButton.MaxVersion, "CmdDetailItemFactory should not have a maxVersion restriction.");
+
+            foreach (int version in new[] { 2023, 2024, 2025, 2026, 2027 })
+            {
+                Assert.IsTrue(
+                    RibbonItemFilter.ShouldIncludeItem(detailItemButton, isDebug: false, activeVersion: version),
+                    $"Expected CmdDetailItemFactory to be enabled in Release for Revit {version}.");
+                Assert.IsTrue(
+                    RibbonItemFilter.ShouldIncludeItem(detailItemButton, isDebug: true, activeVersion: version),
+                    $"Expected CmdDetailItemFactory to be enabled in Debug for Revit {version}.");
+            }
         }
     }
 }

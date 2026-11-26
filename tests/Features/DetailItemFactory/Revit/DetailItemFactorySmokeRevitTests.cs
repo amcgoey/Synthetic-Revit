@@ -5,9 +5,10 @@ using System.Linq;
 using System.Windows;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
-using Newtonsoft.Json.Linq;
+using Newtonsoft.Json;
 using NUnit.Framework;
 using Synthetic.Features.DetailItemFactory.Commands;
+using Synthetic.Features.DetailItemFactory.Handlers;
 using Synthetic.Features.DetailItemFactory.Models;
 using Synthetic.Features.DetailItemFactory.Settings;
 using Synthetic.Features.DetailItemFactory.ViewModels;
@@ -83,13 +84,82 @@ namespace SyntheticTests.Features.DetailItemFactory
             string configPath = Path.Combine(TestPathHelper.GetProjectRoot(), "src", "Assets", "ribbon_config.json");
             Assert.IsTrue(File.Exists(configPath), $"Expected ribbon_config.json at '{configPath}'.");
 
-            JObject config = JObject.Parse(File.ReadAllText(configPath));
-            var registeredClasses = new HashSet<string>(
-                config.SelectTokens("$..class")
-                    .Select(t => t.Value<string>() ?? string.Empty),
-                StringComparer.Ordinal);
+            RibbonConfig? config = JsonConvert.DeserializeObject<RibbonConfig>(File.ReadAllText(configPath));
+            Assert.IsNotNull(config?.Panels);
 
-            Assert.IsTrue(registeredClasses.Contains(cmdType.FullName!), $"Expected '{cmdType.FullName}' in ribbon_config.json.");
+            RibbonItemConfig? commandItem = config!.Panels!
+                .SelectMany(p => p.Items ?? Enumerable.Empty<RibbonItemConfig>())
+                .FirstOrDefault(i => string.Equals(i.Class, cmdType.FullName, StringComparison.Ordinal));
+
+            Assert.IsNotNull(commandItem, $"Expected '{cmdType.FullName}' in ribbon_config.json.");
+            Assert.IsNull(commandItem!.MinVersion, "CmdDetailItemFactory should not restrict minimum Revit version.");
+
+            int activeVersion = int.Parse(_uiapp!.Application.VersionNumber);
+            Assert.IsTrue(
+                RibbonItemFilter.ShouldIncludeItem(commandItem, isDebug: false, activeVersion: activeVersion),
+                $"Expected CmdDetailItemFactory to be enabled for Revit {activeVersion}.");
+        }
+
+        [Test]
+        public void DetailItemTemplate_ResolvesBundledAssetFirstWithFamilyTemplateFallback_AndOpensCleanly()
+        {
+            Assert.IsNotNull(_uiapp, "Revit UIApplication context should not be null.");
+
+            string assemblyLocation = typeof(DetailItemFactoryEventHandler).Assembly.Location;
+            string assemblyDir = Path.GetDirectoryName(assemblyLocation) ?? string.Empty;
+            string expectedBundledPath = Path.Combine(assemblyDir, "Assets", "Templates", "Detail Item.rft");
+            Assert.IsTrue(
+                File.Exists(expectedBundledPath),
+                $"Expected per-version packaged template at '{expectedBundledPath}'.");
+
+            // 1. Assembly-directory template takes precedence over fallback FamilyTemplatePath
+            string tempRoot = Path.Combine(Path.GetTempPath(), "SyntheticDetailItemTemplateTest_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempRoot);
+            Document? familyDoc = null;
+            try
+            {
+                string fakeFallbackDir = Path.Combine(tempRoot, "FallbackTemplates");
+                Directory.CreateDirectory(fakeFallbackDir);
+                string fakeFallbackTemplate = Path.Combine(fakeFallbackDir, "Detail Item.rft");
+                File.WriteAllText(fakeFallbackTemplate, "fallback");
+
+                string? resolvedBundled = DetailItemFactoryEventHandler.ResolveTemplatePath(assemblyLocation, fakeFallbackDir);
+                Assert.AreEqual(expectedBundledPath, resolvedBundled, "Bundled assembly template should take precedence over FamilyTemplatePath.");
+
+                // 2. Fallback to FamilyTemplatePath when assembly directory has no template
+                string emptyAssemblyDir = Path.Combine(tempRoot, "EmptyAddin");
+                Directory.CreateDirectory(emptyAssemblyDir);
+                string fakeAssemblyPath = Path.Combine(emptyAssemblyDir, "Synthetic.dll");
+
+                string? resolvedFallback = DetailItemFactoryEventHandler.ResolveTemplatePath(fakeAssemblyPath, fakeFallbackDir);
+                Assert.AreEqual(fakeFallbackTemplate, resolvedFallback, "Template resolution should fall back to Application.FamilyTemplatePath.");
+
+                // 3. Returns null when neither directory contains Detail Item.rft
+                string emptyFallbackDir = Path.Combine(tempRoot, "EmptyFallback");
+                Directory.CreateDirectory(emptyFallbackDir);
+                Assert.IsNull(DetailItemFactoryEventHandler.ResolveTemplatePath(fakeAssemblyPath, emptyFallbackDir));
+
+                // 4. Bundled template opens cleanly in the running Revit version without leaking documents
+                familyDoc = _uiapp!.Application.NewFamilyDocument(resolvedBundled!);
+                Assert.IsNotNull(familyDoc, "Expected NewFamilyDocument to succeed with packaged Detail Item.rft.");
+                Assert.IsTrue(familyDoc.IsFamilyDocument, "Opened document should be a family document.");
+            }
+            finally
+            {
+                if (familyDoc != null)
+                {
+                    if (familyDoc.IsValidObject)
+                    {
+                        familyDoc.Close(false);
+                    }
+                    familyDoc.Dispose();
+                }
+
+                if (Directory.Exists(tempRoot))
+                {
+                    Directory.Delete(tempRoot, recursive: true);
+                }
+            }
         }
 
         [Test]
@@ -153,9 +223,13 @@ namespace SyntheticTests.Features.DetailItemFactory
                 }
                 finally
                 {
-                    if (doc != null && doc.IsValidObject)
+                    if (doc != null)
                     {
-                        doc.Close(false);
+                        if (doc.IsValidObject)
+                        {
+                            doc.Close(false);
+                        }
+                        doc.Dispose();
                     }
                 }
             }

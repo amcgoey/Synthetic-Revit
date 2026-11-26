@@ -60,15 +60,21 @@ namespace Synthetic.Features.DetailItemFactory.Handlers
                 TargetSubcategory = "Detail Items";
             }
 
-            // Resolve family template path dynamically
-            string assemblyPath = System.Reflection.Assembly.GetExecutingAssembly().Location;
-            string? assemblyDir = Path.GetDirectoryName(assemblyPath);
-            string templatePath = Path.Combine(assemblyDir ?? string.Empty, "Assets", "Templates", "Detail Item.rft");
+            // Resolve family template path dynamically (assembly directory first, then Revit FamilyTemplatePath)
+            string assemblyLocation = typeof(DetailItemFactoryEventHandler).Assembly.Location;
+            string? familyTemplatePath = app.Application?.FamilyTemplatePath;
+            string? templatePath = ResolveTemplatePath(assemblyLocation, familyTemplatePath);
 
-            if (!File.Exists(templatePath))
+            if (string.IsNullOrEmpty(templatePath))
             {
+                string? assemblyDir = string.IsNullOrWhiteSpace(assemblyLocation)
+                    ? null
+                    : Path.GetDirectoryName(assemblyLocation);
+                string bundledPath = Path.Combine(assemblyDir ?? string.Empty, "Assets", "Templates", "Detail Item.rft");
                 ProgressCoordinator.Close();
-                TaskDialog.Show("Detail Item Factory", $"Template file not found at:\n{templatePath}");
+                TaskDialog.Show(
+                    "Detail Item Factory",
+                    $"Template file not found at:\n{bundledPath}\n\nFallback FamilyTemplatePath:\n{familyTemplatePath ?? "(not set)"}");
                 return;
             }
 
@@ -777,6 +783,46 @@ namespace Synthetic.Features.DetailItemFactory.Handlers
                     return null;
                 }
             }
+            return null;
+        }
+
+        /// <summary>
+        /// Resolves the Detail Item family template path, checking the add-in assembly directory first
+        /// and falling back to Revit's configured <c>Application.FamilyTemplatePath</c>.
+        /// </summary>
+        /// <param name="assemblyLocation">The full file path of the executing add-in assembly.</param>
+        /// <param name="familyTemplatePath">Revit's configured <c>Application.FamilyTemplatePath</c> fallback directory.</param>
+        /// <returns>The resolved template file path if found; otherwise <c>null</c>.</returns>
+        internal static string? ResolveTemplatePath(string? assemblyLocation, string? familyTemplatePath)
+        {
+            if (assemblyLocation != null && !string.IsNullOrWhiteSpace(assemblyLocation))
+            {
+                string? assemblyDir = Path.GetDirectoryName(assemblyLocation);
+                if (assemblyDir != null && !string.IsNullOrWhiteSpace(assemblyDir))
+                {
+                    string bundledAssetPath = Path.Combine(assemblyDir, "Assets", "Templates", "Detail Item.rft");
+                    if (File.Exists(bundledAssetPath))
+                    {
+                        return bundledAssetPath;
+                    }
+
+                    string siblingPath = Path.Combine(assemblyDir, "Detail Item.rft");
+                    if (File.Exists(siblingPath))
+                    {
+                        return siblingPath;
+                    }
+                }
+            }
+
+            if (familyTemplatePath != null && !string.IsNullOrWhiteSpace(familyTemplatePath))
+            {
+                string fallbackPath = Path.Combine(familyTemplatePath, "Detail Item.rft");
+                if (File.Exists(fallbackPath))
+                {
+                    return fallbackPath;
+                }
+            }
+
             return null;
         }
 
