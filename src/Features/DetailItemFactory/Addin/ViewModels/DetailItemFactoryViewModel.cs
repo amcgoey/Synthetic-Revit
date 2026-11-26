@@ -1,9 +1,3 @@
-using Synthetic.Features.DetailItemFactory.Commands;
-using Synthetic.Features.DetailItemFactory.Handlers;
-using Synthetic.Features.DetailItemFactory.ViewModels;
-using Synthetic.Features.DetailItemFactory.Views;
-using Synthetic.Features.DetailItemFactory.Settings;
-
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -13,6 +7,8 @@ using System.Windows.Input;
 using Autodesk.Revit.DB;
 using View = Autodesk.Revit.DB.View;
 
+using Synthetic.Features.DetailItemFactory.Services;
+using Synthetic.Features.DetailItemFactory.Settings;
 using Synthetic.Platform.UI;
 using Synthetic.Platform.Settings;
 
@@ -207,22 +203,9 @@ namespace Synthetic.Features.DetailItemFactory.ViewModels
             }
 
             // Populate OST_DetailComponents subcategories
-            Category detailComponentsCategory = _doc.Settings.Categories.get_Item(BuiltInCategory.OST_DetailComponents);
-            if (detailComponentsCategory != null)
+            foreach (string subCatName in DetailItemFactorySettingsService.HarvestDetailComponentSubcategories(_doc))
             {
-                foreach (Category subCat in detailComponentsCategory.SubCategories)
-                {
-                    if (!string.IsNullOrEmpty(subCat.Name))
-                    {
-                        Subcategories.Add(subCat.Name);
-                    }
-                }
-            }
-
-            // Ensure "Detail Items" is in the list
-            if (!Subcategories.Contains("Detail Items"))
-            {
-                Subcategories.Add("Detail Items");
+                Subcategories.Add(subCatName);
             }
 
             // Set default SelectedSubcategory with fallback routing

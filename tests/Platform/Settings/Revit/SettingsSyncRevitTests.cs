@@ -13,7 +13,10 @@ using Synthetic.Features.SettingsDashboard.Handlers;
 using Synthetic.Features.StandardsManagement.Settings;
 using Synthetic.Features.ViewManagement.Settings;
 using Synthetic.Features.Worksets.Settings;
+using Synthetic.Features.DetailItemFactory.Services;
 using Synthetic.Features.DetailItemFactory.Settings;
+using Synthetic.Features.DetailItemFactory.ViewModels;
+using Synthetic.Features.SettingsDashboard.ViewModels;
 using Synthetic.Features.ShadowStudy.Models;
 using Synthetic.Features.ShadowStudy.Settings;
 using Synthetic.Platform.Host;
@@ -307,8 +310,9 @@ namespace SyntheticTests.Platform.Settings
         {
             WithRolledBackDocument(doc =>
             {
-                var vm = new DetailItemFactorySettingsViewModel(doc, IntPtr.Zero);
+                var vm = DetailItemFactorySettingsService.CreateSettingsViewModel(doc, IntPtr.Zero);
                 Assert.IsFalse(vm.IsOverridden);
+                StringAssert.Contains("(Default Dynamic Document Path)", vm.SummaryText);
 
                 SettingsManager.Save(doc, new DetailItemFactorySettings
                 {
@@ -326,6 +330,52 @@ namespace SyntheticTests.Platform.Settings
                 vm.Reload();
                 Assert.IsFalse(vm.IsOverridden, "Reload() must clear IsOverridden when DataStorage is deleted.");
                 Assert.IsFalse(vm.IsDirty);
+            });
+        }
+
+        [Test]
+        public void SettingsDashboardViewModel_DetailItemFactoryPage_CancelIsolatesCache_AndSavePersistsOfflineUncPath()
+        {
+            WithRolledBackDocument(doc =>
+            {
+                SettingsManager.Save(doc, new DetailItemFactorySettings
+                {
+                    OutputPath = @"C:\Initial\DetailItems",
+                    TargetSubcategory = "Detail Items"
+                });
+
+                var dashboardCancel = new SettingsDashboardViewModel(doc, IntPtr.Zero);
+                DetailItemFactorySettingsViewModel? detailPage = dashboardCancel.SettingModules
+                    .OfType<DetailItemFactorySettingsViewModel>()
+                    .FirstOrDefault();
+
+                Assert.IsNotNull(detailPage, "SettingsDashboardViewModel must register DetailItemFactorySettingsViewModel.");
+                Assert.IsTrue(detailPage!.IsOverridden);
+                CollectionAssert.Contains(detailPage.AvailableSubcategories, "Detail Items");
+
+                detailPage.OutputPath = @"C:\Mutated\OnCancel";
+                Assert.IsTrue(detailPage.IsDirty);
+                Assert.IsTrue(detailPage.IsValid);
+                Assert.IsTrue(dashboardCancel.SaveCommand.CanExecute(null));
+                dashboardCancel.CancelCommand.Execute(null);
+
+                DetailItemFactorySettings cachedAfterCancel = SettingsManager.Get<DetailItemFactorySettings>(doc);
+                Assert.AreEqual(@"C:\Initial\DetailItems", cachedAfterCancel.OutputPath);
+
+                var dashboardSave = new SettingsDashboardViewModel(doc, IntPtr.Zero);
+                DetailItemFactorySettingsViewModel detailSavePage = dashboardSave.SettingModules
+                    .OfType<DetailItemFactorySettingsViewModel>()
+                    .Single();
+
+                detailSavePage.OutputPath = @"\\offline-studio-server\bim\DetailItems";
+                Assert.IsTrue(detailSavePage.IsValid, "Offline UNC paths must pass pure syntax validation.");
+                Assert.IsTrue(dashboardSave.SaveCommand.CanExecute(null));
+                dashboardSave.SaveCommand.Execute(null);
+
+                SettingsManager.ClearCache(doc);
+                DetailItemFactorySettings persisted = SettingsManager.Get<DetailItemFactorySettings>(doc);
+                Assert.AreEqual(@"\\offline-studio-server\bim\DetailItems", persisted.OutputPath);
+                Assert.AreEqual("Detail Items", persisted.TargetSubcategory);
             });
         }
 
