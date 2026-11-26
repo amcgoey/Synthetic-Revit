@@ -2753,8 +2753,8 @@ def _build_isolated_project(
         try:
             with open(build_log_path, "w", encoding="utf-8") as bf:
                 bf.write(output_text + "\n")
-        except OSError:
-            pass
+        except OSError as exc:
+            print_fn(f"[WARN] Could not write build log '{build_log_path}': {exc}")
 
     if returncode == 0:
         print_fn(f"[TESTS] Build succeeded for {proj_name}.")

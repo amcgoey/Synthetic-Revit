@@ -331,8 +331,9 @@ internal sealed class ScheduledTaskSupervisorLauncher : ISupervisorLauncher
                     uint enginePid = (uint)runningTask.EnginePID;
                     return enginePid > 0 ? unchecked((int)enginePid) : null;
                 }
-                catch
+                catch (Exception ex) when (ex is COMException or InvalidCastException or Microsoft.CSharp.RuntimeBinder.RuntimeBinderException)
                 {
+                    System.Diagnostics.Trace.WriteLine($"[ScheduledTaskSupervisorLauncher] Failed to read EnginePID: {ex.Message}");
                     return null;
                 }
             }
@@ -402,8 +403,9 @@ internal sealed class ScheduledTaskSupervisorLauncher : ISupervisorLauncher
                 {
                     Marshal.FinalReleaseComObject(obj);
                 }
-                catch
+                catch (Exception ex) when (ex is COMException or InvalidComObjectException or ArgumentException)
                 {
+                    System.Diagnostics.Trace.WriteLine($"[ScheduledTaskSupervisorLauncher] Failed to release COM object: {ex.Message}");
                 }
             }
         }

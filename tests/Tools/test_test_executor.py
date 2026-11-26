@@ -3275,6 +3275,41 @@ namespace SyntheticTests.Platform.Host
             ],
         )
 
+    def test_build_isolated_project_logs_warn_when_build_log_write_fails(self):
+        from unittest import mock
+
+        messages = []
+        build_log_path = os.path.join(self.root, "build_2027.log")
+        target_build_root = os.path.join(self.temp_build_root, "2027")
+        csproj_path = os.path.join(
+            self.tests_dir, "Projects", "Synthetic.RevitTests.2027", "Synthetic.RevitTests.2027.csproj"
+        )
+
+        with mock.patch.object(
+            te.subprocess,
+            "run",
+            return_value=subprocess.CompletedProcess(["dotnet", "build"], 0, stdout="Build succeeded.", stderr=""),
+        ), mock.patch("builtins.open", side_effect=OSError("disk full")):
+            ok, err = te._build_isolated_project(
+                "dotnet",
+                csproj_path,
+                "Synthetic.RevitTests.2027",
+                "2027",
+                target_build_root,
+                "run-warn-test",
+                build_log_path,
+                False,
+                messages.append,
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(err, "")
+        warn_msgs = [m for m in messages if m.startswith("[WARN]")]
+        self.assertEqual(len(warn_msgs), 1, msg=messages)
+        self.assertIn(build_log_path, warn_msgs[0])
+        self.assertIn("disk full", warn_msgs[0])
+        self.assertIn("[TESTS] Build succeeded for Synthetic.RevitTests.2027.", messages)
+
     def test_real_concurrent_two_process_dotnet_build_2026_2027_and_legacymock_2027(self):
         import concurrent.futures
 
