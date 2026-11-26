@@ -23,8 +23,8 @@ import test_executor as te
 
 SUPPORTED_EXTENSIONS = (".rvt", ".rte", ".rfa")
 BACKUP_FILE_RE = re.compile(r"\.\d{4}\.(?:rvt|rte|rfa)$", re.IGNORECASE)
-TRAILING_YEAR_RE = re.compile(r"(20\d{2})$")
-TEST_TEMPLATE_FILE_RE = re.compile(r"^TestTemplate(20\d{2})?\.rvt$", re.IGNORECASE)
+TRAILING_YEAR_RE = te.TRAILING_YEAR_RE
+TEST_TEMPLATE_FILE_RE = te.TEST_TEMPLATE_FILE_RE
 INC_STANDARDS_FILE_RE = re.compile(
     r"^INC Standards - Assemblies & Details(20\d{2})?\.rvt$", re.IGNORECASE
 )
@@ -183,38 +183,12 @@ def _select_preset_source(candidates, target_version, force, inspect_fn):
       3. When `force` is True and no earlier copy exists, allow format == target_version.
     Returns (source_path, source_format) or (None, None).
     """
-    scored = []
-    for path in candidates:
-        stem = os.path.splitext(os.path.basename(path))[0]
-        name_year = extract_trailing_year(stem)
-        file_format = inspect_fn(path)
-        effective_year = file_format if file_format is not None else name_year
-        if effective_year is None:
-            continue
-        is_prev_year = name_year == (target_version - 1)
-        has_explicit_year = name_year is not None
-        scored.append((path, effective_year, is_prev_year, has_explicit_year))
-
-    earlier = [item for item in scored if item[1] < target_version]
-    if earlier:
-        earlier.sort(
-            key=lambda item: (
-                1 if item[2] else 0,
-                item[1],
-                1 if item[3] else 0,
-                item[0],
-            ),
-            reverse=True,
-        )
-        return earlier[0][0], earlier[0][1]
-
-    if force:
-        same_year = [item for item in scored if item[1] == target_version]
-        if same_year:
-            same_year.sort(key=lambda item: (1 if item[3] else 0, item[0]), reverse=True)
-            return same_year[0][0], same_year[0][1]
-
-    return None, None
+    return te.select_earlier_versioned_source(
+        candidates,
+        target_version,
+        inspect_fn=inspect_fn,
+        allow_same_year=force,
+    )
 
 
 def _plan_preset_family(
