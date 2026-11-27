@@ -22,7 +22,8 @@ namespace Synthetic.Tools.ModelUpgrader
         {
             ".rvt",
             ".rte",
-            ".rfa"
+            ".rfa",
+            ".rft"
         };
 
         public static FileUpgradeResult UpgradeFile(UIApplication uiapp, UpgradeJobSpec job, string expectedTargetVersion)
@@ -69,10 +70,11 @@ namespace Synthetic.Tools.ModelUpgrader
                 if (!SupportedExtensions.Contains(result.FileExtension))
                 {
                     throw new InvalidOperationException(
-                        $"Unsupported model extension '{result.FileExtension}' for '{result.SourcePath}'. Expected .rvt, .rte, or .rfa.");
+                        $"Unsupported model extension '{result.FileExtension}' for '{result.SourcePath}'. Expected .rvt, .rte, .rfa, or .rft.");
                 }
 
                 bool isRvt = string.Equals(result.FileExtension, ".rvt", StringComparison.OrdinalIgnoreCase);
+                bool isRft = string.Equals(result.FileExtension, ".rft", StringComparison.OrdinalIgnoreCase);
 
                 bool sourceIsWorkshared;
                 using (BasicFileInfo sourceInfo = BasicFileInfo.Extract(result.SourcePath))
@@ -103,8 +105,15 @@ namespace Synthetic.Tools.ModelUpgrader
                 app.FailuresProcessing += OnFailuresProcessing;
                 handlersAttached = true;
 
-                ModelPath modelPath = ModelPathUtils.ConvertUserVisiblePathToModelPath(result.SourcePath);
-                openedDoc = app.OpenDocumentFile(modelPath, openOptions);
+                if (isRft)
+                {
+                    openedDoc = app.NewFamilyDocument(result.SourcePath);
+                }
+                else
+                {
+                    ModelPath modelPath = ModelPathUtils.ConvertUserVisiblePathToModelPath(result.SourcePath);
+                    openedDoc = app.OpenDocumentFile(modelPath, openOptions);
+                }
                 if (openedDoc == null || !openedDoc.IsValidObject)
                 {
                     throw new InvalidOperationException($"Revit returned an invalid document for '{result.SourcePath}'.");
@@ -141,9 +150,17 @@ namespace Synthetic.Tools.ModelUpgrader
                     saveOptions.SetWorksharingOptions(worksharingOptions);
                 }
 
-                openedDoc.SaveAs(stagingFilePath, saveOptions);
+                string savePath = isRft ? Path.ChangeExtension(stagingFilePath, ".rfa") : stagingFilePath;
+                openedDoc.SaveAs(savePath, saveOptions);
 
                 CloseDocumentAndAssertZeroLeaks(app, ref openedDoc, initialDocCount, result.SourcePath);
+
+                if (isRft)
+                {
+                    File.Move(savePath, stagingFilePath);
+                    openedDoc = app.NewFamilyDocument(stagingFilePath);
+                    CloseDocumentAndAssertZeroLeaks(app, ref openedDoc, initialDocCount, stagingFilePath);
+                }
 
                 if (handlersAttached)
                 {

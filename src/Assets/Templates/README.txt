@@ -1,2 +1,2 @@
-Place your Revit family template file "Detail Item.rft" in this directory before compiling.
-During compilation, it will be copied to the output directory so the prototype can load it at runtime.
+Versioned Revit family templates ("Detail Item2023.rft" through "Detail Item2027.rft") live in this directory.
+During compilation, MSBuild copies the template matching $(RevitVersion) to "Assets\Templates\Detail Item.rft" in each payload output directory.

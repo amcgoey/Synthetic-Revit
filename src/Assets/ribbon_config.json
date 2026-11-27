@@ -52,8 +52,7 @@
           "class": "Synthetic.Features.DetailItemFactory.Commands.CmdDetailItemFactory",
           "tooltip": "Batch process selected elements into 2D Detail Item families via DWG tracing.",
           "large_image": "convert_32.png",
-          "image": "convert_16.png",
-          "minVersion": 2024
+          "image": "convert_16.png"
         }
       ]
     },

@@ -256,6 +256,7 @@ namespace SyntheticTests.Architecture
     {
         public static readonly IReadOnlyCollection<string> ExemplarZeroAllowlistSlices = new[]
         {
+            "DetailItemFactory",
             "Diagnostics",
             "MultiModelPdfExport",
             "ShadowStudy",
@@ -278,7 +279,6 @@ namespace SyntheticTests.Architecture
         public static readonly IReadOnlyCollection<string> ExpectedDormantSlices = new[]
         {
             "AutoTagger",
-            "DetailItemFactory",
             "FamilyManagement",
             "MaterialManagement"
         };
@@ -385,17 +385,6 @@ namespace SyntheticTests.Architecture
             Dormant("AutoTagger", FitnessRule.TransactionFailureGuard, "CmdBatchTag", "BoyScout"),
             Dormant("AutoTagger", FitnessRule.TransactionFailureGuard, "TemplateStorageRepository", "BoyScout"),
             Dormant("AutoTagger", FitnessRule.SingleSchemaExtensibleStorage, "TemplateStorageRepository", "BoyScout"),
-
-            // DetailItemFactory
-            Dormant("DetailItemFactory", FitnessRule.InteractiveSliceSeamPurity, "DetailItemFactoryResultsViewModel", "BoyScout"),
-            Dormant("DetailItemFactory", FitnessRule.InteractiveSliceSeamPurity, "DetailItemFactorySettings", "BoyScout"),
-            Dormant("DetailItemFactory", FitnessRule.InteractiveSliceSeamPurity, "DetailItemFactorySettingsViewModel", "BoyScout"),
-            Dormant("DetailItemFactory", FitnessRule.InteractiveSliceSeamPurity, "DetailItemFactoryViewModel", "BoyScout"),
-            Dormant("DetailItemFactory", FitnessRule.InteractiveSliceSeamPurity, "SelectedElementItemViewModel", "BoyScout"),
-            Dormant("DetailItemFactory", FitnessRule.TransactionFailureGuard, "DetailItemFactoryEventHandler", "BoyScout"),
-            Dormant("DetailItemFactory", FitnessRule.ExternalEventAndDialogPurity, "CmdDetailItemFactory", "BoyScout"),
-            Dormant("DetailItemFactory", FitnessRule.ExternalEventAndDialogPurity, "DetailItemFactoryEventHandler", "BoyScout"),
-            Dormant("DetailItemFactory", FitnessRule.ExternalEventAndDialogPurity, "DetailItemFactoryResultsViewModel", "BoyScout"),
 
             // FamilyManagement
             Dormant("FamilyManagement", FitnessRule.ExternalEventAndDialogPurity, "AuditPurgeAllFamilies", "BoyScout"),

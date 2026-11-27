@@ -21,8 +21,8 @@ if TEST_EXECUTOR_SCRIPTS_DIR not in sys.path:
 import guid_whitelister
 import test_executor as te
 
-SUPPORTED_EXTENSIONS = (".rvt", ".rte", ".rfa")
-BACKUP_FILE_RE = re.compile(r"\.\d{4}\.(?:rvt|rte|rfa)$", re.IGNORECASE)
+SUPPORTED_EXTENSIONS = (".rvt", ".rte", ".rfa", ".rft")
+BACKUP_FILE_RE = re.compile(r"\.\d{4}\.(?:rvt|rte|rfa|rft)$", re.IGNORECASE)
 TRAILING_YEAR_RE = te.TRAILING_YEAR_RE
 TEST_TEMPLATE_FILE_RE = te.TEST_TEMPLATE_FILE_RE
 INC_STANDARDS_FILE_RE = re.compile(
@@ -147,7 +147,7 @@ def collect_input_model_files(inputs):
             ext = os.path.splitext(abs_path)[1].lower()
             if ext not in SUPPORTED_EXTENSIONS:
                 raise ValueError(
-                    f"Unsupported file extension '{ext}' for '{abs_path}'. Expected .rvt, .rte, or .rfa."
+                    f"Unsupported file extension '{ext}' for '{abs_path}'. Expected .rvt, .rte, .rfa, or .rft."
                 )
             norm = os.path.normcase(abs_path)
             if norm not in seen:

@@ -1,11 +1,4 @@
 
-using Synthetic.Features.DetailItemFactory.Commands;
-using Synthetic.Features.DetailItemFactory.Handlers;
-using Synthetic.Features.DetailItemFactory.ViewModels;
-using Synthetic.Features.DetailItemFactory.Views;
-using Synthetic.Features.DetailItemFactory.Settings;
-using System.Windows.Controls;
-
 namespace Synthetic.Features.DetailItemFactory.Views
 {
     /// <summary>

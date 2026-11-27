@@ -27,7 +27,12 @@
           SubType="Designer" />
 
     <Content Include="$(MSBuildThisFileDirectory)Assets\**\*.*"
+             Exclude="$(MSBuildThisFileDirectory)Assets\Templates\Detail Item20*.rft"
              Link="Assets\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="$(MSBuildThisFileDirectory)Assets\Templates\Detail Item$(RevitVersion).rft"
+             Condition="'$(RevitVersion)' != '' And Exists('$(MSBuildThisFileDirectory)Assets\Templates\Detail Item$(RevitVersion).rft')"
+             Link="Assets\Templates\Detail Item.rft"
              CopyToOutputDirectory="PreserveNewest" />
     <Content Include="$(MSBuildThisFileDirectory)Platform\Settings\Addin\Defaults\SyntheticSettings.template.json"
              Link="SyntheticSettings.template.json"
